@@ -1,6 +1,6 @@
 # Sortopia
 
-Sortopia has F# libraries targeting .NET 10 and a C# WPF desktop app for Windows. The migration covers the retained Core, Sorting and sorting-catalog libraries and their tests. Open `Sortopia.sln` in Visual Studio with F# and .NET 10 support, or run these commands from the solution directory.
+Sortopia has F# libraries targeting .NET 10 and a C# WPF desktop app for Windows. The migration covers the retained Core, Sorting, sorting-catalog and model libraries and their tests. Open `Sortopia.sln` in Visual Studio with F# and .NET 10 support, or run these commands from the solution directory.
 
 ```powershell
 dotnet build Sortopia.sln -c Release
@@ -35,6 +35,9 @@ Sorting is computed once when the network or input changes. Rendering and animat
 | Sortopia.Sorting | Sorting networks, canonical stages, scalar and SIMD input datasets, generation and partitioning. |
 | Sortopia.Sorting.Catalog | Known sorting networks, prefixes, merge-input constructions and validated catalog identifiers. |
 | Sortopia.Sorting.Serialization | Explicit MessagePack contracts and validation for networks and all six input representations. |
+| Sortopia.Models.Sorting | Sorting-model representations, generators, mutators, activation and model sets. |
+| Sortopia.Models.Inputs | Full, orbit, merge and prefix-reduced input-test models and partitioning. |
+| Sortopia.Models.Sorting.Serialization | Model, generator, mutator and model-set DTO conversion. |
 | Sortopia.Reporting | Tabular records, rank labels and report construction. Reference it when producing or consuming reports. |
 | Sortopia.Core.Serialization | MessagePack options and the RNG factory wire contract. |
 | Sortopia.Permutations.Serialization | DTOs and conversions for permutations, unfolders and rate models. |
@@ -71,7 +74,8 @@ The serialization test projects include bytes written by GeneSort.Core.Mp for th
 | GeneSort.Core.Mp and its test project | The two Serialization libraries own DTO conversion. Use explicit options in place of the old global `configure()` call. The legacy Uf4/Uf6 model DTO namespaces are consolidated under `Sortopia.Permutations.Serialization.RatesAndOps`. |
 | GeneSort.Sorting, Sorting.Mp and their tests | Migrated into Sorting and Sorting.Serialization, retaining the production dependency surface used by Dispatch.V1. Networks and inputs have separate namespaces. Unused report projections, console experiments, bitonic helpers, alternate packing APIs and SIMD golden hashes are omitted. |
 | GeneSort.SortingLib | Migrated into Sorting.Catalog with all 49 networks and 10 prefixes, strict parsers, validated keys and versioned stable identities. See [catalog contracts and usage](docs/sorting-catalog.md). |
-| GeneSort.Model.Sortable, Model.Sorting, SortingOps and Eval | Port domain models and algorithms after their inputs. Keep compare-exchange conventions, SIMD lane counts and evaluation metrics with the evaluation code. |
+| GeneSort.Model.Sortable, Model.Sorting and Model.Sorting.Mp | Migrated into Models.Inputs, Models.Sorting and Models.Sorting.Serialization, with consolidated model tests. See [model contracts and migration notes](docs/models.md) for identity changes and validation fixes. The empty sortable-serialization stub is omitted. |
+| GeneSort.SortingOps and Eval | Port algorithms after their inputs and models. Keep compare-exchange conventions, SIMD lane counts and evaluation metrics with the evaluation code. |
 | GeneSort.Project, FileDb, Dispatch and WPF | Port after the domain types and DTOs they compose. FileDb is the boundary for validating existing saved projects and run histories against real files. |
 
-The eight test projects follow the library boundaries and cover the APIs retained for Dispatch. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.
+The nine test projects follow the library boundaries and cover the APIs retained for Dispatch. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.

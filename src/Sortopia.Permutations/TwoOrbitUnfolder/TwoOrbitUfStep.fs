@@ -14,13 +14,14 @@ type twoOrbitUfStep = private { twoOrbitPairTypes: twoOrbitPairType array; order
     /// <param name="order">The order TwoOrbits the Perm_RsUnfolderStep acts upon.</param>
     /// <exception cref="System.ArgumentException">Thrown when order is negative or the type types is empty.</exception>
     static member create (twoOrbitPairTypes: twoOrbitPairType array) (order: int) : twoOrbitUfStep =
+        if isNull twoOrbitPairTypes then nullArg "twoOrbitPairTypes"
         if order < 4 then
             failwith "TwoOrbitUfStep order must be at least 4"
         if order % 2 <> 0 then
             failwith "TwoOrbitUfStep order must be even"
         if Array.length twoOrbitPairTypes <> order / 2 then
             failwith $"TwoOrbitUfStep twoOrbitTypes length must be order / 2 ({order / 2})"
-        { twoOrbitPairTypes = twoOrbitPairTypes; order = order }
+        { twoOrbitPairTypes = Array.copy twoOrbitPairTypes; order = order }
 
     /// Determines whether this instance equals another Perm_RsUnfolderStep.
     override this.Equals (obj: obj) =
@@ -32,7 +33,7 @@ type twoOrbitUfStep = private { twoOrbitPairTypes: twoOrbitPairType array; order
         with get () = this.order
 
     member this.TwoOrbitPairTypes
-        with get () = this.twoOrbitPairTypes
+        with get () = Array.copy this.twoOrbitPairTypes
 
     /// Computes the hash code for this instance.
     override this.GetHashCode () =

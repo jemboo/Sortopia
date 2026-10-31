@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="SortableTypes.fs" />
+    <Compile Include="MsasF.fs" />
+    <Compile Include="MsasM.fs" />
+    <Compile Include="MsasO.fs" />
+    <Compile Include="MsasPfx.fs" />
+    <Compile Include="SortableTestsModel.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting.Catalog/Sortopia.Sorting.Catalog.fsproj" />
+  </ItemGroup>
+</Project>

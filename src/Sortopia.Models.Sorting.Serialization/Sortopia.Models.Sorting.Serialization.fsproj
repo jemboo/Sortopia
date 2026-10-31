@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="Simple/Ce/MsceDto.fs" />
+    <Compile Include="Simple/Ce/MsceRandGenDto.fs" />
+    <Compile Include="Simple/Ce/MsceRandMutateDto.fs" />
+    <Compile Include="Simple/Si/MssiDto.fs" />
+    <Compile Include="Simple/Si/MssiRandGenDto.fs" />
+    <Compile Include="Simple/Si/MssiRandMutateDto.fs" />
+    <Compile Include="Simple/Rs/MsrsDto.fs" />
+    <Compile Include="Simple/Rs/MsrsRandGenDto.fs" />
+    <Compile Include="Simple/Rs/MsrsRandMutateDto.fs" />
+    <Compile Include="Simple/Uf4/Msuf4Dto.fs" />
+    <Compile Include="Simple/Uf4/Msuf4RandGenDto.fs" />
+    <Compile Include="Simple/Uf4/Msuf4RandMutateDto.fs" />
+    <Compile Include="Simple/Uf6/Msuf6Dto.fs" />
+    <Compile Include="Simple/Uf6/Msuf6RandGenDto.fs" />
+    <Compile Include="Simple/Uf6/Msuf6RandMutateDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelRDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelSDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelGenDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelRGenDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelSGenDto.fs" />
+    <Compile Include="SorterModelGenDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelMutateDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelRMutatorDto.fs" />
+    <Compile Include="Simple/SimpleSorterModelSMutatorDto.fs" />
+    <Compile Include="SorterModelDto.fs" />
+    <Compile Include="SorterModelSetDto.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
+    <ProjectReference Include="../Sortopia.Permutations.Serialization/Sortopia.Permutations.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Sorting/Sorter/Ce/MsceRandMutateTests.fs" />
+    <Compile Include="Sorting/Sorter/Ce/MsceRandGenTests.fs" />
+    <Compile Include="Sorting/Sorter/Si/MssiMutateTests.fs" />
+    <Compile Include="Sorting/Sorter/Rs/MsrsRandGenTests.fs" />
+    <Compile Include="Sorting/Sorter/Rs/MsrsRandMutateTests.fs" />
+    <Compile Include="Sorting/Sorter/Uf/Msuf4Tests.fs" />
+    <Compile Include="Activated/SimpleSorterModelRTests.fs" />
+    <Compile Include="Activated/SimpleSorterModelSTests.fs" />
+    <Compile Include="Activated/SimpleSorterModelRGenTests.fs" />
+    <Compile Include="Serialization/SorterModelDtoTests.fs" />
+    <Compile Include="MigrationTests.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sortopia.Models.Sorting.Serialization/Sortopia.Models.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../../src/Sortopia.Models.Inputs/Sortopia.Models.Inputs.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FsUnit.xUnit" Version="8.0.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+  </ItemGroup>
+</Project>

@@ -15,7 +15,8 @@ type twoOrbitUf6 = private { seed6TwoOrbitType: twoOrbitTripleType; twoOrbitUnfo
             : twoOrbitUf6 =
         //if Array.length twoOrbitUnfolderSteps  < 1 then
         //    failwith "twoOrbitUnfolderSteps must not be empty"
-        { seed6TwoOrbitType = seed6TwoOrbitType; twoOrbitUnfolderSteps = twoOrbitUnfolderSteps; }
+        if isNull twoOrbitUnfolderSteps then nullArg "twoOrbitUnfolderSteps"
+        { seed6TwoOrbitType = seed6TwoOrbitType; twoOrbitUnfolderSteps = Array.copy twoOrbitUnfolderSteps; }
 
     member this.Order with get() : int  =
             6 * (MathUtils.integerPower 2 (Array.length this.twoOrbitUnfolderSteps))
@@ -24,12 +25,12 @@ type twoOrbitUf6 = private { seed6TwoOrbitType: twoOrbitTripleType; twoOrbitUnfo
             this.seed6TwoOrbitType
 
     member this.TwoOrbitUnfolderSteps with get() : twoOrbitUfStep array  =
-            this.twoOrbitUnfolderSteps
+            Array.copy this.twoOrbitUnfolderSteps
 
     /// Determines whether this instance equals another TwoOrbitUnfolder.
     override this.Equals (obj: obj) =
         match obj with
-        | :? twoOrbitUf6 as other -> this.seed6TwoOrbitType = other.seed6TwoOrbitType
+        | :? twoOrbitUf6 as other -> this.seed6TwoOrbitType = other.seed6TwoOrbitType && this.twoOrbitUnfolderSteps = other.twoOrbitUnfolderSteps
         | _ -> false
 
     /// Computes the hash code for this instance.

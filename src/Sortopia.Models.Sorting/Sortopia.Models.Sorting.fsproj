@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="ModelSortingTypes.fs" />
+    <Compile Include="SorterModelType.fs" />
+    <Compile Include="Simple/Ce/Msce.fs" />
+    <Compile Include="Simple/Ce/MsceRandGen.fs" />
+    <Compile Include="Simple/Ce/MsceRandMutate.fs" />
+    <Compile Include="Simple/Rs/Msrs.fs" />
+    <Compile Include="Simple/Rs/MsrsRandGen.fs" />
+    <Compile Include="Simple/Rs/MsrsRandMutate.fs" />
+    <Compile Include="Simple/Si/Mssi.fs" />
+    <Compile Include="Simple/Si/MssiRandGen.fs" />
+    <Compile Include="Simple/Si/MssiRandMutate.fs" />
+    <Compile Include="Simple/Uf4/Msuf4.fs" />
+    <Compile Include="Simple/Uf4/Msuf4RandGen.fs" />
+    <Compile Include="Simple/Uf4/Msuf4RandMutate.fs" />
+    <Compile Include="Simple/Uf6/Msuf6.fs" />
+    <Compile Include="Simple/Uf6/Msuf6RandGen.fs" />
+    <Compile Include="Simple/Uf6/Msuf6RandMutate.fs" />
+    <Compile Include="Simple/SimpleSorterModel.fs" />
+    <Compile Include="Simple/SimpleSorterModelR.fs" />
+    <Compile Include="Simple/SimpleSorterModelS.fs" />
+    <Compile Include="Simple/SimpleSorterModelGen.fs" />
+    <Compile Include="Simple/SimpleSorterModelRGen.fs" />
+    <Compile Include="Simple/SimpleSorterModelSGen.fs" />
+    <Compile Include="Simple/SimpleSorterModelMutator.fs" />
+    <Compile Include="Simple/SimpleSorterModelRMutator.fs" />
+    <Compile Include="Simple/SimpleSorterModelSMutator.fs" />
+    <Compile Include="SorterModel.fs" />
+    <Compile Include="SorterModelSet.fs" />
+    <Compile Include="SorterModelGen.fs" />
+    <Compile Include="SorterModelMutator.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />
+  </ItemGroup>
+</Project>
