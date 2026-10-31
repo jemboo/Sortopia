@@ -23,6 +23,11 @@ public sealed class NetworkDiagram : FrameworkElement
     public static readonly DependencyProperty UseZeroOneRuleProperty = DependencyProperty.Register(nameof(UseZeroOneRule), typeof(bool), typeof(NetworkDiagram),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender, OnPaletteChanged));
     public bool UseZeroOneRule { get => (bool)GetValue(UseZeroOneRuleProperty); set => SetValue(UseZeroOneRuleProperty, value); }
+    public static readonly DependencyProperty UsageProperty = DependencyProperty.Register(nameof(Usage), typeof(NetworkCheckResult), typeof(NetworkDiagram),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    public NetworkCheckResult? Usage { get => (NetworkCheckResult?)GetValue(UsageProperty); set => SetValue(UsageProperty, value); }
+    private static readonly Pen[] UsagePens = UsagePalette.Bands.Select(band => { var pen = new Pen(band.Fill, 4); pen.Freeze(); return pen; }).ToArray();
+    internal static int UsageLevel(int uses, int tested) => UsagePalette.Level(uses, tested);
     private Brush[] valueBrushes = [];
     private Brush[] labelBrushes = [];
     private Pen[] channelPens = [];
@@ -97,13 +102,15 @@ public sealed class NetworkDiagram : FrameworkElement
         for (var channel = 0; channel < trace.Network.Width; channel++)
         {
             var y = NetworkLayout.ChannelY(channel);
-            dc.DrawLine(channelPens[channel], new Point(30, y), new Point(geometry.Width - 20, y));
+            dc.DrawLine(channelPens[channel], new Point(30, y), new Point(geometry.CutoffX - 20, y));
             Text(dc, channel.ToString(CultureInfo.InvariantCulture), 10, y - 8, MutedBrush, 11);
         }
 
         foreach (var ce in geometry.Comparators)
         {
             var pen = ce.Index >= from && ce.Index < to ? ActivePen : ce.Index < from ? trace.SwapCounts[ce.Index] > 0 ? UsedPen : IdlePen : FuturePen;
+            if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == trace.Network.ComparatorCount)
+                pen = UsagePens[UsageLevel(usage.CeUses[ce.Index], usage.Tested)];
             var low = new Point(ce.X, NetworkLayout.ChannelY(ce.Low));
             var high = new Point(ce.X, NetworkLayout.ChannelY(ce.High));
             dc.DrawLine(pen, low, high);
@@ -125,7 +132,35 @@ public sealed class NetworkDiagram : FrameworkElement
             dc.DrawEllipse(valueBrushes[token], new Pen(labelBrushes[token], 1.5), new Point(tokenX, y), 10, 10);
             Text(dc, value.ToString(CultureInfo.InvariantCulture), tokenX, y - 8, labelBrushes[token], 11, true);
         }
+        if (trace.IsPreview)
+        {
+            var edge = geometry.CutoffX;
+            dc.DrawLine(ActivePen, new Point(edge, 35), new Point(edge, geometry.Height - 18));
+            Text(dc, "Display cutoff — network continues", edge + 16, 42, ActiveBrush, 14);
+            Text(dc, $"Showing {trace.DisplayStageCount:N0} of {trace.Network.StageCount:N0} stages", edge + 16, 65, MutedBrush, 12);
+            Text(dc, $"and {trace.Comparators.Count:N0} of {trace.Network.ComparatorCount:N0} CEs.", edge + 16, 83, MutedBrush, 12);
+            Text(dc, "Testing and edits use the full network.", edge + 16, 105, MutedBrush, 12);
+        }
         dc.Pop();
+    }
+
+    protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (Usage is not { Tested: > 0 } usage || layout is null) { ToolTip = null; return; }
+        var point = e.GetPosition(this);
+        foreach (var ce in layout.Comparators)
+        {
+            if (Math.Abs(point.X / Zoom - ce.X) <= 6 && point.Y / Zoom >= NetworkLayout.ChannelY(ce.Low) - 5
+                && point.Y / Zoom <= NetworkLayout.ChannelY(ce.High) + 5 && ce.Index < usage.CeUses.Count)
+            {
+                var count = usage.CeUses[ce.Index];
+                var text = $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {count:N0} swaps / {usage.Tested:N0} inputs ({(double)count / usage.Tested:P2})";
+                if (!Equals(ToolTip, text)) ToolTip = text;
+                return;
+            }
+        }
+        ToolTip = null;
     }
 
     private static void OnPaletteChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args) =>

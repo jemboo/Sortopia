@@ -25,6 +25,8 @@ On the home page, reveal the navigation buttons and choose **Sorting networks**.
 
 Sorting is computed once when the network or input changes. Rendering and animation read immutable snapshots, recorded swap counts and token positions. See [history APIs and viewer architecture](docs/network-viewer.md), including the Archean code considered for the visual design.
 
+Choose **Random Networks** for the separate random-generation and testing page. It supports `msce`, `msrs`, `mssi`, `msuf4` and `msuf6`, filters channel choices by method, and accepts CE count for `msce` or stage count for the other methods. Binary tests load failing inputs for playback; results distinguish exhaustive verification from sampling. See [random network controls and testing](docs/network-viewer.md#random-networks).
+
 ## Choosing a project
 
 | Project | What belongs here |

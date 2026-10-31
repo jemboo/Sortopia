@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sortopia.Sorting.Catalog\Sortopia.Sorting.Catalog.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
     <InternalsVisibleTo Include="Sortopia.WPF.Tests" />
   </ItemGroup>
 </Project>

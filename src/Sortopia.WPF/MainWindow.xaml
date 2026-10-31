@@ -24,6 +24,9 @@
         <DataTemplate DataType="{x:Type viewModels:NetworksPageViewModel}">
             <views:NetworksPage />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type viewModels:RandomNetworksPageViewModel}">
+            <views:RandomNetworksPage />
+        </DataTemplate>
     </Window.Resources>
     <ContentControl Content="{Binding CurrentPage}"
                     HorizontalContentAlignment="Stretch"

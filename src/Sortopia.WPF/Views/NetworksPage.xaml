@@ -14,12 +14,7 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#DBE8EF" />
         </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="MinHeight" Value="32" />
-            <Setter Property="FontSize" Value="14" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Padding" Value="8,4" />
-        </Style>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource NetworkComboBoxStyle}" />
     </UserControl.Resources>
     <Grid Background="#102B3B" Margin="0">
         <ScrollViewer x:Name="PageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

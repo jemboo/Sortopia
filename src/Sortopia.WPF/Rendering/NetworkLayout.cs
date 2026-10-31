@@ -20,7 +20,7 @@ public sealed class NetworkLayout
         var frameX = new double[trace.Comparators.Count + 1];
         frameX[0] = LeftMargin - 18;
         double left = LeftMargin;
-        for (var stage = 0; stage < trace.Network.StageCount; stage++)
+        for (var stage = 0; stage < trace.DisplayStageCount; stage++)
         {
             int column = 0;
             var occupied = new List<ComparatorEndpoints>();
@@ -45,13 +45,15 @@ public sealed class NetworkLayout
         Bands = bands.AsReadOnly();
         Comparators = comparators.AsReadOnly();
         FrameX = Array.AsReadOnly(frameX);
-        Width = left + 36;
+        CutoffX = left + 36;
+        Width = CutoffX + (trace.IsPreview ? 310 : 0);
         Height = ChannelY(trace.Network.Width - 1) + 42;
     }
 
     public IReadOnlyList<StageBand> Bands { get; }
     public IReadOnlyList<ComparatorPosition> Comparators { get; }
     public IReadOnlyList<double> FrameX { get; }
+    public double CutoffX { get; }
     public double Width { get; }
     public double Height { get; }
 }

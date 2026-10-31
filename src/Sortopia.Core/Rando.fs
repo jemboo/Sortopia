@@ -87,8 +87,7 @@ type randomSplitMix64(seed: uint64<randomSeed>) =
 
     member this.NextFloat =
         // Full 53-bit precision
-        let mantissa = (this.NextULong >>> 11) ||| 0x3FF0000000000000UL
-        (float mantissa) - 1.0
+        float (this.NextULong >>> 11) / 9007199254740992.0
 
     member this.AsNextUInt() = fun () -> this.NextUInt
 

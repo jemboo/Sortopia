@@ -30,6 +30,7 @@
     <Compile Include="SorterModelSet.fs" />
     <Compile Include="SorterModelGen.fs" />
     <Compile Include="SorterModelMutator.fs" />
+    <Compile Include="RandomNetwork.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />

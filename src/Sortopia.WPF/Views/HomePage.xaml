@@ -16,6 +16,8 @@
                     ToolTip="Open Sandbox" />
             <Button Content="_Sorting networks" Command="{Binding OpenNetworksCommand}"
                     AutomationProperties.Name="Sorting networks" ToolTip="Explore the sorting network catalog" />
+            <Button Content="_Random Networks" Command="{Binding OpenRandomNetworksCommand}"
+                    AutomationProperties.Name="Random Networks" ToolTip="Generate and test random sorting networks" />
         </controls:TranslucentButtonStack>
     </Grid>
 </UserControl>
