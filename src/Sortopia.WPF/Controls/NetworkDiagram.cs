@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Media;
+using System.Diagnostics;
+using System.Windows.Threading;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.Rendering;
 
@@ -43,6 +45,57 @@ public sealed class NetworkDiagram : FrameworkElement
     private static readonly Typeface Typeface = new("Segoe UI");
     private static readonly Pen PlayheadPen = new(Frozen("#4DF4CA7F"), 1);
     private NetworkLayout? layout;
+    public event EventHandler? CompactionCompleted;
+    private readonly Stopwatch transitionClock = new();
+    private readonly DispatcherTimer transitionTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+    public static readonly DependencyProperty CompactionProperty = DependencyProperty.Register(nameof(Compaction), typeof(CompactionTransition), typeof(NetworkDiagram),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnCompactionChanged));
+    private static readonly DependencyProperty TransitionProgressProperty = DependencyProperty.Register("TransitionProgress", typeof(double), typeof(NetworkDiagram),
+        new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsRender));
+    public CompactionTransition? Compaction { get => (CompactionTransition?)GetValue(CompactionProperty); set => SetValue(CompactionProperty, value); }
+    public NetworkDiagram()
+    {
+        transitionTimer.Tick += (_, _) => AdvanceCompaction();
+        Unloaded += (_, _) =>
+        {
+            StopCompactionClock();
+            if (Compaction is not null) CompactionCompleted?.Invoke(this, EventArgs.Empty);
+        };
+    }
+    private static void OnCompactionChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        var diagram = (NetworkDiagram)sender;
+        diagram.StopCompactionClock();
+        diagram.SetValue(TransitionProgressProperty, 0d);
+        if (args.NewValue is not CompactionTransition transition) return;
+        diagram.ToolTip = null;
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            diagram.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (ReferenceEquals(diagram.Compaction, transition)) diagram.CompactionCompleted?.Invoke(diagram, EventArgs.Empty);
+            }));
+            return;
+        }
+        diagram.transitionClock.Restart();
+        diagram.transitionTimer.Start();
+    }
+    private void StopCompactionClock()
+    {
+        transitionTimer.Stop();
+        transitionClock.Stop();
+    }
+    private void AdvanceCompaction()
+    {
+        if (Compaction is null) { StopCompactionClock(); return; }
+        var t = Math.Clamp(transitionClock.Elapsed.TotalMilliseconds / 600, 0, 1);
+        SetValue(TransitionProgressProperty, t * t * (3 - 2 * t));
+        if (t >= 1)
+        {
+            StopCompactionClock();
+            CompactionCompleted?.Invoke(this, EventArgs.Empty);
+        }
+    }
     public event EventHandler? PlayheadChanged;
 
     public double PlayheadX
@@ -78,11 +131,16 @@ public sealed class NetworkDiagram : FrameworkElement
         diagram.PlayheadChanged?.Invoke(diagram, EventArgs.Empty);
     }
 
-    protected override Size MeasureOverride(Size availableSize) => layout is null ? new Size(0, 0) : new Size(layout.Width * Zoom, layout.Height * Zoom);
+    protected override Size MeasureOverride(Size availableSize) => layout is null ? new Size(0, 0) : new Size((Compaction?.Width ?? layout.Width) * Zoom, layout.Height * Zoom);
 
     protected override void OnRender(DrawingContext dc)
     {
         if (Trace is not { } trace || layout is not { } geometry) return;
+        if (Compaction is { } transition)
+        {
+            RenderCompaction(dc, transition, (double)GetValue(TransitionProgressProperty));
+            return;
+        }
         dc.PushTransform(new ScaleTransform(Zoom, Zoom));
         dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, geometry.Width, geometry.Height));
         var position = double.IsFinite(Position) ? Math.Clamp(Position, 0, trace.StepCount(ByStage)) : 0;
@@ -144,10 +202,56 @@ public sealed class NetworkDiagram : FrameworkElement
         dc.Pop();
     }
 
+    internal void RenderCompaction(DrawingContext dc, CompactionTransition transition, double progress)
+    {
+        var t = Math.Clamp(progress, 0, 1);
+        var height = transition.After.Height;
+        var edge = Interpolate(transition.Before.CutoffX, transition.After.CutoffX, t);
+        dc.PushTransform(new ScaleTransform(Zoom, Zoom));
+        dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, transition.Width, height));
+        void Bands(NetworkLayout source, double opacity)
+        {
+            dc.PushOpacity(opacity);
+            for (var i = 0; i < source.Bands.Count; i++)
+            {
+                var band = source.Bands[i];
+                if (i % 2 == 0) dc.DrawRectangle(BandBrush, null, new Rect(band.Left, 30, band.Right - band.Left, height - 40));
+                Text(dc, $"{i + 1}", (band.Left + band.Right) / 2, 13, MutedBrush, 12, true);
+            }
+            dc.Pop();
+        }
+        Bands(transition.Before, 1 - t);
+        Bands(transition.After, t);
+        for (var channel = 0; channel < transition.AfterTrace.Network.Width; channel++)
+        {
+            var y = NetworkLayout.ChannelY(channel);
+            dc.DrawLine(channelPens[channel], new Point(30, y), new Point(edge - 20, y));
+            Text(dc, channel.ToString(CultureInfo.InvariantCulture), 10, y - 8, MutedBrush, 11);
+        }
+        foreach (var move in transition.Moves)
+        {
+            var pen = Usage is not null && transition.Tested > 0 ? UsagePens[UsageLevel(move.Uses, transition.Tested)] : FuturePen;
+            var x = move.X(t);
+            dc.PushOpacity(move.Opacity(t));
+            var low = new Point(x, NetworkLayout.ChannelY(move.Low));
+            var high = new Point(x, NetworkLayout.ChannelY(move.High));
+            dc.DrawLine(pen, low, high);
+            dc.DrawEllipse(pen.Brush, null, low, 3, 3);
+            dc.DrawEllipse(pen.Brush, null, high, 3, 3);
+            dc.Pop();
+        }
+        if (transition.BeforeTrace.IsPreview || transition.AfterTrace.IsPreview)
+        {
+            dc.DrawLine(ActivePen, new Point(edge, 35), new Point(edge, height - 18));
+            Text(dc, "Compacting displayed portion…", edge + 16, 42, ActiveBrush, 13);
+        }
+        dc.Pop();
+    }
+
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (Usage is not { Tested: > 0 } usage || layout is null) { ToolTip = null; return; }
+        if (Compaction is not null || Usage is not { Tested: > 0 } usage || layout is null) { ToolTip = null; return; }
         var point = e.GetPosition(this);
         foreach (var ce in layout.Comparators)
         {

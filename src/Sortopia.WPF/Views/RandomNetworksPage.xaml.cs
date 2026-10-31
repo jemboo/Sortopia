@@ -8,6 +8,7 @@ public partial class RandomNetworksPage : UserControl
     public RandomNetworksPage()
     {
         InitializeComponent();
+        Diagram.CompactionCompleted += (_, _) => (DataContext as RandomNetworksPageViewModel)?.FinishCompaction();
         Diagram.PlayheadChanged += (_, _) => FollowPlayhead();
         // View lifetime only: never leave a playback timer running on a hidden page.
         Unloaded += (_, _) => (DataContext as RandomNetworksPageViewModel)?.Leave();
@@ -15,7 +16,7 @@ public partial class RandomNetworksPage : UserControl
 
     private void FollowPlayhead()
     {
-        if (DataContext is not RandomNetworksPageViewModel { FollowPlayback: true } || DiagramViewport.ViewportWidth <= 0) return;
+        if (DataContext is not RandomNetworksPageViewModel { FollowPlayback: true, IsCompacting: false } || DiagramViewport.ViewportWidth <= 0) return;
         var x = Diagram.PlayheadX + DiagramViewport.Padding.Left;
         var offset = DiagramViewport.HorizontalOffset;
         const double margin = 40;

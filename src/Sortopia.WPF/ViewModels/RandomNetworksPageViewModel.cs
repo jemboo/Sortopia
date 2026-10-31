@@ -17,6 +17,9 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     private string generationLabel = "msce · 8 channels · 32 CEs · seed 1";
     private bool isTesting;
     private bool hasCompacted;
+    private bool isCompacting;
+    private Sortopia.WPF.Rendering.CompactionTransition? compaction;
+    private bool hasRemovedUnused;
     private string samplesText = "all";
     private NetworkCheckResult? usage;
     private bool showCeUsage = true;
@@ -25,11 +28,11 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     public RandomNetworksPageViewModel(Action returnHome)
         : base(returnHome, GenerateNetwork("msce", 8, 32, 1))
     {
-        RemoveUnusedCesCommand = new RelayCommand(RemoveUnusedCes, () => !IsTesting && UnusedCeCount > 0);
-        CompactStagesCommand = new RelayCommand(CompactStages, () => !IsTesting && !hasCompacted && SelectedNetwork.StageCount > 1);
-        GenerateCommand = new RelayCommand(Generate, () => !IsTesting && InputError.Length == 0);
-        TestCommand = new RelayCommand(async () => await RunTestAsync(), () => !IsTesting && TestInputError.Length == 0);
-        NewSeedCommand = new RelayCommand(() => SeedText = System.Security.Cryptography.RandomNumberGenerator.GetInt32(int.MaxValue).ToString(CultureInfo.InvariantCulture), () => !IsTesting);
+        RemoveUnusedCesCommand = new RelayCommand(RemoveUnusedCes, () => CanEdit && Usage is not null && !hasRemovedUnused);
+        CompactStagesCommand = new RelayCommand(CompactStages, () => CanEdit && Usage is not null && hasRemovedUnused && !hasCompacted && SelectedNetwork.StageCount > 1);
+        GenerateCommand = new RelayCommand(Generate, () => CanEdit && InputError.Length == 0);
+        TestCommand = new RelayCommand(async () => await RunTestAsync(), () => CanEdit && TestInputError.Length == 0);
+        NewSeedCommand = new RelayCommand(() => SeedText = System.Security.Cryptography.RandomNumberGenerator.GetInt32(int.MaxValue).ToString(CultureInfo.InvariantCulture), () => CanEdit);
         CancelTestCommand = new RelayCommand(CancelTest, () => IsTesting);
     }
 
@@ -47,14 +50,23 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     }
     private void RemoveUnusedCes()
     {
-        if (IsTesting || Usage is null || UnusedCeCount == 0) return;
+        if (!CanEdit || Usage is null || hasRemovedUnused) return;
+        if (UnusedCeCount == 0)
+        {
+            hasRemovedUnused = true;
+            Status = "Removed unused: no unused CEs found.";
+            NotifyTransforms();
+            return;
+        }
         var sampled = !Usage.Exhaustive;
-        ApplyTransformation(NetworkTransforms.RemoveUnusedCes(SelectedNetwork, Usage), "Removed unused CEs",
+        ApplyTransformation(NetworkTransforms.RemoveUnusedCes(SelectedNetwork, Usage), "Removed unused",
             sampled ? "Usage preserved from sampled inputs; this is not an exhaustive proof." : "Usage preserved from the completed test.", removeUnused: true);
+        hasRemovedUnused = true;
+        NotifyTransforms();
     }
     private void CompactStages()
     {
-        if (IsTesting || hasCompacted || SelectedNetwork.StageCount <= 1) return;
+        if (!CanEdit || Usage is null || !hasRemovedUnused || hasCompacted || SelectedNetwork.StageCount <= 1) return;
         var compacted = NetworkTransforms.Compact(SelectedNetwork);
         if (compacted.StageLengths.SequenceEqual(SelectedNetwork.StageLengths) && compacted.Comparators.SequenceEqual(SelectedNetwork.Comparators))
         {
@@ -63,7 +75,16 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
             Status = "Stages are already compact; no changes made.";
             return;
         }
-        ApplyTransformation(compacted, "Compacted stages", "Comparator dependencies and recorded CE usage are preserved.");
+        var before = Trace;
+        var beforeUsage = Usage;
+        Pause();
+        SetCompacting(true);
+        try
+        {
+            ApplyTransformation(compacted, "Compacted stages", "Comparator dependencies and recorded CE usage are preserved.");
+            Compaction = new(before, Trace, beforeUsage, Usage);
+        }
+        catch { FinishCompaction(); throw; }
         hasCompacted = true;
         NotifyTransforms();
     }
@@ -165,7 +186,30 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
             NotifyTransforms();
         }
     }
-    public bool CanEdit => !IsTesting;
+    public bool CanEdit => !IsTesting && !IsCompacting;
+    public bool IsCompacting => isCompacting;
+    public bool CanInteract => !IsCompacting;
+    public Sortopia.WPF.Rendering.CompactionTransition? Compaction
+    {
+        get => compaction;
+        private set => SetProperty(ref compaction, value);
+    }
+    private void SetCompacting(bool value)
+    {
+        SetPlaybackSuspended(value);
+        SetProperty(ref isCompacting, value, nameof(IsCompacting));
+        OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(CanInteract));
+        GenerateCommand.RaiseCanExecuteChanged();
+        TestCommand.RaiseCanExecuteChanged();
+        NewSeedCommand.RaiseCanExecuteChanged();
+        NotifyTransforms();
+    }
+    public void FinishCompaction()
+    {
+        Compaction = null;
+        SetCompacting(false);
+    }
 
     private void NotifyInputs()
     {
@@ -186,12 +230,13 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
 
     private void Generate()
     {
-        if (IsTesting || InputError.Length > 0) return;
+        if (!CanEdit || InputError.Length > 0) return;
         try
         {
             var count = int.Parse(CountText, CultureInfo.InvariantCulture);
             var seed = int.Parse(SeedText, CultureInfo.InvariantCulture);
             SelectedNetwork = GenerateNetwork(Method, ChannelCount, count, seed);
+            hasRemovedUnused = false;
             hasCompacted = false;
             Usage = null;
             if (!CanTestAll && AllSamples) SamplesText = "4096";
@@ -204,11 +249,12 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
 
     public async Task RunTestAsync()
     {
-        if (IsTesting || TestInputError.Length > 0) return;
+        if (!CanEdit || TestInputError.Length > 0) return;
         Pause();
         var network = SelectedNetwork;
         int? samples = AllSamples ? null : int.Parse(SamplesText, CultureInfo.InvariantCulture);
         var total = samples ?? (1 << network.Width);
+        hasRemovedUnused = false;
         Usage = null;
         using var cancellation = new CancellationTokenSource();
         testCancellation = cancellation;
@@ -241,6 +287,6 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     }
 
     public void CancelTest() => testCancellation?.Cancel();
-    public void Leave() { Pause(); CancelTest(); }
-    public override void Dispose() { CancelTest(); base.Dispose(); }
+    public void Leave() { Pause(); CancelTest(); FinishCompaction(); }
+    public override void Dispose() { CancelTest(); FinishCompaction(); base.Dispose(); }
 }

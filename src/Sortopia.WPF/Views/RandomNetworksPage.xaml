@@ -85,11 +85,11 @@
                 </WrapPanel>
                 <TextBlock Text="{Binding InputError}" Style="{StaticResource InlineError}" />
                 <TextBlock Text="{Binding TestInputError}" Style="{StaticResource InlineError}" />
-                <WrapPanel Margin="0,0,0,5">
-                    <Button Content="Test network" Command="{Binding TestCommand}" AutomationProperties.Name="Test generated network" />
+                <WrapPanel Margin="0,0,0,5" IsEnabled="{Binding CanInteract}">
+                    <Button Content="Test" Command="{Binding TestCommand}" AutomationProperties.Name="Test generated network" />
                     <Button Content="Cancel" Command="{Binding CancelTestCommand}" AutomationProperties.Name="Cancel network test" />
-                    <Button Content="Remove unused CEs" Command="{Binding RemoveUnusedCesCommand}" ToolTip="{Binding RemoveUnusedHint}" ToolTipService.ShowOnDisabled="True" />
-                    <Button Content="Compact stages" Command="{Binding CompactStagesCommand}" ToolTip="Pack CEs into earlier stages with StageBuilderSequence while preserving dependencies." />
+                    <Button Content="Remove unused" Command="{Binding RemoveUnusedCesCommand}" ToolTip="{Binding RemoveUnusedHint}" ToolTipService.ShowOnDisabled="True" />
+                    <Button Content="Compact stages" Command="{Binding CompactStagesCommand}" ToolTip="Run Test, then Remove unused before compacting the remaining CEs." ToolTipService.ShowOnDisabled="True" />
                     <Button Content="Shuffle input" Command="{Binding ShuffleCommand}" />
                     <CheckBox Content="0–1 rule" IsChecked="{Binding UseZeroOneRule}" Foreground="#DBE8EF" VerticalAlignment="Center" Margin="4,0,0,0" AutomationProperties.Name="Use 0–1 rule" />
                 </WrapPanel>
@@ -100,7 +100,7 @@
             </StackPanel>
 
             <Border Grid.Row="2" Background="#1B3E50" CornerRadius="10" Padding="8" Margin="0,0,0,6">
-                <WrapPanel VerticalAlignment="Center" IsEnabled="{Binding IsDiagramAvailable}">
+                <WrapPanel VerticalAlignment="Center" IsEnabled="{Binding CanInteract}">
                     <Button Content="Reset" Command="{Binding ResetCommand}" AutomationProperties.Name="Reset playback" />
                     <Button Content="Previous" Command="{Binding PreviousCommand}" AutomationProperties.Name="Previous step" />
                     <Button Content="{Binding PlayPauseLabel}" Command="{Binding PlayPauseCommand}" MinWidth="72"
@@ -128,13 +128,13 @@
                 <Grid>
                 <ScrollViewer x:Name="DiagramViewport" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                               CanContentScroll="False" Padding="12" AutomationProperties.Name="Network diagram viewport">
-                    <controls:NetworkDiagram x:Name="Diagram" Trace="{Binding DisplayTrace}" Usage="{Binding DisplayedUsage}" UseZeroOneRule="{Binding UseZeroOneRule}" Position="{Binding Position}" ByStage="{Binding ByStage}" Zoom="{Binding Zoom}"
+                    <controls:NetworkDiagram x:Name="Diagram" Trace="{Binding DisplayTrace}" Compaction="{Binding Compaction}" Usage="{Binding DisplayedUsage}" UseZeroOneRule="{Binding UseZeroOneRule}" Position="{Binding Position}" ByStage="{Binding ByStage}" Zoom="{Binding Zoom}"
                                              HorizontalAlignment="Left" VerticalAlignment="Top" />
                 </ScrollViewer>
                 </Grid>
             </Border>
 
-            <StackPanel Grid.Row="4" Margin="0,6,0,0">
+            <StackPanel Grid.Row="4" Margin="0,6,0,0" IsEnabled="{Binding CanInteract}">
                 <CheckBox Content="Color CEs by test usage" IsChecked="{Binding ShowCeUsage}" Foreground="#DBE8EF" Margin="0,0,0,4" />
                 <ItemsControl ItemsSource="{Binding UsageBands}" Margin="0,0,0,6" AutomationProperties.Name="CE swap percentage legend">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>

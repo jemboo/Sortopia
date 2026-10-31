@@ -18,6 +18,7 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
     private int stepMode;
     private bool isPlaying;
     private bool disposed;
+    private bool playbackSuspended;
     private bool followPlayback = true;
     private bool useZeroOneRule;
 
@@ -26,11 +27,11 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
         selectedNetwork = network;
         trace = MakeReversedTrace(selectedNetwork);
         ReturnHomeCommand = new RelayCommand(() => { Pause(); returnHome(); });
-        PlayPauseCommand = new RelayCommand(TogglePlayback, () => StepCount > 0);
-        PreviousCommand = new RelayCommand(() => SeekPosition = Math.Ceiling(Position) - 1, () => Position > 0);
-        NextCommand = new RelayCommand(() => SeekPosition = Math.Floor(Position) + 1, () => Position < StepCount);
-        ResetCommand = new RelayCommand(() => SeekPosition = 0);
-        ReverseCommand = new RelayCommand(() => ReplaceTrace(MakeReversedTrace(SelectedNetwork)));
+        PlayPauseCommand = new RelayCommand(TogglePlayback, () => !playbackSuspended && StepCount > 0);
+        PreviousCommand = new RelayCommand(() => SeekPosition = Math.Ceiling(Position) - 1, () => !playbackSuspended && Position > 0);
+        NextCommand = new RelayCommand(() => SeekPosition = Math.Floor(Position) + 1, () => !playbackSuspended && Position < StepCount);
+        ResetCommand = new RelayCommand(() => SeekPosition = 0, () => !playbackSuspended);
+        ReverseCommand = new RelayCommand(() => ReplaceTrace(MakeReversedTrace(SelectedNetwork)), () => !playbackSuspended);
         ShuffleCommand = new RelayCommand(() =>
         {
             var values = UseZeroOneRule
@@ -38,7 +39,7 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
                 : Enumerable.Range(0, SelectedNetwork.Width).ToArray();
             Random.Shared.Shuffle(values);
             ReplaceTrace(NetworkTrace.CreateForPlayback(SelectedNetwork, values));
-        });
+        }, () => !playbackSuspended);
         timer.Tick += OnTick;
     }
 
@@ -159,7 +160,7 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
 
     private void TogglePlayback()
     {
-        if (disposed || StepCount == 0) return;
+        if (disposed || playbackSuspended || StepCount == 0) return;
         if (IsPlaying) { Pause(); return; }
         if (Position >= StepCount) SetPosition(0);
         isPlaying = true;
@@ -182,6 +183,18 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
         if (!IsPlaying || disposed || elapsed < TimeSpan.Zero) return;
         SetPosition(Position + elapsed.TotalSeconds * Speed / 0.65);
         if (Position >= StepCount) Pause();
+    }
+
+    protected void SetPlaybackSuspended(bool value)
+    {
+        playbackSuspended = value;
+        if (value) Pause();
+        PlayPauseCommand.RaiseCanExecuteChanged();
+        PreviousCommand.RaiseCanExecuteChanged();
+        NextCommand.RaiseCanExecuteChanged();
+        ResetCommand.RaiseCanExecuteChanged();
+        ReverseCommand.RaiseCanExecuteChanged();
+        ShuffleCommand.RaiseCanExecuteChanged();
     }
 
     public void Pause()

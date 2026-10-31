@@ -343,6 +343,7 @@ public sealed class RandomNetworkTests
         Assert.Equal(input, vm.Trace.Values[0]);
         Assert.True(vm.CompactStagesCommand.CanExecute(null));
         vm.CompactStagesCommand.Execute(null);
+        vm.FinishCompaction();
         Assert.Equal(1, vm.SelectedNetwork.StageCount);
         Assert.Equal(new[] { 4, 4 }, vm.Usage!.CeUses);
         Assert.Same(vm.Usage, vm.DisplayedUsage);
@@ -451,17 +452,33 @@ public sealed class RandomNetworkTests
     {
         using var vm = new RandomNetworksPageViewModel(() => { });
         vm.SelectedNetwork = RedundantNetwork();
+        Assert.False(vm.RemoveUnusedCesCommand.CanExecute(null));
+        Assert.False(vm.CompactStagesCommand.CanExecute(null));
+        CompleteTest(vm);
+        Assert.False(vm.CompactStagesCommand.CanExecute(null));
+        vm.RemoveUnusedCesCommand.Execute(null);
         Assert.True(vm.CompactStagesCommand.CanExecute(null));
         vm.CompactStagesCommand.Execute(null);
-        Assert.Equal(2, vm.SelectedNetwork.StageCount);
+        vm.FinishCompaction();
+        Assert.Equal(1, vm.SelectedNetwork.StageCount);
         Assert.False(vm.CompactStagesCommand.CanExecute(null));
         vm.Method = "mssi";
         vm.ChannelCount = 2;
         vm.CountText = "3";
         vm.GenerateCommand.Execute(null);
+        vm.SelectedNetwork = new NetworkDefinition("already compact", Sortopia.Sorting.Networks.stageSequence.create(new[] {
+            Sortopia.Sorting.Networks.stage.create(new[] { Sortopia.Sorting.Networks.ce.create(0, 1) }, 3),
+            Sortopia.Sorting.Networks.stage.create(new[] { Sortopia.Sorting.Networks.ce.create(1, 2) }, 3)
+        }, 3));
+        Assert.False(vm.RemoveUnusedCesCommand.CanExecute(null));
+        Assert.False(vm.CompactStagesCommand.CanExecute(null));
+        CompleteTest(vm);
+        Assert.False(vm.CompactStagesCommand.CanExecute(null));
+        vm.RemoveUnusedCesCommand.Execute(null);
         Assert.True(vm.CompactStagesCommand.CanExecute(null));
-        vm.CompactStagesCommand.Execute(null); // Already compact is still a completed action.
-        Assert.Equal(3, vm.SelectedNetwork.StageCount);
+        vm.CompactStagesCommand.Execute(null);
+        vm.FinishCompaction(); // Already compact is still a completed action.
+        Assert.Equal(2, vm.SelectedNetwork.StageCount);
         Assert.False(vm.CompactStagesCommand.CanExecute(null));
     });
 
@@ -478,6 +495,136 @@ public sealed class RandomNetworkTests
         var full = NetworkTrace.Create(network, Enumerable.Range(0, 64).Reverse().ToArray());
         Assert.Equal(full.Values[4096], trace.Values[^1]);
         Assert.Equal(full.SwapCounts.Take(4096), trace.SwapCounts);
+    }
+    [Fact]
+    public void Compaction_transition_matches_duplicate_CEs_and_fades_new_prefix_entries()
+    {
+        var pairs = new[] { (4, 5), (0, 1), (4, 5), (2, 3) };
+        var stages = pairs.Select(p => Sortopia.Sorting.Networks.stage.create(new[] {
+            Sortopia.Sorting.Networks.ce.create(p.Item1, p.Item2) }, 6)).ToArray();
+        var network = new NetworkDefinition("duplicates", Sortopia.Sorting.Networks.stageSequence.create(stages, 6));
+        var compact = NetworkTransforms.Compact(network);
+        var uses = new NetworkCheckResult(100, false, null, 0, Array.AsReadOnly(new[] { 9, 7, 2, 5 }));
+        var remapped = NetworkTransforms.PreserveUsage(network, compact, uses, false);
+        var input = Enumerable.Range(0, 6).Reverse().ToArray();
+        var transition = new Sortopia.WPF.Rendering.CompactionTransition(NetworkTrace.CreateForPlayback(network, input), NetworkTrace.CreateForPlayback(compact, input), uses, remapped);
+        Assert.Equal(new[] { 9, 7, 2, 5 }, transition.Moves.Select(m => m.Uses));
+        Assert.All(transition.Moves, m => { Assert.Equal(m.FromX, m.X(0)); Assert.Equal(m.ToX, m.X(1)); Assert.Equal(1, m.Opacity(.5)); });
+        Assert.Contains(transition.Moves, m => m.FromX != m.ToX);
+        var longStages = Enumerable.Range(0, 600).Select(i => Sortopia.Sorting.Networks.stage.create(new[] {
+            i == 599 ? Sortopia.Sorting.Networks.ce.create(2, 3) : Sortopia.Sorting.Networks.ce.create(0, 1) }, 4)).ToArray();
+        var longNetwork = new NetworkDefinition("prefix", Sortopia.Sorting.Networks.stageSequence.create(longStages, 4));
+        var prefix = new Sortopia.WPF.Rendering.CompactionTransition(
+            NetworkTrace.CreateForPlayback(longNetwork, new[] { 3, 2, 1, 0 }),
+            NetworkTrace.CreateForPlayback(NetworkTransforms.Compact(longNetwork), new[] { 3, 2, 1, 0 }), null, null);
+        var entering = Assert.Single(prefix.Moves, m => !m.WasVisible);
+        Assert.Equal(2, entering.Low);
+        Assert.Equal(0, entering.Opacity(0));
+        Assert.Equal(.5, entering.Opacity(.5));
+        Assert.Equal(1, entering.Opacity(1));
+        Assert.True(prefix.Moves.Count <= 2 * NetworkTrace.DisplayCeLimit);
+    }
+
+    [Fact]
+    public void Animation_locks_controls_and_leaving_finishes_the_committed_compaction() => OnSta(() =>
+    {
+        using var vm = new RandomNetworksPageViewModel(() => { });
+        vm.SelectedNetwork = RedundantNetwork();
+        CompleteTest(vm);
+        vm.RemoveUnusedCesCommand.Execute(null);
+        vm.PlayPauseCommand.Execute(null);
+        vm.CompactStagesCommand.Execute(null);
+        Assert.True(vm.IsCompacting);
+        Assert.False(vm.IsPlaying);
+        Assert.NotNull(vm.Compaction);
+        Assert.False(vm.GenerateCommand.CanExecute(null));
+        Assert.False(vm.TestCommand.CanExecute(null));
+        Assert.False(vm.NewSeedCommand.CanExecute(null));
+        Assert.False(vm.ShuffleCommand.CanExecute(null));
+        Assert.False(vm.PlayPauseCommand.CanExecute(null));
+        var compacted = vm.SelectedNetwork;
+        vm.Leave();
+        Assert.False(vm.IsCompacting);
+        Assert.Null(vm.Compaction);
+        Assert.Same(compacted, vm.SelectedNetwork);
+        Assert.True(vm.GenerateCommand.CanExecute(null));
+        Assert.False(vm.CompactStagesCommand.CanExecute(null));
+    });
+
+    [Fact]
+    public void Compaction_frames_render_at_start_middle_and_end() => OnSta(() =>
+    {
+        var pairs = new[] { (0, 1), (2, 3), (4, 5), (6, 7), (0, 7), (1, 6), (2, 5), (3, 4) };
+        var stages = pairs.Select(p => Sortopia.Sorting.Networks.stage.create(new[] { Sortopia.Sorting.Networks.ce.create(p.Item1, p.Item2) }, 8)).ToArray();
+        var network = new NetworkDefinition("render", Sortopia.Sorting.Networks.stageSequence.create(stages, 8));
+        var compact = NetworkTransforms.Compact(network);
+        var usage = NetworkCheck.Run(network, CancellationToken.None);
+        var mapped = NetworkTransforms.PreserveUsage(network, compact, usage, false);
+        var input = Enumerable.Range(0, 8).Reverse().ToArray();
+        var before = NetworkTrace.CreateForPlayback(network, input);
+        var after = NetworkTrace.CreateForPlayback(compact, input);
+        var transition = new Sortopia.WPF.Rendering.CompactionTransition(before, after, usage, mapped);
+        var diagram = new Sortopia.WPF.Controls.NetworkDiagram { Trace = after, Usage = mapped, Zoom = 1.5 };
+        byte[]? last = null;
+        foreach (var progress in new[] { 0d, .5, 1d })
+        {
+            var visual = new System.Windows.Media.DrawingVisual();
+            using (var context = visual.RenderOpen()) diagram.RenderCompaction(context, transition, progress);
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(700, 450, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            var pixels = new byte[700 * 450 * 4];
+            bitmap.CopyPixels(pixels, 700 * 4, 0);
+            Assert.Contains(pixels, p => p != 0);
+            if (last is not null) Assert.False(last.SequenceEqual(pixels));
+            last = pixels;
+            if (Environment.GetEnvironmentVariable("SORTOPIA_RENDER_OUTPUT") is { } output)
+            {
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                using var stream = System.IO.File.Create(System.IO.Path.Combine(output, $"compaction-{progress:0.0}.png"));
+                encoder.Save(stream);
+            }
+        }
+    });
+    [Fact]
+    public void Compaction_clock_signals_completion() => OnSta(() =>
+    {
+        var network = RedundantNetwork();
+        var compact = NetworkTransforms.Compact(network);
+        var input = new[] { 3, 2, 1, 0 };
+        var before = NetworkTrace.CreateForPlayback(network, input);
+        var after = NetworkTrace.CreateForPlayback(compact, input);
+        var diagram = new Sortopia.WPF.Controls.NetworkDiagram { Trace = after };
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        var completed = false;
+        var timeout = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        timeout.Tick += (_, _) => frame.Continue = false;
+        diagram.CompactionCompleted += (_, _) =>
+        {
+            completed = true;
+            diagram.Compaction = null;
+            frame.Continue = false;
+        };
+        diagram.Compaction = new(before, after, null, null);
+        timeout.Start();
+        try { System.Windows.Threading.Dispatcher.PushFrame(frame); }
+        finally { timeout.Stop(); diagram.Compaction = null; }
+        Assert.True(completed);
+    });
+    private static void CompleteTest(RandomNetworksPageViewModel vm)
+    {
+        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(dispatcher));
+        try
+        {
+            var task = vm.RunTestAsync();
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            task.ContinueWith(_ => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)));
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+            task.GetAwaiter().GetResult();
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previous); }
     }
     private static void OnSta(Action action)
     {
