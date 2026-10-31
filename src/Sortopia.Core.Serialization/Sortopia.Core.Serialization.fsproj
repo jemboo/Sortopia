@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="MessagePackSetup.fs" />
+    <Compile Include="RngFactoryDto.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.12" />
+    <PackageReference Include="MessagePack.FSharpExtensions" Version="4.0.0" />
+  </ItemGroup>
+</Project>

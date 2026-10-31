@@ -1,0 +1,21 @@
+<UserControl x:Class="Sortopia.WPF.Views.HomePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Sortopia.WPF.Controls"
+             AutomationProperties.Name="Sortopia home">
+    <Grid Background="#173C4E">
+        <Image Source="/Sortopia.WPF;component/Assets/sortopia-fisherman.png"
+               Stretch="Uniform"
+               RenderOptions.BitmapScalingMode="HighQuality"
+               AutomationProperties.Name="Sortopia fisherman with sorting networks" />
+        <controls:TranslucentButtonStack Width="180" Margin="24,32,24,24"
+                                         HorizontalAlignment="Left" VerticalAlignment="Top">
+            <Button Content="_Sandbox"
+                    Command="{Binding OpenSandboxCommand}"
+                    AutomationProperties.Name="Sandbox"
+                    ToolTip="Open Sandbox" />
+            <Button Content="_Sorting networks" Command="{Binding OpenNetworksCommand}"
+                    AutomationProperties.Name="Sorting networks" ToolTip="Explore the sorting network catalog" />
+        </controls:TranslucentButtonStack>
+    </Grid>
+</UserControl>

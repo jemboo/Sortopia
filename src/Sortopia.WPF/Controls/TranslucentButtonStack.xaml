@@ -1,0 +1,43 @@
+<UserControl x:Class="Sortopia.WPF.Controls.TranslucentButtonStack"
+             x:Name="Root"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Focusable="True" IsTabStop="True"
+             KeyboardNavigation.TabNavigation="Continue"
+             MinHeight="54"
+             AutomationProperties.Name="Navigation buttons"
+             AutomationProperties.HelpText="Focus this group or hover over it to show its buttons. Press Tab to move through them.">
+    <UserControl.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource NavigationButtonStyle}">
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+    </UserControl.Resources>
+    <UserControl.Content>
+        <!-- The transparent surface remains hit-testable while the buttons are hidden. -->
+        <Border Background="Transparent">
+            <ItemsControl ItemsSource="{Binding Buttons, ElementName=Root}"
+                          Focusable="False" IsTabStop="False"
+                          KeyboardNavigation.TabNavigation="Continue">
+                <ItemsControl.Style>
+                    <Style TargetType="ItemsControl">
+                        <!-- Hidden keeps the full stack's hover area without invisible tab stops. -->
+                        <Setter Property="Visibility" Value="Hidden" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsMouseOver, ElementName=Root}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=Root}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ItemsControl.Style>
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Vertical" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </Border>
+    </UserControl.Content>
+</UserControl>

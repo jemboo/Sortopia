@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="IdentityTests.fs" />
+    <Compile Include="LatticePointTests.fs" />
+    <Compile Include="OrbitTests.fs" />
+    <Compile Include="PermutationTests.fs" />
+    <Compile Include="Perm_SiTests.fs" />
+    <Compile Include="Perm_RsTests.fs" />
+    <Compile Include="TwoOrbit\PermSiTests.fs" />
+    <Compile Include="TwoOrbit\TwoOrbitPairTests.fs" />
+    <Compile Include="RatesAndOps\IndelRatesTests.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sortopia.Permutations\Sortopia.Permutations.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FsUnit.xUnit" Version="8.0.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+  </ItemGroup>
+</Project>

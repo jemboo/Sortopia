@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="Orbit.fs" />
+    <Compile Include="TwoOrbit\TwoOrbit.fs" />
+    <Compile Include="TwoOrbit\TwoOrbitPair.fs" />
+    <Compile Include="TwoOrbit\TwoOrbitPairOps.fs" />
+    <Compile Include="TwoOrbit\TwoOrbitTriple.fs" />
+    <Compile Include="Permutation.fs" />
+    <Compile Include="Merge\LatticePoint.fs" />
+    <Compile Include="Merge\LatticeLevelSetMap.fs" />
+    <Compile Include="Merge\LatticePathPermutation.fs" />
+    <Compile Include="Merge\LatticePathPermutations.fs" />
+    <Compile Include="Merge\MergeLattice.fs" />
+    <Compile Include="PermSi.fs" />
+    <Compile Include="PermRs.fs" />
+    <Compile Include="TwoOrbitUnfolder\TwoOrbitUfStep.fs" />
+    <Compile Include="TwoOrbitUnfolder\TwoOrbitUf4.fs" />
+    <Compile Include="TwoOrbitUnfolder\TwoOrbitUf6.fs" />
+    <Compile Include="Rates\IndelRates.fs" />
+    <Compile Include="Rates\OpsGenRates.fs" />
+    <Compile Include="Rates\OpsGenRatesArray.fs" />
+    <Compile Include="Rates\OpActionRates.fs" />
+    <Compile Include="Rates\OpsActionRates.fs" />
+    <Compile Include="Rates\OpsTransitionRates.fs" />
+    <Compile Include="Rates\OpsTransitionRatesArray.fs" />
+    <Compile Include="Rates\Seed6GenRates.fs" />
+    <Compile Include="Rates\Seed6ActionRates.fs" />
+    <Compile Include="Rates\Seed6TransitionRates.fs" />
+    <Compile Include="Rates\Uf4GenRates.fs" />
+    <Compile Include="Rates\Uf4MutationRates.fs" />
+    <Compile Include="Rates\Uf6GenRates.fs" />
+    <Compile Include="Rates\Uf6MutationRates.fs" />
+    <Compile Include="RateOps\PermRsOps.fs" />
+    <Compile Include="RateOps\RandomTwoOrbitTypeOps.fs" />
+    <Compile Include="RateOps\RandomUnfolderOps.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
+  </ItemGroup>
+</Project>

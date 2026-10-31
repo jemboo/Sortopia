@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="PermutationDto.fs" />
+    <Compile Include="PermSiDto.fs" />
+    <Compile Include="PermRsDto.fs" />
+    <Compile Include="TwoOrbitUnfolder\TwoOrbitUfStepDto.fs" />
+    <Compile Include="TwoOrbitUnfolder\TwoOrbitUf4Dto.fs" />
+    <Compile Include="TwoOrbitUnfolder\TwoOrbitUf6Dto.fs" />
+    <Compile Include="Rates\IndelRatesDto.fs" />
+    <Compile Include="Rates\OpsGenRatesDto.fs" />
+    <Compile Include="Rates\OpsGenRatesArrayDto.fs" />
+    <Compile Include="Rates\OpActionRatesDto.fs" />
+    <Compile Include="Rates\OpsActionRatesDto.fs" />
+    <Compile Include="Rates\OpsTransitionRatesDto.fs" />
+    <Compile Include="Rates\OpsTransitionRatesArrayDto.fs" />
+    <Compile Include="Rates\Seed6GenRatesDto.fs" />
+    <Compile Include="Rates\Seed6ActionRatesDto.fs" />
+    <Compile Include="Rates\Seed6TransitionRatesDto.fs" />
+    <Compile Include="Rates\Uf4GenRatesDto.fs" />
+    <Compile Include="Rates\Uf4MutationRatesDto.fs" />
+    <Compile Include="Rates\Uf6GenRatesDto.fs" />
+    <Compile Include="Rates\Uf6MutationRatesDto.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Permutations\Sortopia.Permutations.fsproj" />
+    <ProjectReference Include="..\Sortopia.Core.Serialization\Sortopia.Core.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

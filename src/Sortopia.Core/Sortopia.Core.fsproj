@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="ComputationBuilders.fs" />
+    <Compile Include="StringUtils.fs" />
+    <Compile Include="SysExt.fs" />
+    <Compile Include="UMXext.fs" />
+    <Compile Include="GuidUtils.fs" />
+    <Compile Include="Rando.fs" />
+    <Compile Include="MathUtils.fs" />
+    <Compile Include="IntSampleMethod.fs" />
+    <Compile Include="ArrayUtils.fs" />
+    <Compile Include="CollectionUtils.fs" />
+    <Compile Include="Combinatorics.fs" />
+    <Compile Include="ArrayContentComparer.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.UMX" Version="1.1.0" />
+  </ItemGroup>
+</Project>

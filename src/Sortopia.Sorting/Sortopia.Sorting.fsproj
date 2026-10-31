@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="SortingTypes.fs" />
+    <Compile Include="Networks\Ce.fs" />
+    <Compile Include="Networks\Stage.fs" />
+    <Compile Include="Networks\CeSorting.fs" />
+    <Compile Include="Networks\Sorter.fs" />
+    <Compile Include="Networks\CeUse.fs" />
+    <Compile Include="Networks\StageBuilder.fs" />
+    <Compile Include="Networks\SorterSet.fs" />
+    <Compile Include="Inputs\SortableBoolArray.fs" />
+    <Compile Include="Inputs\SortableIntArray.fs" />
+    <Compile Include="Inputs\BinaryIntArrays.fs" />
+    <Compile Include="Inputs\Simd\SortBlockBitv512.fs" />
+    <Compile Include="Inputs\Simd\SortBlockUint8v256.fs" />
+    <Compile Include="Inputs\Simd\SortBlockUint8v512.fs" />
+    <Compile Include="Inputs\SortableBinaryTests.fs" />
+    <Compile Include="Inputs\SortableIntTests.fs" />
+    <Compile Include="Inputs\PackedSortableIntTest.fs" />
+    <Compile Include="Inputs\Simd\SortableBitv512Tests.fs" />
+    <Compile Include="Inputs\Simd\SortableUint8v256Tests.fs" />
+    <Compile Include="Inputs\Simd\SortableUint8v512Tests.fs" />
+    <Compile Include="Inputs\GrayVectorGenerator.fs" />
+    <Compile Include="Inputs\SortableTests.fs" />
+    <Compile Include="Inputs\PartitionOfSortableTests.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
+    <ProjectReference Include="..\Sortopia.Permutations\Sortopia.Permutations.fsproj" />
+  </ItemGroup>
+</Project>

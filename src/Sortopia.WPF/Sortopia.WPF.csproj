@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Product>Sortopia</Product>
+    <Title>Sortopia</Title>
+    <ApplicationIcon>Assets\sortopia.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\sortopia-fisherman.png" />
+    <Resource Include="Assets\sortopia.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Sorting.Catalog\Sortopia.Sorting.Catalog.fsproj" />
+    <InternalsVisibleTo Include="Sortopia.WPF.Tests" />
+  </ItemGroup>
+</Project>

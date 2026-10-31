@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="DataTableRecord.fs" />
+    <Compile Include="DataTableReport.fs" />
+    <Compile Include="RankingOps.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
+  </ItemGroup>
+</Project>
+

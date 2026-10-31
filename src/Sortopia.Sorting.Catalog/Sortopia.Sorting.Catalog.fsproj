@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="Identifiers.fs" />
+    <Compile Include="SorterLib.fs" />
+    <Compile Include="PrefixLib.fs" />
+    <Compile Include="MergeLib.fs" />
+    <Compile Include="NetworkText.fs" />
+    <Compile Include="SorterDataParse.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
+    <ProjectReference Include="..\Sortopia.Sorting\Sortopia.Sorting.fsproj" />
+  </ItemGroup>
+</Project>

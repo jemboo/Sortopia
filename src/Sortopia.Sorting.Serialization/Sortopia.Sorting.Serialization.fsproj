@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="Networks\CeDto.fs" />
+    <Compile Include="Networks\SorterDto.fs" />
+    <Compile Include="Networks\SorterSetDto.fs" />
+    <Compile Include="Inputs\SortableIntArrayDto.fs" />
+    <Compile Include="Inputs\SortableBoolArrayDto.fs" />
+    <Compile Include="Inputs\SortableBinaryTestsDto.fs" />
+    <Compile Include="Inputs\SortableIntTestsDto.fs" />
+    <Compile Include="Inputs\SimdSortBlockDto.fs" />
+    <Compile Include="Inputs\SortableBitv512TestsDto.fs" />
+    <Compile Include="Inputs\SortableUint8v256TestsDto.fs" />
+    <Compile Include="Inputs\SortableUint8v512TestsDto.fs" />
+    <Compile Include="Inputs\PackedSortableIntTestsDto.fs" />
+    <Compile Include="Inputs\SortableTestsDto.fs" />
+    <Compile Include="Inputs\SortableTestsWithPrefixDto.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sortopia.Sorting\Sortopia.Sorting.fsproj" />
+    <ProjectReference Include="..\Sortopia.Core.Serialization\Sortopia.Core.Serialization.fsproj" />
+  </ItemGroup>
+</Project>
