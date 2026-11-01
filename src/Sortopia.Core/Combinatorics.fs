@@ -29,9 +29,9 @@ module Combinatorics =
 
 
     /// Computes the Cartesian product of a list of key-value pairs, yielding all possible maps.
-    let rec cartesianProductMaps (lists: list<string * list<string>>) : Map<string, string> seq =
+    let rec cartesianProductMaps (lists: ('key * 'value list) list) : Map<'key, 'value> seq =
         match lists with
-        | [] -> Seq.empty<Map<string, string>>
+        | [] -> Seq.empty<Map<'key, 'value>>
         | [(key, values)] ->
             seq { for value in values do yield Map.ofList [(key, value)] }
         | (key, values)::tl ->
