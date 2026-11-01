@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="ResultData.fs" />
+    <Compile Include="ProjectFileStore.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Core.Serialization/Sortopia.Core.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting.Serialization/Sortopia.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting.Serialization/Sortopia.Models.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Evaluation.Serialization/Sortopia.Evaluation.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

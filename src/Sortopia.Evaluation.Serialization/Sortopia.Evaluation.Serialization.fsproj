@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="CeBlockDto.fs" />
+    <Compile Include="CeDataDto.fs" />
+    <Compile Include="CeBlockEvalDto.fs" />
+    <Compile Include="SorterEvalDto.fs" />
+    <Compile Include="SorterEvalMeasureDto.fs" />
+    <Compile Include="SorterSetEvalDto.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting.Serialization/Sortopia.Sorting.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

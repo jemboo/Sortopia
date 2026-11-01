@@ -89,7 +89,7 @@ type SorterModelDtoTests() =
         | simpleSorterModel.Msce resultMsce ->
             Assert.Equal(msce.Id, resultMsce.Id)
             Assert.Equal(msce.ChannelCount, resultMsce.ChannelCount)
-            Assert.Equal<int array>(msce.CeCodes, resultMsce.CeCodes)
+            Assert.Equal<int>(msce.CeCodes :> seq<int>, resultMsce.CeCodes :> seq<int>)
         | _ -> Assert.True(false, "Expected Msce case")
 
     [<Fact>]
@@ -102,7 +102,7 @@ type SorterModelDtoTests() =
         | simpleSorterModel.Mssi resultMssi ->
             Assert.Equal(mssi.Id, resultMssi.Id)
             Assert.Equal(mssi.ChannelCount, resultMssi.ChannelCount)
-            Assert.Equal<permSi>(mssi.Perm_Sis, resultMssi.Perm_Sis)
+            Assert.Equal<permSi>(mssi.Perm_Sis :> seq<permSi>, resultMssi.Perm_Sis :> seq<permSi>)
         | _ -> Assert.True(false, "Expected Mssi case")
 
 
@@ -116,7 +116,7 @@ type SorterModelDtoTests() =
         | simpleSorterModel.Msrs resultMsrs ->
             Assert.Equal(msrs.Id, resultMsrs.Id)
             Assert.Equal(msrs.ChannelCount, resultMsrs.ChannelCount)
-            Assert.Equal<permRs>(msrs.Perm_Rss, resultMsrs.Perm_Rss)
+            Assert.Equal<permRs>(msrs.Perm_Rss :> seq<permRs>, resultMsrs.Perm_Rss :> seq<permRs>)
         | _ -> Assert.True(false, "Expected Msrs case")
 
 
@@ -132,7 +132,7 @@ type SorterModelDtoTests() =
         | simpleSorterModel.Msuf4 resultMsuf4 ->
             Assert.Equal(msuf4.Id, resultMsuf4.Id)
             Assert.Equal(msuf4.ChannelCount, resultMsuf4.ChannelCount)
-            Assert.Equal<twoOrbitUf4>(msuf4.TwoOrbitUnfolder4s, resultMsuf4.TwoOrbitUnfolder4s)
+            Assert.Equal<twoOrbitUf4>(msuf4.TwoOrbitUnfolder4s :> seq<twoOrbitUf4>, resultMsuf4.TwoOrbitUnfolder4s :> seq<twoOrbitUf4>)
         | _ -> Assert.True(false, "Expected Msuf4 case")
 
 
@@ -150,5 +150,5 @@ type SorterModelDtoTests() =
         | simpleSorterModel.Msuf6 resultMsuf6 ->
             Assert.Equal(msuf6.Id, resultMsuf6.Id)
             Assert.Equal(msuf6.ChannelCount, resultMsuf6.ChannelCount)
-            Assert.Equal<twoOrbitUf6 array>(msuf6.TwoOrbitUnfolder6s, resultMsuf6.TwoOrbitUnfolder6s)
+            Assert.Equal<twoOrbitUf6>(msuf6.TwoOrbitUnfolder6s :> seq<twoOrbitUf6>, resultMsuf6.TwoOrbitUnfolder6s :> seq<twoOrbitUf6>)
         | _ -> Assert.True(false, "Expected Msuf6 case")

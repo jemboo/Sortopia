@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Storage/Sortopia.Storage.fsproj" />
+    <ProjectReference Include="../Sortopia.Core/Sortopia.Core.fsproj" />
+    <ProjectReference Include="../Sortopia.Core.Serialization/Sortopia.Core.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting.Catalog/Sortopia.Sorting.Catalog.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
+    <ProjectReference Include="../Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Inputs/Sortopia.Models.Inputs.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting.Serialization/Sortopia.Models.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Evaluation.Serialization/Sortopia.Evaluation.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting.Serialization/Sortopia.Sorting.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

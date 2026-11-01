@@ -11,7 +11,14 @@ type sortableTestsWithPrefixDto =
       [<Key(1)>] Prefix: ceDto array }
 
 module SortableTestsWithPrefixDto =
+    let private validatePrefix tests (prefix: ce array) =
+        if isNull prefix then nullArg "prefix"
+        let width = int (SortableTests.getChannelCount tests)
+        if prefix |> Array.exists (fun c -> int c.HighChannel >= width) then
+            invalidArg "prefix" "Prefix endpoints must be within the dataset width."
+
     let fromDomain (tests: sortableTests, prefix: ce array) : sortableTestsWithPrefixDto =
+        validatePrefix tests prefix
         { Tests = SortableTestsDto.fromDomain tests
           Prefix = prefix |> Array.map CeDto.fromDomain }
 
@@ -20,6 +27,5 @@ module SortableTestsWithPrefixDto =
         if isNull dto.Prefix then nullArg "dto.Prefix"
         let tests = SortableTestsDto.toDomain dto.Tests
         let prefix = dto.Prefix |> Array.map CeDto.toDomain
-        if prefix |> Array.exists (fun c -> int c.HighChannel >= int (SortableTests.getChannelCount tests)) then
-            invalidArg "dto.Prefix" "Prefix endpoints must be within the dataset width."
+        validatePrefix tests prefix
         tests, prefix

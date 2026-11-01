@@ -40,4 +40,4 @@ type MsrsRandMutateTests() =
         let mutator = msrsRandMutate.create rngFactory.LcgFactory (opsActionRates.create 0.0 0.0 0.0) mutatorVariant.V1
         let parent = msrs.create (UMX.tag Guid.Empty) 4<channelCount> (Array.create count (permRs.create [|1; 0; 3; 2|]))
         let result = mutator.MakeSorterModelFromIndexAndMod parent (UMX.tag 0) (UMX.tag 0)
-        Assert.Equal<permRs[]>(parent.Perm_Rss, result.Perm_Rss)
+        Assert.Equal<permRs>(parent.Perm_Rss :> seq<permRs>, result.Perm_Rss :> seq<permRs>)

@@ -104,7 +104,7 @@ public sealed class RandomNetworkTests
     [Fact]
     public void Random_navigation_preserves_both_pages_independently() => OnSta(() =>
     {
-        using var shell = new MainWindowViewModel();
+        using var shell = new MainWindowViewModel(_ => null);
         var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
         home.OpenNetworksCommand.Execute(null);
         var catalog = Assert.IsType<NetworksPageViewModel>(shell.CurrentPage);

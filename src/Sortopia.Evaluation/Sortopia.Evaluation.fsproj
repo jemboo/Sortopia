@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="SortingOpsTypes.fs" />
+    <Compile Include="CeBlock.fs" />
+    <Compile Include="CeUseCounts.fs" />
+    <Compile Include="CeBlockEval.fs" />
+    <Compile Include="CeBlockOpsInt.fs" />
+    <Compile Include="CeBlockOpsBinary.fs" />
+    <Compile Include="CeBlockOpsPacked.fs" />
+    <Compile Include="CeBlockOpsBitv512.fs" />
+    <Compile Include="CeBlockOpsUint8v256.fs" />
+    <Compile Include="CeBlockOpsUint8v512.fs" />
+    <Compile Include="CeBlockOps.fs" />
+    <Compile Include="EvaluationHash.fs" />
+    <Compile Include="SorterEval.fs" />
+    <Compile Include="SorterEvalMeasures.fs" />
+    <Compile Include="SorterSetEval.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />
+    <ProjectReference Include="../Sortopia.Reporting/Sortopia.Reporting.fsproj" />
+  </ItemGroup>
+</Project>

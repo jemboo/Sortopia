@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="ParamKeys.fs" />
+    <Compile Include="ParameterSet.fs" />
+    <Compile Include="ParameterSpan.fs" />
+    <Compile Include="Run.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Storage/Sortopia.Storage.fsproj" />
+  </ItemGroup>
+</Project>

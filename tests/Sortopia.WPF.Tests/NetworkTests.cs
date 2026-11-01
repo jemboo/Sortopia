@@ -119,7 +119,7 @@ public sealed class NetworkTests
     [Fact]
     public void Navigation_keeps_selection_and_position_but_pauses_playback() => OnSta(() =>
     {
-        using var shell = new MainWindowViewModel();
+        using var shell = new MainWindowViewModel(_ => null);
         var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
         home.OpenNetworksCommand.Execute(null);
         var networks = Assert.IsType<NetworksPageViewModel>(shell.CurrentPage);
@@ -161,6 +161,48 @@ public sealed class NetworkTests
         Assert.Equal(Enumerable.Range(0, vm.SelectedNetwork.Width).Reverse(), vm.Trace.Values[0]);
         vm.ShuffleCommand.Execute(null);
         Assert.Equal(Enumerable.Range(0, vm.SelectedNetwork.Width), vm.Trace.Values[0].Order());
+    });
+
+    [Fact]
+    public void Opening_and_switching_projects_scopes_runs_and_manifests_to_the_selected_folder() => OnSta(() =>
+    {
+        var temp = System.IO.Directory.CreateTempSubdirectory("Sortopia-projects-");
+        try
+        {
+            var a = temp.CreateSubdirectory("A").FullName;
+            var b = temp.CreateSubdirectory("B").FullName;
+            var selections = new Queue<string?>([null, a, null, b, a]);
+            using var shell = new MainWindowViewModel(_ => selections.Dequeue());
+            var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
+            home.OpenSortableTestsCommand.Execute(null);
+            Assert.Same(home, shell.CurrentPage);
+            home.OpenProjectFolderCommand.Execute(null);
+            var page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
+            Assert.Equal(System.IO.Path.Combine(a, "runs"), page.LibraryPath);
+            var library = new Runs.RunLibrary(page.LibraryPath);
+            var run = library.Execute("A dataset", [new Runs.MergeTests(4, 2)], true, TestContext.Current.CancellationToken);
+            var manifest = Assert.Single(library.Manifests(run.Id));
+            var runDir = System.IO.Path.Combine(page.LibraryPath, run.Id.ToString("N"));
+            Assert.True(System.IO.File.Exists(System.IO.Path.Combine(runDir, "manifests", $"{manifest.Id:N}.json")));
+            var result = Assert.Single(Storage.ProjectFileStore.FromRunsFolder(page.LibraryPath).ListResults(run.Id));
+            Assert.Equal(run.Outputs[0].ArtifactId, result.DataId);
+            page.Back.Execute(null);
+            home.OpenProjectFolderCommand.Execute(null); // Cancel the switch.
+            home.OpenSortableTestsCommand.Execute(null);
+            Assert.Same(page, shell.CurrentPage);
+            page.Back.Execute(null);
+            home.OpenProjectFolderCommand.Execute(null);
+            page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
+            Assert.Equal(System.IO.Path.Combine(b, "runs"), page.LibraryPath);
+            Assert.Empty(page.Runs);
+            Assert.Empty(page.Manifests);
+            page.Back.Execute(null);
+            home.OpenProjectFolderCommand.Execute(null);
+            page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
+            Assert.Equal(run.Id, Assert.Single(page.Runs).Id);
+            Assert.Equal(manifest.Id, Assert.Single(page.Manifests).Id);
+        }
+        finally { temp.Delete(recursive: true); }
     });
 
     private static void OnSta(Action action)

@@ -11,6 +11,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sortopia.WPF\Sortopia.WPF.csproj" />
+    <ProjectReference Include="../../src/Sortopia.Runs_bak/Sortopia.Runs_bak.csproj" />
+    <ProjectReference Include="../../src/Sortopia.Storage/Sortopia.Storage.fsproj" />
+    <ProjectReference Include="../../src/Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
+    <ProjectReference Include="../../src/Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
     <PackageReference Include="xunit.v3" Version="4.0.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />

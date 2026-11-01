@@ -29,7 +29,7 @@ type MsceRandMutateTests() =
             let ce = Ce.fromIndex code
             Assert.InRange((int ce.LowChannel), 0, 9)
             Assert.InRange((int ce.HighChannel), (int ce.LowChannel), 9))
-        if mutation + insertion + deletion = 0.0 then Assert.Equal<int[]>(parent.CeCodes, result.CeCodes)
+        if mutation + insertion + deletion = 0.0 then Assert.Equal<int>(parent.CeCodes :> seq<int>, result.CeCodes :> seq<int>)
         else Assert.NotEqual<int[]>(parent.CeCodes, result.CeCodes)
         if insertion = 1.0 then
             Assert.Equal(42, result.CeCodes.[1])

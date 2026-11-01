@@ -10,6 +10,7 @@
                AutomationProperties.Name="Sortopia fisherman with sorting networks" />
         <controls:TranslucentButtonStack Width="180" Margin="24,32,24,24"
                                          HorizontalAlignment="Left" VerticalAlignment="Top">
+            <Button Content="_Open Project Folder" Command="{Binding OpenProjectFolderCommand}" AutomationProperties.Name="Open Project Folder" />
             <Button Content="_Sandbox"
                     Command="{Binding OpenSandboxCommand}"
                     AutomationProperties.Name="Sandbox"
@@ -18,6 +19,10 @@
                     AutomationProperties.Name="Sorting networks" ToolTip="Explore the sorting network catalog" />
             <Button Content="_Random Networks" Command="{Binding OpenRandomNetworksCommand}"
                     AutomationProperties.Name="Random Networks" ToolTip="Generate and test random sorting networks" />
+            <Button Content="Project _runs" Command="{Binding OpenSortableTestsCommand}" AutomationProperties.Name="Project runs" ToolTip="Generate inputs and models, design manifests, and evaluate models" />
         </controls:TranslucentButtonStack>
+        <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="24,12" Padding="10,5" Background="#CE173C4E" CornerRadius="4">
+            <TextBlock Foreground="White" Text="{Binding ProjectStatus}" TextWrapping="Wrap"/>
+        </Border>
     </Grid>
 </UserControl>
