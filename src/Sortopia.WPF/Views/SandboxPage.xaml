@@ -13,6 +13,8 @@
                 <Button Content="_Back to Sortopia"
                         Command="{Binding ReturnHomeCommand}"
                         AutomationProperties.Name="Back to Sortopia" />
+                <Button Content="Project _runs" Command="{Binding OpenSortableTestsCommand}" AutomationProperties.Name="Project runs" />
+                <Button Content="_Open project folder" Command="{Binding OpenProjectFolderCommand}" AutomationProperties.Name="Open project folder" />
             </controls:TranslucentButtonStack>
             <StackPanel Grid.Column="1" Margin="32,0,0,0">
                 <TextBlock Text="{Binding Title}" Foreground="White"
@@ -20,6 +22,7 @@
                 <TextBlock Text="A place to explore sorting networks."
                            Foreground="#CCFFFFFF" FontSize="16"
                            Margin="0,12,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding ProjectStatus}" Foreground="#CCFFFFFF" Margin="0,12,0,0" TextWrapping="Wrap" />
             </StackPanel>
         </Grid>
     </Grid>

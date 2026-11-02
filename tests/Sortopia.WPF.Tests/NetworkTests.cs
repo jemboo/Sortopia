@@ -174,9 +174,11 @@ public sealed class NetworkTests
             var selections = new Queue<string?>([null, a, null, b, a]);
             using var shell = new MainWindowViewModel(_ => selections.Dequeue());
             var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
-            home.OpenSortableTestsCommand.Execute(null);
-            Assert.Same(home, shell.CurrentPage);
-            home.OpenProjectFolderCommand.Execute(null);
+            home.OpenSandboxCommand.Execute(null);
+            var sandbox = Assert.IsType<SandboxPageViewModel>(shell.CurrentPage);
+            sandbox.OpenSortableTestsCommand.Execute(null);
+            Assert.Same(sandbox, shell.CurrentPage);
+            sandbox.OpenProjectFolderCommand.Execute(null);
             var page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
             Assert.Equal(System.IO.Path.Combine(a, "runs"), page.LibraryPath);
             var library = new Runs.RunLibrary(page.LibraryPath);
@@ -187,17 +189,20 @@ public sealed class NetworkTests
             var result = Assert.Single(Storage.ProjectFileStore.FromRunsFolder(page.LibraryPath).ListResults(run.Id));
             Assert.Equal(run.Outputs[0].ArtifactId, result.DataId);
             page.Back.Execute(null);
-            home.OpenProjectFolderCommand.Execute(null); // Cancel the switch.
-            home.OpenSortableTestsCommand.Execute(null);
+            home.OpenSandboxCommand.Execute(null);
+            sandbox.OpenProjectFolderCommand.Execute(null); // Cancel the switch.
+            sandbox.OpenSortableTestsCommand.Execute(null);
             Assert.Same(page, shell.CurrentPage);
             page.Back.Execute(null);
-            home.OpenProjectFolderCommand.Execute(null);
+            home.OpenSandboxCommand.Execute(null);
+            sandbox.OpenProjectFolderCommand.Execute(null);
             page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
             Assert.Equal(System.IO.Path.Combine(b, "runs"), page.LibraryPath);
             Assert.Empty(page.Runs);
             Assert.Empty(page.Manifests);
             page.Back.Execute(null);
-            home.OpenProjectFolderCommand.Execute(null);
+            home.OpenSandboxCommand.Execute(null);
+            sandbox.OpenProjectFolderCommand.Execute(null);
             page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
             Assert.Equal(run.Id, Assert.Single(page.Runs).Id);
             Assert.Equal(manifest.Id, Assert.Single(page.Manifests).Id);

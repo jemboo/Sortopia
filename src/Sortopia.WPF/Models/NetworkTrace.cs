@@ -14,18 +14,25 @@ public sealed class NetworkTrace
     public static NetworkTrace CreateForPlayback(NetworkDefinition network, int[] input) =>
         new(network, input, network.ComparatorCount > DisplayCeLimit || network.StageCount > DisplayStageLimit);
 
+    internal static int PreviewStages(NetworkDefinition network)
+    {
+        var stages = 0;
+        var ces = 0;
+        foreach (var length in network.StageLengths)
+        {
+            if (stages == DisplayStageLimit || ces + length > DisplayCeLimit) break;
+            ces += length;
+            stages++;
+        }
+        return stages;
+    }
+
     private NetworkTrace(NetworkDefinition network, int[] input, bool preview = false)
     {
         Network = network;
         IsPreview = preview;
-        var stageCount = 0;
-        var ceCount = 0;
-        foreach (var length in network.StageLengths)
-        {
-            if (preview && (stageCount >= DisplayStageLimit || ceCount + length > DisplayCeLimit)) break;
-            ceCount += length;
-            stageCount++;
-        }
+        var stageCount = preview ? PreviewStages(network) : network.StageCount;
+        var ceCount = preview ? network.StageLengths.Take(stageCount).Sum() : network.ComparatorCount;
         var displayedCes = network.Comparators.Take(ceCount).ToArray();
         var sortable = sortableIntArray.create(input, network.Width, network.Width);
         var uses = new int[ceCount];

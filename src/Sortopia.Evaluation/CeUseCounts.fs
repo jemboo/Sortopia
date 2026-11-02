@@ -76,10 +76,14 @@ type ceUseCounts =
 
     member this.IncrementAtomicBy (index: int<ceIndex>) (amount: int) : unit =
         if amount < 0 then invalidArg "amount" "Increment must be nonnegative."
-        Interlocked.Add(&this.useCounts.[%index], amount) |> ignore
+        let rec add current =
+            let next = Checked.(+) current amount
+            let observed = Interlocked.CompareExchange(&this.useCounts.[%index], next, current)
+            if observed <> current then add observed
+        add (Volatile.Read(&this.useCounts.[%index]))
 
     member this.IncrementAtomic (index: int<ceIndex>) : unit =
-        Interlocked.Increment(&this.useCounts.[%index]) |> ignore
+        this.IncrementAtomicBy index 1
 
 
     // ----------------

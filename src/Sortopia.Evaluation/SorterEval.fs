@@ -452,9 +452,7 @@ module SorterEval =
     let getIsShortEnough
             (lengthCutoff: int<ceLength>)
             (eval: sorterEval): bool =
-        (%(getLastCeIndex eval) <= %lengthCutoff)
-        &&
-        (getIsSorted eval)
+        %(getLastCeIndex eval) < %lengthCutoff && getIsSorted eval
 
     let getCeUseArray (eval: sorterEval) : ceUse array =
         match eval with

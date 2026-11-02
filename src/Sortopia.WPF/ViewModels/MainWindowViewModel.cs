@@ -10,6 +10,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly SandboxPageViewModel sandboxPage;
     private readonly NetworksPageViewModel networksPage;
     private readonly RandomNetworksPageViewModel randomNetworksPage;
+    private readonly SgdPageViewModel sgdPage;
     private readonly Func<string?, string?> pickFolder;
     private SortableTestsPageViewModel? sortableTestsPage;
     private string? projectFolder;
@@ -18,10 +19,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public MainWindowViewModel(Func<string?, string?> pickFolder)
     {
         this.pickFolder = pickFolder;
-        homePage = new HomePageViewModel(OpenSandbox, OpenNetworks, OpenRandomNetworks, OpenSortableTests, OpenProjectFolder);
-        sandboxPage = new SandboxPageViewModel(ReturnHome);
+        homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenSandbox);
+        sandboxPage = new SandboxPageViewModel(ReturnHome, OpenSortableTests, OpenProjectFolder);
         networksPage = new NetworksPageViewModel(ReturnHome);
         randomNetworksPage = new RandomNetworksPageViewModel(ReturnHome);
+        sgdPage = new SgdPageViewModel(ReturnHome);
         currentPage = homePage;
     }
 
@@ -35,7 +37,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         if (sortableTestsPage is { CanEdit: false })
         {
-            homePage.ProjectStatus = $"A run is active in {projectFolder}. Finish or cancel it before switching projects.";
+            sandboxPage.ProjectStatus = $"A run is active in {projectFolder}. Finish or cancel it before switching projects.";
             return;
         }
 
@@ -58,17 +60,17 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                     page.Tab = 1;
                     page.DesignerTab = 1;
                     ShowRuns(page);
-                    homePage.ProjectStatus = $"Project · {projectFolder}";
+                    sandboxPage.ProjectStatus = $"Project · {projectFolder}";
                     await page.CsvInventory.OpenAsync(inventory);
                     return;
                 }
             }
-            homePage.ProjectStatus = $"Project · {projectFolder}";
+            sandboxPage.ProjectStatus = $"Project · {projectFolder}";
             ShowRuns(sortableTestsPage!);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            homePage.ProjectStatus = $"Could not open {selected}. {error.Message}";
+            sandboxPage.ProjectStatus = $"Could not open {selected}. {error.Message}";
         }
     }
 
@@ -90,12 +92,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     private void OpenRandomNetworks() => CurrentPage = randomNetworksPage;
 
+    private void OpenSgd() => CurrentPage = sgdPage;
+
     private void ReturnHome()
     {
-        networksPage.Pause();
-        randomNetworksPage.Leave();
+        if (CurrentPage is RandomNetworksPageViewModel generated) generated.Leave();
+        else if (CurrentPage == sgdPage) sgdPage.Stop();
+        else if (CurrentPage == networksPage) networksPage.Pause();
         CurrentPage = homePage;
     }
 
-    public void Dispose() { sortableTestsPage?.Stop(); networksPage.Dispose(); randomNetworksPage.Dispose(); }
+    public void Dispose() { sortableTestsPage?.Stop(); networksPage.Dispose(); randomNetworksPage.Dispose(); sgdPage.Stop(); }
 }

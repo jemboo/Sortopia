@@ -35,8 +35,8 @@ type internal stageBuilderSequence =
                 } with
 
         static member create (channelCount: int<channelCount>) : stageBuilderSequence =
-            if channelCount <= 1<channelCount> then
-                invalidArg "channelCount" "Channel count must be greater than 1."
+            if channelCount < 1<channelCount> then
+                invalidArg "channelCount" "Channel count must be positive."
             { channelCount = channelCount; stageBuilders = ResizeArray<stageBuilder>() }
 
 

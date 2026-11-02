@@ -49,9 +49,18 @@ type ceBlock =
 
 module CeBlock =
 
-    let internal validateWidth (width: int<channelCount>) (prefix: ceBlock) (block: ceBlock) =
-        if block.ChannelCount <> width then invalidArg "block" "Network and input widths must match."
+    let internal validatePrefixWidth (width: int<channelCount>) (prefix: ceBlock) =
         if %prefix.ChannelCount <> 0 && prefix.ChannelCount <> width then invalidArg "prefix" "Prefix and input widths must match."
+
+    let internal validateWidth (width: int<channelCount>) (prefix: ceBlock) (block: ceBlock) =
+        validatePrefixWidth width prefix
+        if block.ChannelCount <> width then invalidArg "block" "Network and input widths must match."
+
+    let internal validateBatchWidth width prefix (blocks: ceBlock[]) =
+        if isNull blocks then nullArg "ceBlocks"
+        validatePrefixWidth width prefix
+        if blocks |> Array.exists (fun block -> block.ChannelCount <> width) then
+            invalidArg "ceBlocks" "Network and input widths must match."
 
     let breakUpIntoBlocks (channelCount: int<channelCount>) (ces:ce[]) (blockLength:int<ceLength>) =
         if %blockLength <= 0 then invalidArg "blockLength" "Block length must be positive."

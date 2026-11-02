@@ -24,6 +24,9 @@
         <DataTemplate DataType="{x:Type viewModels:RandomNetworksPageViewModel}">
             <views:RandomNetworksPage />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type viewModels:SgdPageViewModel}">
+            <views:SgdPage />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type viewModels:SortableTestsPageViewModel}"><views:SortableTestsPage /></DataTemplate>
     </Window.Resources>
     <ContentControl Content="{Binding CurrentPage}"

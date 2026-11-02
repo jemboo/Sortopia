@@ -150,12 +150,22 @@ module PermSi =
             psi
         else
             let first, second = pickAndOrderTwoDistinct indexPicker %psi.Order
-            // if the two items are in the same orbit, do nothing
-            if psi.Permutation.permute first = second then
+            let firstPartner = psi.Permutation.permute first
+            let secondPartner = psi.Permutation.permute second
+            if firstPartner = second || (firstPartner = first && secondPartner = second) then
                 psi
+            elif firstPartner = first || secondPartner = second then
+                // Move the idle wire to the other orbit without pairing one wire twice.
+                let idle, active, partner =
+                    if firstPartner = first then first, second, secondPartner else second, first, firstPartner
+                let rewired = psi.Array
+                rewired.[idle] <- partner
+                rewired.[partner] <- idle
+                rewired.[active] <- active
+                permSi.createUnsafe rewired
             else
-                let fpLow, fpHi = orderItems first (psi.Permutation.permute first)
-                let spLow, spHi = orderItems second (psi.Permutation.permute second)
+                let fpLow, fpHi = orderItems first firstPartner
+                let spLow, spHi = orderItems second secondPartner
                 let newArray = psi.Array
                 match siMutationMode with
                 | MutationMode.Ortho -> 

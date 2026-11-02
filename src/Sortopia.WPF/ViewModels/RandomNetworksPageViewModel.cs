@@ -1,4 +1,3 @@
-using System.Globalization;
 using Sortopia.Models.Sorting;
 using Sortopia.WPF.Commands;
 using Sortopia.WPF.Models;
@@ -7,12 +6,8 @@ namespace Sortopia.WPF.ViewModels;
 
 public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
 {
-    public const int MaxCeCount = 1_000_000;
-    public const int MaxStageCount = 10_000;
-    private string method = "msce";
-    private int channelCount = 8;
-    private string countText = "32";
-    private string seedText = "1";
+    public const int MaxCeCount = NetworkGeneratorSettings.MaxCeCount;
+    public const int MaxStageCount = NetworkGeneratorSettings.MaxStageCount;
     private string status = "Generate a network, then test it or explore a single input with playback.";
     private string generationLabel = "msce · 8 channels · 32 CEs · seed 1";
     private bool isTesting;
@@ -20,23 +15,36 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     private bool isCompacting;
     private Sortopia.WPF.Rendering.CompactionTransition? compaction;
     private bool hasRemovedUnused;
-    private string samplesText = "all";
     private NetworkCheckResult? usage;
     private bool showCeUsage = true;
     private CancellationTokenSource? testCancellation;
 
-    public RandomNetworksPageViewModel(Action returnHome)
-        : base(returnHome, GenerateNetwork("msce", 8, 32, 1))
+    public RandomNetworksPageViewModel(Action returnHome) : this(returnHome, new NetworkGeneratorSettings()) { }
+
+    private RandomNetworksPageViewModel(Action returnHome, NetworkGeneratorSettings generator)
+        : base(returnHome, GenerateNetwork(generator))
     {
+        Generator = generator;
         RemoveUnusedCesCommand = new RelayCommand(RemoveUnusedCes, () => CanEdit && Usage is not null && !hasRemovedUnused);
         CompactStagesCommand = new RelayCommand(CompactStages, () => CanEdit && Usage is not null && hasRemovedUnused && !hasCompacted && SelectedNetwork.StageCount > 1);
         GenerateCommand = new RelayCommand(Generate, () => CanEdit && InputError.Length == 0);
         TestCommand = new RelayCommand(async () => await RunTestAsync(), () => CanEdit && TestInputError.Length == 0);
-        NewSeedCommand = new RelayCommand(() => SeedText = System.Security.Cryptography.RandomNumberGenerator.GetInt32(int.MaxValue).ToString(CultureInfo.InvariantCulture), () => CanEdit);
+        NewSeedCommand = new RelayCommand(generator.NewSeed, () => CanEdit);
         CancelTestCommand = new RelayCommand(CancelTest, () => IsTesting);
+        PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(SelectedNetwork)) generator.SetTestWidth(SelectedNetwork.Width);
+        };
+        generator.PropertyChanged += (_, change) =>
+        {
+            OnPropertyChanged(change.PropertyName);
+            if (change.PropertyName == nameof(InputError)) GenerateCommand.RaiseCanExecuteChanged();
+            if (change.PropertyName == nameof(TestInputError)) TestCommand.RaiseCanExecuteChanged();
+        };
     }
 
     public RelayCommand RemoveUnusedCesCommand { get; }
+    public NetworkGeneratorSettings Generator { get; }
     public RelayCommand CompactStagesCommand { get; }
     public int UnusedCeCount => Usage?.CeUses.Count(count => count == 0) ?? 0;
     public string RemoveUnusedHint => Usage is null ? "Run a test first. Removes individual CEs with no swaps."
@@ -103,19 +111,10 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         NotifyTransforms();
     }
 
-    public string SamplesText
-    {
-        get => samplesText;
-        set { if (SetProperty(ref samplesText, value)) NotifyTestInputs(); }
-    }
-    public bool CanTestAll => SelectedNetwork.Width <= NetworkCheck.MaxExhaustiveWidth;
-    public string TestHint => CanTestAll
-        ? $"Enter all for all {1 << SelectedNetwork.Width:N0} binary combinations, or 1–1,000,000 random samples."
-        : "More than 18 channels: enter 1–1,000,000 random samples; all is unavailable.";
-    private bool AllSamples => string.Equals(SamplesText.Trim(), "all", StringComparison.OrdinalIgnoreCase);
-    public string TestInputError => AllSamples ? CanTestAll ? "" : "All inputs is available only through 18 channels."
-        : int.TryParse(SamplesText, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count >= 1 && count <= NetworkCheck.MaxSamples
-            ? "" : "Enter a sample count from 1 to 1,000,000, or all for 18 channels or fewer.";
+    public string SamplesText { get => Generator.SamplesText; set => Generator.SamplesText = value; }
+    public bool CanTestAll => Generator.CanTestAll;
+    public string TestHint => Generator.TestHint;
+    public string TestInputError => Generator.TestInputError;
     public NetworkCheckResult? Usage
     {
         get => usage;
@@ -129,47 +128,19 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     public NetworkCheckResult? DisplayedUsage => ShowCeUsage ? Usage : null;
     public IReadOnlyList<Sortopia.WPF.Rendering.UsageBand> UsageBands => Sortopia.WPF.Rendering.UsagePalette.Bands;
     public string UsageSummary => Usage?.UsageSummary ?? "Run a test to measure CE usage. Usage counts actual swaps, not comparisons.";
-    private void NotifyTestInputs()
-    {
-        OnPropertyChanged(nameof(CanTestAll));
-        OnPropertyChanged(nameof(TestHint));
-        OnPropertyChanged(nameof(TestInputError));
-        TestCommand.RaiseCanExecuteChanged();
-    }
-
-    public string[] Methods { get; } = ["msce", "msrs", "mssi", "msuf4", "msuf6"];
+    public string[] Methods => Generator.Methods;
     public RelayCommand NewSeedCommand { get; }
-    public string SeedText { get => seedText; set { if (SetProperty(ref seedText, value)) NotifyInputs(); } }
+    public string SeedText { get => Generator.SeedText; set => Generator.SeedText = value; }
     public RelayCommand GenerateCommand { get; }
     public RelayCommand TestCommand { get; }
     public RelayCommand CancelTestCommand { get; }
-    public IReadOnlyList<int> ChannelCounts => Enumerable.Range(2, 63).Where(width => RandomNetwork.supportsWidth(Method, width)).ToArray();
-    public string Method
-    {
-        get => method;
-        set
-        {
-            if (!Methods.Contains(value) || !SetProperty(ref method, value)) return;
-            OnPropertyChanged(nameof(ChannelCounts));
-            if (!ChannelCounts.Contains(ChannelCount)) ChannelCount = ChannelCounts.First();
-            OnPropertyChanged(nameof(CountLabel));
-            OnPropertyChanged(nameof(WidthHint));
-            NotifyInputs();
-        }
-    }
-    public int ChannelCount { get => channelCount; set { if (SetProperty(ref channelCount, value)) NotifyInputs(); } }
-    public string CountText { get => countText; set { if (SetProperty(ref countText, value)) NotifyInputs(); } }
-    public string CountLabel => Method == "msce" ? "CE count (≤1M)" : "Stages (≤10,000)";
-    public string WidthHint => Method switch
-    {
-        "msrs" => "Even channel counts, starting at 4.",
-        "msuf4" => "2ⁿ channels, n > 1: 4, 8, 16, 32, 64.",
-        "msuf6" => "3 × 2ⁿ channels, n > 1: 12, 24, 48.",
-        _ => "2–64 channels."
-    };
-    public string InputError => !ChannelCounts.Contains(ChannelCount) ? "Choose a supported channel count."
-        : !int.TryParse(CountText, NumberStyles.None, CultureInfo.InvariantCulture, out var count) || count < 1 || count > (Method == "msce" ? MaxCeCount : MaxStageCount)
-            ? $"Enter a whole {(Method == "msce" ? "CE" : "stage")} count from 1 to {(Method == "msce" ? MaxCeCount : MaxStageCount)}." : !int.TryParse(SeedText, NumberStyles.None, CultureInfo.InvariantCulture, out _) ? "Enter a seed from 0 to 2147483647." : "";
+    public IReadOnlyList<int> ChannelCounts => Generator.ChannelCounts;
+    public string Method { get => Generator.Method; set => Generator.Method = value; }
+    public int ChannelCount { get => Generator.ChannelCount; set => Generator.ChannelCount = value; }
+    public string CountText { get => Generator.CountText; set => Generator.CountText = value; }
+    public string CountLabel => Generator.CountLabel;
+    public string WidthHint => Generator.WidthHint;
+    public string InputError => Generator.InputError;
     public string Status { get => status; private set => SetProperty(ref status, value); }
     public string GenerationLabel { get => generationLabel; private set => SetProperty(ref generationLabel, value); }
     public bool IsTesting
@@ -211,37 +182,19 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         SetCompacting(false);
     }
 
-    private void NotifyInputs()
-    {
-        OnPropertyChanged(nameof(InputError));
-        GenerateCommand.RaiseCanExecuteChanged();
-    }
-
-    private static NetworkDefinition GenerateNetwork(string method, int width, int size, int seed) =>
-        new($"{method} · {width} channels", RandomNetwork.generate(method, width, size, SeedId(seed)));
-
-    private static Guid SeedId(int seed)
-    {
-        Span<byte> bytes = stackalloc byte[16];
-        bytes.Clear();
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes, seed);
-        return new Guid(bytes);
-    }
+    private static NetworkDefinition GenerateNetwork(NetworkGeneratorSettings generator) =>
+        new(generator.Label, RandomNetwork.toStages(generator.Snapshot().CreateModel()));
 
     private void Generate()
     {
         if (!CanEdit || InputError.Length > 0) return;
         try
         {
-            var count = int.Parse(CountText, CultureInfo.InvariantCulture);
-            var seed = int.Parse(SeedText, CultureInfo.InvariantCulture);
-            SelectedNetwork = GenerateNetwork(Method, ChannelCount, count, seed);
+            SelectedNetwork = GenerateNetwork(Generator);
             hasRemovedUnused = false;
             hasCompacted = false;
             Usage = null;
-            if (!CanTestAll && AllSamples) SamplesText = "4096";
-            NotifyTestInputs();
-            GenerationLabel = $"{Method} · {ChannelCount} channels · {count} {(Method == "msce" ? "CEs" : "stages")} · seed {seed}";
+            GenerationLabel = Generator.Description;
             Status = "New network generated. Test it to check whether it sorts binary inputs.";
         }
         catch (Exception ex) { Status = $"Could not generate network: {ex.Message}"; }
@@ -252,7 +205,7 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         if (!CanEdit || TestInputError.Length > 0) return;
         Pause();
         var network = SelectedNetwork;
-        int? samples = AllSamples ? null : int.Parse(SamplesText, CultureInfo.InvariantCulture);
+        var samples = Generator.SamplesFor(network.Width);
         var total = samples ?? (1 << network.Width);
         hasRemovedUnused = false;
         Usage = null;
@@ -260,13 +213,14 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         testCancellation = cancellation;
         IsTesting = true;
         Status = $"Checking 0 / {total:N0} binary inputs…";
-        var progress = new Progress<int>(done =>
+        void ShowProgress(string message)
         {
             if (IsTesting && ReferenceEquals(testCancellation, cancellation))
-                Status = $"Checking {done:N0} / {total:N0} binary inputs…";
-        });
+                Status = message;
+        }
         try
         {
+            var progress = new Progress<int>(done => ShowProgress($"Checking {done:N0} / {total:N0} binary inputs…"));
             var result = await Task.Run(() => NetworkCheck.Run(network, samples, cancellation.Token, progress), cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             Status = result.Description;

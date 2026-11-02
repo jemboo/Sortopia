@@ -14,6 +14,9 @@ public sealed class NetworkDiagram : FrameworkElement
 {
     public static readonly DependencyProperty TraceProperty = DependencyProperty.Register(nameof(Trace), typeof(NetworkTrace), typeof(NetworkDiagram),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnTraceChanged));
+    public static readonly DependencyProperty StaticNetworkProperty = DependencyProperty.Register(nameof(StaticNetwork), typeof(NetworkDefinition), typeof(NetworkDiagram),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnTraceChanged));
+    public NetworkDefinition? StaticNetwork { get => (NetworkDefinition?)GetValue(StaticNetworkProperty); set => SetValue(StaticNetworkProperty, value); }
     public static readonly DependencyProperty PositionProperty = DependencyProperty.Register(nameof(Position), typeof(double), typeof(NetworkDiagram),
         new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsRender, OnPlaybackChanged));
     public static readonly DependencyProperty ByStageProperty = DependencyProperty.Register(nameof(ByStage), typeof(bool), typeof(NetworkDiagram),
@@ -28,7 +31,7 @@ public sealed class NetworkDiagram : FrameworkElement
     public static readonly DependencyProperty UsageProperty = DependencyProperty.Register(nameof(Usage), typeof(NetworkCheckResult), typeof(NetworkDiagram),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
     public NetworkCheckResult? Usage { get => (NetworkCheckResult?)GetValue(UsageProperty); set => SetValue(UsageProperty, value); }
-    private static readonly Pen[] UsagePens = UsagePalette.Bands.Select(band => { var pen = new Pen(band.Fill, 4); pen.Freeze(); return pen; }).ToArray();
+    private static readonly Pen[] UsagePens = UsagePalette.Bands.Select(band => FrozenPen(band.Fill, 4)).ToArray();
     internal static int UsageLevel(int uses, int tested) => UsagePalette.Level(uses, tested);
     private Brush[] valueBrushes = [];
     private Brush[] labelBrushes = [];
@@ -38,12 +41,13 @@ public sealed class NetworkDiagram : FrameworkElement
     private static readonly Brush BandBrush = Frozen("#18394A");
     private static readonly Brush MutedBrush = Frozen("#8DAAB9");
     private static readonly Brush ActiveBrush = Frozen("#F4CA7F");
-    private static readonly Pen FuturePen = new(Frozen("#829AA6"), 3.5);
-    private static readonly Pen UsedPen = new(Frozen("#56C7B4"), 4);
-    private static readonly Pen IdlePen = new(Frozen("#456777"), 3.5);
-    private static readonly Pen ActivePen = new(ActiveBrush, 5);
+    private static readonly Pen StaticChannelPen = FrozenPen(MutedBrush, 1.5);
+    private static readonly Pen FuturePen = FrozenPen(Frozen("#829AA6"), 3.5);
+    private static readonly Pen UsedPen = FrozenPen(Frozen("#56C7B4"), 4);
+    private static readonly Pen IdlePen = FrozenPen(Frozen("#456777"), 3.5);
+    private static readonly Pen ActivePen = FrozenPen(ActiveBrush, 5);
     private static readonly Typeface Typeface = new("Segoe UI");
-    private static readonly Pen PlayheadPen = new(Frozen("#4DF4CA7F"), 1);
+    private static readonly Pen PlayheadPen = FrozenPen(Frozen("#4DF4CA7F"), 1);
     private NetworkLayout? layout;
     public event EventHandler? CompactionCompleted;
     private readonly Stopwatch transitionClock = new();
@@ -102,7 +106,7 @@ public sealed class NetworkDiagram : FrameworkElement
     {
         get
         {
-            if (Trace is not { } trace || layout is null) return 0;
+            if (StaticNetwork is not null || Trace is not { } trace || layout is null) return 0;
             var position = double.IsFinite(Position) ? Math.Clamp(Position, 0, trace.StepCount(ByStage)) : 0;
             var step = (int)Math.Floor(position);
             var from = trace.FrameIndex(step, ByStage);
@@ -126,7 +130,9 @@ public sealed class NetworkDiagram : FrameworkElement
     private static void OnTraceChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var diagram = (NetworkDiagram)sender;
-        diagram.layout = args.NewValue is NetworkTrace trace ? new NetworkLayout(trace) : null;
+        diagram.layout = diagram.StaticNetwork is { } network ? new NetworkLayout(network)
+            : diagram.Trace is { } trace ? new NetworkLayout(trace) : null;
+        diagram.ToolTip = null;
         diagram.UpdatePalette();
         diagram.PlayheadChanged?.Invoke(diagram, EventArgs.Empty);
     }
@@ -135,7 +141,9 @@ public sealed class NetworkDiagram : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        if (Trace is not { } trace || layout is not { } geometry) return;
+        var trace = StaticNetwork is null ? Trace : null;
+        var network = StaticNetwork ?? trace?.Network;
+        if (network is null || layout is not { } geometry) return;
         if (Compaction is { } transition)
         {
             RenderCompaction(dc, transition, (double)GetValue(TransitionProgressProperty));
@@ -143,12 +151,12 @@ public sealed class NetworkDiagram : FrameworkElement
         }
         dc.PushTransform(new ScaleTransform(Zoom, Zoom));
         dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, geometry.Width, geometry.Height));
-        var position = double.IsFinite(Position) ? Math.Clamp(Position, 0, trace.StepCount(ByStage)) : 0;
+        var steps = trace?.StepCount(ByStage) ?? 0;
+        var position = double.IsFinite(Position) ? Math.Clamp(Position, 0, steps) : 0;
         var step = (int)Math.Floor(position);
-        var from = trace.FrameIndex(step, ByStage);
-        var to = trace.FrameIndex(Math.Min(step + 1, trace.StepCount(ByStage)), ByStage);
+        var from = trace?.FrameIndex(step, ByStage) ?? 0;
+        var to = trace?.FrameIndex(Math.Min(step + 1, steps), ByStage) ?? 0;
         var fraction = position - step;
-        var eased = fraction * fraction * (3 - 2 * fraction);
 
         for (var stage = 0; stage < geometry.Bands.Count; stage++)
         {
@@ -157,17 +165,17 @@ public sealed class NetworkDiagram : FrameworkElement
             Text(dc, $"{stage + 1}", (band.Left + band.Right) / 2, 13, MutedBrush, 12, true);
         }
         Text(dc, "Stage", 5, 13, MutedBrush, 11);
-        for (var channel = 0; channel < trace.Network.Width; channel++)
+        for (var channel = 0; channel < network.Width; channel++)
         {
             var y = NetworkLayout.ChannelY(channel);
-            dc.DrawLine(channelPens[channel], new Point(30, y), new Point(geometry.CutoffX - 20, y));
+            dc.DrawLine(trace is null ? StaticChannelPen : channelPens[channel], new Point(30, y), new Point(geometry.CutoffX - 20, y));
             Text(dc, channel.ToString(CultureInfo.InvariantCulture), 10, y - 8, MutedBrush, 11);
         }
 
         foreach (var ce in geometry.Comparators)
         {
-            var pen = ce.Index >= from && ce.Index < to ? ActivePen : ce.Index < from ? trace.SwapCounts[ce.Index] > 0 ? UsedPen : IdlePen : FuturePen;
-            if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == trace.Network.ComparatorCount)
+            var pen = ce.Index >= from && ce.Index < to ? ActivePen : trace is not null && ce.Index < from ? trace.SwapCounts[ce.Index] > 0 ? UsedPen : IdlePen : FuturePen;
+            if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == network.ComparatorCount)
                 pen = UsagePens[UsageLevel(usage.CeUses[ce.Index], usage.Tested)];
             var low = new Point(ce.X, NetworkLayout.ChannelY(ce.Low));
             var high = new Point(ce.X, NetworkLayout.ChannelY(ce.High));
@@ -176,6 +184,22 @@ public sealed class NetworkDiagram : FrameworkElement
             dc.DrawEllipse(pen.Brush, null, high, 3, 3);
         }
 
+        if (trace is not null) DrawSortables(dc, geometry, trace, from, to, fraction);
+        if (geometry.Bands.Count < network.StageCount)
+        {
+            var edge = geometry.CutoffX;
+            dc.DrawLine(ActivePen, new Point(edge, 35), new Point(edge, geometry.Height - 18));
+            Text(dc, "Display cutoff — network continues", edge + 16, 42, ActiveBrush, 14);
+            Text(dc, $"Showing {geometry.Bands.Count:N0} of {network.StageCount:N0} stages", edge + 16, 65, MutedBrush, 12);
+            Text(dc, $"and {geometry.Comparators.Count:N0} of {network.ComparatorCount:N0} CEs.", edge + 16, 83, MutedBrush, 12);
+            Text(dc, "Testing and edits use the full network.", edge + 16, 105, MutedBrush, 12);
+        }
+        dc.Pop();
+    }
+
+    private void DrawSortables(DrawingContext dc, NetworkLayout geometry, NetworkTrace trace, int from, int to, double fraction)
+    {
+        var eased = fraction * fraction * (3 - 2 * fraction);
         var x = Interpolate(geometry.FrameX[from], geometry.FrameX[to], eased);
         dc.DrawLine(PlayheadPen, new Point(x, 35), new Point(x, geometry.Height - 18));
         for (var token = 0; token < trace.Network.Width; token++)
@@ -190,16 +214,6 @@ public sealed class NetworkDiagram : FrameworkElement
             dc.DrawEllipse(valueBrushes[token], new Pen(labelBrushes[token], 1.5), new Point(tokenX, y), 10, 10);
             Text(dc, value.ToString(CultureInfo.InvariantCulture), tokenX, y - 8, labelBrushes[token], 11, true);
         }
-        if (trace.IsPreview)
-        {
-            var edge = geometry.CutoffX;
-            dc.DrawLine(ActivePen, new Point(edge, 35), new Point(edge, geometry.Height - 18));
-            Text(dc, "Display cutoff — network continues", edge + 16, 42, ActiveBrush, 14);
-            Text(dc, $"Showing {trace.DisplayStageCount:N0} of {trace.Network.StageCount:N0} stages", edge + 16, 65, MutedBrush, 12);
-            Text(dc, $"and {trace.Comparators.Count:N0} of {trace.Network.ComparatorCount:N0} CEs.", edge + 16, 83, MutedBrush, 12);
-            Text(dc, "Testing and edits use the full network.", edge + 16, 105, MutedBrush, 12);
-        }
-        dc.Pop();
     }
 
     internal void RenderCompaction(DrawingContext dc, CompactionTransition transition, double progress)
@@ -316,6 +330,13 @@ public sealed class NetworkDiagram : FrameworkElement
     }
 
     private static double Interpolate(double from, double to, double fraction) => from + (to - from) * fraction;
+    private static Pen FrozenPen(Brush brush, double width)
+    {
+        var pen = new Pen(brush, width);
+        pen.Freeze();
+        return pen;
+    }
+
     private static Brush Frozen(string color)
     {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
@@ -328,6 +349,6 @@ public sealed class NetworkDiagram : FrameworkElement
     {
         protected override string GetClassNameCore() => nameof(NetworkDiagram);
         protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Image;
-        protected override string GetNameCore() => owner.Trace is { } trace ? $"Sorting network, {trace.Network.Label}, {trace.Network.StageCount} stages. Current values are shown below the diagram." : "Sorting network";
+        protected override string GetNameCore() => owner.StaticNetwork is { } network ? $"Sorting network, {network.Label}, {network.StageCount} stages, {network.ComparatorCount} comparators." : owner.Trace is { } trace ? $"Sorting network, {trace.Network.Label}, {trace.Network.StageCount} stages. Current values are shown below the diagram." : "Sorting network";
     }
 }

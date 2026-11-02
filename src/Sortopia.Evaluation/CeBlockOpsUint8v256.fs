@@ -66,28 +66,17 @@ module CeBlockOpsUint8v256 =
         failures
 
 
-    let evalSimdSortBlocks
-            (simdSortableBlocks: sortBlockUint8v256 seq)
+    let private countFailures
+            (simdSortableBlocks: sortBlockUint8v256[])
             (prefix: ceBlock)
             (ceBlocks: ceBlock array)
             : ceBlockEval [] =
-
-            if isNull ceBlocks then nullArg "ceBlocks"
-
-            let simdSortableBlocks = simdSortableBlocks |> Seq.toArray
-
-            for block in simdSortableBlocks do
-
-                for network in ceBlocks do CeBlock.validateWidth (UMX.tag block.Length) prefix network
 
             let numNetworks = ceBlocks.Length
             if numNetworks = 0 then [||] else
 
             let maxWidth = ceBlocks |> Array.maxBy (fun c -> %c.ChannelCount) |> (fun c -> %c.ChannelCount)
-            let networkData = ceBlocks |> Array.map (fun ceb ->
-                {| Lows = ceb.CeArray |> Array.map (fun c -> (int c.LowChannel))
-                   Highs = ceb.CeArray |> Array.map (fun c -> (int c.HighChannel))
-                   CeLen = ceb.CeArray.Length |})
+            let networkData = Array.map SimdBatch.comparatorChannels ceBlocks
 
             let globalUsage = Array.init numNetworks (fun i -> ceUseCounts.Create(ceBlocks.[i].CeLength))
             let globalUnsorted = Array.zeroCreate<int> numNetworks
@@ -96,7 +85,7 @@ module CeBlockOpsUint8v256 =
                 simdSortableBlocks,
                 // 1. Initialize Thread-Local State (TLS)
                 (fun () ->
-                    let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].CeLen)
+                    let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
                     let unsorted = Array.zeroCreate<int> numNetworks
                     let buffer = Array.zeroCreate<Vector256<uint8>> maxWidth
                     (usage, unsorted, buffer)),
@@ -105,12 +94,13 @@ module CeBlockOpsUint8v256 =
                 // Explicit type annotations for the state tuple to satisfy the F# compiler
                 (fun currentBlock loopState (localUsage: int [][], localUnsorted: int [], workBuffer: Vector256<uint8> []) ->
                     let currentLen = currentBlock.Length
+                    let source = currentBlock.Vectors
 
                     for nIdx = 0 to numNetworks - 1 do
                         // Copy source vectors to local work buffer
-                        Array.blit currentBlock.Vectors 0 workBuffer 0 currentLen
+                        Array.blit source 0 workBuffer 0 currentLen
                         let data = networkData.[nIdx]
-                        let ceCount = data.CeLen
+                        let ceCount = data.Lows.Length
                         let currentNetUsage = localUsage.[nIdx]
 
                         // --- Hot Loop: Compare and Swap ---
@@ -155,14 +145,16 @@ module CeBlockOpsUint8v256 =
                 ceBlockEval.create prefix ceBlocks.[i] globalUsage.[i] (globalUnsorted.[i] |> UMX.tag) None
             )
 
+    let evalSimdSortBlocks (simdSortableBlocks: sortBlockUint8v256 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
+        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v256) -> block.Length) prefix ceBlocks simdSortableBlocks
+        countFailures inputs prefix ceBlocks
 
     let eval
             (test: sortableUint8v256Tests)
             (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
-            //let chunkedStream = test.SimdSortBlocks |> Seq.chunkBySize chunkSize
-            //evalSimdSortBlockChunks chunkedStream ceBlocks
-            evalSimdSortBlocks test.SimdSortBlocks prefix ceBlocks
+            CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+            countFailures test.SimdSortBlocks prefix ceBlocks
 
 
     /// Computes a hash for a single lane across all vectors in the block.
@@ -174,30 +166,18 @@ module CeBlockOpsUint8v256 =
         h
 
 
-    let evalAndCollectUniqueFailures
-            (simdSortableBlocks: sortBlockUint8v256 seq)
+    let private collectFailures
+            (simdSortableBlocks: sortBlockUint8v256[])
             (prefix: ceBlock)
             (ceBlocks: ceBlock array)
             : ceBlockEval [] =
-
-        if isNull ceBlocks then nullArg "ceBlocks"
-
-        let simdSortableBlocks = simdSortableBlocks |> Seq.toArray
-
-        for block in simdSortableBlocks do
-
-            for network in ceBlocks do CeBlock.validateWidth (UMX.tag block.Length) prefix network
 
         let numNetworks = ceBlocks.Length
         if numNetworks = 0 then [||] else
 
         // Pre-calculate network metadata for fast access in the hot loop
         let maxWidth = ceBlocks |> Array.maxBy (fun c -> %c.ChannelCount) |> (fun c -> %c.ChannelCount)
-        let networkData = ceBlocks |> Array.map (fun ceb ->
-            {| Lows = ceb.CeArray |> Array.map (fun c -> (int c.LowChannel))
-               Highs = ceb.CeArray |> Array.map (fun c -> (int c.HighChannel))
-               ChannelCount = ceb.ChannelCount
-               CeLen = ceb.CeArray.Length |})
+        let networkData = Array.map SimdBatch.comparatorChannels ceBlocks
 
         // Final global storage
         let globalUsage = Array.init numNetworks (fun i -> ceUseCounts.Create(ceBlocks.[i].CeLength))
@@ -211,19 +191,20 @@ module CeBlockOpsUint8v256 =
             simdSortableBlocks,
             // 1. Initialize Thread-Local State (TLS) - Removed unsorted tracking array
             (fun () ->
-                let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].CeLen)
+                let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
                 let buffer = Array.zeroCreate<Vector256<uint8>> maxWidth
                 (usage, buffer)),
 
             // 2. The Hot Loop (Processing one block at a time)
             (fun currentBlock loopState ((localUsage: int [][]), workBuffer) ->
                 let currentLen = currentBlock.Length
+                let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
                     // Blit current vectors into the reusable thread-local buffer
-                    Array.blit currentBlock.Vectors 0 workBuffer 0 currentLen
+                    Array.blit source 0 workBuffer 0 currentLen
                     let data = networkData.[nIdx]
-                    let ceCount = data.CeLen
+                    let ceCount = data.Lows.Length
 
                     // --- Hot Loop: CAS Sorting ---
                     for cIdx = 0 to ceCount - 1 do
@@ -281,8 +262,13 @@ module CeBlockOpsUint8v256 =
                 failTest
         )
 
+    let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockUint8v256 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
+        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v256) -> block.Length) prefix ceBlocks simdSortableBlocks
+        collectFailures inputs prefix ceBlocks
+
     let evalAndCollectNewSortableTests
                     (test: sortableUint8v256Tests)
                     (prefix: ceBlock)
                     (ceBlocks: ceBlock []) =
-        evalAndCollectUniqueFailures test.SimdSortBlocks prefix ceBlocks
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        collectFailures test.SimdSortBlocks prefix ceBlocks

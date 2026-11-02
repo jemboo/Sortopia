@@ -13,20 +13,26 @@ public sealed class NetworkLayout
     public const double ChannelSpacing = 28;
     public static double ChannelY(double channel) => TopMargin + channel * ChannelSpacing;
 
-    public NetworkLayout(NetworkTrace trace)
+    public NetworkLayout(NetworkTrace trace) : this(trace.Network, trace.DisplayStageCount) { }
+    public NetworkLayout(NetworkDefinition network) : this(network, NetworkTrace.PreviewStages(network)) { }
+
+    private NetworkLayout(NetworkDefinition network, int stageCount)
     {
         var bands = new List<StageBand>();
         var comparators = new List<ComparatorPosition>();
-        var frameX = new double[trace.Comparators.Count + 1];
+        var frameX = new double[network.StageLengths.Take(stageCount).Sum() + 1];
         frameX[0] = LeftMargin - 18;
         double left = LeftMargin;
-        for (var stage = 0; stage < trace.DisplayStageCount; stage++)
+        var offset = 0;
+        for (var stage = 0; stage < stageCount; stage++)
         {
             int column = 0;
             var occupied = new List<ComparatorEndpoints>();
-            for (var index = trace.StageBoundaries[stage]; index < trace.StageBoundaries[stage + 1]; index++)
+            var end = offset + network.StageLengths[stage];
+            for (var index = offset; index < end; index++)
             {
-                var ce = trace.Comparators[index];
+                var comparator = network.Comparators[index];
+                var ce = new ComparatorEndpoints(comparator.LowChannel, comparator.HighChannel);
                 if (occupied.Any(other => ce.Low <= other.High && other.Low <= ce.High))
                 {
                     column++;
@@ -39,15 +45,16 @@ public sealed class NetworkLayout
             }
             var right = left + 36 + column * 12;
             bands.Add(new StageBand(left, right));
-            frameX[trace.StageBoundaries[stage + 1]] = right - 6;
+            offset = end;
+            frameX[end] = right - 6;
             left = right;
         }
         Bands = bands.AsReadOnly();
         Comparators = comparators.AsReadOnly();
         FrameX = Array.AsReadOnly(frameX);
         CutoffX = left + 36;
-        Width = CutoffX + (trace.IsPreview ? 310 : 0);
-        Height = ChannelY(trace.Network.Width - 1) + 42;
+        Width = CutoffX + (stageCount < network.StageCount ? 310 : 0);
+        Height = ChannelY(network.Width - 1) + 42;
     }
 
     public IReadOnlyList<StageBand> Bands { get; }

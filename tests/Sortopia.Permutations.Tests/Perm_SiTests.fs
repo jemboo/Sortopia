@@ -155,3 +155,16 @@ type PermSiTests() =
     let ``mutatePerm_Sis throws on invalid input permutation`` () =
         let invalidPerm = permutation.createUnsafe [|1; 1; 2; 3|] // Not a valid permutation
         Assert.Throws<Exception>(fun () -> permSi.create invalidPerm.Array |> ignore)
+
+    [<Theory>]
+    [<InlineData(true, 4)>]
+    [<InlineData(false, 4)>]
+    [<InlineData(true, 1)>]
+    member _.``Mutating an idle wire preserves a valid matching`` (ortho: bool, second: int) =
+        let original, expected =
+            if second = 4 then [|1; 0; 3; 2; 4|], [|0; 4; 3; 2; 1|]
+            else [|0; 2; 1; 4; 3|], [|2; 1; 0; 4; 3|]
+        let picks = Collections.Generic.Queue<int>([0; second])
+        let mode = if ortho then MutationMode.Ortho else MutationMode.Para
+        let changed = PermSi.mutate (fun _ -> picks.Dequeue()) mode (permSi.create original)
+        Assert.Equal<int[]>(expected, changed.Array)

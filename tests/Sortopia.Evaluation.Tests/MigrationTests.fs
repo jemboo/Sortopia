@@ -155,6 +155,77 @@ module MigrationTests =
 
     let private roundTrip<'T> (dto: 'T) = MessagePackSetup.serialize dto |> MessagePackSetup.deserialize<'T>
 
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``empty batches and datasets respect their declared widths`` (collect: bool) =
+        let valid, wrong = block 2 [||], block 3 [||]
+        for inputs in formats [||] 2 do
+            let evaluate = CeBlockOps.evalWithSorterTests inputs
+            let run prefix networks = evaluate prefix networks (UMX.tag collect)
+            Assert.Empty(run ceBlock.Empty [||])
+            let result = Assert.Single(run valid [| valid |])
+            int result.UnsortedCount |> should equal 0
+            Assert.Throws<ArgumentException>(fun () -> run ceBlock.Empty [| valid; wrong |] |> ignore) |> ignore
+            Assert.Throws<ArgumentException>(fun () -> run wrong [||] |> ignore) |> ignore
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``typed SIMD evaluators validate width without any vector blocks`` collect =
+        let wrong = block 3 [||]
+        for inputs in formats [||] 2 do
+            let check evaluate =
+                Assert.Throws<ArgumentException>(fun () -> evaluate ceBlock.Empty [| wrong |] |> ignore) |> ignore
+            match inputs with
+            | sortableTests.Bitv512 t ->
+                check (if collect then CeBlockOpsBitv512.evalAndCollectNewSortableTests t else CeBlockOpsBitv512.eval t)
+            | sortableTests.Uint8v256 t ->
+                check (if collect then CeBlockOpsUint8v256.evalAndCollectNewSortableTests t else CeBlockOpsUint8v256.eval t)
+            | sortableTests.Uint8v512 t ->
+                check (if collect then CeBlockOpsUint8v512.evalAndCollectNewSortableTests t else CeBlockOpsUint8v512.eval t)
+            | _ -> ()
+
+    [<Fact>]
+    let ``atomic increments preserve the last representable count under contention`` () =
+        let counts = ceUseCounts.CreateFromArray [| Int32.MaxValue - 1 |]
+        let overflowed =
+            [| 1; 2 |] |> Array.Parallel.map (fun _ ->
+                try
+                    counts.IncrementAtomic 0<ceIndex>
+                    false
+                with :? OverflowException -> true)
+        overflowed |> Array.filter id |> Array.length |> should equal 1
+        Assert.Throws<OverflowException>(fun () -> counts.IncrementAtomicBy 0<ceIndex> 2) |> ignore
+        counts[0<ceIndex>] |> should equal Int32.MaxValue
+
+    [<Fact>]
+    let ``one channel sorter produces all three result versions`` () =
+        let network = sorter.create (UMX.tag (Guid.NewGuid())) 1<channelCount> [||]
+        let inputs = (formats [| [|1|]; [|0|] |] 1)[0]
+        for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
+            let result = SorterSetEval.makeSorterEvals [|network|] ceBlock.Empty inputs version (UMX.tag true) |> Array.exactlyOne
+            let actualVersion =
+                match result with
+                | sorterEval.V1 _ -> sorterEvalType.V1
+                | sorterEval.V2 _ -> sorterEvalType.V2
+                | sorterEval.V3 _ -> sorterEvalType.V3
+            actualVersion |> should equal version
+            SorterEval.getUnsortedCount result |> int |> should equal 0
+            SorterEval.getStageLength result |> int |> should equal 0
+            SorterEval.getCeLength result |> int |> should equal 0
+            SorterEval.getLastCeIndex result |> int |> should equal -1
+            SorterEval.getIsShortEnough 0<ceLength> result |> should equal true
+
+    [<Fact>]
+    let ``length cutoff excludes a required comparator just beyond the cutoff`` () =
+        let inputs = (formats [| [|1;0|] |] 2)[0]
+        let result = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty (block 2 [|ce.create 0 0; ce.create 0 1|]) (UMX.tag true)
+        for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
+            let evaluation = SorterEval.create version (UMX.tag (Guid.NewGuid())) result
+            SorterEval.getIsShortEnough 1<ceLength> evaluation |> should equal false
+            SorterEval.getIsShortEnough 2<ceLength> evaluation |> should equal true
+
     [<Fact>]
     let ``sequence fingerprint has a stable versioned golden value`` () =
         let network = block 3 [|ce.create 0 1|]

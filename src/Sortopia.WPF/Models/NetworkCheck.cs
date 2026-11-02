@@ -15,6 +15,7 @@ public static class NetworkCheck
 {
     public const int MaxExhaustiveWidth = 18;
     public const int MaxSamples = 1_000_000;
+    internal const int SampleSeed = 8675309;
 
     public static NetworkCheckResult Run(NetworkDefinition network, CancellationToken cancellationToken) =>
         Run(network, network.Width <= MaxExhaustiveWidth ? null : 4096, cancellationToken);
@@ -23,12 +24,9 @@ public static class NetworkCheck
     public static NetworkCheckResult Run(NetworkDefinition network, int? samples, CancellationToken cancellationToken,
         IProgress<int>? progress = null)
     {
-        if (samples is null && network.Width > MaxExhaustiveWidth)
-            throw new ArgumentOutOfRangeException(nameof(samples), "All inputs is available only through 18 channels.");
-        if (samples is < 1 or > MaxSamples) throw new ArgumentOutOfRangeException(nameof(samples));
         var exhaustive = samples is null;
-        var count = samples ?? (1 << network.Width);
-        var random = new Random(8675309);
+        var count = InputCount(network.Width, samples);
+        var random = exhaustive ? null : new Random(SampleSeed);
         var input = new int[network.Width];
         var working = new int[network.Width];
         var uses = new int[network.ComparatorCount];
@@ -37,8 +35,7 @@ public static class NetworkCheck
         for (var index = 0; index < count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            for (var wire = 0; wire < input.Length; wire++)
-                input[wire] = exhaustive ? (index >> wire) & 1 : random.Next(2);
+            FillInput(input, index, random);
             input.CopyTo(working, 0);
             for (var ceIndex = 0; ceIndex < network.Comparators.Length; ceIndex++)
             {
@@ -70,5 +67,19 @@ public static class NetworkCheck
             if ((index + 1) % 1024 == 0 || index + 1 == count) progress?.Report(index + 1);
         }
         return new(count, exhaustive, counterexample, failed, Array.AsReadOnly(uses));
+    }
+
+    internal static int InputCount(int width, int? samples)
+    {
+        if (samples is null && width > MaxExhaustiveWidth)
+            throw new ArgumentOutOfRangeException(nameof(samples), "All inputs is available only through 18 channels.");
+        if (samples is < 1 or > MaxSamples) throw new ArgumentOutOfRangeException(nameof(samples));
+        return samples ?? (1 << width);
+    }
+
+    internal static void FillInput(int[] input, int index, Random? random)
+    {
+        for (var wire = 0; wire < input.Length; wire++)
+            input[wire] = random is null ? (index >> wire) & 1 : random.Next(2);
     }
 }
