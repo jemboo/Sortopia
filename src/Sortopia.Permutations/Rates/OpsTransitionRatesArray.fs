@@ -10,7 +10,7 @@ type opsTransitionRatesArray =
 
     static member create (rates: opsTransitionRates array) : opsTransitionRatesArray =
         let rates = Array.copy rates
-        if Array.isEmpty rates then failwith "opsTransitionRatesArray cannot be empty"
+        // A seed-width unfolder mutates only its seed.
         
         { opsTransitionRates = rates }
 

@@ -16,6 +16,124 @@ namespace Sortopia.WPF.Tests;
 
 public sealed class RandomNetworkTests
 {
+    [Fact]
+    public void Setup_refreshes_the_editable_stage_default_when_the_sorting_problem_changes()
+    {
+        var settings = new SgdPageViewModel(() => { }).Generator;
+        Assert.Equal("40", settings.CountText);
+        settings.Method = "mssi";
+        Assert.Equal("49", settings.CountText);
+        settings.ChannelCount = 10;
+        Assert.Equal("62", settings.CountText);
+        Assert.Contains("estimate", settings.StageDefaultDescription);
+        settings.CountText = "7";
+        settings.SeedText = "123";
+        Assert.Equal(7, settings.Snapshot().Size);
+        settings.SamplesText = "";
+        Assert.Equal("7", settings.CountText);
+        settings.SamplesText = "32";
+        Assert.Equal("62", settings.CountText);
+        settings.CountText = "9";
+        settings.SamplesText = "all";
+        Assert.Equal("62", settings.CountText);
+        settings.ChannelCount = 24;
+        Assert.Equal("4096", settings.SamplesText);
+        Assert.Equal("215", settings.CountText);
+        Assert.Contains("measured", settings.StageDefaultDescription);
+    }
+
+    [Fact]
+    public void Generation_step_uses_distinct_seed_and_unfolding_distributions()
+    {
+        var vm = new SgdPageViewModel(() => { });
+        vm.Generator.Method = "msuf6";
+        vm.Generator.ChannelCount = 24;
+        vm.Generator.CountText = "5";
+        var groups = vm.GenerationOptions.Distributions;
+        Assert.Equal(new[] { 7, 3, 3 }, groups.Select(g => g.Weights.Length));
+        foreach (var weight in groups.SelectMany(g => g.Weights)) weight.Value = 0;
+        Assert.False(vm.GenerateCommand.CanExecute(null));
+        groups[0].Weights[5].Value = 1; // Para 4 seed
+        groups[1].Weights[1].Value = 0.5; // First unfolding is entirely para
+        groups[2].Weights[0].Value = 1; // Second unfolding is entirely ortho
+        Assert.True(vm.GenerateCommand.CanExecute(null));
+        var recipe = vm.Generator.Snapshot();
+        var model = Assert.IsType<Sortopia.Models.Sorting.Simple.simpleSorterModel.Msuf6>(recipe.CreateModel());
+        Assert.Equal(5, model.Item.TwoOrbitUnfolder6s.Length);
+        Assert.All(model.Item.TwoOrbitUnfolder6s, stage =>
+        {
+            Assert.True(stage.Seed6TwoOrbitType.IsPara4);
+            Assert.All(stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
+            Assert.All(stage.TwoOrbitUnfolderSteps[1].TwoOrbitPairTypes, pair => Assert.True(pair.IsOrtho));
+        });
+    }
+
+    [Theory]
+    [InlineData(4, 1)]
+    [InlineData(8, 2)]
+    public void Small_UF4_widths_generate_and_evolve_with_the_available_unfolding_steps(int width, int distributions)
+    {
+        var vm = new SgdPageViewModel(() => { });
+        vm.Generator.Method = "msuf4";
+        vm.Generator.ChannelCount = width;
+        Assert.Equal(distributions, vm.GenerationOptions.Distributions.Count);
+        var model = vm.Generator.Snapshot().CreateModel();
+        var child = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(
+            vm.Mutation.Create(model), model, 0, 1);
+        Assert.Equal(width, RandomNetwork.toStages(child).ChannelCount);
+    }
+
+    [Theory]
+    [InlineData("msce", 4, 1)]
+    [InlineData("mssi", 3, 2)]
+    [InlineData("msrs", 4, 1)]
+    [InlineData("msuf4", 5, 2)]
+    [InlineData("msuf6", 5, 1)]
+    public void Mutation_controls_match_family_parameters(string method, int count, int variants)
+    {
+        var settings = new SorterMutationSettings();
+        settings.SelectMethod(method);
+        Assert.Equal(count, settings.Parameters.Count);
+        Assert.Equal(variants, settings.Variants.Length);
+        Assert.Equal(method == "msce", settings.CanExcludeSelf);
+        Assert.All(settings.Parameters, parameter => Assert.InRange(parameter.Value, 0.001, 1));
+    }
+
+    [Fact]
+    public void Mutation_slider_spans_three_equal_decades()
+    {
+        var parameter = new MutationParameter("Rate", 0.1);
+        Assert.Equal(-1, parameter.LogValue);
+        parameter.Value = 0;
+        Assert.Equal(0.001, parameter.Value);
+        Assert.Equal(-3, parameter.LogValue);
+        parameter.LogValue = -2;
+        Assert.Equal(0.01, parameter.Value);
+        parameter.LogValue = -1.5;
+        Assert.Equal(Math.Sqrt(0.001), parameter.Value, 12);
+        parameter.LogValue = 0;
+        Assert.Equal(1, parameter.Value);
+    }
+
+    [Fact]
+    public void Custom_ce_mutation_uses_native_insertion_parameters()
+    {
+        var model = RandomNetwork.generateModel("msce", 8, 12, Guid.NewGuid());
+        var settings = new SorterMutationSettings();
+        settings.SelectMethod("msce");
+        settings.Parameters[0].Value = 1;
+        settings.Parameters[1].LogValue = -2;
+        settings.Parameters[2].LogValue = -1;
+        var mutator = settings.Create(model);
+        var expected = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.getMsceModelMutator(
+            Sortopia.Core.rngFactory.SmxFactory, true, 1, 0.01, 0.1, 0.001, Sortopia.Models.Sorting.mutatorVariant.V1);
+        Assert.Equal(expected, mutator);
+        var mutant = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(mutator, model, 0, 1);
+        var replay = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(expected, model, 0, 1);
+        Assert.Equal(new NetworkDefinition("expected", RandomNetwork.toStages(replay)).Comparators,
+            new NetworkDefinition("child", RandomNetwork.toStages(mutant)).Comparators);
+    }
+
     [Theory]
     [InlineData("msce", 7, 19)]
     [InlineData("mssi", 7, 5)]
@@ -695,6 +813,8 @@ public sealed class RandomNetworkTests
         // A two-channel sorter is already correct. Evolution still counts generations and retains the tied parent.
         vm.Generator.ChannelCount = 2;
         vm.Generator.CountText = "8";
+        Assert.False(vm.RunSgdCommand.CanExecute(null));
+        CompleteRun(vm.GenerateAsync);
         vm.PropertyChanged += (_, change) =>
         {
             if (change.PropertyName == nameof(vm.Generation) && vm.Generation == 2) vm.StopCommand.Execute(null);
@@ -757,14 +877,14 @@ public sealed class RandomNetworkTests
     public void Sgd_records_every_evaluated_child_in_order_without_counting_the_winner_twice() => OnSta(() =>
     {
         var vm = new SgdPageViewModel(() => { });
-        // Child two sorts all inputs. The next child plots at a smaller size but fails six inputs.
+        // Child two sorts all inputs. The next child plots at a smaller size but fails two inputs.
         vm.Generator.ChannelCount = 4;
-        vm.Generator.CountText = "7";
-        vm.Generator.SeedText = "15";
+        vm.Generator.CountText = "4";
+        vm.Generator.SeedText = "44";
         var recipe = vm.Generator.Snapshot();
         var token = TestContext.Current.CancellationToken;
         var parent = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), null, token);
-        var mutator = RandomNetwork.createMutator(parent.Model, vm.MutationRate);
+        var mutator = vm.Mutation.Create(parent.Model);
         var best = parent;
         var expected = new List<Point> { parent.Position };
         var expectedFailures = new List<int> { parent.Usage.Failed };
@@ -796,7 +916,7 @@ public sealed class RandomNetworkTests
         };
         CompleteRun(vm.GenerateAsync);
         CompleteRun(vm.RunSgdAsync);
-        Assert.Equal(new[] { 1, 1, 0, 6, 1 }, expectedFailures);
+        Assert.Equal(new[] { 1, 1, 0, 2, 1 }, expectedFailures);
         Assert.Equal(expected, recorded);
         Assert.Equal(expectedBest, recordedBest);
         Assert.Equal(expectedFailures.Select(n => $"{n:N0} failures across all {parent.Usage.Tested:N0} binary inputs"), recordedSummaries);
@@ -813,12 +933,13 @@ public sealed class RandomNetworkTests
         var vm = new SgdPageViewModel(() => { });
         vm.Generator.ChannelCount = 4;
         vm.Generator.CountText = "1";
+        vm.Generator.SeedText = "3";
         CompleteRun(vm.GenerateAsync);
         Assert.True(vm.Usage!.Failed > 0);
         Assert.Equal("Best: No zero-failure sorter plotted", vm.BestGraphTitle);
         Assert.Null(vm.BestPosition);
 
-        vm.Generator.CountText = "32";
+        vm.Generator.CountText = "16";
         vm.Generator.SeedText = "1";
         CompleteRun(vm.GenerateAsync);
         Assert.Equal(0, vm.Usage.Failed);
@@ -891,40 +1012,43 @@ public sealed class RandomNetworkTests
     });
 
     [Fact]
-    public void Seed_sampling_stops_from_Generate_and_keeps_every_draw_until_Clear() => OnSta(() =>
+    public void Generation_counts_completed_sorters_across_sampling_and_single_draws_until_clear() => OnSta(() =>
     {
         var vm = new SgdPageViewModel(() => { });
         vm.Generator.ChannelCount = 2;
         vm.Generator.CountText = "8";
         vm.NewSeedCommand.Execute(null);
-        var labels = new List<string>();
         vm.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(vm.GenerateLabel)) labels.Add(vm.GenerateLabel);
             if (change.PropertyName == nameof(vm.Network) && vm.GeneratedCount == 3)
-                vm.GenerateCommand.Execute(null);
+                vm.StopCommand.Execute(null);
         };
         CompleteRun(() => vm.GenerateAsync().WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Equal(new[] { "0", "1", "2", "3", "Generate" }, labels);
+        Assert.Equal("3 / 0", vm.GenerationOutcomes);
         Assert.Equal(0, vm.GeneratedCount);
-        Assert.Equal("Generate", vm.GenerateLabel);
         Assert.Single(vm.Visits.Counts);
         Assert.Equal(3, vm.Visits.Counts[new Point(1, 1)]);
         CompleteRun(vm.GenerateAsync);
         Assert.Equal(4, vm.Visits.Maximum);
-        labels.Clear();
+        Assert.Equal("4 / 0", vm.GenerationOutcomes);
         vm.NewSeedCommand.Execute(null);
         CompleteRun(() => vm.GenerateAsync().WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Equal(new[] { "0", "1", "2", "3", "Generate" }, labels);
+        Assert.Equal("7 / 0", vm.GenerationOutcomes);
         Assert.Equal(7, vm.Visits.Maximum);
         Assert.Equal(0, vm.GeneratedCount);
+        vm.Generator.ChannelCount = 8;
+        vm.Generator.CountText = "1";
+        CompleteRun(vm.GenerateAsync);
+        Assert.True(vm.Usage!.Failed > 1);
+        Assert.Equal("7 / 1", vm.GenerationOutcomes);
         var current = vm.Network;
         vm.ClearGraphCommand.Execute(null);
+        Assert.Equal("0 / 0", vm.GenerationOutcomes);
         Assert.Empty(vm.Visits.Counts);
         Assert.Null(vm.Visits.Current);
         Assert.Equal(0, vm.Visits.Maximum);
         Assert.Same(current, vm.Network);
-        Assert.True(vm.RunSgdCommand.CanExecute(null));
+        Assert.False(vm.RunSgdCommand.CanExecute(null));
     });
 
     [Fact]
@@ -954,7 +1078,7 @@ public sealed class RandomNetworkTests
         Assert.NotNull(seed);
         var token = TestContext.Current.CancellationToken;
         var parent = NetworkSearch.Prepare(seed.Label, seed.CreateModel(), null, token);
-        var mutator = RandomNetwork.createMutator(parent.Model, vm.MutationRate);
+        var mutator = vm.Mutation.Create(parent.Model);
         Assert.Equal(parent.Position, lastDraw);
         CompleteRun(async () =>
         {
@@ -1150,10 +1274,18 @@ public sealed class RandomNetworkTests
             channels.SetCurrentValue(ComboBox.SelectedItemProperty, 16);
             Assert.Equal(16, channels.SelectedItem);
             Assert.Equal(deferSelection ? 8 : 16, vm.Generator.ChannelCount);
+            Assert.Equal(1, vm.WizardStep);
+            Assert.False(vm.EvolutionStepCommand.CanExecute(null));
+            vm.GenerationStepCommand.Execute(null);
+            Layout();
+            Assert.Equal(2, vm.WizardStep);
             CompleteRun(async () =>
             {
                 var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.Network)) published.TrySetResult(); };
+                vm.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(vm.CanEdit) && vm.EvolutionStepCommand.CanExecute(null)) published.TrySetResult();
+                };
                 var peer = new ButtonAutomationPeer(generate);
                 ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)!).Invoke();
                 await published.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1162,6 +1294,10 @@ public sealed class RandomNetworkTests
             Assert.Equal(16, vm.Network!.Width);
             Assert.True(vm.Usage!.Exhaustive);
             Assert.Equal(65_536, vm.Usage.Tested);
+            Assert.Equal(vm.Usage.Failed, vm.GenerationResult!.Failures);
+            Assert.Equal(vm.Usage.Tested, vm.GenerationResult.Inputs);
+            vm.EvolutionStepCommand.Execute(null);
+            Assert.Equal(3, vm.WizardStep);
             Assert.StartsWith("16 channels", ((TextBlock)page.FindName("UsageLegendTitle")).Text);
         }
         finally { window.Close(); }
@@ -1193,6 +1329,8 @@ public sealed class RandomNetworkTests
         Assert.False(vm.Generator.CanTestAll);
         Assert.Equal("4096", vm.Generator.SamplesText);
         vm.Generator.SamplesText = "513";
+        Assert.False(vm.RunSgdCommand.CanExecute(null));
+        CompleteRun(vm.GenerateAsync);
         vm.Children = 1;
         vm.PropertyChanged += (_, change) =>
         {

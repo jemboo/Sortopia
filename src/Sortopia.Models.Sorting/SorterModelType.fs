@@ -21,11 +21,11 @@ module SimpleSorterModelType =
 
     let fromString (s:string) : simpleSorterModelType =
         match s with
-        | "Msce" -> Msce
-        | "Mssi" -> Mssi
-        | "Msrs" -> Msrs
-        | "Msuf4" -> Msuf4
-        | "Msuf6" -> Msuf6
+        | "Msce" | "msce" -> Msce
+        | "Mssi" | "mssi" -> Mssi
+        | "Msrs" | "msrs" -> Msrs
+        | "Msuf4" | "msuf4" -> Msuf4
+        | "Msuf6" | "msuf6" -> Msuf6
         | _ -> failwithf "Unknown SorterModelType: %s" s
 
     /// Match the channel-count constraints of the uniform model generators.

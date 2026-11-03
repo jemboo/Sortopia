@@ -19,7 +19,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <DockPanel Margin="0,0,0,8">
-                <Button DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}"
+                <Button Style="{StaticResource PageReturnButtonStyle}" DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}"
                         Margin="16,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="Back to Sortopia" />
                 <StackPanel>
                     <TextBlock Text="Random Networks" FontSize="24" FontWeight="SemiBold" Foreground="White" />

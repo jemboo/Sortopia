@@ -6,6 +6,7 @@
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Sorting/SimpleSorterStageCountsTests.fs" />
     <Compile Include="Sorting/Sorter/Ce/MsceRandMutateTests.fs" />
     <Compile Include="Sorting/Sorter/Ce/MsceRandGenTests.fs" />
     <Compile Include="Sorting/Sorter/Si/MssiMutateTests.fs" />

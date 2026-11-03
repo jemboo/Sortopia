@@ -10,7 +10,7 @@ type opsGenRatesArray =
 
     static member create (rates: opsGenRates array) : opsGenRatesArray =
         let rates = Array.copy rates
-        if Array.isEmpty rates then failwith "opsGenRatesArray cannot be empty"
+        // A seed-width unfolder has no unfolding steps.
         
         { opsGenRates = rates }
 

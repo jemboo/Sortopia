@@ -28,7 +28,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <DockPanel Margin="0,0,0,20">
-                <Button DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}"
+                <Button Style="{StaticResource PageReturnButtonStyle}" DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}"
                         Margin="16,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="Back to Sortopia" />
                 <StackPanel>
                     <TextBlock Text="Sorting networks" FontSize="30" FontWeight="SemiBold" Foreground="White" />

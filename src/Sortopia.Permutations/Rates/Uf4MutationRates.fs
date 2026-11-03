@@ -76,7 +76,11 @@ module Uf4MutationRates =
         if order < 4 || order % 4 <> 0 then
             failwith $"Order must be at least 4 and divisible by 4, got {order}"
         let mutRatesArrayLength = MathUtils.exactLog2 (order / 4)
-        let mutRatesArray = MathUtils.arrayInterpolationU seedModificationRate modificationRate mutRatesArrayLength
+        let mutRatesArray =
+            match mutRatesArrayLength with
+            | 0 -> [||]
+            | 1 -> [| modificationRate |]
+            | n -> MathUtils.arrayInterpolationU seedModificationRate modificationRate n
         let opsActionRatesArray = mutRatesArray |> Array.map (fun rate -> opsActionRates.createMod rate orthoRate paraRate selfSymRate)
         let opsTransitionRatesArray = opsTransitionRatesArray.create (opsActionRatesArray |> Array.map opsTransitionRates.createUniformFromRates)
         uf4MutationRates.create order opsSeedTransitionRates opsTransitionRatesArray

@@ -18,7 +18,7 @@
   </UserControl.Resources>
   <DockPanel Background="#102B3B" LastChildFill="True">
     <DockPanel DockPanel.Dock="Top" Margin="20,14">
-      <Button DockPanel.Dock="Right" Content="← Back to Sortopia" Command="{Binding Back}"/>
+      <Button Style="{StaticResource PageReturnButtonStyle}" DockPanel.Dock="Right" Content="← Back to Sortopia" Command="{Binding Back}"/>
       <StackPanel>
         <TextBlock FontSize="24" FontWeight="SemiBold" Foreground="White" Text="Project runs"/>
         <TextBlock Foreground="#BBD5E1" Text="{Binding LibraryPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding LibraryPath}"/>

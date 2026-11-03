@@ -3,6 +3,7 @@ namespace Sortopia.WPF.Models;
 public sealed record NetworkCheckResult(int Tested, bool Exhaustive, int[]? Counterexample,
     int Failed, IReadOnlyList<int> CeUses)
 {
+    public string Coverage => Exhaustive ? "Exhaustive" : "Sampled";
     public string Description => Failed > 0
         ? $"Failed: {Failed:N0} of {Tested:N0} {(Exhaustive ? "all" : "sampled")} binary inputs were unsorted. The first failing input is loaded below."
         : Exhaustive ? $"Verified: sorted all {Tested:N0} binary inputs (0–1 rule)."

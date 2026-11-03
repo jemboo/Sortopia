@@ -10,11 +10,17 @@ using Sortopia.WPF.Rendering;
 
 namespace Sortopia.WPF.ViewModels;
 
+public sealed record GenerationDraw(string Method, int Channels, int Stages, int Seed, int Failures, int Inputs, string Coverage);
+
 public sealed class SgdPageViewModel : ViewModelBase
 {
     private enum Activity { Idle, Generate, SampleSeeds, Evolve }
 
     private SearchCandidate? incumbent;
+    private int wizardStep = 1;
+    private GenerationDraw? generationResult;
+    private long successfulDraws;
+    private long failedDraws;
     private EvolutionVisits visits = EvolutionVisits.Empty;
     private SorterScore? bestPlotted;
     private int? lastPlottedFailures;
@@ -25,11 +31,19 @@ public sealed class SgdPageViewModel : ViewModelBase
     private bool sampleOnGenerate;
     private int generation;
     private int generationMilliseconds;
-    private string status = "Generate a starting network or choose Run SGD to begin.";
+    private string status = "";
 
     public SgdPageViewModel(Action returnHome)
     {
+        Mutation.SelectMethod(Generator.Method);
         ReturnHomeCommand = new RelayCommand(returnHome);
+        SetupStepCommand = new RelayCommand(() => SelectStep(1), () => activity == Activity.Idle);
+        GenerationStepCommand = new RelayCommand(() => SelectStep(2), () => activity == Activity.Idle && SetupValid);
+        EvolutionStepCommand = new RelayCommand(() =>
+        {
+            if (activity == Activity.SampleSeeds) Stop();
+            SelectStep(3);
+        }, () => CanStartEvolution);
         GenerateCommand = new RelayCommand(async selection =>
         {
             if (CanEdit && selection is int width)
@@ -38,16 +52,15 @@ public sealed class SgdPageViewModel : ViewModelBase
                 if (Generator.ChannelCount != width) return;
             }
             await GenerateAsync();
-        }, () => activity == Activity.SampleSeeds
-            ? operation is { IsCancellationRequested: false } : CanEdit && CanGenerate);
-        RunSgdCommand = new RelayCommand(async () => await RunSgdAsync(), () =>
-            (activity == Activity.Idle || (activity == Activity.SampleSeeds && incumbent is not null && Generation == 0)) &&
-            (HasSelectedWidth ? Generator.TestInputError.Length == 0 : CanGenerate));
-        StopCommand = new RelayCommand(Stop, () => activity != Activity.SampleSeeds && operation is { IsCancellationRequested: false });
+        }, () => CanEdit && CanGenerate);
+        RunSgdCommand = new RelayCommand(async () => await RunSgdAsync(), () => CanStartEvolution);
+        StopCommand = new RelayCommand(Stop, () => operation is { IsCancellationRequested: false });
         ClearGraphCommand = new RelayCommand(() =>
         {
             bestPlotted = null;
             lastPlottedFailures = null;
+            successfulDraws = failedDraws = 0;
+            OnPropertyChanged(nameof(GenerationOutcomes));
             Visits = EvolutionVisits.Empty;
             OnPropertyChanged(nameof(BestGraphTitle));
             OnPropertyChanged(nameof(BestPosition));
@@ -59,8 +72,13 @@ public sealed class SgdPageViewModel : ViewModelBase
             Status = "Press Generate to sample fresh seeds continuously.";
         }, () => CanEdit);
         BestKnownNetworks = CatalogNetwork.LoadForWidth(Generator.ChannelCount);
+        GenerationOptions.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(GenerationOptions.Error)) GenerateCommand.RaiseCanExecuteChanged();
+        };
         Generator.PropertyChanged += (_, change) =>
         {
+            if (change.PropertyName == nameof(Generator.Method) && incumbent is null) Mutation.SelectMethod(Generator.Method);
             if (change.PropertyName == nameof(Generator.ChannelCount))
             {
                 if (operation is not null && Generator.ChannelCount != activeWidth) Stop();
@@ -73,11 +91,31 @@ public sealed class SgdPageViewModel : ViewModelBase
                 sampleOnGenerate = false;
                 Status = "Generate will use the entered seed once.";
             }
+            if (change.PropertyName == nameof(Generator.TestInputError))
+            {
+                OnPropertyChanged(nameof(PlannedInputs));
+                OnPropertyChanged(nameof(PlannedCoverage));
+            }
             if (change.PropertyName is nameof(Generator.InputError) or nameof(Generator.TestInputError)) NotifyCommands();
         };
     }
 
-    public NetworkGeneratorSettings Generator { get; } = new();
+    public NetworkGeneratorSettings Generator { get; } = new(configureSimpleGenerator: true);
+    public SimpleGenerationSettings GenerationOptions => Generator.Options!;
+    public int WizardStep => wizardStep;
+    public RelayCommand SetupStepCommand { get; }
+    public RelayCommand GenerationStepCommand { get; }
+    public RelayCommand EvolutionStepCommand { get; }
+    public GenerationDraw? GenerationResult { get => generationResult; private set => SetProperty(ref generationResult, value); }
+    public int? PlannedInputs => Generator.TestInputError.Length != 0 ? null
+        : Generator.SamplesFor(Generator.ChannelCount) ?? (1 << Generator.ChannelCount);
+    public string PlannedCoverage => Generator.TestInputError.Length != 0 ? "—" : Generator.AllSamples ? "Exhaustive" : "Sampled";
+    public int? PlottedFailures => lastPlottedFailures;
+    private void SelectStep(int step)
+    {
+        if (SetProperty(ref wizardStep, step, nameof(WizardStep)) && activity == Activity.Idle) Status = "";
+    }
+    public SorterMutationSettings Mutation { get; } = new();
     public RelayCommand GenerateCommand { get; }
     public RelayCommand RunSgdCommand { get; }
     public RelayCommand StopCommand { get; }
@@ -86,8 +124,14 @@ public sealed class SgdPageViewModel : ViewModelBase
     public RelayCommand ReturnHomeCommand { get; }
     // The generator remains available during evolution so Generate can replace the run.
     public bool CanEdit => activity is Activity.Idle or Activity.Evolve;
-    private bool HasSelectedWidth => incumbent?.Network.Width == Generator.ChannelCount;
+    private bool SetupValid => Generator.SetupError.Length == 0 && Generator.TestInputError.Length == 0;
+    private bool HasMatchingPoint => Visits.Current.HasValue && GenerationResult is { } draw && incumbent is not null
+        && draw.Method == Generator.Method && draw.Channels == Generator.ChannelCount
+        && int.TryParse(Generator.CountText, out var stages) && stages == draw.Stages && SetupValid;
+    private bool CanStartEvolution => (activity == Activity.Idle || (activity == Activity.SampleSeeds && GeneratedCount > 0))
+        && HasMatchingPoint;
     public bool CanChooseAvx512 => Avx512F.IsSupported && activity == Activity.Idle;
+    public bool CanChooseMutation => activity == Activity.Idle;
     public string Avx512Hint => Avx512F.IsSupported
         ? "Use Sortopia.Evaluation to test 512 binary inputs per vector. Choose before starting a run."
         : "AVX-512 is unavailable on this machine.";
@@ -97,12 +141,11 @@ public sealed class SgdPageViewModel : ViewModelBase
         set { if (CanChooseAvx512) SetProperty(ref useAvx512, value); }
     }
     public long GeneratedCount { get; private set; }
-    public string GenerateLabel => activity == Activity.SampleSeeds ? GeneratedCount.ToString("N0", CultureInfo.CurrentCulture) : "Generate";
-    private bool CanGenerate => Generator.InputError.Length == 0 && (Generator.AllSamples || Generator.TestInputError.Length == 0);
+    public string GenerationOutcomes => $"{successfulDraws:N0} / {failedDraws:N0}";
+    private bool CanGenerate => SetupValid && Generator.SeedError.Length == 0 && GenerationOptions.Error.Length == 0;
     public int[] ChildChoices { get; } = [1, 2, 4, 8, 16, 32];
-    public double[] RateChoices { get; } = [0.5, 0.1, 0.05, 0.02, 0.01, 0.005, 0.0025, 0.001, 0.0005, 0.00025];
     public int Children { get; set; } = 4;
-    public double MutationRate { get; set; } = 0.1;
+    public double MutationRate { get => Mutation.Parameters[0].Value; set => Mutation.Parameters[0].Value = value; }
     public int Generation => generation;
     public int GenerationMilliseconds
     {
@@ -122,7 +165,12 @@ public sealed class SgdPageViewModel : ViewModelBase
             SetProperty(ref visits, value);
             OnPropertyChanged(nameof(CurrentGraphTitle));
             OnPropertyChanged(nameof(Summary));
-            if (hadVisits != value.Current.HasValue) ClearGraphCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(PlottedFailures));
+            if (hadVisits != value.Current.HasValue)
+            {
+                ClearGraphCommand.RaiseCanExecuteChanged();
+                NotifyCommands();
+            }
         }
     }
     public IReadOnlyList<UsageBand> UsageBands => UsagePalette.Bands;
@@ -152,9 +200,7 @@ public sealed class SgdPageViewModel : ViewModelBase
     public Task GenerateAsync()
     {
         if (!GenerateCommand.CanExecute(null)) return Task.CompletedTask;
-        if (activity != Activity.SampleSeeds) return StartAsync(sampleOnGenerate ? Activity.SampleSeeds : Activity.Generate);
-        Stop();
-        return Task.CompletedTask;
+        return StartAsync(sampleOnGenerate ? Activity.SampleSeeds : Activity.Generate);
     }
 
     public Task RunSgdAsync() => RunSgdCommand.CanExecute(null) ? StartAsync(Activity.Evolve) : Task.CompletedTask;
@@ -169,13 +215,12 @@ public sealed class SgdPageViewModel : ViewModelBase
         sampleOnGenerate = false;
         try
         {
-            var needsSeed = nextActivity != Activity.Evolve || !HasSelectedWidth;
-            var recipe = needsSeed ? Generator.Snapshot() : null;
+            var recipe = nextActivity == Activity.Evolve ? null : Generator.Snapshot();
             var width = recipe?.Width ?? incumbent!.Network.Width;
             activeWidth = width;
             var testSamples = Generator.SamplesFor(width);
             SetGeneratedCount(0);
-            if (needsSeed) Generator.SetTestWidth(width);
+            if (recipe is not null) Generator.SetTestWidth(width);
             NotifyCommands();
             var simd = UseAvx512
                 ? await Task.Run(() => new SimdNetworkCheck(width, testSamples, token), token)
@@ -185,11 +230,12 @@ public sealed class SgdPageViewModel : ViewModelBase
             {
                 await GenerateNetworksAsync(recipe, testSamples, simd, nextActivity == Activity.SampleSeeds, token);
                 token.ThrowIfCancellationRequested();
-                if (nextActivity == Activity.Generate) { Status = "Generation 0 is ready."; return; }
+                Status = "Point plotted. Open Evolution to use this sorter as the parent.";
+                return;
             }
 
             var parent = incumbent!;
-            if (parent.Usage.Exhaustive != (testSamples is null) || (testSamples is int count && count != parent.Usage.Tested))
+            if (testSamples != (parent.Usage.Exhaustive ? (int?)null : parent.Usage.Tested))
             {
                 Status = "Testing the parent on the new input set…";
                 var previous = parent;
@@ -202,11 +248,12 @@ public sealed class SgdPageViewModel : ViewModelBase
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             if (ReferenceEquals(operation, cancellation))
-                Status = nextActivity == Activity.SampleSeeds ? "Random generation stopped. Sorter count reset to 0." : $"Stopped at generation {Generation:N0}.";
+                Status = nextActivity == Activity.SampleSeeds ? "Random sampling stopped." : $"Stopped at generation {Generation:N0}.";
         }
         catch (Exception error)
         {
-            if (ReferenceEquals(operation, cancellation)) Status = $"SGD could not finish. {error.Message}";
+            if (ReferenceEquals(operation, cancellation))
+                Status = $"{(nextActivity == Activity.Evolve ? "Evolution" : "Generation")} could not finish. {error.Message}";
         }
         finally
         {
@@ -222,7 +269,7 @@ public sealed class SgdPageViewModel : ViewModelBase
 
     private async Task GenerateNetworksAsync(NetworkRecipe recipe, int? samples, SimdNetworkCheck? simd, bool repeat, CancellationToken token)
     {
-        Status = repeat ? "Click the sorter count to stop sampling, or Run SGD to evolve the pink sorter."
+        Status = repeat ? "Sampling random seeds. Choose Stop or open Evolution to keep the current draw."
             : "Generating, testing and compacting the starting network…";
         while (true)
         {
@@ -231,6 +278,11 @@ public sealed class SgdPageViewModel : ViewModelBase
             var candidate = await Task.Run(() => NetworkSearch.Prepare(draw.Label, draw.CreateModel(), samples, token, simd), token);
             token.ThrowIfCancellationRequested();
             if (repeat) Generator.SeedText = draw.Seed.ToString(CultureInfo.InvariantCulture);
+            if (candidate.Usage.Failed == 0) successfulDraws++;
+            else failedDraws++;
+            OnPropertyChanged(nameof(GenerationOutcomes));
+            GenerationResult = new(draw.Method, draw.Width, draw.Size, draw.Seed,
+                candidate.Usage.Failed, candidate.Usage.Tested, candidate.Usage.Coverage);
             Publish(candidate, 0, recordVisit: true);
             if (!repeat) return;
             await Dispatcher.Yield(DispatcherPriority.Background);
@@ -247,7 +299,7 @@ public sealed class SgdPageViewModel : ViewModelBase
             var started = Stopwatch.GetTimestamp();
             var next = checked(Generation + 1);
             var children = Children;
-            var mutator = RandomNetwork.createMutator(parent.Model, MutationRate);
+            var mutator = Mutation.Create(parent.Model);
             async Task RecordChild(SorterScore score, int evaluated)
             {
                 RecordVisit(score);
@@ -269,6 +321,7 @@ public sealed class SgdPageViewModel : ViewModelBase
         if (!ReferenceEquals(incumbent, best))
         {
             incumbent = best;
+            Mutation.SelectMethod(best.Model.IsMsce ? "msce" : best.Model.IsMssi ? "mssi" : best.Model.IsMsrs ? "msrs" : best.Model.IsMsuf4 ? "msuf4" : "msuf6");
             if (recordVisit) RecordVisit(best.Score);
             if (activity == Activity.SampleSeeds) SetGeneratedCount(GeneratedCount + 1);
             OnPropertyChanged(nameof(Network));
@@ -280,7 +333,11 @@ public sealed class SgdPageViewModel : ViewModelBase
             }
         }
         if (generationChanged) OnPropertyChanged(nameof(Generation));
-        if (activity == Activity.SampleSeeds) RunSgdCommand.RaiseCanExecuteChanged();
+        if (activity == Activity.SampleSeeds)
+        {
+            EvolutionStepCommand.RaiseCanExecuteChanged();
+            RunSgdCommand.RaiseCanExecuteChanged();
+        }
     }
 
     public void Stop()
@@ -307,13 +364,17 @@ public sealed class SgdPageViewModel : ViewModelBase
     {
         GeneratedCount = count;
         OnPropertyChanged(nameof(GeneratedCount));
-        OnPropertyChanged(nameof(GenerateLabel));
     }
 
     private void NotifyCommands()
     {
+        if (activity == Activity.Idle && wizardStep == 3 && !HasMatchingPoint) SelectStep(SetupValid ? 2 : 1);
+        SetupStepCommand.RaiseCanExecuteChanged();
+        GenerationStepCommand.RaiseCanExecuteChanged();
+        EvolutionStepCommand.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(CanEdit));
         OnPropertyChanged(nameof(CanChooseAvx512));
+        OnPropertyChanged(nameof(CanChooseMutation));
         GenerateCommand.RaiseCanExecuteChanged();
         RunSgdCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();

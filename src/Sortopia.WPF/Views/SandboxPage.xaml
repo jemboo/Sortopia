@@ -10,7 +10,7 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <controls:TranslucentButtonStack VerticalAlignment="Top">
-                <Button Content="_Back to Sortopia"
+                <Button Style="{StaticResource PageReturnButtonStyle}" Content="← _Back to Sortopia"
                         Command="{Binding ReturnHomeCommand}"
                         AutomationProperties.Name="Back to Sortopia" />
                 <Button Content="Project _runs" Command="{Binding OpenSortableTestsCommand}" AutomationProperties.Name="Project runs" />
