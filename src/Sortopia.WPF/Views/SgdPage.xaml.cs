@@ -11,6 +11,12 @@ public partial class SgdPage : UserControl
         Unloaded += (_, _) => (DataContext as SgdPageViewModel)?.Stop();
     }
 
+    private void DisplayModeChanged(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (SwitchDiagram is not null && sender is RadioButton { Tag: string tag })
+            SwitchDiagram.DisplayMode = int.Parse(tag);
+    }
+
     private void CenterPlotOnResize(object sender, ScrollChangedEventArgs e)
     {
         if (e.ExtentWidthChange == 0 && e.ViewportWidthChange == 0) return;

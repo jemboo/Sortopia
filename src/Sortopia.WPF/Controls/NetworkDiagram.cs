@@ -29,10 +29,34 @@ public sealed class NetworkDiagram : FrameworkElement
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender, OnPaletteChanged));
     public bool UseZeroOneRule { get => (bool)GetValue(UseZeroOneRuleProperty); set => SetValue(UseZeroOneRuleProperty, value); }
     public static readonly DependencyProperty UsageProperty = DependencyProperty.Register(nameof(Usage), typeof(NetworkCheckResult), typeof(NetworkDiagram),
-        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnDisplayChanged));
     public NetworkCheckResult? Usage { get => (NetworkCheckResult?)GetValue(UsageProperty); set => SetValue(UsageProperty, value); }
     private static readonly Pen[] UsagePens = UsagePalette.Bands.Select(band => FrozenPen(band.Fill, 4)).ToArray();
     internal static int UsageLevel(int uses, int tested) => UsagePalette.Level(uses, tested);
+    public static readonly DependencyProperty DisplayModeProperty = DependencyProperty.Register(nameof(DisplayMode), typeof(int), typeof(NetworkDiagram),
+        new FrameworkPropertyMetadata(0, OnDisplayChanged), value => value is int mode && mode >= 0 && mode <= 3);
+    public int DisplayMode { get => (int)GetValue(DisplayModeProperty); set => SetValue(DisplayModeProperty, value); }
+    private NetworkLayout? previousDisplay;
+    private readonly Stopwatch displayClock = new();
+    private readonly DispatcherTimer displayTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+    private double displayProgress = 1;
+    private static void OnDisplayChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        var diagram = (NetworkDiagram)sender;
+        if (diagram.StaticNetwork is not { } network) return;
+        var before = diagram.layout;
+        diagram.FinishDisplayTransition();
+        diagram.layout = new NetworkLayout(network, diagram.Usage, diagram.DisplayMode);
+        if (args.Property == DisplayModeProperty && before is not null && diagram.IsLoaded && SystemParameters.ClientAreaAnimation)
+        {
+            diagram.previousDisplay = before;
+            diagram.displayProgress = 0;
+            diagram.displayClock.Restart();
+            diagram.displayTimer.Start();
+        }
+        diagram.InvalidateMeasure();
+        diagram.InvalidateVisual();
+    }
     private Brush[] valueBrushes = [];
     private Brush[] labelBrushes = [];
     private Pen[] channelPens = [];
@@ -59,12 +83,29 @@ public sealed class NetworkDiagram : FrameworkElement
     public CompactionTransition? Compaction { get => (CompactionTransition?)GetValue(CompactionProperty); set => SetValue(CompactionProperty, value); }
     public NetworkDiagram()
     {
+        displayTimer.Tick += (_, _) =>
+        {
+            var t = Math.Clamp(displayClock.Elapsed.TotalMilliseconds / 450, 0, 1);
+            displayProgress = t * t * (3 - 2 * t);
+            if (t >= 1) { FinishDisplayTransition(); InvalidateMeasure(); }
+            InvalidateVisual();
+        };
         transitionTimer.Tick += (_, _) => AdvanceCompaction();
         Unloaded += (_, _) =>
         {
+            FinishDisplayTransition();
+            InvalidateMeasure();
+            InvalidateVisual();
             StopCompactionClock();
             if (Compaction is not null) CompactionCompleted?.Invoke(this, EventArgs.Empty);
         };
+    }
+    private void FinishDisplayTransition()
+    {
+        displayTimer.Stop();
+        displayClock.Reset();
+        previousDisplay = null;
+        displayProgress = 1;
     }
     private static void OnCompactionChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
@@ -130,14 +171,15 @@ public sealed class NetworkDiagram : FrameworkElement
     private static void OnTraceChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var diagram = (NetworkDiagram)sender;
-        diagram.layout = diagram.StaticNetwork is { } network ? new NetworkLayout(network)
+        diagram.FinishDisplayTransition();
+        diagram.layout = diagram.StaticNetwork is { } network ? new NetworkLayout(network, diagram.Usage, diagram.DisplayMode)
             : diagram.Trace is { } trace ? new NetworkLayout(trace) : null;
         diagram.ToolTip = null;
         diagram.UpdatePalette();
         diagram.PlayheadChanged?.Invoke(diagram, EventArgs.Empty);
     }
 
-    protected override Size MeasureOverride(Size availableSize) => layout is null ? new Size(0, 0) : new Size((Compaction?.Width ?? layout.Width) * Zoom, layout.Height * Zoom);
+    protected override Size MeasureOverride(Size availableSize) => layout is null ? new Size(0, 0) : new Size((Compaction?.Width ?? Math.Max(layout.Width, previousDisplay?.Width ?? 0)) * Zoom, layout.Height * Zoom);
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -147,6 +189,11 @@ public sealed class NetworkDiagram : FrameworkElement
         if (Compaction is { } transition)
         {
             RenderCompaction(dc, transition, (double)GetValue(TransitionProgressProperty));
+            return;
+        }
+        if (StaticNetwork is not null && previousDisplay is { } previous)
+        {
+            RenderDisplayTransition(dc, previous, geometry);
             return;
         }
         dc.PushTransform(new ScaleTransform(Zoom, Zoom));
@@ -185,14 +232,58 @@ public sealed class NetworkDiagram : FrameworkElement
         }
 
         if (trace is not null) DrawSortables(dc, geometry, trace, from, to, fraction);
-        if (geometry.Bands.Count < network.StageCount)
+        if (geometry.IsTruncated)
         {
             var edge = geometry.CutoffX;
             dc.DrawLine(ActivePen, new Point(edge, 35), new Point(edge, geometry.Height - 18));
             Text(dc, "Display cutoff — network continues", edge + 16, 42, ActiveBrush, 14);
-            Text(dc, $"Showing {geometry.Bands.Count:N0} of {network.StageCount:N0} stages", edge + 16, 65, MutedBrush, 12);
-            Text(dc, $"and {geometry.Comparators.Count:N0} of {network.ComparatorCount:N0} CEs.", edge + 16, 83, MutedBrush, 12);
+            Text(dc, $"Showing {geometry.Bands.Count:N0} of {geometry.TotalStages:N0} stages", edge + 16, 65, MutedBrush, 12);
+            Text(dc, $"and {geometry.Comparators.Count:N0} of {geometry.TotalComparators:N0} CEs.", edge + 16, 83, MutedBrush, 12);
             Text(dc, "Testing and edits use the full network.", edge + 16, 105, MutedBrush, 12);
+        }
+        dc.Pop();
+    }
+
+    private void RenderDisplayTransition(DrawingContext dc, NetworkLayout before, NetworkLayout after)
+    {
+        var t = displayProgress;
+        dc.PushTransform(new ScaleTransform(Zoom, Zoom));
+        dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, Math.Max(before.Width, after.Width), after.Height));
+        void Bands(NetworkLayout source, double opacity)
+        {
+            dc.PushOpacity(opacity);
+            for (var i = 0; i < source.Bands.Count; i++)
+            {
+                var band = source.Bands[i];
+                if (i % 2 == 0) dc.DrawRectangle(BandBrush, null, new Rect(band.Left, 30, band.Right - band.Left, after.Height - 40));
+                Text(dc, $"{i + 1}", (band.Left + band.Right) / 2, 13, MutedBrush, 12, true);
+            }
+            dc.Pop();
+        }
+        Bands(before, 1 - t); Bands(after, t);
+        for (var channel = 0; channel < StaticNetwork!.Width; channel++)
+        {
+            var y = NetworkLayout.ChannelY(channel);
+            dc.DrawLine(StaticChannelPen, new Point(30, y), new Point(Interpolate(before.CutoffX, after.CutoffX, t) - 20, y));
+            Text(dc, channel.ToString(), 10, y - 8, MutedBrush, 11);
+        }
+        var old = before.Comparators.ToDictionary(ce => ce.Index);
+        var next = after.Comparators.ToDictionary(ce => ce.Index);
+        foreach (var index in old.Keys.Union(next.Keys))
+        {
+            var was = old.TryGetValue(index, out var from);
+            var will = next.TryGetValue(index, out var to);
+            var ce = to ?? from!;
+            var x = Interpolate(from?.X ?? ce.X, to?.X ?? ce.X, t);
+            var pen = Usage is { Tested: > 0 } usage && usage.CeUses.Count == StaticNetwork!.ComparatorCount
+                ? UsagePens[UsageLevel(usage.CeUses[index], usage.Tested)] : FuturePen;
+            dc.PushOpacity(was ? will ? 1 : 1 - t : t);
+            var low = new Point(x, NetworkLayout.ChannelY(ce.Low));
+            var high = new Point(x, NetworkLayout.ChannelY(ce.High));
+            dc.DrawLine(pen, low, high);
+            dc.DrawEllipse(pen.Brush, null, low, 3, 3);
+            dc.DrawEllipse(pen.Brush, null, high, 3, 3);
+            dc.Pop();
         }
         dc.Pop();
     }

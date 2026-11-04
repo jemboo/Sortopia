@@ -10,6 +10,75 @@
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolVisibility" />
             <SolidColorBrush x:Key="ControlText" Color="#F3F7FA" />
+            <Style x:Key="GraphBufferToggle" TargetType="ToggleButton">
+                <Setter Property="Foreground" Value="#EAF4F7" />
+                <Setter Property="Margin" Value="2" />
+                <Setter Property="Padding" Value="8,6" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border x:Name="Tile" Background="#102B3B" BorderBrush="#466B7B" BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Tile" Property="Background" Value="#285D59" />
+                                    <Setter TargetName="Tile" Property="BorderBrush" Value="#77D3C7" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="False"><Setter Property="Opacity" Value="0.5" /></Trigger>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="#F4CA7F" /></Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="White" /></Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <DataTemplate x:Key="BufferStatsContent">
+                <StackPanel>
+                    <TextBlock FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,2">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Text" Value="{Binding Count, StringFormat='✓ {0:N0}'}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.Successful, RelativeSource={RelativeSource AncestorType=ToggleButton}}" Value="False">
+                                        <Setter Property="Text" Value="{Binding Count, StringFormat='× {0:N0}'}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <UniformGrid Rows="2" Columns="2">
+                        <UniformGrid.Style>
+                            <Style TargetType="UniformGrid">
+                                <Setter Property="DataContext" Value="{Binding Ces}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.ShowStageStats, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                        <Setter Property="DataContext" Value="{Binding Stages}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </UniformGrid.Style>
+                        <TextBlock Margin="0,0,6,0" Text="{Binding Min, StringFormat='min {0:N0}', FallbackValue='min —'}" />
+                        <TextBlock Text="{Binding Max, StringFormat='max {0:N0}', FallbackValue='max —'}" />
+                        <TextBlock Margin="0,0,6,0" Text="{Binding Mean, StringFormat='mean {0:#,0.##}', FallbackValue='mean —'}" />
+                        <TextBlock Text="{Binding Sd, StringFormat='sd {0:#,0.##}', FallbackValue='sd —'}" />
+                    </UniformGrid>
+                </StackPanel>
+            </DataTemplate>
+            <Style x:Key="GraphStatsToggle" TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+                <Setter Property="MinWidth" Value="132" />
+                <Setter Property="MinHeight" Value="64" />
+                <Setter Property="Padding" Value="7,5" />
+                <Setter Property="IsChecked" Value="{Binding IsVisible, Mode=TwoWay}" />
+                <Setter Property="Content" Value="{Binding UniqueStats}" />
+                <Setter Property="ContentTemplate" Value="{StaticResource BufferStatsContent}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding DataContext.ShowVisitStats, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                        <Setter Property="Content" Value="{Binding VisitStats}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
             <Style x:Key="SectionTitle" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="#9EDAD6" />
                 <Setter Property="FontWeight" Value="SemiBold" />
@@ -127,7 +196,7 @@
                             </Style>
                         </Button.Style>
                     </Button>
-                    <Button Content="2  Generation" Command="{Binding GenerationStepCommand}" AutomationProperties.Name="Step 2: Generation">
+                    <Button Content="2  Sampling" Command="{Binding GenerationStepCommand}" AutomationProperties.Name="Step 2: Sampling">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
                                 <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="2"><Setter Property="BorderBrush" Value="#77D3C7" /><Setter Property="Background" Value="#204958" /></DataTrigger></Style.Triggers>
@@ -186,6 +255,18 @@
                                     </TextBlock.Text>
                                 </TextBlock>
                                 <WrapPanel>
+                                    <StackPanel Margin="0,0,8,3">
+                                        <Label Content="Store run in" Target="{Binding ElementName=SamplingDestination}" Style="{StaticResource FieldLabel}" />
+                                        <ToggleButton x:Name="SamplingDestination" IsChecked="{Binding SampleToB, Mode=TwoWay}"
+                                                      AutomationProperties.Name="Sampling destination B" ToolTip="Switch between A and B before starting a sampling run.">
+                                            <ToggleButton.Style>
+                                                <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+                                                    <Setter Property="Content" Value="Buffer A" />
+                                                    <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Buffer B" /></Trigger></Style.Triggers>
+                                                </Style>
+                                            </ToggleButton.Style>
+                                        </ToggleButton>
+                                    </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Random source" Target="{Binding ElementName=SourcePicker}" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="SourcePicker" Width="112" ItemsSource="{Binding GenerationOptions.RandomSources}" SelectedItem="{Binding GenerationOptions.RandomSource}" />
@@ -286,6 +367,7 @@
                                     </WrapPanel>
                                     <TextBlock Text="Latest evaluation" Style="{StaticResource SectionTitle}" TextWrapping="Wrap" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Generation" Content="{Binding Generation, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
+                                    <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Sorter identities" Content="{Binding SorterUniqueness}" ToolTip="This SGD run: unique stage-packed sorter fingerprints and repeat evaluations. The initial parent is included. Fingerprints use the tested network after unused CEs are removed." />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Failures" Content="{Binding PlottedFailures, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Test inputs" Content="{Binding Usage.Tested, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Coverage" Content="{Binding Usage.Coverage, TargetNullValue=—, FallbackValue=—}" />
@@ -302,7 +384,43 @@
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
                           Cursor="SizeNS" AutomationProperties.Name="Resize settings and network panes" ToolTip="Resize settings and network panes" />
             <DockPanel Grid.Row="3">
-                <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <StackPanel.Resources>
+                            <Style TargetType="RadioButton">
+                                <Setter Property="Foreground" Value="#F3F7FA" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="RadioButton">
+                                            <Border x:Name="ModeBorder" Background="#18394A" BorderBrush="#466B7B" BorderThickness="1" CornerRadius="4" Padding="8,6">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsChecked" Value="True"><Setter TargetName="ModeBorder" Property="Background" Value="#28655F" /><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#77D3C7" /></Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#F4CA7F" /></Trigger>
+                                                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="White" /></Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </StackPanel.Resources>
+                        <RadioButton Content="1 All CEs" GroupName="CeDisplay" Tag="0" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Show all CEs, colored by usage" />
+                        <RadioButton Content="2 Used stages" GroupName="CeDisplay" Tag="1" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Hide unused stages; retain every CE in remaining stages" />
+                        <RadioButton Content="3 Used CEs" GroupName="CeDisplay" Tag="2" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Remove unused CEs without stage compaction" />
+                        <RadioButton Content="4 Compact" GroupName="CeDisplay" Tag="3" Checked="DisplayModeChanged" IsChecked="True" ToolTip="Remove unused CEs and compact stages" />
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="{Binding DisplayedNetworkDescription}">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button Content="←" Command="{Binding NetworkHistory.PreviousCommand}" AutomationProperties.Name="Previous network" Padding="8,4" />
+                            <TextBlock Text="{Binding NetworkHistory.Position}" Foreground="{StaticResource ControlText}" VerticalAlignment="Center" Margin="8,0" />
+                            <Button Content="→" Command="{Binding NetworkHistory.NextCommand}" AutomationProperties.Name="Next network" Padding="8,4" />
+                            <Button Content="Follow live" Command="{Binding NetworkHistory.FollowLiveCommand}" Padding="6,4" Margin="6,0,0,0"
+                                    ToolTip="Return to the latest draw or Evolution parent and follow new results." />
+                        </StackPanel>
+                        <TextBlock Text="{Binding DisplayedNetworkDescription}" Foreground="#9FBECC" FontSize="11" TextWrapping="Wrap" MaxWidth="220" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <StackPanel>
                     <TextBlock x:Name="UsageLegendTitle" Text="{Binding Network.Width, StringFormat='{}{0} channels · CE swap frequency', FallbackValue='CE swap frequency'}"
                                Foreground="#9FBECC" Margin="0,0,0,4" />
                     <ItemsControl ItemsSource="{Binding UsageBands}" Margin="0,0,0,6" AutomationProperties.Name="CE swap percentage legend">
@@ -316,12 +434,13 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
+                </DockPanel>
                 <Border BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="6">
                     <Canvas x:Name="DiagramHost">
                         <ScrollViewer Width="{Binding ActualWidth, ElementName=DiagramHost}" Height="{Binding ActualHeight, ElementName=DiagramHost}"
                                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                             <Viewbox Stretch="Uniform" HorizontalAlignment="Left">
-                                <controls:NetworkDiagram StaticNetwork="{Binding Network}" Usage="{Binding Usage}" />
+                                <controls:NetworkDiagram x:Name="SwitchDiagram" DisplayMode="3" StaticNetwork="{Binding Network}" Usage="{Binding DisplayUsage}" />
                             </Viewbox>
                         </ScrollViewer>
                     </Canvas>
@@ -333,11 +452,11 @@
             <Border Grid.Row="5" BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="10,7" Margin="0,4,0,6">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" MaxWidth="300" />
+                        <ColumnDefinition Width="2*" MaxWidth="420" />
                         <ColumnDefinition Width="3*" />
                     </Grid.ColumnDefinitions>
                     <ScrollViewer Margin="0,0,12,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                                  HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center">
+                                  HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
                         <StackPanel>
                             <TextBlock Text="{Binding BestGraphTitle}" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap"
                                        ToolTip="The green square marks the lowest size score among zero-failure sorters plotted since Clear." />
@@ -348,22 +467,89 @@
                                                TextWrapping="Wrap" ToolTip="Green dashed square: reference network from the sorting catalog." />
                                 </DataTemplate></ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <StackPanel Margin="0,10,0,0" ToolTip="Blue marks the least visited cells. Colors progress through cyan, green, yellow and orange to red for the most visited cells. Equal counts across the graph use blue.">
-                                <TextBlock Text="Plot count (log scale)" />
+                            <Border Background="#18394A" BorderBrush="#345464" BorderThickness="1" CornerRadius="6" Padding="6" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Graph buffers" Foreground="#9EDAD6" FontWeight="SemiBold"
+                                               ToolTip="Toggle a buffer to show or hide its points. Hidden buffers keep recording. sd is the population standard deviation." />
+                                    <WrapPanel Margin="0,2,0,4">
+                                        <TextBlock Text="Count" VerticalAlignment="Center" />
+                                        <ToggleButton x:Name="StatsPopulationToggle" IsChecked="{Binding ShowVisitStats, Mode=TwoWay}" Opacity="1"
+                                                      AutomationProperties.Name="Count visits" ToolTip="Unique counts each sorter once per buffer tile and once per graph point across all visible buffers. Visits includes repeats.">
+                                            <ToggleButton.Style>
+                                                <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+                                                    <Setter Property="Content" Value="Unique" />
+                                                    <Setter Property="Padding" Value="8,2" />
+                                                    <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Visits" /></Trigger></Style.Triggers>
+                                                </Style>
+                                            </ToggleButton.Style>
+                                        </ToggleButton>
+                                        <TextBlock Text="Measure" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                        <ToggleButton x:Name="StatsMeasureToggle" IsChecked="{Binding ShowStageStats, Mode=TwoWay}" Opacity="1"
+                                                      AutomationProperties.Name="Measure stages" ToolTip="Switch between compacted CE counts and stage counts.">
+                                            <ToggleButton.Style>
+                                                <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+                                                    <Setter Property="Content" Value="CEs" />
+                                                    <Setter Property="Padding" Value="8,2" />
+                                                    <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Stages" /></Trigger></Style.Triggers>
+                                                </Style>
+                                            </ToggleButton.Style>
+                                        </ToggleButton>
+                                    </WrapPanel>
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                            <TextBlock Grid.Column="1" Text="Successful" Foreground="#77D3C7" FontSize="11" HorizontalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Text="Failures" Foreground="#F4CA7F" FontSize="11" HorizontalAlignment="Center" />
+                                            <TextBlock Grid.Row="1" Text="{Binding FirstGroup.Name}" VerticalAlignment="Center" Margin="0,0,5,0" />
+                                            <TextBlock Grid.Row="2" Text="{Binding SecondGroup.Name}" VerticalAlignment="Center" Margin="0,0,5,0" />
+                                            <ToggleButton x:Name="ParentSuccessToggle" Grid.Row="1" Grid.Column="1" Style="{StaticResource GraphStatsToggle}" DataContext="{Binding FirstGroup.Success}"
+                                                          AutomationProperties.Name="{Binding DataContext.FirstGroup.Name, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Show {0} successes'}" />
+                                            <ToggleButton x:Name="ParentFailureToggle" Grid.Row="1" Grid.Column="2" Style="{StaticResource GraphStatsToggle}" DataContext="{Binding FirstGroup.Failure}"
+                                                          AutomationProperties.Name="{Binding DataContext.FirstGroup.Name, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Show {0} failures'}" />
+                                            <ToggleButton x:Name="ChildSuccessToggle" Grid.Row="2" Grid.Column="1" Style="{StaticResource GraphStatsToggle}" DataContext="{Binding SecondGroup.Success}"
+                                                          AutomationProperties.Name="{Binding DataContext.SecondGroup.Name, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Show {0} successes'}" />
+                                            <ToggleButton x:Name="ChildFailureToggle" Grid.Row="2" Grid.Column="2" Style="{StaticResource GraphStatsToggle}" DataContext="{Binding SecondGroup.Failure}"
+                                                          AutomationProperties.Name="{Binding DataContext.SecondGroup.Name, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Show {0} failures'}" />
+                                        </Grid>
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Border>
+                            <StackPanel Margin="0,10,0,0" ToolTip="The color scale uses the counts at visible points. Blue marks the minimum and red marks the maximum. Equal counts use blue.">
+                                <TextBlock x:Name="PlotLegendTitle" Text="{Binding PlotLegendTitle}" />
                                 <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                                    <Rectangle Width="72" Height="10" VerticalAlignment="Center" Fill="{x:Static controls:EvolutionPlot.FrequencyLegend}" />
-                                    <TextBlock Text="{Binding Visits.Maximum, StringFormat='Max {0:N0}'}" Margin="6,0,0,0" />
+                                    <TextBlock Text="{Binding PlotData.Minimum, StringFormat='Min {0:N0}'}" Margin="0,0,6,0" />
+                                    <Rectangle Width="72" Height="10" VerticalAlignment="Center">
+                                        <Rectangle.Style>
+                                            <Style TargetType="Rectangle">
+                                                <Setter Property="Fill" Value="{x:Static controls:EvolutionPlot.FrequencyLegend}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding PlotData.HasColorRange}" Value="False"><Setter Property="Fill" Value="Blue" /></DataTrigger>
+                                                    <DataTrigger Binding="{Binding PlotData.Maximum}" Value="0"><Setter Property="Fill" Value="Transparent" /></DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Rectangle.Style>
+                                    </Rectangle>
+                                    <TextBlock x:Name="PlotLegendMax" Text="{Binding PlotData.Maximum, StringFormat='Max {0:N0}'}" Margin="6,0,0,0" />
                                 </StackPanel>
                             </StackPanel>
-                            <Button Content="Clear" Command="{Binding ClearGraphCommand}" HorizontalAlignment="Left" Margin="0,10,0,0"
-                                    AutomationProperties.Name="Clear graph" ToolTip="Clear the plotted history" />
+                            <WrapPanel Margin="0,10,0,0">
+                                <Button x:Name="ClearFirstGroup" Command="{Binding ClearGroupCommand}" CommandParameter="{Binding FirstGroup}" Margin="0,0,5,2"
+                                        AutomationProperties.Name="{Binding FirstGroup.Name, StringFormat='Clear {0}'}">
+                                    <TextBlock Text="{Binding FirstGroup.Name, StringFormat='Clear {0}'}" />
+                                </Button>
+                                <Button x:Name="ClearSecondGroup" Command="{Binding ClearGroupCommand}" CommandParameter="{Binding SecondGroup}" Margin="0,0,0,2"
+                                        AutomationProperties.Name="{Binding SecondGroup.Name, StringFormat='Clear {0}'}">
+                                    <TextBlock Text="{Binding SecondGroup.Name, StringFormat='Clear {0}'}" />
+                                </Button>
+                            </WrapPanel>
                         </StackPanel>
                     </ScrollViewer>
                     <Canvas Grid.Column="1" x:Name="PlotHost">
                         <ScrollViewer x:Name="PlotScroll" Width="{Binding ActualWidth, ElementName=PlotHost}" Height="{Binding ActualHeight, ElementName=PlotHost}"
                                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
                                       ScrollChanged="CenterPlotOnResize">
-                            <controls:EvolutionPlot Visits="{Binding Visits}" BestPosition="{Binding BestPosition}" BestKnownNetworks="{Binding BestKnownNetworks}"
+                            <controls:EvolutionPlot AllBufferBounds="{Binding AllBufferBounds}" SelectedPosition="{Binding SelectedNetworkPosition}" SelectPointCommand="{Binding SelectGraphPointCommand}" Visits="{Binding PlotData}" FillHighlightMarkers="{Binding ShowVisitStats}" BestPosition="{Binding BestPosition}" BestKnownNetworks="{Binding BestKnownNetworks}"
                                                     ViewportWidth="{Binding ViewportWidth, ElementName=PlotScroll}"
                                                     HorizontalOffset="{Binding HorizontalOffset, ElementName=PlotScroll}"
                                                     AutomationProperties.Name="Evolution lattice, CE count horizontally and stage count vertically, equally scaled" />

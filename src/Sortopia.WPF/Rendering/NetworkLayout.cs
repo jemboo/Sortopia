@@ -16,8 +16,15 @@ public sealed class NetworkLayout
     public NetworkLayout(NetworkTrace trace) : this(trace.Network, trace.DisplayStageCount) { }
     public NetworkLayout(NetworkDefinition network) : this(network, NetworkTrace.PreviewStages(network)) { }
 
-    private NetworkLayout(NetworkDefinition network, int stageCount)
+    public NetworkLayout(NetworkDefinition network, NetworkCheckResult? usage, int mode) : this(Filter(network, usage, mode)) { }
+
+    private NetworkLayout((NetworkDefinition Network, IReadOnlyList<int>? Indices) display)
+        : this(display.Network, NetworkTrace.PreviewStages(display.Network), display.Indices) { }
+
+    private NetworkLayout(NetworkDefinition network, int stageCount, IReadOnlyList<int>? originalIndices = null)
     {
+        TotalStages = network.StageCount;
+        TotalComparators = network.ComparatorCount;
         var bands = new List<StageBand>();
         var comparators = new List<ComparatorPosition>();
         var frameX = new double[network.StageLengths.Take(stageCount).Sum() + 1];
@@ -40,7 +47,7 @@ public sealed class NetworkLayout
                 }
                 occupied.Add(ce);
                 var x = left + 16 + column * 12;
-                comparators.Add(new ComparatorPosition(index, stage, x, ce.Low, ce.High));
+                comparators.Add(new ComparatorPosition(originalIndices?[index] ?? index, stage, x, ce.Low, ce.High));
                 frameX[index + 1] = x + 6;
             }
             var right = left + 36 + column * 12;
@@ -53,11 +60,45 @@ public sealed class NetworkLayout
         Comparators = comparators.AsReadOnly();
         FrameX = Array.AsReadOnly(frameX);
         CutoffX = left + 36;
-        Width = CutoffX + (stageCount < network.StageCount ? 310 : 0);
+        Width = CutoffX + (IsTruncated ? 310 : 0);
         Height = ChannelY(network.Width - 1) + 42;
     }
 
+    private static (NetworkDefinition Network, IReadOnlyList<int>? Indices) Filter(NetworkDefinition network, NetworkCheckResult? usage, int mode)
+    {
+        if (usage is null || mode == 0 || usage.CeUses.Count != network.ComparatorCount)
+            return (network, null);
+        var offset = 0;
+        var indices = new List<int>();
+        var stages = network.Sequence.Stages.Select(stage =>
+        {
+            var start = offset;
+            var original = stage.Ces;
+            offset += original.Length;
+            var keepStage = mode == 1 && Enumerable.Range(start, original.Length).Any(i => usage.CeUses[i] > 0);
+            var ces = original.Where((ce, i) =>
+            {
+                var keep = mode == 1 ? keepStage : usage.CeUses[start + i] > 0;
+                if (keep) indices.Add(start + i);
+                return keep;
+            }).ToArray();
+            return Sortopia.Sorting.Networks.stage.create(ces, network.Width);
+        }).Where(stage => stage.Ces.Length > 0).ToArray();
+        var filtered = new NetworkDefinition(network.Label, Sortopia.Sorting.Networks.stageSequence.create(stages, network.Width));
+        if (mode == 3)
+        {
+            filtered = NetworkTransforms.Compact(filtered);
+            var queues = indices.GroupBy(i => (network.Comparators[i].LowChannel, network.Comparators[i].HighChannel))
+                .ToDictionary(g => g.Key, g => new Queue<int>(g));
+            indices = filtered.Comparators.Select(ce => queues[(ce.LowChannel, ce.HighChannel)].Dequeue()).ToList();
+        }
+        return (filtered, indices);
+    }
+
     public IReadOnlyList<StageBand> Bands { get; }
+    public int TotalStages { get; }
+    public int TotalComparators { get; }
+    public bool IsTruncated => Bands.Count < TotalStages;
     public IReadOnlyList<ComparatorPosition> Comparators { get; }
     public IReadOnlyList<double> FrameX { get; }
     public double CutoffX { get; }

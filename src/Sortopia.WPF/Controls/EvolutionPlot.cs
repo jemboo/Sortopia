@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Media;
+using System.Windows.Input;
 using Sortopia.WPF.Models;
 
 namespace Sortopia.WPF.Controls;
@@ -11,6 +12,17 @@ public sealed class EvolutionPlot : FrameworkElement
     public static readonly DependencyProperty VisitsProperty = DependencyProperty.Register(
         nameof(Visits), typeof(EvolutionVisits), typeof(EvolutionPlot),
         new FrameworkPropertyMetadata(EvolutionVisits.Empty, FrameworkPropertyMetadataOptions.AffectsRender, UpdateDomain));
+    public static readonly DependencyProperty AllBufferBoundsProperty = DependencyProperty.Register(
+        nameof(AllBufferBounds), typeof(Rect?), typeof(EvolutionPlot),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, UpdateDomain));
+    public Rect? AllBufferBounds { get => (Rect?)GetValue(AllBufferBoundsProperty); set => SetValue(AllBufferBoundsProperty, value); }
+    public static readonly DependencyProperty FillHighlightMarkersProperty = DependencyProperty.Register(
+        nameof(FillHighlightMarkers), typeof(bool), typeof(EvolutionPlot), new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+    public bool FillHighlightMarkers { get => (bool)GetValue(FillHighlightMarkersProperty); set => SetValue(FillHighlightMarkersProperty, value); }
+    public static readonly DependencyProperty SelectedPositionProperty = DependencyProperty.Register(
+        nameof(SelectedPosition), typeof(Point?), typeof(EvolutionPlot),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, UpdateDomain));
+    public Point? SelectedPosition { get => (Point?)GetValue(SelectedPositionProperty); set => SetValue(SelectedPositionProperty, value); }
     public static readonly DependencyProperty BestPositionProperty = DependencyProperty.Register(
         nameof(BestPosition), typeof(Point?), typeof(EvolutionPlot), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, UpdateDomain));
     public static readonly DependencyProperty BestKnownNetworksProperty = DependencyProperty.Register(
@@ -34,6 +46,40 @@ public sealed class EvolutionPlot : FrameworkElement
     {
         get => (EvolutionVisits?)GetValue(VisitsProperty) ?? EvolutionVisits.Empty;
         set => SetValue(VisitsProperty, value);
+    }
+
+    public static readonly DependencyProperty SelectPointCommandProperty = DependencyProperty.Register(
+        nameof(SelectPointCommand), typeof(ICommand), typeof(EvolutionPlot));
+    public ICommand? SelectPointCommand { get => (ICommand?)GetValue(SelectPointCommandProperty); set => SetValue(SelectPointCommandProperty, value); }
+
+    internal Point? PointAt(Point mouse)
+    {
+        var gutter = 32 + LabelWidth;
+        var unit = Math.Min((ActualWidth - 2 * gutter) / domain.Width, (ActualHeight - TopInset - BottomInset) / domain.Height);
+        if (unit <= 0) return null;
+        var origin = (ActualWidth - domain.Width * unit) / 2;
+        var top = TopInset + (ActualHeight - TopInset - BottomInset - domain.Height * unit) / 2;
+        var bottom = top + domain.Height * unit;
+        var left = Math.Max(origin, HorizontalOffset + gutter);
+        var right = Math.Min(origin + domain.Width * unit, HorizontalOffset + ViewportWidth - gutter);
+        if (mouse.X < left || mouse.X > right || mouse.Y < top || mouse.Y > bottom) return null;
+        var point = new Point(Math.Floor(domain.Left + (mouse.X - origin) / unit + 0.5),
+            Math.Floor(domain.Top + (bottom - mouse.Y) / unit + 0.5));
+        return Visits.Counts.ContainsKey(point) || BestPosition == point || BestKnownNetworks.Any(network => network.Position == point) ? point : null;
+    }
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        if (PointAt(e.GetPosition(this)) is { } point && SelectPointCommand is { } command && command.CanExecute(point))
+        {
+            command.Execute(point);
+            e.Handled = true;
+        }
+    }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        Cursor = PointAt(e.GetPosition(this)).HasValue ? Cursors.Hand : null;
     }
 
     private const int ShadesPerBand = 64;
@@ -74,8 +120,9 @@ public sealed class EvolutionPlot : FrameworkElement
     private static void UpdateDomain(DependencyObject sender, DependencyPropertyChangedEventArgs e)
     {
         var plot = (EvolutionPlot)sender;
-        var bounds = plot.Visits.Bounds;
+        var bounds = plot.AllBufferBounds ?? plot.Visits.Bounds;
         if (plot.BestPosition is { } best) bounds.Union(best);
+        if (plot.SelectedPosition is { } selected) bounds.Union(selected);
         foreach (var known in plot.BestKnownNetworks) bounds.Union(known.Position);
         if (bounds.IsEmpty) bounds = new Rect(0, 0, 0, 0);
         bounds.Inflate(PaddingUnits, PaddingUnits);
@@ -147,40 +194,55 @@ public sealed class EvolutionPlot : FrameworkElement
         var current = visits.Current;
         var best = BestPosition;
         var knownNetworks = BestKnownNetworks;
-        if (current is null && best is null && knownNetworks.Count == 0)
+        if (current is null && best is null && SelectedPosition is null && knownNetworks.Count == 0)
         {
             CenterLabel(dc, "Generated sorters and evaluated children appear here.", (left + right) / 2, midY);
             return;
         }
 
-        void DrawCell(Point position, Brush? fill, Pen? outline = null)
+        void DrawCell(Point position, Brush? fill, Pen? outline = null, double inset = 0)
         {
             if (position.X + 0.5 < minX || position.X - 0.5 > maxX) return;
             var cell = new Rect(X(position.X - 0.5), Y(position.Y + 0.5), unit, unit);
-            if (outline is not null) cell.Inflate(-outline.Thickness / 2, -outline.Thickness / 2);
+            if (outline is not null) cell.Inflate(-outline.Thickness / 2 - inset, -outline.Thickness / 2 - inset);
             dc.DrawRectangle(fill, outline, cell);
         }
         dc.PushClip(new RectangleGeometry(new Rect(left, top, right - left, bottom - top)));
-        var minimum = visits.Counts.IsEmpty ? 1 : visits.Counts.Values.Min();
+        var minimum = Math.Max(1, visits.Minimum);
         var logMinimum = Math.Log(minimum);
         var logRange = Math.Log(Math.Max(1, visits.Maximum)) - logMinimum;
         var lastShade = VisitColors.Length - 1;
         foreach (var (position, count) in visits.Counts)
         {
-            if (position == current || position == best) continue;
+            if (FillHighlightMarkers && (position == current || position == best)) continue;
             var shade = count == minimum ? 0 : count == visits.Maximum ? lastShade
                 : Math.Clamp((int)Math.Round(lastShade * (Math.Log(count) - logMinimum) / logRange), 1, lastShade - 1);
             DrawCell(position, VisitColors[shade]);
         }
-        if (best is { } bestCell && bestCell != current) DrawCell(bestCell, Brushes.LimeGreen);
-        if (current is { } currentCell) DrawCell(currentCell, Brushes.HotPink);
-
         var thickness = Math.Min(2, unit / 5);
+        if (FillHighlightMarkers)
+        {
+            if (best is { } bestCell && bestCell != current) DrawCell(bestCell, Brushes.LimeGreen);
+            if (current is { } currentCell) DrawCell(currentCell, Brushes.HotPink);
+        }
+        else if (current is { } latest)
+            DrawCell(latest, null, new Pen(Brushes.HotPink, thickness), latest == best ? thickness : 0);
+
         var catalogOutline = new Pen(Brushes.LimeGreen, thickness) { DashStyle = DashStyles.Dash };
         foreach (var known in knownNetworks)
             if (known.Position != best) DrawCell(known.Position, null, catalogOutline);
-        if (current is { } shared && shared == best)
-            DrawCell(shared, null, new Pen(Brushes.LimeGreen, thickness));
+        if (best is { } bestMarker && (!FillHighlightMarkers || bestMarker == current))
+            DrawCell(bestMarker, null, new Pen(Brushes.LimeGreen, thickness));
+        // Outline the displayed network without replacing visit, current, or best colors.
+        if (SelectedPosition is { } selected)
+        {
+            var cx = X(selected.X);
+            var cy = Y(selected.Y);
+            var half = Math.Max(unit / 2, 4);
+            var marker = new Rect(cx - half, cy - half, half * 2, half * 2);
+            dc.DrawRectangle(null, new Pen(Brushes.Black, 4), marker);
+            dc.DrawRectangle(null, new Pen(Brushes.White, 2), marker);
+        }
         dc.Pop();
     }
 
