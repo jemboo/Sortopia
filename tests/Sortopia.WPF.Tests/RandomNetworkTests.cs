@@ -835,8 +835,10 @@ public sealed class RandomNetworkTests
         Assert.False(Candidate(1, 1).Improves(shallow));
     }
 
-    [Fact]
-    public void Sgd_run_stop_resume_and_generate_publish_only_completed_generations() => OnSta(() =>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sgd_run_stop_resume_and_generate_publish_only_completed_generations(bool sandbox) => OnSta(() =>
     {
         using var shell = new MainWindowViewModel(_ => throw new InvalidOperationException("Unexpected folder picker"));
         var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
@@ -844,8 +846,9 @@ public sealed class RandomNetworkTests
         var random = Assert.IsType<RandomNetworksPageViewModel>(shell.CurrentPage);
         var untouched = random.SelectedNetwork;
         random.ReturnHomeCommand.Execute(null);
-        home.OpenSgdCommand.Execute(null);
-        var vm = Assert.IsType<SgdPageViewModel>(shell.CurrentPage);
+        (sandbox ? home.OpenSandboxCommand : home.OpenSgdCommand).Execute(null);
+        var vm = sandbox ? Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace
+            : Assert.IsType<SgdPageViewModel>(shell.CurrentPage);
         vm.Generator.SamplesText = "invalid";
         Assert.False(vm.RunSgdCommand.CanExecute(null));
         Assert.False(vm.GenerateCommand.CanExecute(null));
@@ -1951,13 +1954,16 @@ public sealed class RandomNetworkTests
             });
             CheckFirstGenerateFromHome(deferSelection: false);
             CheckFirstGenerateFromHome(deferSelection: true);
+            CheckFirstGenerateFromHome(deferSelection: false, sandbox: true);
+            CheckFirstGenerateFromHome(deferSelection: true, sandbox: true);
             CheckGraphBufferTiles();
             CheckSgdControls();
+            CheckSgdControls(sandbox: true);
         }
         finally { app.Shutdown(); }
     });
 
-    private static void CheckFirstGenerateFromHome(bool deferSelection)
+    private static void CheckFirstGenerateFromHome(bool deferSelection, bool sandbox = false)
     {
         var window = new MainWindow();
         try
@@ -1971,11 +1977,15 @@ public sealed class RandomNetworkTests
                 content.UpdateLayout();
             }
             Layout();
-            Assert.IsType<HomePageViewModel>(shell.CurrentPage).OpenSgdCommand.Execute(null);
+            var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
+            (sandbox ? home.OpenSandboxCommand : home.OpenSgdCommand).Execute(null);
             Layout();
             var presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
-            var page = Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
+            Sortopia.WPF.Views.SgdWorkspacePage page = sandbox
+                ? (Sortopia.WPF.Views.SandboxSgdPage)Assert.IsType<Sortopia.WPF.Views.SandboxPage>(VisualTreeHelper.GetChild(presenter, 0)).FindName("Workspace")
+                : Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
             var vm = Assert.IsType<SgdPageViewModel>(page.DataContext);
+            if (sandbox) Assert.Same(vm, Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace);
             var channels = (ComboBox)LogicalTreeHelper.FindLogicalNode(page, "ChannelPicker");
             var stepButtons = ((WrapPanel)page.FindName("WizardSteps")).Children.OfType<Button>().ToArray();
             var controlHeight = channels.ActualHeight;
@@ -2047,14 +2057,38 @@ public sealed class RandomNetworkTests
             index.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, index, null)
                 { RoutedEvent = Keyboard.LostKeyboardFocusEvent });
             Assert.Same(parent, vm.NetworkHistory.Current);
+            if (sandbox)
+            {
+                var diagram = (NetworkDiagram)page.FindName("SwitchDiagram");
+                var layouts = (StackPanel)((Viewbox)page.FindName("NetworkLayoutViewport")).Child;
+                layouts.Children.OfType<RadioButton>().First().SetCurrentValue(RadioButton.IsCheckedProperty, true);
+                Assert.Equal(0, diagram.DisplayMode);
+
+                // Navigation preserves the actual model, including its settings, buffers and selection.
+                vm.ReturnHomeCommand.Execute(null);
+                home.OpenSgdCommand.Execute(null);
+                Layout();
+                Assert.Same(vm, shell.CurrentPage);
+                presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
+                var original = Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
+                Assert.Same(vm, original.DataContext);
+                Assert.Same(parent, vm.NetworkHistory.Current);
+                Assert.Equal(Color.FromRgb(16, 43, 59), ((SolidColorBrush)((Border)original.Content).Background).Color);
+                Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)page.Content).Background).Color);
+                vm.ReturnHomeCommand.Execute(null);
+                home.OpenSandboxCommand.Execute(null);
+                Assert.Same(vm, Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace);
+            }
         }
         finally { window.Close(); }
     }
 
-    private static void CheckSgdControls()
+    private static void CheckSgdControls(bool sandbox = false)
     {
         var vm = new SgdPageViewModel(() => { });
-        var host = new Sortopia.WPF.Views.SgdPage { DataContext = vm };
+        Sortopia.WPF.Views.SgdWorkspacePage host = sandbox
+            ? new Sortopia.WPF.Views.SandboxSgdPage { DataContext = vm }
+            : new Sortopia.WPF.Views.SgdPage { DataContext = vm };
         void CheckUpperViewports()
         {
             foreach (var size in new[] { new Size(640, 480), new Size(1000, 800) })
@@ -2127,6 +2161,10 @@ public sealed class RandomNetworkTests
         Assert.Equal(-1, overall.Value);
         overall.SetCurrentValue(Slider.ValueProperty, -2.0);
         Assert.Equal(0.01, vm.Mutation.OverallRate.Value);
+        var overallTrack = (System.Windows.Controls.Primitives.Track)overall.Template.FindName("PART_Track", overall);
+        Assert.Equal(overall.Value, overallTrack.Value);
+        Assert.Equal(overall.Minimum, overallTrack.Minimum);
+        Assert.Equal(overall.Maximum, overallTrack.Maximum);
         ((ListBox)editor.FindName("Cells")).SelectedIndex = 1;
         var rate = (Slider)editor.FindName("ValueSlider");
         Assert.Equal(1, rate.Value);
