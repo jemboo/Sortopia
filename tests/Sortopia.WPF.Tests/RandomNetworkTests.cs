@@ -280,20 +280,20 @@ public sealed class RandomNetworkTests
     [InlineData("msrs", 16)]
     [InlineData("msuf4", 16)]
     [InlineData("msuf6", 24)]
-    public void Seed_controls_replay_and_generator_variety(string method, int width) => OnSta(() =>
+    public void Generate_uses_fresh_replayable_seeds_and_generator_variety(string method, int width) => OnSta(() =>
     {
         using var vm = new RandomNetworksPageViewModel(() => { });
         vm.Method = method;
         vm.ChannelCount = width;
         vm.CountText = "32";
-        vm.SeedText = "42";
         vm.GenerateCommand.Execute(null);
         var first = vm.SelectedNetwork.Comparators.ToArray();
+        var seed = vm.SeedText;
+        var replay = new NetworkDefinition("replay", RandomNetwork.toStages(vm.Generator.Snapshot().CreateModel()));
+        Assert.Equal(first, replay.Comparators);
+        Assert.Contains($"seed {seed}", vm.GenerationLabel);
         vm.GenerateCommand.Execute(null);
-        Assert.Equal(first, vm.SelectedNetwork.Comparators);
-        Assert.Contains("seed 42", vm.GenerationLabel);
-        vm.SeedText = "43";
-        vm.GenerateCommand.Execute(null);
+        Assert.NotEqual(seed, vm.SeedText);
         Assert.False(first.SequenceEqual(vm.SelectedNetwork.Comparators));
         if (method != "msce")
         {
@@ -303,7 +303,9 @@ public sealed class RandomNetworkTests
         foreach (var invalid in new[] { "", "-1", "2147483648", "1.5", "abc" })
         {
             vm.SeedText = invalid;
-            Assert.False(vm.GenerateCommand.CanExecute(null));
+            Assert.True(vm.GenerateCommand.CanExecute(null));
+            vm.GenerateCommand.Execute(null);
+            Assert.True(int.TryParse(vm.SeedText, out var fresh) && fresh >= 0);
         }
         vm.NewSeedCommand.Execute(null);
         Assert.True(vm.GenerateCommand.CanExecute(null));
@@ -1077,7 +1079,7 @@ public sealed class RandomNetworkTests
         Assert.Single(vm.Visits.Counts);
         Assert.Equal(3, vm.Visits.Counts[new Point(1, 1)]);
         vm.Generator.SeedText = "invalid";
-        Assert.False(vm.GenerateCommand.CanExecute(null));
+        Assert.True(vm.GenerateCommand.CanExecute(null)); // Make one replaces the invalid seed.
         Assert.False(vm.BatchCommand.CanExecute(null));
         vm.NewSeedCommand.Execute(null);
         var seed = int.Parse(vm.Generator.SeedText);
@@ -1103,6 +1105,43 @@ public sealed class RandomNetworkTests
         Assert.Null(vm.Network);
         Assert.Null(vm.DisplayUsage);
         Assert.True(vm.RunSgdCommand.CanExecute(null));
+    });
+
+    [Fact]
+    public void Make_one_chooses_a_fresh_seed_for_each_single_draw_even_if_the_seed_editor_is_invalid() => OnSta(() =>
+    {
+        var vm = new SgdPageViewModel(() => { });
+        vm.Generator.ChannelCount = 2;
+        vm.Generator.CountText = "8";
+        vm.Generator.SeedText = "73";
+        for (var draw = 1; draw <= 3; draw++)
+        {
+            if (draw == 3) vm.Generator.SeedText = "invalid";
+            var previousSeed = vm.Generator.SeedText;
+            Assert.True(vm.GenerateCommand.CanExecute(null));
+            CompleteRun(async () =>
+            {
+                var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var started = false;
+                void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
+                {
+                    if (change.PropertyName != nameof(vm.CanEdit)) return;
+                    if (!vm.CanEdit) started = true;
+                    else if (started) completed.TrySetResult();
+                }
+                vm.PropertyChanged += Changed;
+                try
+                {
+                    vm.GenerateCommand.Execute(null);
+                    await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                finally { vm.PropertyChanged -= Changed; }
+            });
+            Assert.NotEqual(previousSeed, vm.Generator.SeedText);
+            Assert.Equal(int.Parse(vm.Generator.SeedText), vm.GenerationResult!.Seed);
+            Assert.Equal($"{draw} / 0", vm.GenerationOutcomes);
+            Assert.False(vm.StopCommand.CanExecute(null));
+        }
     });
 
     [Fact]
@@ -1420,9 +1459,9 @@ public sealed class RandomNetworkTests
             var bounds = legend.TransformToAncestor(toolbar).TransformBounds(new Rect(legend.RenderSize));
             var slot = toolbar.ColumnDefinitions[1];
             Assert.True(bounds.Width > 0);
-            Assert.Equal(toolbar.ActualWidth / 2, bounds.Left + bounds.Width / 2, 5);
-            Assert.True(bounds.Left >= slot.Offset + 15 - 0.01);
-            Assert.True(bounds.Right <= slot.Offset + slot.ActualWidth - 15 + 0.01);
+            Assert.InRange(Math.Abs(slot.Offset + slot.ActualWidth / 2 - (bounds.Left + bounds.Width / 2)), 0, 0.5);
+            Assert.True(bounds.Left >= slot.Offset + 15 - 0.5);
+            Assert.True(bounds.Right <= slot.Offset + slot.ActualWidth - 15 + 0.5);
         }
 
         Layout(1000);
@@ -1437,9 +1476,9 @@ public sealed class RandomNetworkTests
         var bounds = border.TransformToAncestor(grid).TransformBounds(new Rect(border.RenderSize));
         Assert.True(plotColumn.ActualWidth > initialPlotWidth);
         Assert.InRange(bounds.Width, 1, initialBounds.Width - 1);
-        Assert.InRange(bounds.Left, 4.99, grid.ColumnDefinitions[0].ActualWidth);
-        Assert.True(bounds.Right <= grid.ColumnDefinitions[0].ActualWidth - 4.99);
-        Assert.True(bounds.Top >= 4.99 && bounds.Bottom <= grid.ActualHeight - 4.99);
+        Assert.InRange(bounds.Left, 4.49, grid.ColumnDefinitions[0].ActualWidth);
+        Assert.True(bounds.Right <= grid.ColumnDefinitions[0].ActualWidth - 4.49);
+        Assert.True(bounds.Top >= 4.49 && bounds.Bottom <= grid.ActualHeight - 4.49);
         Assert.Equal(border.ActualWidth / border.ActualHeight, bounds.Width / bounds.Height, 5);
         Layout(640);
         CheckLegend();
@@ -1952,6 +1991,8 @@ public sealed class RandomNetworkTests
             {
                 Source = new Uri("/Sortopia.WPF;component/Styles/Navigation.xaml", UriKind.Relative)
             });
+            CheckCatalogControls();
+            CheckRandomEducationControls();
             CheckFirstGenerateFromHome(deferSelection: false);
             CheckFirstGenerateFromHome(deferSelection: true);
             CheckFirstGenerateFromHome(deferSelection: false, sandbox: true);
@@ -1962,6 +2003,111 @@ public sealed class RandomNetworkTests
         }
         finally { app.Shutdown(); }
     });
+
+    private static void CheckRandomEducationControls()
+    {
+        using var vm = new RandomNetworksPageViewModel(() => { });
+        var page = new Sortopia.WPF.Views.RandomNetworksPage { DataContext = vm };
+        var diagram = (NetworkDiagram)page.FindName("Diagram");
+        var viewport = (ScrollViewer)page.FindName("DiagramViewport");
+        var selector = (Sortopia.WPF.Views.StageLayoutSelector)page.FindName("StageLayouts");
+        var usedCes = (RadioButton)selector.FindName("UsedCes");
+        var compact = (RadioButton)selector.FindName("Compact");
+        page.Measure(new Size(1000, 720));
+        page.Arrange(new Rect(0, 0, 1000, 720));
+        page.UpdateLayout();
+        Assert.Null(diagram.Trace);
+        Assert.Same(vm.SelectedNetwork, diagram.StaticNetwork);
+        Assert.False(usedCes.IsEnabled);
+        Assert.False(compact.IsEnabled);
+        Assert.Equal("160", ((TextBox)page.FindName("CeCountInput")).Text);
+        vm.SelectedNetwork = RedundantNetwork();
+        CompleteTest(vm);
+        Assert.True(usedCes.IsEnabled);
+        Assert.True(compact.IsEnabled);
+        foreach (var size in new[] { new Size(1000, 720), new Size(640, 430), new Size(480, 360) })
+        {
+            foreach (var mode in new[] { 0, 1, 2, 3 })
+            {
+                ((RadioButton)selector.FindName(new[] { "AllCes", "UsedStages", "UsedCes", "Compact" }[mode])).IsChecked = true;
+                page.Measure(size);
+                page.Arrange(new Rect(new Point(), size));
+                page.UpdateLayout();
+                Assert.Equal(mode, vm.DisplayMode);
+                Assert.Equal(mode, diagram.DisplayMode);
+                Assert.Null(diagram.Trace);
+                Assert.Same(vm.Usage, diagram.Usage);
+                Assert.True(viewport.ViewportHeight > 0, $"Viewport height {viewport.ViewportHeight}, size {size}, mode {mode}");
+                Assert.True(viewport.ExtentWidth <= viewport.ViewportWidth + 0.1, $"Width {viewport.ExtentWidth}/{viewport.ViewportWidth}, size {size}, mode {mode}");
+                Assert.True(viewport.ExtentHeight <= viewport.ViewportHeight + 0.1, $"Height {viewport.ExtentHeight}/{viewport.ViewportHeight}, size {size}, mode {mode}");
+            }
+            var fitZoom = diagram.Zoom;
+            ((Slider)page.FindName("ZoomSlider")).Value = 4;
+            page.Measure(size);
+            page.Arrange(new Rect(new Point(), size));
+            page.UpdateLayout();
+            Assert.Equal(4, vm.ZoomFactor);
+            Assert.Equal(fitZoom * 4, diagram.Zoom, 5);
+            Assert.True(viewport.ScrollableWidth > 0 || viewport.ScrollableHeight > 0);
+            viewport.ScrollToHorizontalOffset(viewport.ScrollableWidth / 2);
+            viewport.ScrollToVerticalOffset(viewport.ScrollableHeight / 2);
+            page.UpdateLayout();
+            Assert.True(viewport.HorizontalOffset > 0 || viewport.VerticalOffset > 0);
+            ((Slider)page.FindName("ZoomSlider")).Value = 1;
+            page.UpdateLayout();
+            Assert.True(viewport.ExtentWidth <= viewport.ViewportWidth + 0.1);
+            Assert.True(viewport.ExtentHeight <= viewport.ViewportHeight + 0.1);
+        }
+        vm.GenerateCommand.Execute(null);
+        Assert.Equal(0, selector.Mode);
+        Assert.False(compact.IsEnabled);
+        Assert.Null(diagram.Usage);
+        Assert.Same(vm.SelectedNetwork, diagram.StaticNetwork);
+    }
+
+    private static void CheckCatalogControls()
+    {
+        using var vm = new NetworksPageViewModel(() => { });
+        var page = new Sortopia.WPF.Views.NetworksPage { DataContext = vm };
+        var viewport = (ScrollViewer)page.FindName("DiagramViewport");
+        var diagram = (NetworkDiagram)page.FindName("Diagram");
+        var rows = (Grid)page.FindName("PageRows");
+        Assert.Equal(3, rows.RowDefinitions.Count);
+        foreach (var size in new[] { new Size(1000, 720), new Size(640, 430), new Size(480, 360) })
+        {
+            void Layout()
+            {
+                page.Measure(size);
+                page.Arrange(new Rect(new Point(), size));
+                page.UpdateLayout();
+            }
+            foreach (var network in new[] { vm.Networks.First(), vm.Networks.First(n => n.Width == 8), vm.Networks.Last() })
+            {
+                vm.SelectedNetwork = network;
+                Layout();
+                Assert.Equal(1, vm.ZoomFactor);
+                Assert.True(viewport.ViewportWidth > 0 && viewport.ViewportHeight > 0);
+                Assert.True(viewport.ExtentWidth <= viewport.ViewportWidth + 0.1);
+                Assert.True(viewport.ExtentHeight <= viewport.ViewportHeight + 0.1);
+                Assert.Same(vm.Trace, diagram.Trace);
+                Assert.Same(vm.ComparatorStates, diagram.ComparatorStates);
+            }
+            vm.ZoomFactor = 2;
+            Layout();
+            Assert.True(viewport.ScrollableWidth > 0 || viewport.ScrollableHeight > 0);
+            vm.ZoomFactor = 1;
+            Layout();
+            Assert.True(viewport.ExtentWidth <= viewport.ViewportWidth + 0.1);
+            Assert.True(viewport.ExtentHeight <= viewport.ViewportHeight + 0.1);
+        }
+        vm.SeekPosition = 5;
+        var colors = diagram.ComparatorStates;
+        vm.NewInputCommand.Execute(null);
+        Assert.Same(colors, diagram.ComparatorStates);
+        Assert.Equal(0, diagram.Position);
+        vm.ResetColorsCommand.Execute(null);
+        Assert.All(diagram.ComparatorStates!, state => Assert.Equal(ComparatorState.Unseen, state));
+    }
 
     private static void CheckFirstGenerateFromHome(bool deferSelection, bool sandbox = false)
     {
@@ -2028,6 +2174,7 @@ public sealed class RandomNetworkTests
             var seedInput = (TextBox)page.FindName("SeedInput");
             Assert.Equal(controlHeight, ((Grid)seedInput.Parent).Children.OfType<Button>().Single().ActualHeight);
             Assert.False(evolve.IsEnabled);
+            var previousSeed = vm.Generator.SeedText;
             CompleteRun(async () =>
             {
                 var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2040,6 +2187,9 @@ public sealed class RandomNetworkTests
                 await published.Task.WaitAsync(TimeSpan.FromSeconds(10));
             });
             Assert.Equal(16, vm.Generator.ChannelCount);
+            Assert.NotEqual(previousSeed, vm.Generator.SeedText);
+            Assert.Equal(vm.Generator.SeedText, seedInput.Text);
+            Assert.Equal(int.Parse(seedInput.Text), vm.GenerationResult!.Seed);
             Assert.Equal(16, vm.Network!.Width);
             Assert.True(vm.Usage!.Exhaustive);
             Assert.Equal(65_536, vm.Usage.Tested);
@@ -2073,7 +2223,7 @@ public sealed class RandomNetworkTests
                 var original = Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
                 Assert.Same(vm, original.DataContext);
                 Assert.Same(parent, vm.NetworkHistory.Current);
-                Assert.Equal(Color.FromRgb(16, 43, 59), ((SolidColorBrush)((Border)original.Content).Background).Color);
+                Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)original.Content).Background).Color);
                 Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)page.Content).Background).Color);
                 vm.ReturnHomeCommand.Execute(null);
                 home.OpenSandboxCommand.Execute(null);

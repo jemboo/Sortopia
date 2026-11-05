@@ -22,8 +22,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenSandbox);
         networksPage = new NetworksPageViewModel(ReturnHome);
         randomNetworksPage = new RandomNetworksPageViewModel(ReturnHome);
-        sgdPage = new SgdPageViewModel(ReturnHome);
-        sandboxPage = new SandboxPageViewModel(sgdPage, ReturnHome, OpenSortableTests, OpenProjectFolder);
+        sgdPage = new SgdPageViewModel(ReturnHome, OpenSortableTests, OpenProjectFolder);
+        sandboxPage = new SandboxPageViewModel(sgdPage);
         currentPage = homePage;
     }
 
@@ -82,7 +82,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     private void ShowRuns(SortableTestsPageViewModel page)
     {
-        if (CurrentPage == sandboxPage) sgdPage.Stop();
+        if (CurrentPage == sandboxPage || CurrentPage == sgdPage) sgdPage.Stop();
         page.Open();
         CurrentPage = page;
     }

@@ -1,6 +1,9 @@
+using System.Globalization;
 using Sortopia.Models.Sorting;
+using Sortopia.Models.Sorting.Simple;
 using Sortopia.WPF.Commands;
 using Sortopia.WPF.Models;
+using Sortopia.WPF.Rendering;
 
 namespace Sortopia.WPF.ViewModels;
 
@@ -8,8 +11,13 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
 {
     public const int MaxCeCount = NetworkGeneratorSettings.MaxCeCount;
     public const int MaxStageCount = NetworkGeneratorSettings.MaxStageCount;
-    private string status = "Generate a network, then test it or explore a single input with playback.";
-    private string generationLabel = "msce · 8 channels · 32 CEs · seed 1";
+    private string status = "";
+    private string generationLabel = "";
+    private string ceCountText = "";
+    private bool updatingCeCount;
+    private int displayMode;
+    private double zoomFactor = 1;
+    private NetworkLayout displayLayout = null!;
     private bool isTesting;
     private bool hasCompacted;
     private bool isCompacting;
@@ -19,12 +27,30 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     private bool showCeUsage = true;
     private CancellationTokenSource? testCancellation;
 
-    public RandomNetworksPageViewModel(Action returnHome) : this(returnHome, new NetworkGeneratorSettings()) { }
+    public RandomNetworksPageViewModel(Action returnHome) : this(returnHome, CreateGenerator()) { }
+
+    private static NetworkGeneratorSettings CreateGenerator()
+    {
+        var generator = new NetworkGeneratorSettings();
+        ApplyRecommendedSize(generator);
+        generator.NewSeed();
+        return generator;
+    }
+
+    private static void ApplyRecommendedSize(NetworkGeneratorSettings generator)
+    {
+        var recommended = SimpleSorterStageCounts.fullSortDefault(SimpleSorterModelType.fromString(generator.Method), generator.ChannelCount);
+        var size = generator.Method == "msce" ? Sortopia.Sorting.StageLength.toCeLength(generator.ChannelCount, recommended.Stages) : recommended.Stages;
+        generator.CountText = size.ToString(CultureInfo.InvariantCulture);
+    }
 
     private RandomNetworksPageViewModel(Action returnHome, NetworkGeneratorSettings generator)
         : base(returnHome, GenerateNetwork(generator))
     {
         Generator = generator;
+        UpdateCeCount();
+        generationLabel = generator.Description;
+        displayLayout = new NetworkLayout(SelectedNetwork);
         RemoveUnusedCesCommand = new RelayCommand(RemoveUnusedCes, () => CanEdit && Usage is not null && !hasRemovedUnused);
         CompactStagesCommand = new RelayCommand(CompactStages, () => CanEdit && Usage is not null && hasRemovedUnused && !hasCompacted && SelectedNetwork.StageCount > 1);
         GenerateCommand = new RelayCommand(Generate, () => CanEdit && InputError.Length == 0);
@@ -33,11 +59,23 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         CancelTestCommand = new RelayCommand(CancelTest, () => IsTesting);
         PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(SelectedNetwork)) generator.SetTestWidth(SelectedNetwork.Width);
+            if (change.PropertyName == nameof(SelectedNetwork))
+            {
+                generator.SetTestWidth(SelectedNetwork.Width);
+                ZoomFactor = 1;
+                Usage = null;
+            }
         };
         generator.PropertyChanged += (_, change) =>
         {
             OnPropertyChanged(change.PropertyName);
+            if (change.PropertyName is nameof(Method) or nameof(ChannelCount))
+            {
+                ApplyRecommendedSize(generator);
+                UpdateCeCount();
+                OnPropertyChanged(nameof(SizeHint));
+            }
+            if (change.PropertyName == nameof(CountText) && !updatingCeCount) UpdateCeCount();
             if (change.PropertyName == nameof(InputError)) GenerateCommand.RaiseCanExecuteChanged();
             if (change.PropertyName == nameof(TestInputError)) TestCommand.RaiseCanExecuteChanged();
         };
@@ -45,6 +83,88 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
 
     public RelayCommand RemoveUnusedCesCommand { get; }
     public NetworkGeneratorSettings Generator { get; }
+    public string CeCountText
+    {
+        get => ceCountText;
+        set
+        {
+            if (!SetProperty(ref ceCountText, value)) return;
+            updatingCeCount = true;
+            try
+            {
+                Generator.CountText = int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
+                    && count > 0 && count <= MaximumCeBudget
+                    ? (Method == "msce" ? count : (count + ChannelCount / 2 - 1) / (ChannelCount / 2)).ToString(CultureInfo.InvariantCulture)
+                    : "";
+            }
+            finally { updatingCeCount = false; }
+            OnPropertyChanged(nameof(SizeHint));
+            OnPropertyChanged(nameof(InputError));
+            GenerateCommand.RaiseCanExecuteChanged();
+        }
+    }
+    private int MaximumCeBudget => Method == "msce" ? MaxCeCount : MaxStageCount * (ChannelCount / 2);
+    private void UpdateCeCount()
+    {
+        ceCountText = int.TryParse(Generator.CountText, out var size)
+            ? ((long)size * (Method == "msce" ? 1 : ChannelCount / 2)).ToString(CultureInfo.InvariantCulture)
+            : Generator.CountText;
+        OnPropertyChanged(nameof(CeCountText));
+        OnPropertyChanged(nameof(InputError));
+    }
+    public string SizeHint
+    {
+        get
+        {
+            var recommendation = SimpleSorterStageCounts.fullSortDefault(SimpleSorterModelType.fromString(Method), ChannelCount);
+            var count = Method == "msce" ? Sortopia.Sorting.StageLength.toCeLength(ChannelCount, recommendation.Stages)
+                : recommendation.Stages * (ChannelCount / 2);
+            var source = recommendation.IsEstimate ? "Estimated" : "Measured";
+            var hint = $"{source} 99% default: {count:N0} CEs ({recommendation.Stages:N0} stages). This is a starting size, not a guarantee for an individual network. Enter 1–{MaximumCeBudget:N0} CEs.";
+            if (Method != "msce" && int.TryParse(Generator.CountText, out var stages) && stages > 0)
+                hint += $" This method generates whole stages: {stages:N0} stages, {stages * (ChannelCount / 2):N0} CEs.";
+            return hint;
+        }
+    }
+    public int DisplayMode
+    {
+        get => displayMode;
+        set
+        {
+            if (value is < 0 or > 3 || (value != 0 && !CanChooseTestedLayouts)) return;
+            if (SetProperty(ref displayMode, value)) RefreshDisplay();
+        }
+    }
+    public bool CanChooseTestedLayouts => Usage is not null && !IsTesting;
+    public double ZoomFactor
+    {
+        get => zoomFactor;
+        set
+        {
+            if (SetProperty(ref zoomFactor, double.IsFinite(value) ? Math.Clamp(value, 1, 8) : 1))
+                OnPropertyChanged(nameof(ZoomLabel));
+        }
+    }
+    public string ZoomLabel => ZoomFactor == 1 ? "Fit" : $"{ZoomFactor:0.#}×";
+    public NetworkLayout DisplayLayout => displayLayout;
+    public string ResultsSummary
+    {
+        get
+        {
+            var original = $"Generated: {SelectedNetwork.ComparatorCount:N0} CEs, {SelectedNetwork.StageCount:N0} stages";
+            var layout = DisplayMode == 0 ? "" : $" → {new[] { "All CEs", "Used stages", "Used CEs", "Compact" }[DisplayMode]}: {DisplayLayout.TotalComparators:N0} CEs, {DisplayLayout.TotalStages:N0} stages";
+            var result = Usage is { } check ? $" · {check.Failed:N0} failures across {check.Tested:N0} inputs ({(check.Exhaustive ? "exhaustive" : "sampled")})" : " · Not tested";
+            var scope = Usage is { Exhaustive: false } && DisplayMode != 0 ? " · Used on tested inputs" : "";
+            return original + layout + result + scope;
+        }
+    }
+    private void RefreshDisplay()
+    {
+        displayLayout = new NetworkLayout(SelectedNetwork, Usage, DisplayMode);
+        OnPropertyChanged(nameof(DisplayLayout));
+        OnPropertyChanged(nameof(ResultsSummary));
+        OnPropertyChanged(nameof(CanChooseTestedLayouts));
+    }
     public RelayCommand CompactStagesCommand { get; }
     public int UnusedCeCount => Usage?.CeUses.Count(count => count == 0) ?? 0;
     public string RemoveUnusedHint => Usage is null ? "Run a test first. Removes individual CEs with no swaps."
@@ -118,7 +238,15 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     public NetworkCheckResult? Usage
     {
         get => usage;
-        private set { SetProperty(ref usage, value); OnPropertyChanged(nameof(DisplayedUsage)); OnPropertyChanged(nameof(UsageSummary)); NotifyTransforms(); }
+        private set
+        {
+            SetProperty(ref usage, value);
+            if (value is null) { displayMode = 0; OnPropertyChanged(nameof(DisplayMode)); }
+            OnPropertyChanged(nameof(DisplayedUsage));
+            OnPropertyChanged(nameof(UsageSummary));
+            RefreshDisplay();
+            NotifyTransforms();
+        }
     }
     public bool ShowCeUsage
     {
@@ -140,7 +268,8 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     public string CountText { get => Generator.CountText; set => Generator.CountText = value; }
     public string CountLabel => Generator.CountLabel;
     public string WidthHint => Generator.WidthHint;
-    public string InputError => Generator.InputError;
+    public string InputError => !int.TryParse(CeCountText, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
+        || count < 1 || count > MaximumCeBudget ? $"Enter a whole CE count from 1 to {MaximumCeBudget:N0}." : Generator.SetupError;
     public string Status { get => status; private set => SetProperty(ref status, value); }
     public string GenerationLabel { get => generationLabel; private set => SetProperty(ref generationLabel, value); }
     public bool IsTesting
@@ -150,6 +279,7 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         {
             SetProperty(ref isTesting, value);
             OnPropertyChanged(nameof(CanEdit));
+            OnPropertyChanged(nameof(CanChooseTestedLayouts));
             GenerateCommand.RaiseCanExecuteChanged();
             TestCommand.RaiseCanExecuteChanged();
             CancelTestCommand.RaiseCanExecuteChanged();
@@ -190,12 +320,13 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         if (!CanEdit || InputError.Length > 0) return;
         try
         {
+            Generator.NewSeed();
             SelectedNetwork = GenerateNetwork(Generator);
             hasRemovedUnused = false;
             hasCompacted = false;
             Usage = null;
             GenerationLabel = Generator.Description;
-            Status = "New network generated. Test it to check whether it sorts binary inputs.";
+            Status = "";
         }
         catch (Exception ex) { Status = $"Could not generate network: {ex.Message}"; }
     }
@@ -223,13 +354,8 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
             var progress = new Progress<int>(done => ShowProgress($"Checking {done:N0} / {total:N0} binary inputs…"));
             var result = await Task.Run(() => NetworkCheck.Run(network, samples, cancellation.Token, progress), cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
-            Status = result.Description;
+            Status = "";
             Usage = result;
-            if (result.Counterexample is { } input)
-            {
-                UseZeroOneRule = true;
-                ReplaceTrace(NetworkTrace.CreateForPlayback(network, input));
-            }
         }
         catch (OperationCanceledException) { Status = "Test cancelled."; }
         catch (Exception ex) { Status = $"Test could not finish: {ex.Message}"; }

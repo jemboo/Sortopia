@@ -36,6 +36,9 @@ public sealed class NetworkDiagram : FrameworkElement
     public static readonly DependencyProperty DisplayModeProperty = DependencyProperty.Register(nameof(DisplayMode), typeof(int), typeof(NetworkDiagram),
         new FrameworkPropertyMetadata(0, OnDisplayChanged), value => value is int mode && mode >= 0 && mode <= 3);
     public int DisplayMode { get => (int)GetValue(DisplayModeProperty); set => SetValue(DisplayModeProperty, value); }
+    public static readonly DependencyProperty DisplayTransitionMillisecondsProperty = DependencyProperty.Register(nameof(DisplayTransitionMilliseconds),
+        typeof(double), typeof(NetworkDiagram), new PropertyMetadata(450d), value => value is double duration && double.IsFinite(duration) && duration >= 0);
+    public double DisplayTransitionMilliseconds { get => (double)GetValue(DisplayTransitionMillisecondsProperty); set => SetValue(DisplayTransitionMillisecondsProperty, value); }
     private NetworkLayout? previousDisplay;
     private readonly Stopwatch displayClock = new();
     private readonly DispatcherTimer displayTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
@@ -47,7 +50,7 @@ public sealed class NetworkDiagram : FrameworkElement
         var before = diagram.layout;
         diagram.FinishDisplayTransition();
         diagram.layout = new NetworkLayout(network, diagram.Usage, diagram.DisplayMode);
-        if (args.Property == DisplayModeProperty && before is not null && diagram.IsLoaded && SystemParameters.ClientAreaAnimation)
+        if (args.Property == DisplayModeProperty && before is not null && diagram.IsLoaded && SystemParameters.ClientAreaAnimation && diagram.DisplayTransitionMilliseconds > 0)
         {
             diagram.previousDisplay = before;
             diagram.displayProgress = 0;
@@ -61,14 +64,14 @@ public sealed class NetworkDiagram : FrameworkElement
     private Brush[] labelBrushes = [];
     private Pen[] channelPens = [];
 
-    private static readonly Brush BackgroundBrush = Frozen("#102B3B");
-    private static readonly Brush BandBrush = Frozen("#18394A");
-    private static readonly Brush MutedBrush = Frozen("#8DAAB9");
+    private static readonly Brush BackgroundBrush = Frozen("#101318");
+    private static readonly Brush BandBrush = Frozen("#191F28");
+    private static readonly Brush MutedBrush = Frozen("#AFBDCE");
     private static readonly Brush ActiveBrush = Frozen("#F4CA7F");
     private static readonly Pen StaticChannelPen = FrozenPen(MutedBrush, 1.5);
     private static readonly Pen FuturePen = FrozenPen(Frozen("#829AA6"), 3.5);
     private static readonly Pen UsedPen = FrozenPen(Frozen("#56C7B4"), 4);
-    private static readonly Pen IdlePen = FrozenPen(Frozen("#456777"), 3.5);
+    private static readonly Pen IdlePen = FrozenPen(Frozen("#4A586D"), 3.5);
     private static readonly Pen ActivePen = FrozenPen(ActiveBrush, 5);
     private static readonly Typeface Typeface = new("Segoe UI");
     private static readonly Pen PlayheadPen = FrozenPen(Frozen("#4DF4CA7F"), 1);
@@ -85,9 +88,10 @@ public sealed class NetworkDiagram : FrameworkElement
     {
         displayTimer.Tick += (_, _) =>
         {
-            var t = Math.Clamp(displayClock.Elapsed.TotalMilliseconds / 450, 0, 1);
+            var t = DisplayTransitionMilliseconds == 0 ? 1 : Math.Clamp(displayClock.Elapsed.TotalMilliseconds / DisplayTransitionMilliseconds, 0, 1);
             displayProgress = t * t * (3 - 2 * t);
-            if (t >= 1) { FinishDisplayTransition(); InvalidateMeasure(); }
+            if (t >= 1) FinishDisplayTransition();
+            InvalidateMeasure();
             InvalidateVisual();
         };
         transitionTimer.Tick += (_, _) => AdvanceCompaction();
@@ -168,6 +172,15 @@ public sealed class NetworkDiagram : FrameworkElement
     public bool ByStage { get => (bool)GetValue(ByStageProperty); set => SetValue(ByStageProperty, value); }
     public double Zoom { get => (double)GetValue(ZoomProperty); set => SetValue(ZoomProperty, value); }
 
+    public static readonly DependencyProperty ComparatorStatesProperty = DependencyProperty.Register(nameof(ComparatorStates),
+        typeof(IReadOnlyList<ComparatorState>), typeof(NetworkDiagram),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    public IReadOnlyList<ComparatorState>? ComparatorStates
+    {
+        get => (IReadOnlyList<ComparatorState>?)GetValue(ComparatorStatesProperty);
+        set => SetValue(ComparatorStatesProperty, value);
+    }
+
     private static void OnTraceChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var diagram = (NetworkDiagram)sender;
@@ -179,7 +192,8 @@ public sealed class NetworkDiagram : FrameworkElement
         diagram.PlayheadChanged?.Invoke(diagram, EventArgs.Empty);
     }
 
-    protected override Size MeasureOverride(Size availableSize) => layout is null ? new Size(0, 0) : new Size((Compaction?.Width ?? Math.Max(layout.Width, previousDisplay?.Width ?? 0)) * Zoom, layout.Height * Zoom);
+    protected override Size MeasureOverride(Size availableSize) => layout is null ? new Size(0, 0) : new Size(
+        (Compaction?.Width ?? (previousDisplay is { } previous ? Interpolate(previous.Width, layout.Width, displayProgress) : layout.Width)) * Zoom, layout.Height * Zoom);
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -222,6 +236,13 @@ public sealed class NetworkDiagram : FrameworkElement
         foreach (var ce in geometry.Comparators)
         {
             var pen = ce.Index >= from && ce.Index < to ? ActivePen : trace is not null && ce.Index < from ? trace.SwapCounts[ce.Index] > 0 ? UsedPen : IdlePen : FuturePen;
+            if (trace is not null && ComparatorStates is { } states && states.Count == trace.Comparators.Count)
+                pen = states[ce.Index] switch
+                {
+                    ComparatorState.Swapped => UsedPen,
+                    ComparatorState.Compared => IdlePen,
+                    _ => FuturePen
+                };
             if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == network.ComparatorCount)
                 pen = UsagePens[UsageLevel(usage.CeUses[ce.Index], usage.Tested)];
             var low = new Point(ce.X, NetworkLayout.ChannelY(ce.Low));
@@ -248,7 +269,7 @@ public sealed class NetworkDiagram : FrameworkElement
     {
         var t = displayProgress;
         dc.PushTransform(new ScaleTransform(Zoom, Zoom));
-        dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, Math.Max(before.Width, after.Width), after.Height));
+        dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, Interpolate(before.Width, after.Width, t), after.Height));
         void Bands(NetworkLayout source, double opacity)
         {
             dc.PushOpacity(opacity);
@@ -440,6 +461,6 @@ public sealed class NetworkDiagram : FrameworkElement
     {
         protected override string GetClassNameCore() => nameof(NetworkDiagram);
         protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Image;
-        protected override string GetNameCore() => owner.StaticNetwork is { } network ? $"Sorting network, {network.Label}, {network.StageCount} stages, {network.ComparatorCount} comparators." : owner.Trace is { } trace ? $"Sorting network, {trace.Network.Label}, {trace.Network.StageCount} stages. Current values are shown below the diagram." : "Sorting network";
+        protected override string GetNameCore() => owner.StaticNetwork is { } network ? $"Sorting network, {network.Label}, {network.StageCount} stages, {network.ComparatorCount} comparators." : owner.Trace is { } trace ? $"Sorting network, {trace.Network.Label}, {trace.Network.StageCount} stages. Values are shown on the network." : "Sorting network";
     }
 }

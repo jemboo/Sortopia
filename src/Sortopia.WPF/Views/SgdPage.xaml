@@ -4,19 +4,19 @@
              xmlns:controls="clr-namespace:Sortopia.WPF.Controls"
              xmlns:views="clr-namespace:Sortopia.WPF.Views"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
-             AutomationProperties.Name="Sampling and Evolution page">
+             FontFamily="Segoe UI" UseLayoutRounding="True" SnapsToDevicePixels="True"
+             AutomationProperties.Name="Sampling and evolution workspace" Foreground="{DynamicResource Workspace.TextPrimary}">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/Sortopia.WPF;component/Styles/NetworkWorkspace.xaml" />
+                <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolVisibility" />
             <sys:Double x:Key="SetupSamplingControlHeight">32</sys:Double>
-            <SolidColorBrush x:Key="ControlText" Color="#F3F7FA" />
             <Style x:Key="GraphBufferToggle" TargetType="ToggleButton">
-                <Setter Property="Background" Value="#102B3B" />
-                <Setter Property="BorderBrush" Value="#466B7B" />
-                <Setter Property="Foreground" Value="#EAF4F7" />
+                <Setter Property="Background" Value="{StaticResource Workspace.Canvas}" />
+                <Setter Property="BorderBrush" Value="{StaticResource Workspace.Stroke}" />
+                <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
                 <Setter Property="Margin" Value="2" />
                 <Setter Property="Padding" Value="8,4" />
                 <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -28,11 +28,11 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Tile" Property="Background" Value="#285D59" />
-                                    <Setter TargetName="Tile" Property="BorderBrush" Value="#77D3C7" />
+                                    <Setter TargetName="Tile" Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" />
+                                    <Setter TargetName="Tile" Property="BorderBrush" Value="{StaticResource Workspace.Accent}" />
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="False"><Setter Property="Opacity" Value="0.5" /></Trigger>
-                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="#F4CA7F" /></Trigger>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="{StaticResource Workspace.Accent}" /></Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="White" /></Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -68,7 +68,7 @@
                         </Grid.Style>
                         <Grid.Resources>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                <Setter Property="Foreground" Value="#A8C3CF" />
+                                <Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" />
                                 <Setter Property="VerticalAlignment" Value="Center" />
                             </Style>
                             <Style x:Key="StatValue" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -92,8 +92,8 @@
                             <ColumnDefinition Width="56" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions><RowDefinition Height="18" /><RowDefinition Height="18" /></Grid.RowDefinitions>
-                        <Border Grid.Column="1" Grid.RowSpan="2" Background="#142F3C" CornerRadius="2" />
-                        <Border Grid.Column="4" Grid.RowSpan="2" Background="#142F3C" CornerRadius="2" />
+                        <Border Grid.Column="1" Grid.RowSpan="2" Background="{StaticResource Workspace.Canvas}" CornerRadius="2" />
+                        <Border Grid.Column="4" Grid.RowSpan="2" Background="{StaticResource Workspace.Canvas}" CornerRadius="2" />
                         <TextBlock Text="min: " />
                         <Viewbox Grid.Column="1"><TextBlock Style="{StaticResource StatValue}" Text="{Binding Min, StringFormat=N0, FallbackValue=—}" /></Viewbox>
                         <TextBlock Grid.Column="3" Text="max: " />
@@ -121,25 +121,26 @@
                 </Style.Triggers>
             </Style>
             <Style x:Key="SectionTitle" TargetType="TextBlock">
-                <Setter Property="Foreground" Value="#9EDAD6" />
+                <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontSize" Value="15" />
             </Style>
             <Style x:Key="ControlGroup" TargetType="Border">
-                <Setter Property="Background" Value="#18394A" />
-                <Setter Property="BorderBrush" Value="#466B7B" />
-                <Setter Property="Padding" Value="8,4,8,2" />
-                <Setter Property="CornerRadius" Value="5" />
+                <Setter Property="Background" Value="{StaticResource Workspace.Surface}" />
+                <Setter Property="BorderBrush" Value="{StaticResource Workspace.Stroke}" />
+                <Setter Property="Padding" Value="14,12" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="Margin" Value="0,0,0,4" />
             </Style>
             <Style x:Key="FieldLabel" TargetType="Label">
-                <Setter Property="Foreground" Value="{StaticResource ControlText}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
                 <Setter Property="VerticalAlignment" Value="Center" />
                 <Setter Property="Padding" Value="0,0,4,0" />
             </Style>
             <Style TargetType="ComboBox" BasedOn="{StaticResource NetworkComboBoxStyle}">
-                <Setter Property="Foreground" Value="{StaticResource ControlText}" />
+                <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
                 <Setter Property="MinHeight" Value="26" />
                 <Setter Property="FontSize" Value="12" />
             </Style>
@@ -160,14 +161,14 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="HeaderedContentControl">
-                            <Border BorderBrush="#345464" BorderThickness="0,0,0,1" Padding="0,2">
+                            <Border BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="0,0,0,1" Padding="0,2">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="1.15*" MaxWidth="132" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{TemplateBinding Header}" Foreground="#ADCAD6" TextWrapping="Wrap" Margin="0,0,5,0" />
-                                    <ContentPresenter Grid.Column="1" ContentSource="Content" TextElement.Foreground="{StaticResource ControlText}" />
+                                    <TextBlock Text="{TemplateBinding Header}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,5,0" />
+                                    <ContentPresenter Grid.Column="1" ContentSource="Content" TextElement.Foreground="{StaticResource Workspace.TextPrimary}" />
                                 </Grid>
                             </Border>
                         </ControlTemplate>
@@ -176,7 +177,7 @@
             </Style>
         </ResourceDictionary>
     </UserControl.Resources>
-    <Border Background="#102B3B" Padding="16">
+    <Border Background="{StaticResource Workspace.Canvas}" Padding="16">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -185,8 +186,8 @@
                         <Style TargetType="RowDefinition">
                             <Setter Property="Height" Value="0.5*" />
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding WizardStep}" Value="2"><Setter Property="Height" Value="1.65*" /></DataTrigger>
-                                <DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="Height" Value="1.25*" /></DataTrigger>
+                                <DataTrigger Binding="{Binding WizardStep}" Value="2"><Setter Property="Height" Value="1.3*" /></DataTrigger>
+                                <DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="Height" Value="1.1*" /></DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </RowDefinition.Style>
@@ -194,49 +195,63 @@
                 <RowDefinition Height="8" />
                 <RowDefinition Height="*" MinHeight="82" />
                 <RowDefinition Height="8" />
-                <RowDefinition Height="1.15*" MinHeight="75" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="1.45*" MinHeight="75" />
             </Grid.RowDefinitions>
-            <DockPanel Margin="0,0,0,6">
-                <Button DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}" Style="{StaticResource PageReturnButtonStyle}" />
-                <WrapPanel x:Name="WizardSteps" AutomationProperties.Name="Wizard steps">
-                    <WrapPanel.Style>
-                        <Style TargetType="WrapPanel">
-                            <Setter Property="ItemHeight" Value="{StaticResource SetupSamplingControlHeight}" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="ItemHeight" Value="Auto" /></DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </WrapPanel.Style>
-                    <Button Content="1  Setup" Command="{Binding SetupStepCommand}" AutomationProperties.Name="Step 1: Setup">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
-                                <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="1"><Setter Property="BorderBrush" Value="#77D3C7" /><Setter Property="Background" Value="#204958" /></DataTrigger></Style.Triggers>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
+                <Viewbox Grid.Column="1" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Right" Margin="12,0,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Project _runs" Style="{StaticResource PageReturnButtonStyle}" Margin="0,0,8,0"
+                                Command="{Binding OpenSortableTestsCommand}"
+                                ToolTip="{Binding ProjectStatus}"
+                                AutomationProperties.Name="Project runs" />
+                        <Button Content="_Open project" Style="{StaticResource PageReturnButtonStyle}" Margin="0,0,8,0"
+                                Command="{Binding OpenProjectFolderCommand}"
+                                ToolTip="{Binding ProjectStatus}"
+                                AutomationProperties.Name="Open project folder" />
+                        <Button Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}" Style="{StaticResource PageReturnButtonStyle}" />
+                    </StackPanel>
+                </Viewbox>
+                <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
+                    <WrapPanel x:Name="WizardSteps" AutomationProperties.Name="Wizard steps">
+                        <WrapPanel.Style>
+                            <Style TargetType="WrapPanel">
+                                <Setter Property="ItemHeight" Value="{StaticResource SetupSamplingControlHeight}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="ItemHeight" Value="Auto" /></DataTrigger>
+                                </Style.Triggers>
                             </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Content="2  Sampling" Command="{Binding GenerationStepCommand}" AutomationProperties.Name="Step 2: Sampling">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
-                                <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="2"><Setter Property="BorderBrush" Value="#77D3C7" /><Setter Property="Background" Value="#204958" /></DataTrigger></Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Content="3  Evolution" Command="{Binding EvolutionStepCommand}" AutomationProperties.Name="Step 3: Evolution">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
-                                <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="BorderBrush" Value="#77D3C7" /><Setter Property="Background" Value="#204958" /></DataTrigger></Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </WrapPanel>
-            </DockPanel>
+                        </WrapPanel.Style>
+                        <Button Content="1  Setup" Command="{Binding SetupStepCommand}" AutomationProperties.Name="Step 1: Setup">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
+                                    <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="1"><Setter Property="BorderBrush" Value="{StaticResource Workspace.Accent}" /><Setter Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button Content="2  Sampling" Command="{Binding GenerationStepCommand}" AutomationProperties.Name="Step 2: Sampling">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
+                                    <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="2"><Setter Property="BorderBrush" Value="{StaticResource Workspace.Accent}" /><Setter Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button Content="3  Evolution" Command="{Binding EvolutionStepCommand}" AutomationProperties.Name="Step 3: Evolution">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
+                                    <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="BorderBrush" Value="{StaticResource Workspace.Accent}" /><Setter Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </WrapPanel>
+                </Viewbox>
+            </Grid>
             <Grid x:Name="SettingsArea" Grid.Row="1">
                 <Grid.Style>
                     <Style TargetType="Grid">
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding ShowResultPanes}" Value="False">
-                                <Setter Property="Grid.RowSpan" Value="6" />
+                                <Setter Property="Grid.RowSpan" Value="5" />
                                 <Setter Property="VerticalAlignment" Value="Top" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -253,7 +268,7 @@
                                  HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,10,0">
                         <StackPanel>
                             <StackPanel Style="{StaticResource Step1Panel}" AutomationProperties.Name="Shared settings">
-                                <TextBlock Text="Shared settings" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
+                                <TextBlock Text="Configure a run" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
                                 <WrapPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Method" Target="{Binding ElementName=MethodPicker}" Style="{StaticResource FieldLabel}" />
@@ -272,7 +287,7 @@
                                         <TextBox x:Name="SampleInput" Width="100" Height="{StaticResource SetupSamplingControlHeight}" Text="{Binding Generator.SamplesText, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Generator.TestHint}" />
                                     </StackPanel>
                                 </WrapPanel>
-                                <CheckBox x:Name="Avx512Picker" Content="AVX512" Foreground="{StaticResource ControlText}" Margin="0,3" Height="{StaticResource SetupSamplingControlHeight}" VerticalContentAlignment="Center"
+                                <CheckBox x:Name="Avx512Picker" Content="AVX512" Foreground="{StaticResource Workspace.TextPrimary}" Margin="0,3" Height="{StaticResource SetupSamplingControlHeight}" VerticalContentAlignment="Center"
                                           IsChecked="{Binding UseAvx512}" IsEnabled="{Binding CanChooseAvx512}" ToolTip="{Binding Avx512Hint}" ToolTipService.ShowOnDisabled="True" />
                             </StackPanel>
 
@@ -289,7 +304,7 @@
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Store run in" Target="{Binding ElementName=SamplingDestination}" Style="{StaticResource FieldLabel}" />
                                         <ToggleButton x:Name="SamplingDestination" IsChecked="{Binding SampleToB, Mode=TwoWay}" Height="{StaticResource SetupSamplingControlHeight}" Margin="0"
-                                                      Opacity="1" Background="#285D59" BorderBrush="#77D3C7"
+                                                      Opacity="1" Background="{StaticResource Workspace.SurfaceSelected}" BorderBrush="{StaticResource Workspace.Accent}"
                                                       AutomationProperties.Name="Sampling destination B" ToolTip="Switch between A and B before starting a sampling run.">
                                             <ToggleButton.Style>
                                                 <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
@@ -311,7 +326,7 @@
                                         </Grid>
                                     </StackPanel>
                                     <CheckBox Content="Exclude self CEs" IsChecked="{Binding GenerationOptions.ExcludeSelf}" Height="{StaticResource SetupSamplingControlHeight}" VerticalContentAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3"
-                                              Visibility="{Binding GenerationOptions.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource ControlText}" />
+                                              Visibility="{Binding GenerationOptions.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource Workspace.TextPrimary}" />
                                 </WrapPanel>
                                 <StackPanel Visibility="{Binding GenerationOptions.HasDistributions, Converter={StaticResource BoolVisibility}}">
                                     <TextBlock Text="Relative weights" Style="{StaticResource SectionTitle}" Margin="0,4" />
@@ -376,7 +391,7 @@
                                                   AutomationProperties.Name="Mutation parameter table" />
                                     </StackPanel>
                                     <CheckBox Content="Exclude self CEs" IsChecked="{Binding Mutation.ExcludeSelf}" IsEnabled="{Binding CanChooseMutation}" VerticalAlignment="Center" Margin="0,10,0,0"
-                                              Visibility="{Binding Mutation.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource ControlText}" />
+                                              Visibility="{Binding Mutation.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource Workspace.TextPrimary}" />
                                 </WrapPanel>
                                 <StackPanel IsEnabled="{Binding CanChooseMutation}">
                                     <controls:ParamEditor2d x:Name="MutationEditor" DataContext="{Binding Mutation.SelectedTable.Parameters}"
@@ -386,27 +401,28 @@
                         </StackPanel>
                         </Viewbox>
 
-                        <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#466B7B" Padding="10,0,0,0">
+                        <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{StaticResource Workspace.Stroke}" Padding="10,0,0,0">
                             <Viewbox x:Name="OutputViewport" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Top">
                             <StackPanel Width="320">
                                 <StackPanel Style="{StaticResource Step1Panel}" AutomationProperties.Name="Test plan">
-                                    <TextBlock Text="Test plan" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
+                                    <TextBlock Text="Evaluation plan" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="99% stage default" Content="{Binding Generator.StageDefaultDescription}"
                                                           ToolTip="GeneSort stage count for 99% sorter success. Estimates use the nearest measured widths for this method." />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Coverage" Content="{Binding PlannedCoverage, TargetNullValue=—, FallbackValue=—}" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Test inputs" Content="{Binding PlannedInputs, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
                                     <TextBlock Text="{Binding Generator.SetupError}" Style="{StaticResource InlineError}" />
                                     <TextBlock Text="{Binding Generator.TestInputError}" Style="{StaticResource InlineError}" />
+                                    <Button Content="Continue to sampling →" Command="{Binding GenerationStepCommand}" Style="{StaticResource PrimaryAction}" HorizontalAlignment="Left" Margin="0,12,0,0" />
                                 </StackPanel>
 
                                 <StackPanel Style="{StaticResource Step2Panel}" AutomationProperties.Name="Generation output">
                                     <WrapPanel Margin="0,0,0,4">
-                                        <Button x:Name="MakeOneButton" Content="Make one" Command="{Binding GenerateCommand}" CommandParameter="{Binding SelectedItem, ElementName=ChannelPicker}"
-                                                Margin="0,0,4,3" ToolTip="Make one sorter using the displayed seed." />
+                                        <Button x:Name="MakeOneButton" Style="{StaticResource PrimaryAction}" Content="Make one" Command="{Binding GenerateCommand}" CommandParameter="{Binding SelectedItem, ElementName=ChannelPicker}"
+                                                Margin="0,0,4,3" ToolTip="Choose a new random seed and make one sorter." />
                                         <Button x:Name="BatchButton" Content="Batch" Command="{Binding BatchCommand}" CommandParameter="{Binding SelectedItem, ElementName=ChannelPicker}"
                                                 Margin="0,0,4,3" ToolTip="Start with the displayed seed and keep sampling fresh seeds until stopped." />
                                         <StackPanel Orientation="Horizontal">
-                                            <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,4,3" />
+                                            <Button Style="{StaticResource StopAction}" Content="Stop" Command="{Binding StopCommand}" Margin="0,0,4,3" />
                                             <Button x:Name="EvolveButton" Content="Evolve" Command="{Binding EvolveSelectionCommand}" Margin="0,0,0,3"
                                                     ToolTip="Open Evolution with the selected sample as the parent." />
                                         </StackPanel>
@@ -428,8 +444,8 @@
 
                                 <StackPanel Style="{StaticResource Step3Panel}" AutomationProperties.Name="Evolution output">
                                     <WrapPanel Margin="0,0,0,4">
-                                        <Button Content="Run SGD" Command="{Binding RunSgdCommand}" Margin="0,0,4,3" />
-                                        <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,0,3" />
+                                        <Button Style="{StaticResource PrimaryAction}" Content="Run SGD" Command="{Binding RunSgdCommand}" Margin="0,0,4,3" />
+                                        <Button Style="{StaticResource StopAction}" Content="Stop" Command="{Binding StopCommand}" Margin="0,0,0,3" />
                                     </WrapPanel>
                                     <TextBlock Text="Latest evaluation" Style="{StaticResource SectionTitle}" TextWrapping="Wrap" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Generation" Content="{Binding Generation, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
@@ -448,74 +464,93 @@
                 </Border>
             </Grid>
             <GridSplitter Grid.Row="2" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
-                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{StaticResource Workspace.StrokeSubtle}"
                           Cursor="SizeNS" AutomationProperties.Name="Resize settings and network panes" ToolTip="Resize settings and network panes" />
-            <DockPanel x:Name="NetworkViewer" Grid.Row="3" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}">
-                <Grid DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Viewbox x:Name="NetworkLayoutViewport" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
-                            <StackPanel.Resources>
-                                <Style TargetType="RadioButton">
-                                    <Setter Property="Foreground" Value="#F3F7FA" />
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="RadioButton">
-                                                <Border x:Name="ModeBorder" Background="#18394A" BorderBrush="#466B7B" BorderThickness="1" CornerRadius="4" Padding="8,6">
-                                                    <ContentPresenter />
+            <Border Grid.Row="3" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
+                    Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="8" Padding="10">
+                <DockPanel x:Name="NetworkViewer" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}">
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.1*" />
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Viewbox x:Name="NetworkLayoutViewport" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <StackPanel.Resources>
+                                        <Style TargetType="RadioButton">
+                                            <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+                                            <Setter Property="FontSize" Value="10" />
+                                            <Setter Property="MinHeight" Value="24" />
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="RadioButton">
+                                                        <Border x:Name="ModeBorder" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.Stroke}" BorderThickness="1" CornerRadius="4" Padding="6,3">
+                                                            <ContentPresenter VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="ModeBorder" Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" /><Setter TargetName="ModeBorder" Property="BorderBrush" Value="{StaticResource Workspace.Accent}" /></Trigger>
+                                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="{StaticResource Workspace.Accent}" /></Trigger>
+                                                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="White" /></Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </StackPanel.Resources>
+                                    <RadioButton Content="1 All CEs" GroupName="CeDisplay" Tag="0" Checked="DisplayModeChanged" Margin="0,0,4,0" ToolTip="Show all CEs, colored by usage" />
+                                    <RadioButton Content="2 Used stages" GroupName="CeDisplay" Tag="1" Checked="DisplayModeChanged" Margin="0,0,4,0" ToolTip="Hide unused stages; retain every CE in remaining stages" />
+                                    <RadioButton Content="3 Used CEs" GroupName="CeDisplay" Tag="2" Checked="DisplayModeChanged" Margin="0,0,4,0" ToolTip="Remove unused CEs without stage compaction" />
+                                    <RadioButton Content="4 Compact" GroupName="CeDisplay" Tag="3" Checked="DisplayModeChanged" IsChecked="True" ToolTip="Remove unused CEs and compact stages" />
+                                </StackPanel>
+                            </Viewbox>
+                            <Viewbox x:Name="NetworkNavigationViewport" Grid.Column="2" Stretch="Uniform" StretchDirection="DownOnly"
+                                     HorizontalAlignment="Right" VerticalAlignment="Center" DataContext="{Binding NetworkHistory}" ToolTip="{Binding Current.Description}">
+                                <StackPanel Orientation="Horizontal">
+                                    <StackPanel.Resources>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="MinHeight" Value="24" />
+                                            <Setter Property="FontSize" Value="11" />
+                                        </Style>
+                                    </StackPanel.Resources>
+                                    <Button Content="←" Command="{Binding PreviousCommand}" AutomationProperties.Name="Previous network" Padding="6,3" Margin="0,0,4,0" />
+                                    <TextBox x:Name="NetworkIndex" Text="{Binding IndexText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding HasEntries}"
+                                             MinWidth="22" MaxWidth="64" MinHeight="20" Height="20" Padding="3,1" FontSize="10" TextAlignment="Center" VerticalAlignment="Center"
+                                             AutomationProperties.Name="Network list index" ToolTip="Enter a network number and press Enter or Tab to jump to it."
+                                             GotKeyboardFocus="IndexGotFocus" LostKeyboardFocus="IndexLostFocus" PreviewKeyDown="IndexKeyDown" />
+                                    <TextBlock Text="{Binding Entries.Count, StringFormat=' / {0}'}" FontSize="10" Foreground="{StaticResource Workspace.TextPrimary}" VerticalAlignment="Center" Margin="2,0,4,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Position}" Value="Graph"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <Button Content="→" Command="{Binding NextCommand}" AutomationProperties.Name="Next network" Padding="6,3" Margin="0" />
+                                    <Button Content="Follow live" Command="{Binding FollowLiveCommand}" Padding="6,3" Margin="4,0,0,0"
+                                            ToolTip="Return to the latest draw or Evolution parent and follow new results." />
+                                </StackPanel>
+                            </Viewbox>
+                            <Viewbox x:Name="UsageLegendViewport" Grid.Column="1" Margin="15,0" Stretch="Uniform" StretchDirection="DownOnly"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="UsageLegendTitle" Text="CE swap frequency" FontSize="10" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                    <ItemsControl ItemsSource="{Binding UsageBands}" AutomationProperties.Name="CE swap percentage legend">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{Binding Fill}" Padding="3,2" MinWidth="24" ToolTip="{Binding Description}">
+                                                    <TextBlock Text="{Binding Label}" Foreground="{Binding Foreground}" FontSize="9" FontWeight="SemiBold" HorizontalAlignment="Center" />
                                                 </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="ModeBorder" Property="Background" Value="#28655F" /><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#77D3C7" /></Trigger>
-                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#F4CA7F" /></Trigger>
-                                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="White" /></Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </StackPanel.Resources>
-                            <RadioButton Content="1 All CEs" GroupName="CeDisplay" Tag="0" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Show all CEs, colored by usage" />
-                            <RadioButton Content="2 Used stages" GroupName="CeDisplay" Tag="1" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Hide unused stages; retain every CE in remaining stages" />
-                            <RadioButton Content="3 Used CEs" GroupName="CeDisplay" Tag="2" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Remove unused CEs without stage compaction" />
-                            <RadioButton Content="4 Compact" GroupName="CeDisplay" Tag="3" Checked="DisplayModeChanged" IsChecked="True" ToolTip="Remove unused CEs and compact stages" />
-                        </StackPanel>
-                    </Viewbox>
-                    <Viewbox x:Name="NetworkNavigationViewport" Grid.Column="2" Stretch="Uniform" StretchDirection="DownOnly"
-                             HorizontalAlignment="Right" VerticalAlignment="Center" DataContext="{Binding NetworkHistory}" ToolTip="{Binding Current.Description}">
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="←" Command="{Binding PreviousCommand}" AutomationProperties.Name="Previous network" Padding="6,3" Margin="0,0,4,0" />
-                            <TextBox x:Name="NetworkIndex" Text="{Binding IndexText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding HasEntries}"
-                                     MinWidth="32" MaxWidth="80" Padding="4,2" TextAlignment="Center" VerticalAlignment="Center"
-                                     AutomationProperties.Name="Network list index" ToolTip="Enter a network number and press Enter or Tab to jump to it."
-                                     GotKeyboardFocus="IndexGotFocus" LostKeyboardFocus="IndexLostFocus" PreviewKeyDown="IndexKeyDown" />
-                            <TextBlock Text="{Binding Entries.Count, StringFormat=' / {0}'}" Foreground="{StaticResource ControlText}" VerticalAlignment="Center" Margin="2,0,4,0" />
-                            <Button Content="→" Command="{Binding NextCommand}" AutomationProperties.Name="Next network" Padding="6,3" Margin="0" />
-                            <Button Content="Follow live" Command="{Binding FollowLiveCommand}" Padding="6,3" Margin="4,0,0,0"
-                                    ToolTip="Return to the latest draw or Evolution parent and follow new results." />
-                        </StackPanel>
-                    </Viewbox>
-                    <Viewbox x:Name="UsageLegendViewport" Grid.Column="1" Margin="15,0" Stretch="Uniform" StretchDirection="DownOnly"
-                             HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <StackPanel>
-                            <TextBlock x:Name="UsageLegendTitle" Text="CE swap frequency" Foreground="#9FBECC" Margin="0,0,0,2" />
-                            <ItemsControl ItemsSource="{Binding UsageBands}" AutomationProperties.Name="CE swap percentage legend">
-                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="2" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="{Binding Fill}" Padding="4,3" MinWidth="42" ToolTip="{Binding Description}">
-                                            <TextBlock Text="{Binding Label}" Foreground="{Binding Foreground}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Viewbox>
-                </Grid>
-                <Border BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="6">
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Viewbox>
+                        </Grid>
+                    </Border>
                     <Canvas x:Name="DiagramHost">
                         <ScrollViewer Width="{Binding ActualWidth, ElementName=DiagramHost}" Height="{Binding ActualHeight, ElementName=DiagramHost}"
                                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
@@ -524,13 +559,13 @@
                             </Viewbox>
                         </ScrollViewer>
                     </Canvas>
-                </Border>
-            </DockPanel>
+                </DockPanel>
+            </Border>
             <GridSplitter Grid.Row="4" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
-                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{StaticResource Workspace.StrokeSubtle}"
                           Cursor="SizeNS" AutomationProperties.Name="Resize network and graph panes" ToolTip="Resize network and graph panes" />
             <Border x:Name="ResultsGraph" Grid.Row="5" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
-                    BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="10,7" Margin="0,4,0,6">
+                    BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,4,0,0" Background="{StaticResource Workspace.Surface}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*" MinWidth="80" />
@@ -538,7 +573,7 @@
                         <ColumnDefinition Width="3*" MinWidth="100" />
                     </Grid.ColumnDefinitions>
                     <Viewbox x:Name="GraphControlsViewport" Margin="5" Stretch="Uniform" VerticalAlignment="Top">
-                        <Border BorderBrush="#345464" BorderThickness="1" CornerRadius="6" Padding="6">
+                        <Border BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="6" Padding="6">
                             <StackPanel>
                                 <ItemsControl x:Name="AnnotationToggles" ItemsSource="{Binding Annotations}" MaxWidth="{Binding ActualWidth, ElementName=GraphBuffersPanel}"
                                               HorizontalAlignment="Left" AutomationProperties.Name="Annotated sorters">
@@ -562,7 +597,7 @@
                                         </ToggleButton>
                                     </DataTemplate></ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <Border x:Name="GraphBuffersPanel" Background="#18394A" BorderBrush="#345464" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" HorizontalAlignment="Left"
+                                <Border x:Name="GraphBuffersPanel" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" HorizontalAlignment="Left"
                                         AutomationProperties.Name="Graph buffers" ToolTip="Toggle a buffer to show or hide its points. Hidden buffers keep recording. sd is the population standard deviation.">
                                     <StackPanel>
                                         <WrapPanel Margin="0,0,0,4">
@@ -592,8 +627,8 @@
                                         <Grid HorizontalAlignment="Left">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                            <TextBlock Grid.Column="1" Text="Successful" Foreground="#77D3C7" FontSize="11" HorizontalAlignment="Center" />
-                                            <TextBlock Grid.Column="2" Text="Failures" Foreground="#F4CA7F" FontSize="11" HorizontalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="Successful" Foreground="{StaticResource Workspace.Accent}" FontSize="11" HorizontalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Text="Failures" Foreground="{StaticResource Workspace.Warning}" FontSize="11" HorizontalAlignment="Center" />
                                             <TextBlock Grid.Column="3" Text="Clear" FontSize="11" HorizontalAlignment="Center" />
                                             <TextBlock Grid.Row="1" Text="{Binding FirstGroup.Name}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                             <TextBlock Grid.Row="2" Text="{Binding SecondGroup.Name}" VerticalAlignment="Center" Margin="0,0,5,0" />
@@ -643,7 +678,7 @@
                         </Border>
                     </Viewbox>
                     <GridSplitter Grid.Column="1" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
-                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
+                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{StaticResource Workspace.StrokeSubtle}"
                                   Cursor="SizeWE" AutomationProperties.Name="Resize graph controls and plot" ToolTip="Resize graph controls and plot" />
                     <Viewbox x:Name="PlotViewport" Grid.Column="2" Stretch="Uniform">
                         <controls:EvolutionPlot AllBufferBounds="{Binding AllBufferBounds}" SelectedPosition="{Binding GraphSelectionPosition}" SelectPointCommand="{Binding SelectGraphPointCommand}" Visits="{Binding PlotData}" FillHighlightMarkers="{Binding ShowVisitStats}"
@@ -652,7 +687,6 @@
                     </Viewbox>
                 </Grid>
             </Border>
-            <TextBlock Grid.Row="6" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}" Text="SGD ranks by failures, then by size (CEs + 1.1 × stages). Graph Best is the smallest score among sorters with zero failures on their tested inputs." Foreground="#9FBECC" TextWrapping="Wrap" />
         </Grid>
     </Border>
 </views:SgdWorkspacePage>

@@ -82,7 +82,7 @@ public sealed class SgdPageViewModel : ViewModelBase
     private int generationMilliseconds;
     private string status = "";
 
-    public SgdPageViewModel(Action returnHome)
+    public SgdPageViewModel(Action returnHome, Action? openSortableTests = null, Action? openProjectFolder = null)
     {
         samplingRunGroup = samplesA;
         foreach (var buffer in new[] { parents.Success, parents.Failure, children.Success, children.Failure,
@@ -110,6 +110,8 @@ public sealed class SgdPageViewModel : ViewModelBase
         };
         Mutation.SelectMethod(Generator.Method, Generator.ChannelCount);
         ReturnHomeCommand = new RelayCommand(returnHome);
+        OpenSortableTestsCommand = new RelayCommand(() => openSortableTests?.Invoke(), () => openSortableTests is not null);
+        OpenProjectFolderCommand = new RelayCommand(() => openProjectFolder?.Invoke(), () => openProjectFolder is not null);
         SelectGraphPointCommand = new RelayCommand(value => { if (value is Point point) ShowGraphNetwork(point); });
         SetupStepCommand = new RelayCommand(() => SelectStep(1), () => activity == Activity.Idle);
         GenerationStepCommand = new RelayCommand(() => SelectStep(2), () => activity == Activity.Idle && SetupValid);
@@ -118,7 +120,7 @@ public sealed class SgdPageViewModel : ViewModelBase
             if (activity == Activity.SampleSeeds) Stop();
             SelectStep(3);
         }, () => CanStartEvolution);
-        GenerateCommand = CreateGenerationCommand(GenerateAsync);
+        GenerateCommand = CreateGenerationCommand(GenerateAsync, refreshSeed: true);
         BatchCommand = CreateGenerationCommand(BatchAsync);
         EvolveSelectionCommand = new RelayCommand(EvolveSelection, () => samplingGraph && samplingHistory.Current?.Sample is not null
             && activity is Activity.Idle or Activity.SampleSeeds && SetupValid);
@@ -247,6 +249,10 @@ public sealed class SgdPageViewModel : ViewModelBase
     public RelayCommand ClearGraphCommand { get; }
     public RelayCommand ClearGroupCommand { get; }
     public RelayCommand ReturnHomeCommand { get; }
+    public RelayCommand OpenSortableTestsCommand { get; }
+    public RelayCommand OpenProjectFolderCommand { get; }
+    private string projectStatus = "Open a project folder to work with runs.";
+    public string ProjectStatus { get => projectStatus; internal set => SetProperty(ref projectStatus, value); }
     public RelayCommand SelectGraphPointCommand { get; }
     // The generator remains available during evolution so Generate can replace the run.
     public bool CanEdit => activity is Activity.Idle or Activity.Evolve;
@@ -387,17 +393,18 @@ public sealed class SgdPageViewModel : ViewModelBase
         }
     }
 
-    private RelayCommand CreateGenerationCommand(Func<Task> generate) => new(async selection =>
+    private RelayCommand CreateGenerationCommand(Func<Task> generate, bool refreshSeed = false) => new(async selection =>
     {
         if (selection is int width)
         {
             Generator.ChannelCount = width;
             if (Generator.ChannelCount != width) return;
         }
+        if (refreshSeed) Generator.NewSeed();
         await generate();
-    }, () => CanEdit && CanGenerate);
+    }, () => CanEdit && SetupValid && GenerationOptions.Error.Length == 0 && (refreshSeed || Generator.SeedError.Length == 0));
 
-    public Task GenerateAsync() => GenerateCommand.CanExecute(null) ? StartAsync(Activity.Generate) : Task.CompletedTask;
+    public Task GenerateAsync() => CanEdit && CanGenerate ? StartAsync(Activity.Generate) : Task.CompletedTask;
 
     public Task BatchAsync() => BatchCommand.CanExecute(null) ? StartAsync(Activity.SampleSeeds) : Task.CompletedTask;
 

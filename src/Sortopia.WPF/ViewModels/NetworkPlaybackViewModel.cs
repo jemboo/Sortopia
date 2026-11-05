@@ -162,6 +162,7 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
     {
         if (disposed || playbackSuspended || StepCount == 0) return;
         if (IsPlaying) { Pause(); return; }
+        PreparePlayback();
         if (Position >= StepCount) SetPosition(0);
         isPlaying = true;
         OnPropertyChanged(nameof(IsPlaying));
@@ -169,6 +170,8 @@ public class NetworkPlaybackViewModel : ViewModelBase, IDisposable
         clock.Restart();
         timer.Start();
     }
+
+    protected virtual void PreparePlayback() { }
 
     private void OnTick(object? sender, EventArgs e)
     {

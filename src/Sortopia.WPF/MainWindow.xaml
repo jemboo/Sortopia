@@ -8,7 +8,8 @@
         Width="1100" Height="780"
         MinWidth="480" MinHeight="360"
         WindowStartupLocation="CenterScreen"
-        Background="#173C4E"
+        Background="{StaticResource Workspace.Canvas}"
+        Foreground="{StaticResource Workspace.TextPrimary}"
         FontFamily="Segoe UI"
         UseLayoutRounding="True">
     <Window.Resources>

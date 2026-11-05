@@ -127,7 +127,13 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
         : int.Parse(SamplesText, CultureInfo.InvariantCulture);
 
     internal static int NextSeed() => System.Security.Cryptography.RandomNumberGenerator.GetInt32(int.MaxValue);
-    internal void NewSeed() => SeedText = NextSeed().ToString(CultureInfo.InvariantCulture);
+    internal void NewSeed()
+    {
+        int.TryParse(SeedText, out var previous);
+        int seed;
+        do seed = NextSeed(); while (seed == previous);
+        SeedText = seed.ToString(CultureInfo.InvariantCulture);
+    }
     private void NotifyInputs()
     {
         OnPropertyChanged(nameof(SetupError));

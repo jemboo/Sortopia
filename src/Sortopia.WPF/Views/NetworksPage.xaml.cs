@@ -1,21 +1,67 @@
+using System.ComponentModel;
+using System.Windows;
 using System.Windows.Controls;
+using Sortopia.WPF.Rendering;
 using Sortopia.WPF.ViewModels;
 
 namespace Sortopia.WPF.Views;
 
 public partial class NetworksPage : UserControl
 {
+    private NetworksPageViewModel? viewModel;
+    private NetworkLayout? geometry;
+
     public NetworksPage()
     {
         InitializeComponent();
         Diagram.PlayheadChanged += (_, _) => FollowPlayhead();
-        // View lifetime only: never leave a playback timer running on a hidden page.
-        Unloaded += (_, _) => (DataContext as NetworksPageViewModel)?.Pause();
+        DiagramViewport.SizeChanged += (_, _) => FitDiagram();
+        Loaded += (_, _) => AttachViewModel();
+        DataContextChanged += (_, _) => AttachViewModel();
+        Unloaded += (_, _) =>
+        {
+            viewModel?.Pause();
+            if (viewModel is not null) viewModel.PropertyChanged -= OnViewModelChanged;
+            viewModel = null;
+        };
+    }
+
+    private void AttachViewModel()
+    {
+        if (viewModel is not null) viewModel.PropertyChanged -= OnViewModelChanged;
+        viewModel = DataContext as NetworksPageViewModel;
+        if (viewModel is null) return;
+        viewModel.PropertyChanged += OnViewModelChanged;
+        geometry = new NetworkLayout(viewModel.Trace);
+        FitDiagram();
+    }
+
+    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(NetworksPageViewModel.Trace))
+        {
+            geometry = new NetworkLayout(viewModel!.Trace);
+            FitDiagram();
+            DiagramViewport.ScrollToHome();
+        }
+        else if (e.PropertyName == nameof(NetworksPageViewModel.ZoomFactor)) FitDiagram();
+    }
+
+    private void FitDiagram()
+    {
+        if (geometry is null || viewModel is null) return;
+        // Use the outer viewport size so scrollbars appearing while zoomed cannot change the fit scale.
+        var width = DiagramViewport.ActualWidth - DiagramViewport.Padding.Left - DiagramViewport.Padding.Right - 2;
+        var height = DiagramViewport.ActualHeight - DiagramViewport.Padding.Top - DiagramViewport.Padding.Bottom - 2;
+        if (width <= 0 || height <= 0) return;
+        var fit = Math.Min(1.5, Math.Min(width / geometry.Width, height / geometry.Height));
+        Diagram.Zoom = fit * viewModel.ZoomFactor;
+        if (viewModel.ZoomFactor == 1) DiagramViewport.ScrollToHome();
     }
 
     private void FollowPlayhead()
     {
-        if (DataContext is not NetworksPageViewModel { FollowPlayback: true } || DiagramViewport.ViewportWidth <= 0) return;
+        if (DataContext is not NetworksPageViewModel { FollowPlayback: true, ZoomFactor: > 1 } || DiagramViewport.ViewportWidth <= 0) return;
         var x = Diagram.PlayheadX + DiagramViewport.Padding.Left;
         var offset = DiagramViewport.HorizontalOffset;
         const double margin = 40;

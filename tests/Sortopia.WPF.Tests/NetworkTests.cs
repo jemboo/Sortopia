@@ -439,7 +439,7 @@ public sealed class NetworkTests
     [Fact]
     public void Playback_seek_mode_changes_and_replay_only_read_the_existing_trace() => OnSta(() =>
     {
-        using var vm = new NetworksPageViewModel(() => { });
+        using var vm = new NetworkPlaybackViewModel(() => { }, CatalogNetwork.LoadAll().First(n => n.Width == 8));
         var trace = vm.Trace;
         Assert.False(vm.PreviousCommand.CanExecute(null));
         vm.PlayPauseCommand.Execute(null);
@@ -494,14 +494,14 @@ public sealed class NetworkTests
         var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
         home.OpenNetworksCommand.Execute(null);
         var networks = Assert.IsType<NetworksPageViewModel>(shell.CurrentPage);
-        networks.SeekPosition = 3;
         networks.PlayPauseCommand.Execute(null);
+        networks.Advance(TimeSpan.FromSeconds(0.325));
         networks.ReturnHomeCommand.Execute(null);
         Assert.Same(home, shell.CurrentPage);
         Assert.False(networks.IsPlaying);
         home.OpenNetworksCommand.Execute(null);
         Assert.Same(networks, shell.CurrentPage);
-        Assert.Equal(3, networks.Position);
+        Assert.Equal(0.5, networks.Position, 6);
         shell.Dispose();
         networks.PlayPauseCommand.Execute(null);
         Assert.False(networks.IsPlaying);
