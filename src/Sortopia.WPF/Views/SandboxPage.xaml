@@ -16,14 +16,21 @@
                 <Button Content="Project _runs" Command="{Binding OpenSortableTestsCommand}" AutomationProperties.Name="Project runs" />
                 <Button Content="_Open project folder" Command="{Binding OpenProjectFolderCommand}" AutomationProperties.Name="Open project folder" />
             </controls:TranslucentButtonStack>
-            <StackPanel Grid.Column="1" Margin="32,0,0,0">
-                <TextBlock Text="{Binding Title}" Foreground="White"
-                           FontSize="36" FontWeight="SemiBold" />
-                <TextBlock Text="A place to explore sorting networks."
-                           Foreground="#CCFFFFFF" FontSize="16"
-                           Margin="0,12,0,0" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding ProjectStatus}" Foreground="#CCFFFFFF" Margin="0,12,0,0" TextWrapping="Wrap" />
-            </StackPanel>
+            <ScrollViewer Grid.Column="1" Margin="32,0,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" Foreground="White"
+                               FontSize="36" FontWeight="SemiBold" />
+                    <TextBlock Text="A place to explore sorting networks."
+                               Foreground="#CCFFFFFF" FontSize="16"
+                               Margin="0,12,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding ProjectStatus}" Foreground="#CCFFFFFF" Margin="0,12,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="Parameters" Foreground="White" FontSize="18" FontWeight="SemiBold" Margin="0,20,0,6" />
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition MaxWidth="300" /></Grid.ColumnDefinitions>
+                        <controls:ParamEditor2d DataContext="{Binding Parameters}" />
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </UserControl>

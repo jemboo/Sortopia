@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Sorting.Networks;
 namespace Sortopia.WPF.Models;
@@ -7,13 +8,23 @@ public sealed class CatalogNetwork : NetworkDefinition
     private CatalogNetwork(sorterLibId id) : base($"{id.ChannelCount} channels · {SorterLibVariant.toString(id.SorterVariant).Replace("Variant", "Variant ")}", ReadSequence(id))
     {
         Id = id;
-        var name = SorterLibVariant.toString(id.SorterVariant);
-        if (name.StartsWith("Variant", StringComparison.Ordinal)) name = name["Variant".Length..];
-        BestKnownTitle = $"Best Known {name}: Stages: {StageCount}, CE's: {ComparatorCount}";
+        VariantName = SorterLibVariant.toString(id.SorterVariant).Replace("Variant", "Variant ");
+        BestKnownTitle = $"{VariantName} · {StageCount} stages · {ComparatorCount} CEs";
+        VariantBrush = id.SorterVariant.Tag switch
+        {
+            sorterLibVariant.Tags.VariantA => Brushes.DeepSkyBlue,
+            sorterLibVariant.Tags.VariantB => Brushes.Gold,
+            sorterLibVariant.Tags.VariantC => Brushes.Plum,
+            sorterLibVariant.Tags.Batcher => Brushes.Turquoise,
+            sorterLibVariant.Tags.BatcherBitonic => Brushes.Coral,
+            _ => throw new ArgumentOutOfRangeException(nameof(id))
+        };
     }
     public sorterLibId Id { get; }
     public Point Position => new(ComparatorCount, StageCount);
     public string BestKnownTitle { get; }
+    public string VariantName { get; }
+    public Brush VariantBrush { get; }
     private static stageSequence ReadSequence(sorterLibId id)
     {
         var text = SorterLib.tryGet(id) ?? throw new InvalidOperationException("Missing catalog network.");

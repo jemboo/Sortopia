@@ -1,0 +1,106 @@
+<UserControl x:Class="Sortopia.WPF.Controls.ParamEditor2d"
+             x:Name="Editor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Parameter array editor">
+    <StackPanel HorizontalAlignment="Left">
+        <ScrollViewer x:Name="ArrayViewport" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Left">
+            <Grid x:Name="ParameterGrid" HorizontalAlignment="Left">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <ItemsControl x:Name="ColumnLabels" Grid.Column="1" ItemsSource="{Binding ColumnHeaders}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" Foreground="#DBE8EF" MaxWidth="78" Margin="3,0,3,3"
+                                       HorizontalAlignment="Center" VerticalAlignment="Bottom" TextAlignment="Center" TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl x:Name="RowLabels" Grid.Row="1" ItemsSource="{Binding RowHeaders}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="1" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" Foreground="#DBE8EF" Margin="0,0,6,0" MaxWidth="110"
+                                       VerticalAlignment="Center" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ListBox x:Name="Cells" Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Cells}" IsSynchronizedWithCurrentItem="False"
+                         SelectionMode="Extended" SelectionChanged="SelectionChanged"
+                         Background="Transparent" BorderThickness="0" Padding="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Parameters"
+                         ToolTip="Shift-click to add parameters and edit their values together. Click without Shift to select one parameter.">
+                    <ListBox.Template><ControlTemplate TargetType="ListBox"><ItemsPresenter /></ControlTemplate></ListBox.Template>
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate><UniformGrid Columns="{Binding Columns}" /></ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                            <Setter Property="AutomationProperties.ItemStatus" Value="{Binding Value}" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Button Width="88" Height="32" Margin="2" HorizontalAlignment="Center" Padding="5,2" Style="{x:Null}"
+                                                     FontFamily="Consolas" FontSize="12"
+                                                     Focusable="False" Background="{Binding Brush}" Foreground="{Binding TextBrush}"
+                                                     Click="ParameterClicked"
+                                                     AutomationProperties.Name="{Binding Label}">
+                                            <Button.Content><TextBlock Text="{Binding Value, StringFormat=G3}" /></Button.Content>
+                                            <Button.ToolTip>
+                                                <TextBlock><Run Text="{Binding Label, Mode=OneWay}" /> · <Run Text="{Binding Value, Mode=OneWay, StringFormat=G5}" /></TextBlock>
+                                            </Button.ToolTip>
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border x:Name="Outline" BorderThickness="2" BorderBrush="Transparent" CornerRadius="5">
+                                                        <Border Background="{TemplateBinding Background}" BorderBrush="#102B3B" BorderThickness="1" CornerRadius="3"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Outline" Property="BorderBrush" Value="#9FBECC" /></Trigger>
+                                                        <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                            <Setter TargetName="Outline" Property="BorderBrush" Value="White" />
+                                                        </DataTrigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+            </Grid>
+        </ScrollViewer>
+        <StackPanel x:Name="ValueEditor" Margin="0,8,0,0" HorizontalAlignment="Left"
+                    Width="{Binding ActualWidth, ElementName=ParameterGrid}" MaxWidth="{Binding ActualWidth, ElementName=ArrayViewport}">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding FirstSelected, ElementName=Editor}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Grid Height="28">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MaxWidth="220" />
+                    <ColumnDefinition Width="64" />
+                </Grid.ColumnDefinitions>
+                <Slider x:Name="ValueSlider" VerticalAlignment="Center" Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
+                        SmallChange="{Binding SmallChange}" LargeChange="{Binding LargeChange}" IsMoveToPointEnabled="True"
+                        Value="{Binding FirstSelected.SliderValue, ElementName=Editor, Mode=OneWay}" ValueChanged="SliderValueChanged"
+                        AutomationProperties.Name="{Binding SelectionLabel, ElementName=Editor}" />
+                <Viewbox Grid.Column="1" Margin="6,0,2,0" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Right">
+                    <TextBlock Foreground="White" FontFamily="Consolas" FontSize="12"
+                               Text="{Binding FirstSelected.Value, ElementName=Editor, StringFormat=G5}" />
+                </Viewbox>
+            </Grid>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

@@ -26,22 +26,8 @@
                 <Label Content="Random _seed" Target="{Binding ElementName=SeedInput}" Foreground="#9FBECC" Padding="0,0,0,3" />
                 <Grid Width="132">
                     <TextBox x:Name="SeedInput" Padding="8,4,34,4" Text="{Binding Generator.SeedText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Random seed" ToolTip="Same seed and settings reproduce the same network." />
-                    <Button Command="{Binding NewSeedCommand}" Width="26" Height="24" MinHeight="0" Padding="0" Margin="0,0,3,0" HorizontalAlignment="Right" VerticalAlignment="Center"
-                            ToolTip="{Binding SeedHint, ElementName=Inputs}" AutomationProperties.Name="New random seed" Cursor="Hand">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="Surface" Background="Transparent" CornerRadius="4" BorderBrush="Transparent" BorderThickness="1">
-                                    <Path Data="M 15 6 A 6 6 0 1 0 15 12 M 15 2 L 15 6 L 11 6" Stroke="#9EDAD6" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#315D6B" /></Trigger>
-                                    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#2C6570" /></Trigger>
-                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#F6CE83" /></Trigger>
-                                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.4" /></Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
+                    <Button Command="{Binding NewSeedCommand}" Style="{StaticResource NewSeedButtonStyle}"
+                            ToolTip="{Binding SeedHint, ElementName=Inputs}" />
                 </Grid>
             </StackPanel>
             <StackPanel Margin="0,0,10,5">

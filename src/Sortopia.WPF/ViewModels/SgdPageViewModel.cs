@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.Intrinsics.X86;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Sortopia.Models.Sorting;
+using Sortopia.Sorting.Catalog;
 using Sortopia.WPF.Commands;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.Rendering;
@@ -61,7 +63,6 @@ public sealed class SgdPageViewModel : ViewModelBase
         }
     }
     private long snapshotOrder;
-    private SorterScore? bestPlotted;
     private NetworkCheckResult? lastPlottedUsage;
     private CancellationTokenSource? operation;
     private Activity activity;
@@ -77,7 +78,6 @@ public sealed class SgdPageViewModel : ViewModelBase
         get => ChildSuccess.IsVisible && ChildFailure.IsVisible;
         set { ChildSuccess.IsVisible = value; ChildFailure.IsVisible = value; }
     }
-    private bool sampleOnGenerate;
     private int generation;
     private int generationMilliseconds;
     private string status = "";
@@ -95,7 +95,7 @@ public sealed class SgdPageViewModel : ViewModelBase
                 OnPropertyChanged(nameof(PlotChildren));
                 OnPropertyChanged(nameof(PlotFailures));
                 RefreshGraph();
-                if (NetworkHistory.GraphPoint?.Position is { } point) ShowGraphNetwork(point);
+                RefreshGraphSelection();
             };
         foreach (var history in new[] { samplingHistory, evolutionHistory })
         {
@@ -104,7 +104,11 @@ public sealed class SgdPageViewModel : ViewModelBase
                 if (history == NetworkHistory && change.PropertyName == nameof(history.Current)) NotifyNetworkDisplay();
             };
         }
-        Mutation.SelectMethod(Generator.Method);
+        SelectedAnnotation.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(SorterAnnotation.VisiblePosition)) OnPropertyChanged(nameof(GraphSelectionPosition));
+        };
+        Mutation.SelectMethod(Generator.Method, Generator.ChannelCount);
         ReturnHomeCommand = new RelayCommand(returnHome);
         SelectGraphPointCommand = new RelayCommand(value => { if (value is Point point) ShowGraphNetwork(point); });
         SetupStepCommand = new RelayCommand(() => SelectStep(1), () => activity == Activity.Idle);
@@ -114,15 +118,10 @@ public sealed class SgdPageViewModel : ViewModelBase
             if (activity == Activity.SampleSeeds) Stop();
             SelectStep(3);
         }, () => CanStartEvolution);
-        GenerateCommand = new RelayCommand(async selection =>
-        {
-            if (CanEdit && selection is int width)
-            {
-                Generator.ChannelCount = width;
-                if (Generator.ChannelCount != width) return;
-            }
-            await GenerateAsync();
-        }, () => CanEdit && CanGenerate);
+        GenerateCommand = CreateGenerationCommand(GenerateAsync);
+        BatchCommand = CreateGenerationCommand(BatchAsync);
+        EvolveSelectionCommand = new RelayCommand(EvolveSelection, () => samplingGraph && samplingHistory.Current?.Sample is not null
+            && activity is Activity.Idle or Activity.SampleSeeds && SetupValid);
         RunSgdCommand = new RelayCommand(async () => await RunSgdAsync(), () => CanStartEvolution);
         StopCommand = new RelayCommand(Stop, () => operation is { IsCancellationRequested: false });
         ClearGraphCommand = new RelayCommand(() =>
@@ -139,37 +138,31 @@ public sealed class SgdPageViewModel : ViewModelBase
             group.Success.Clear();
             group.Failure.Clear();
             var remaining = group == FirstGroup ? SecondGroup : FirstGroup;
-            NetworkHistory.RemoveGroup(group, samplingGraph ? remaining.Latest : null);
+            NetworkHistory.RemoveGroup(group, samplingGraph ? remaining.Latest : null, clearSelection: samplingGraph);
             RefreshGraph();
-            if (NetworkHistory.GraphPoint is { Group: var inspected, Position: { } position } && inspected == group) ShowGraphNetwork(position);
+            RefreshGraphSelection();
             OnPropertyChanged(nameof(GenerationOutcomes));
             ClearGraphCommand.RaiseCanExecuteChanged();
         });
-        NewSeedCommand = new RelayCommand(() =>
-        {
-            Generator.NewSeed();
-            sampleOnGenerate = true;
-            Status = "Press Generate to sample fresh seeds continuously.";
-        }, () => CanEdit);
-        BestKnownNetworks = CatalogNetwork.LoadForWidth(Generator.ChannelCount);
+        NewSeedCommand = new RelayCommand(Generator.NewSeed, () => CanEdit);
+        UpdateBestKnownNetworks();
         GenerationOptions.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(GenerationOptions.Error)) GenerateCommand.RaiseCanExecuteChanged();
+            if (change.PropertyName == nameof(GenerationOptions.Error))
+            {
+                GenerateCommand.RaiseCanExecuteChanged();
+                BatchCommand.RaiseCanExecuteChanged();
+            }
         };
         Generator.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(Generator.Method) && incumbent is null) Mutation.SelectMethod(Generator.Method);
+            if (change.PropertyName is nameof(Generator.Method) or nameof(Generator.ChannelCount) && incumbent is null)
+                Mutation.SelectMethod(Generator.Method, Generator.ChannelCount);
             if (change.PropertyName == nameof(Generator.ChannelCount))
             {
                 if (operation is not null && Generator.ChannelCount != activeWidth) Stop();
                 Generator.SetTestWidth(Generator.ChannelCount);
-                BestKnownNetworks = CatalogNetwork.LoadForWidth(Generator.ChannelCount);
-                OnPropertyChanged(nameof(BestKnownNetworks));
-            }
-            if (change.PropertyName == nameof(Generator.SeedText) && sampleOnGenerate)
-            {
-                sampleOnGenerate = false;
-                Status = "Generate will use the entered seed once.";
+                UpdateBestKnownNetworks();
             }
             if (change.PropertyName == nameof(Generator.TestInputError))
             {
@@ -186,7 +179,17 @@ public sealed class SgdPageViewModel : ViewModelBase
     public RelayCommand SetupStepCommand { get; }
     public RelayCommand GenerationStepCommand { get; }
     public RelayCommand EvolutionStepCommand { get; }
-    public GenerationDraw? GenerationResult { get => generationResult; private set => SetProperty(ref generationResult, value); }
+    public bool ShowResultPanes => WizardStep == 3 || (WizardStep == 2 && GenerationResult is not null);
+    public GenerationDraw? GenerationResult
+    {
+        get => generationResult;
+        private set
+        {
+            var hadResult = generationResult is not null;
+            if (SetProperty(ref generationResult, value) && hadResult != (value is not null))
+                OnPropertyChanged(nameof(ShowResultPanes));
+        }
+    }
     public int? PlannedInputs => Generator.TestInputError.Length != 0 ? null
         : Generator.SamplesFor(Generator.ChannelCount) ?? (1 << Generator.ChannelCount);
     public string PlannedCoverage => Generator.TestInputError.Length != 0 ? "—" : Generator.AllSamples ? "Exhaustive" : "Sampled";
@@ -194,7 +197,32 @@ public sealed class SgdPageViewModel : ViewModelBase
     private void SelectStep(int step)
     {
         if (step == 2 || step == 3) SetGraphMode(step == 2);
-        if (SetProperty(ref wizardStep, step, nameof(WizardStep)) && activity == Activity.Idle) Status = "";
+        if (SetProperty(ref wizardStep, step, nameof(WizardStep)))
+        {
+            OnPropertyChanged(nameof(ShowResultPanes));
+            UpdateBestKnownNetworks();
+            EvolutionStepCommand.RaiseCanExecuteChanged();
+            RunSgdCommand.RaiseCanExecuteChanged();
+            if (activity == Activity.Idle) Status = "";
+        }
+    }
+
+    private void EvolveSelection()
+    {
+        if (samplingHistory.Current?.Sample is not { } parent) return;
+        if (activity == Activity.SampleSeeds) Stop();
+        incumbent = parent;
+        SetProperty(ref generation, 0, nameof(Generation));
+        SelectMutationMethod(parent);
+        SelectStep(3);
+        var entry = HistoryEntry(parent, 0, parents);
+        evolutionHistory.Add(entry);
+        evolutionHistory.FollowLiveCommand.Execute(null);
+        RecordSnapshot(parent, parents, entry);
+        UpdateUniqueness(1, 0);
+        OnPropertyChanged(nameof(Usage));
+        Status = "Selected sorter is ready. Choose Run SGD to start evolution.";
+        NotifyCommands();
     }
     private void SetGraphMode(bool sampling)
     {
@@ -211,6 +239,8 @@ public sealed class SgdPageViewModel : ViewModelBase
     }
     public SorterMutationSettings Mutation { get; } = new();
     public RelayCommand GenerateCommand { get; }
+    public RelayCommand BatchCommand { get; }
+    public RelayCommand EvolveSelectionCommand { get; }
     public RelayCommand RunSgdCommand { get; }
     public RelayCommand StopCommand { get; }
     public RelayCommand NewSeedCommand { get; }
@@ -221,11 +251,11 @@ public sealed class SgdPageViewModel : ViewModelBase
     // The generator remains available during evolution so Generate can replace the run.
     public bool CanEdit => activity is Activity.Idle or Activity.Evolve;
     private bool SetupValid => Generator.SetupError.Length == 0 && Generator.TestInputError.Length == 0;
-    private bool HasMatchingPoint => GenerationResult is { } draw && incumbent is not null
-        && draw.Method == Generator.Method && draw.Channels == Generator.ChannelCount
-        && int.TryParse(Generator.CountText, out var stages) && stages == draw.Stages && SetupValid;
+    private bool HasEvolutionParent => incumbent is not null && SetupValid && (WizardStep == 3
+        || GenerationResult is { } draw && draw.Method == Generator.Method && draw.Channels == Generator.ChannelCount
+        && int.TryParse(Generator.CountText, out var stages) && stages == draw.Stages);
     private bool CanStartEvolution => (activity == Activity.Idle || (activity == Activity.SampleSeeds && GeneratedCount > 0))
-        && HasMatchingPoint;
+        && HasEvolutionParent;
     public bool CanChooseAvx512 => Avx512F.IsSupported && activity == Activity.Idle;
     public bool CanChooseMutation => activity == Activity.Idle;
     public string Avx512Hint => Avx512F.IsSupported
@@ -241,7 +271,7 @@ public sealed class SgdPageViewModel : ViewModelBase
     private bool CanGenerate => SetupValid && Generator.SeedError.Length == 0 && GenerationOptions.Error.Length == 0;
     public int[] ChildChoices { get; } = [1, 2, 4, 8, 16, 32];
     public int Children { get; set; } = 4;
-    public double MutationRate { get => Mutation.Parameters[0].Value; set => Mutation.Parameters[0].Value = value; }
+    public double MutationRate { get => Mutation.OverallRate.Value; set => Mutation.OverallRate.Value = value; }
     public int UniqueSorters { get; private set; }
     public long DuplicateSorters { get; private set; }
     public string SorterUniqueness => $"{UniqueSorters:N0} unique / {DuplicateSorters:N0} repeats";
@@ -256,26 +286,39 @@ public sealed class SgdPageViewModel : ViewModelBase
     private readonly NetworkHistoryViewModel samplingHistory = new();
     private readonly NetworkHistoryViewModel evolutionHistory = new();
     public NetworkHistoryViewModel NetworkHistory => samplingGraph ? samplingHistory : evolutionHistory;
-    public NetworkDefinition? Network => NetworkHistory.Current?.Network ?? incumbent?.RawNetwork;
-    public NetworkCheckResult? DisplayUsage => NetworkHistory.Current is { } entry ? entry.Usage : incumbent?.RawUsage;
-    public Point? SelectedNetworkPosition => NetworkHistory.Current?.Position;
+    private SearchCandidate? DisplayFallback => samplingGraph || NetworkHistory.GraphPosition.HasValue ? null : incumbent;
+    public NetworkDefinition? Network => NetworkHistory.Current?.Network ?? DisplayFallback?.RawNetwork;
+    public NetworkCheckResult? DisplayUsage => NetworkHistory.Current is { } entry ? entry.Usage : DisplayFallback?.RawUsage;
+    public Point? SelectedNetworkPosition => NetworkHistory.Current is { } entry
+        ? entry.Position ?? new Point(entry.Network.ComparatorCount, entry.Network.StageCount)
+        : DisplayFallback?.Position;
+    // An empty graph selection keeps its cursor, while the Selected annotation describes only the viewer's sorter.
+    public Point? GraphSelectionPosition => NetworkHistory.GraphPosition is { } point && NetworkHistory.Current is null
+        ? point : SelectedAnnotation.VisiblePosition;
     public string DisplayedNetworkDescription => NetworkHistory.Current?.Description ?? "";
     public void ShowGraphNetwork(Point position)
     {
         var selected = FirstGroup.LatestVisibleAt(position) ?? SecondGroup.LatestVisibleAt(position);
         if (selected is null)
         {
-            var known = BestKnownNetworks.FirstOrDefault(network => network.Position == position);
+            var known = VisibleCatalogNetworks.LastOrDefault(network => network.Position == position);
             if (known is not null) selected = new(known, null, known.BestKnownTitle, position);
         }
-        NetworkHistory.Inspect(selected);
+        NetworkHistory.Inspect(position, selected);
+    }
+    private void RefreshGraphSelection()
+    {
+        if (NetworkHistory.GraphPosition is { } point) ShowGraphNetwork(point);
     }
     private void NotifyNetworkDisplay()
     {
+        SelectedAnnotation.Position = SelectedNetworkPosition;
         OnPropertyChanged(nameof(Network));
         OnPropertyChanged(nameof(DisplayUsage));
         OnPropertyChanged(nameof(DisplayedNetworkDescription));
         OnPropertyChanged(nameof(SelectedNetworkPosition));
+        OnPropertyChanged(nameof(GraphSelectionPosition));
+        EvolveSelectionCommand.RaiseCanExecuteChanged();
     }
     public NetworkCheckResult? Usage => incumbent?.RawUsage;
     public EvolutionVisits Visits
@@ -285,7 +328,6 @@ public sealed class SgdPageViewModel : ViewModelBase
         {
             var hadVisits = visits.Current.HasValue;
             SetProperty(ref visits, value);
-            OnPropertyChanged(nameof(CurrentGraphTitle));
             OnPropertyChanged(nameof(Summary));
             OnPropertyChanged(nameof(PlottedFailures));
             if (hadVisits != value.Current.HasValue)
@@ -296,19 +338,45 @@ public sealed class SgdPageViewModel : ViewModelBase
         }
     }
     public IReadOnlyList<UsageBand> UsageBands => UsagePalette.Bands;
-    public IReadOnlyList<CatalogNetwork> BestKnownNetworks { get; private set; }
-    public Point? BestPosition => bestPlotted?.Position;
-    public string BestGraphTitle => bestPlotted is { } best
-        ? $"Best: Stages: {best.StageCount}, CE's: {best.ComparatorCount}"
-        : "Best: No zero-failure sorter plotted";
-    public string CurrentGraphTitle
+    public SorterAnnotation BestAnnotation { get; } = new("Best", Brushes.LimeGreen);
+    public SorterAnnotation CurrentAnnotation { get; } = new("Current", Brushes.HotPink);
+    public SorterAnnotation SelectedAnnotation { get; } = new("Selected", Brushes.White);
+    private readonly Dictionary<sorterLibVariant, SorterAnnotation> catalogAnnotations = [];
+    public IReadOnlyList<SorterAnnotation> Annotations { get; private set; } = [];
+    public IReadOnlyList<CatalogNetwork> BestKnownNetworks { get; private set; } = [];
+    public IReadOnlyList<CatalogNetwork> VisibleCatalogNetworks { get; private set; } = [];
+    private void UpdateBestKnownNetworks()
     {
-        get
+        var width = WizardStep == 3 && incumbent is not null ? incumbent.Network.Width : Generator.ChannelCount;
+        BestKnownNetworks = CatalogNetwork.LoadForWidth(width);
+        var items = new List<SorterAnnotation> { BestAnnotation, CurrentAnnotation, SelectedAnnotation };
+        foreach (var network in BestKnownNetworks)
         {
-            var point = Visits.Current ?? incumbent?.Position ?? default;
-            return $"Current: Stages: {point.Y:0}, CE's: {point.X:0}";
+            var variant = network.Id.SorterVariant;
+            if (!catalogAnnotations.TryGetValue(variant, out var annotation))
+            {
+                annotation = new(network.VariantName, network.VariantBrush);
+                annotation.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(SorterAnnotation.IsShown)) UpdateVisibleCatalogNetworks();
+                };
+                catalogAnnotations.Add(variant, annotation);
+            }
+            annotation.Position = network.Position;
+            items.Add(annotation);
         }
+        Annotations = items;
+        OnPropertyChanged(nameof(Annotations));
+        OnPropertyChanged(nameof(BestKnownNetworks));
+        UpdateVisibleCatalogNetworks();
     }
+    private void UpdateVisibleCatalogNetworks()
+    {
+        VisibleCatalogNetworks = BestKnownNetworks.Where(n => catalogAnnotations[n.Id.SorterVariant].IsShown).ToArray();
+        OnPropertyChanged(nameof(VisibleCatalogNetworks));
+        RefreshGraphSelection();
+    }
+    public Point? BestPosition => BestAnnotation.Position;
     public string Summary
     {
         get
@@ -319,11 +387,19 @@ public sealed class SgdPageViewModel : ViewModelBase
         }
     }
 
-    public Task GenerateAsync()
+    private RelayCommand CreateGenerationCommand(Func<Task> generate) => new(async selection =>
     {
-        if (!GenerateCommand.CanExecute(null)) return Task.CompletedTask;
-        return StartAsync(sampleOnGenerate ? Activity.SampleSeeds : Activity.Generate);
-    }
+        if (selection is int width)
+        {
+            Generator.ChannelCount = width;
+            if (Generator.ChannelCount != width) return;
+        }
+        await generate();
+    }, () => CanEdit && CanGenerate);
+
+    public Task GenerateAsync() => GenerateCommand.CanExecute(null) ? StartAsync(Activity.Generate) : Task.CompletedTask;
+
+    public Task BatchAsync() => BatchCommand.CanExecute(null) ? StartAsync(Activity.SampleSeeds) : Task.CompletedTask;
 
     public Task RunSgdAsync() => RunSgdCommand.CanExecute(null) ? StartAsync(Activity.Evolve) : Task.CompletedTask;
 
@@ -336,7 +412,6 @@ public sealed class SgdPageViewModel : ViewModelBase
         activity = nextActivity;
         if (nextActivity != Activity.Evolve) samplingRunGroup = SampleToB ? samplesB : samplesA;
         SetGraphMode(nextActivity != Activity.Evolve);
-        sampleOnGenerate = false;
         try
         {
             var recipe = nextActivity == Activity.Evolve ? null : Generator.Snapshot();
@@ -354,7 +429,7 @@ public sealed class SgdPageViewModel : ViewModelBase
             {
                 await GenerateNetworksAsync(recipe, testSamples, simd, nextActivity == Activity.SampleSeeds, token);
                 token.ThrowIfCancellationRequested();
-                Status = "Point plotted. Open Evolution to use this sorter as the parent.";
+                Status = "Sorter plotted. Choose Evolve to use the selected sorter as the parent.";
                 return;
             }
 
@@ -393,7 +468,7 @@ public sealed class SgdPageViewModel : ViewModelBase
 
     private async Task GenerateNetworksAsync(NetworkRecipe recipe, int? samples, SimdNetworkCheck? simd, bool repeat, CancellationToken token)
     {
-        Status = repeat ? "Sampling random seeds. Choose Stop or open Evolution to keep the current draw."
+        Status = repeat ? "Sampling random seeds. Choose Stop to finish the batch."
             : "Generating, testing and compacting the starting network…";
         while (true)
         {
@@ -416,7 +491,7 @@ public sealed class SgdPageViewModel : ViewModelBase
     {
         var duplicates = new SgdDuplicateTracker();
         duplicates.Observe(parent.Fingerprint);
-        UpdateUniqueness(duplicates);
+        UpdateUniqueness(duplicates.UniqueCount, duplicates.DuplicateCount);
         if (NetworkHistory.Entries.Count == 0 || !ReferenceEquals(NetworkHistory.Entries[^1].Network, parent.RawNetwork))
             NetworkHistory.Add(HistoryEntry(parent, Generation));
         if (parents.For(parent.Score).Find(parent.Position)?.Entry.Network != parent.RawNetwork)
@@ -431,7 +506,7 @@ public sealed class SgdPageViewModel : ViewModelBase
             var mutator = Mutation.Create(parent.Model);
             async Task RecordChild(SearchCandidate candidate, int evaluated)
             {
-                UpdateUniqueness(duplicates);
+                UpdateUniqueness(duplicates.UniqueCount, duplicates.DuplicateCount);
                 RecordCandidate(candidate, next, isChild: true);
                 var target = TimeSpan.FromMilliseconds((double)GenerationMilliseconds * evaluated / children);
                 var delay = target - Stopwatch.GetElapsedTime(started);
@@ -445,10 +520,10 @@ public sealed class SgdPageViewModel : ViewModelBase
         }
     }
 
-    private void UpdateUniqueness(SgdDuplicateTracker duplicates)
+    private void UpdateUniqueness(int unique, long repeats)
     {
-        UniqueSorters = duplicates.UniqueCount;
-        DuplicateSorters = duplicates.DuplicateCount;
+        UniqueSorters = unique;
+        DuplicateSorters = repeats;
         OnPropertyChanged(nameof(UniqueSorters));
         OnPropertyChanged(nameof(DuplicateSorters));
         OnPropertyChanged(nameof(SorterUniqueness));
@@ -469,14 +544,13 @@ public sealed class SgdPageViewModel : ViewModelBase
                 if (improved) NetworkHistory.Add(entry);
             }
             else PublishSample(entry);
-            Mutation.SelectMethod(best.Model.IsMsce ? "msce" : best.Model.IsMssi ? "mssi" : best.Model.IsMsrs ? "msrs" : best.Model.IsMsuf4 ? "msuf4" : "msuf6");
+            SelectMutationMethod(best);
             if (recordVisit) RecordSnapshot(best, group, entry);
             if (activity == Activity.SampleSeeds) SetGeneratedCount(GeneratedCount + 1);
-            OnPropertyChanged(nameof(Network));
+            NotifyNetworkDisplay();
             OnPropertyChanged(nameof(Usage));
             if (!Visits.Current.HasValue)
             {
-                OnPropertyChanged(nameof(CurrentGraphTitle));
                 OnPropertyChanged(nameof(Summary));
             }
         }
@@ -488,13 +562,17 @@ public sealed class SgdPageViewModel : ViewModelBase
         }
     }
 
+    private void SelectMutationMethod(SearchCandidate candidate) =>
+        Mutation.SelectMethod(candidate.Model.IsMsce ? "msce" : candidate.Model.IsMssi ? "mssi" :
+            candidate.Model.IsMsrs ? "msrs" : candidate.Model.IsMsuf4 ? "msuf4" : "msuf6", candidate.RawNetwork.Width);
+
     private NetworkHistoryEntry HistoryEntry(SearchCandidate candidate, int number, GraphBufferGroup? group = null)
     {
         group ??= parents;
-        var source = group == samplesA || group == samplesB ? $"Buffer {group.Name}" : $"{group.Name} · Generation {number:N0}";
+        var source = group == samplesA || group == samplesB ? $"Buffer {group.Name}" : $"{group.Name} · Gen {number:N0}";
         return new(candidate.RawNetwork, candidate.RawUsage,
-            $"{source} · {candidate.Usage.Failed:N0} failures · {candidate.Network.StageCount:N0} stages · {candidate.Network.ComparatorCount:N0} CEs", candidate.Position)
-            { Group = group };
+            $"{source} · {candidate.Usage.Failed:N0} failed, {candidate.Network.StageCount:N0} stages, {candidate.Network.ComparatorCount:N0} CEs", candidate.Position)
+            { Group = group, Sample = group == samplesA || group == samplesB ? candidate : null };
     }
 
     private void PublishSample(NetworkHistoryEntry entry)
@@ -525,6 +603,7 @@ public sealed class SgdPageViewModel : ViewModelBase
             var newToPlot = added && !GraphBuffers.Any(other => other != buffer && other.IsVisible && other.Contains(point, candidate.Fingerprint));
             uniqueSortersByPoint = newToPlot ? uniqueSortersByPoint.Record(point) : uniqueSortersByPoint.WithCurrent(point);
             RefreshGraph(Visits.Record(point));
+            if (NetworkHistory.GraphPosition == point && NetworkHistory.Current is null) ShowGraphNetwork(point);
         }
         ClearGraphCommand.RaiseCanExecuteChanged();
     }
@@ -541,7 +620,7 @@ public sealed class SgdPageViewModel : ViewModelBase
     {
         var visible = GraphBuffers.Where(buffer => buffer.IsVisible).OrderBy(buffer => buffer.LastOrder).ToArray();
         lastPlottedUsage = visible.LastOrDefault()?.Latest?.Usage;
-        bestPlotted = null;
+        SorterScore? bestPlotted = null;
         foreach (var buffer in visible)
             if (buffer.BestScore is { } score && (bestPlotted is not { } best || score.Improves(best))) bestPlotted = score;
         if (updatedVisits is null)
@@ -549,9 +628,10 @@ public sealed class SgdPageViewModel : ViewModelBase
             updatedVisits = EvolutionVisits.Merge(visible.Select(buffer => buffer.Visits));
             uniqueSortersByPoint = updatedVisits.Recount(point => GraphNetworkBuffer.CountDistinctAt(point, visible));
         }
+        BestAnnotation.Position = bestPlotted?.Position;
+        CurrentAnnotation.Position = updatedVisits.Current;
         Visits = updatedVisits;
         OnPropertyChanged(nameof(PlotData));
-        OnPropertyChanged(nameof(BestGraphTitle));
         OnPropertyChanged(nameof(BestPosition));
     }
 
@@ -563,7 +643,7 @@ public sealed class SgdPageViewModel : ViewModelBase
 
     private void NotifyCommands()
     {
-        if (activity == Activity.Idle && wizardStep == 3 && !HasMatchingPoint) SelectStep(SetupValid ? 2 : 1);
+        if (activity == Activity.Idle && wizardStep == 3 && !HasEvolutionParent) SelectStep(SetupValid ? 2 : 1);
         SetupStepCommand.RaiseCanExecuteChanged();
         GenerationStepCommand.RaiseCanExecuteChanged();
         EvolutionStepCommand.RaiseCanExecuteChanged();
@@ -572,6 +652,8 @@ public sealed class SgdPageViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanChooseMutation));
         GenerateCommand.RaiseCanExecuteChanged();
         RunSgdCommand.RaiseCanExecuteChanged();
+        BatchCommand.RaiseCanExecuteChanged();
+        EvolveSelectionCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();
         NewSeedCommand.RaiseCanExecuteChanged();
     }

@@ -20,6 +20,11 @@ type simpleSorterModelMutator =
      | SmmMsuf4RandMutate of msuf4RandMutate
      | SmmMsuf6RandMutate of msuf6RandMutate
 
+/// A relative modification rate and a matrix of destination weights, one row per source mode.
+type unfoldingMutationStep =
+    { Rate: float
+      TransitionWeights: float[,] }
+
 
 module SimpleSorterModelMutator =
 
@@ -157,6 +162,59 @@ module SimpleSorterModelMutator =
                                     opsTransitionRates)
                   mutVariant
             |> simpleSorterModelMutator.SmmMsuf6RandMutate
+
+
+    let private checkProbability name value =
+        if not (System.Double.IsFinite value) || value < 0.0 || value > 1.0 then
+            invalidArg name "Expected a finite value from 0 to 1."
+
+    let private transitionRows modeCount overall (step: unfoldingMutationStep) =
+        checkProbability "step.Rate" step.Rate
+        let weights = step.TransitionWeights
+        if isNull weights || Array2D.length1 weights <> modeCount || Array2D.length2 weights <> modeCount then
+            invalidArg "step.TransitionWeights" $"Expected a {modeCount} by {modeCount} transition matrix."
+        let effectiveRate = overall * step.Rate
+        Array.init modeCount (fun source ->
+            let row = Array.init modeCount (fun target ->
+                let weight = weights[source, target]
+                checkProbability "step.TransitionWeights" weight
+                weight)
+            let total = Array.sum row
+            // A zero row leaves this source mode unchanged.
+            if total = 0.0 then row
+            else row |> Array.map (fun weight -> effectiveRate * (weight / total)))
+
+    let private opsTransitions overall step =
+        let rows = transitionRows 3 overall step |> Array.map (fun r -> opsActionRates.create r[0] r[1] r[2])
+        opsTransitionRates.create rows[0] rows[1] rows[2]
+
+    let private unfoldingTransitions seedWidth width overall (steps: unfoldingMutationStep[]) =
+        checkProbability "modificationRate" overall
+        if width < seedWidth || width % seedWidth <> 0 then
+            invalidArg "channelCount" $"Expected {seedWidth} channels or a repeated doubling of that width."
+        let count = MathUtils.exactLog2 (width / seedWidth)
+        if isNull steps || steps.Length <> count then
+            invalidArg "steps" $"Expected {count} unfolding steps for {width} channels."
+        steps |> Array.map (opsTransitions overall) |> opsTransitionRatesArray.create
+
+    /// Rows and columns are Ortho, Para, Self reflection. Steps run from seed width to parent width.
+    let getMsuf4ModelMutatorByStep (channelCount: int<channelCount>) rngFactory
+                                   (modificationRate: float<modificationRate>) seed steps mutVariant =
+        if mutVariant = mutatorVariant.V3 then invalidArg "mutVariant" "UF4 supports V1 and V2."
+        let unfolding = unfoldingTransitions 4 %channelCount %modificationRate steps
+        let rates = uf4MutationRates.create %channelCount (opsTransitions %modificationRate seed) unfolding
+        SmmMsuf4RandMutate (msuf4RandMutate.create rngFactory rates mutVariant)
+
+    /// The seed matrix uses Ortho 1–2, Para 1–4, Self reflection. Each unfolding uses the three OPS modes.
+    let getMsuf6ModelMutatorByStep (channelCount: int<channelCount>) rngFactory
+                                   (modificationRate: float<modificationRate>) seed steps mutVariant =
+        if mutVariant <> mutatorVariant.V1 then invalidArg "mutVariant" "UF6 supports V1."
+        let unfolding = unfoldingTransitions 6 %channelCount %modificationRate steps
+        let rows = transitionRows 7 %modificationRate seed
+                   |> Array.map (fun r -> seed6ActionRates.create r[0] r[1] r[2] r[3] r[4] r[5] r[6])
+        let seedRates = seed6TransitionRates.create rows[0] rows[1] rows[2] rows[3] rows[4] rows[5] rows[6]
+        let rates = uf6MutationRates.create %channelCount seedRates unfolding
+        SmmMsuf6RandMutate (msuf6RandMutate.create rngFactory rates mutVariant)
 
 
     let makeMutantSorterModelIdFromIndexAndMod

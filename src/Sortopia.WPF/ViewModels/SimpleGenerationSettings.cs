@@ -10,7 +10,7 @@ using Sortopia.Sorting;
 
 namespace Sortopia.WPF.ViewModels;
 
-public sealed class GenerationWeight(string name) : ViewModelBase
+public sealed class GenerationWeight(string name) : ViewModelBase, IParameterValue
 {
     private double value = 1;
     public string Name => name;
@@ -39,14 +39,13 @@ public sealed class SimpleGenerationSettings : ViewModelBase
 {
     private string method = "";
     private int width;
-    private GenerationDistribution? selected;
     public string[] RandomSources { get; } = ["SplitMix64", "LCG", ".NET"];
     public string RandomSource { get; set; } = "SplitMix64";
     public bool ExcludeSelf { get; set; } = true;
     public bool CanExcludeSelf => method == "msce";
     public IReadOnlyList<GenerationDistribution> Distributions { get; private set; } = [];
     public bool HasDistributions => Distributions.Count != 0;
-    public GenerationDistribution? Selected { get => selected; set => SetProperty(ref selected, value); }
+    public IReadOnlyList<ParameterArrayViewModel> WeightTables { get; private set; } = [];
     public string Error => Distributions.FirstOrDefault(d => !d.IsValid) is { } invalid
         ? $"Set at least one positive weight for {invalid.Name}." : "";
 
@@ -59,26 +58,32 @@ public sealed class SimpleGenerationSettings : ViewModelBase
         var groups = new List<GenerationDistribution>();
         void Add(string name, params string[] modes) =>
             groups.Add(previous.FirstOrDefault(d => d.Name == name) ?? new(name, modes));
-        string[] ops = ["Ortho", "Para", "Self reflection"];
+        string[] ops = ["Ortho", "Para", "SR"];
         if (kind == "msrs") Add("Stage", ops);
         if (kind is "msuf4" or "msuf6")
         {
             int seedWidth = kind == "msuf4" ? 4 : 6;
-            Add("Seed", kind == "msuf4" ? ops : ["Ortho 1", "Ortho 2", "Para 1", "Para 2", "Para 3", "Para 4", "Self reflection"]);
+            Add("Seed", kind == "msuf4" ? ops : ["Ortho 1", "Ortho 2", "Para 1", "Para 2", "Para 3", "Para 4", "SR"]);
             for (int from = seedWidth; from < channels; from *= 2) Add($"Unfold {from} → {2 * from}", ops);
         }
         foreach (var weight in Distributions.SelectMany(d => d.Weights)) weight.PropertyChanged -= WeightChanged;
         Distributions = groups;
         foreach (var weight in groups.SelectMany(d => d.Weights)) weight.PropertyChanged += WeightChanged;
-        var next = groups.FirstOrDefault(d => d == Selected) ?? groups.FirstOrDefault();
+        // A UF6 seed has seven modes, while its unfolding rows share the three OPS modes.
+        WeightTables = groups.GroupBy(group => kind == "msuf6" && group.Name == "Seed")
+            .Select(group => WeightTable(group.ToArray())).ToArray();
         OnPropertyChanged(nameof(Distributions));
-        Selected = next;
+        OnPropertyChanged(nameof(WeightTables));
         OnPropertyChanged(nameof(HasDistributions));
         OnPropertyChanged(nameof(CanExcludeSelf));
         OnPropertyChanged(nameof(Error));
     }
 
     private void WeightChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => OnPropertyChanged(nameof(Error));
+
+    private static ParameterArrayViewModel WeightTable(GenerationDistribution[] rows) =>
+        new(rows.Select(group => group.Name).ToArray(), rows[0].Weights.Select(weight => weight.Name).ToArray(),
+            (row, column) => rows[row].Weights[column]);
 
     internal simpleSorterModelGen CreateGenerator(int stages)
     {

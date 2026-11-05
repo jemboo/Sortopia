@@ -1,6 +1,12 @@
 using System.Runtime.ExceptionServices;
+using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Controls;
+using System.Windows.Media;
 using Sortopia.Models.Sorting;
 using Sortopia.Sorting.Inputs;
+using Sortopia.WPF.Controls;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.Rendering;
 using Sortopia.WPF.ViewModels;
@@ -115,6 +121,48 @@ public sealed class NetworkTests
     }
 
     [Fact]
+    public void Editing_a_history_index_selects_a_saved_network_while_live_results_arrive()
+    {
+        var history = new NetworkHistoryViewModel();
+        var network = CatalogNetwork.LoadAll()[0];
+        var saved = Enumerable.Range(1, 12).Select(i => new NetworkHistoryEntry(network, null, $"Network {i}")).ToArray();
+        history.Replace(saved);
+        var live = new NetworkHistoryEntry(network, null, "Live sample");
+        history.UpdateLive(live);
+        Assert.Equal("Live", history.IndexText);
+        history.IndexText = "1";
+        history.UpdateLive(live);
+        Assert.Equal("1", history.IndexText);
+        history.IndexText = "10";
+        history.FinishIndexEdit(commit: true);
+        Assert.Same(saved[9], history.Current);
+        foreach (var invalid in new[] { "", "0", "13", "abc" })
+        {
+            history.IndexText = invalid;
+            history.FinishIndexEdit(commit: true);
+            Assert.Equal("10", history.IndexText);
+            Assert.Same(saved[9], history.Current);
+        }
+        history.Inspect(new Point(network.ComparatorCount, network.StageCount), live);
+        history.IndexText = "2";
+        history.FinishIndexEdit(commit: false);
+        Assert.Equal("Graph", history.IndexText);
+        history.Inspect(new Point(0, 0), null);
+        history.UpdateLive(live);
+        Assert.Null(history.Current);
+        Assert.Equal("Graph", history.IndexText);
+        Assert.True(history.FollowLiveCommand.CanExecute(null));
+        history.IndexText = "12";
+        history.FinishIndexEdit(commit: true);
+        Assert.Same(saved[^1], history.Current);
+        history.FollowLiveCommand.Execute(null);
+        Assert.Same(live, history.Current);
+        history.Replace([]);
+        Assert.False(history.HasEntries);
+        Assert.Equal("0", history.IndexText);
+    }
+
+    [Fact]
     public void Evolution_history_adds_improvements_and_browsing_does_not_change_parent()
     {
         var vm = new SgdPageViewModel(() => { });
@@ -160,6 +208,8 @@ public sealed class NetworkTests
         vm.ShowGraphNetwork(candidate.Position);
         Assert.Same(latestFailure.RawNetwork, vm.Network);
         Assert.Equal(candidate.Position, vm.SelectedNetworkPosition);
+        Assert.Equal(candidate.Position, vm.SelectedAnnotation.VisiblePosition);
+        Assert.Equal("Graph", vm.NetworkHistory.IndexText);
         Assert.Empty(vm.NetworkHistory.Entries);
         vm.PlotFailures = false;
         Assert.Same(latestSuccess.RawNetwork, vm.Network);
@@ -194,15 +244,23 @@ public sealed class NetworkTests
         vm.NetworkHistory.Add(new(network, null, "Initial", first));
         vm.NetworkHistory.Add(new(network, null, "Improvement", second));
         Assert.Equal(second, vm.SelectedNetworkPosition);
+        Assert.Equal(second, vm.SelectedAnnotation.VisiblePosition);
+        vm.SelectedAnnotation.IsShown = false;
         var notifications = new List<string?>();
         vm.PropertyChanged += (_, change) => notifications.Add(change.PropertyName);
         vm.NetworkHistory.PreviousCommand.Execute(null);
         Assert.Equal(first, vm.SelectedNetworkPosition);
+        Assert.Equal(first, vm.SelectedAnnotation.Position);
+        Assert.Null(vm.SelectedAnnotation.VisiblePosition);
+        vm.SelectedAnnotation.IsShown = true;
+        Assert.Equal(first, vm.SelectedAnnotation.VisiblePosition);
         Assert.Contains(nameof(vm.SelectedNetworkPosition), notifications);
         vm.NetworkHistory.NextCommand.Execute(null);
         Assert.Equal(second, vm.SelectedNetworkPosition);
+        Assert.Equal(second, vm.SelectedAnnotation.VisiblePosition);
         vm.ClearGraphCommand.Execute(null);
         Assert.Null(vm.SelectedNetworkPosition);
+        Assert.False(vm.SelectedAnnotation.HasSorter);
     }
 
     [Fact]
@@ -474,6 +532,175 @@ public sealed class NetworkTests
         Assert.Equal(Enumerable.Range(0, vm.SelectedNetwork.Width).Reverse(), vm.Trace.Values[0]);
         vm.ShuffleCommand.Execute(null);
         Assert.Equal(Enumerable.Range(0, vm.SelectedNetwork.Width), vm.Trace.Values[0].Order());
+    });
+
+    [Fact]
+    public void Parameter_array_slider_tracks_the_selected_cell_and_updates_its_color() => OnSta(() =>
+    {
+        double[,] values = { { -2, -1, 0 }, { 0, 1, 2 } };
+        string[] rows = ["First", "Second"];
+        string[] columns = ["A", "B", "C"];
+        var parameters = new ParameterArrayViewModel(values, -2, 2, rows, columns);
+        Assert.Throws<ArgumentException>(() => new ParameterArrayViewModel(values, rowHeaders: ["First"]));
+        Assert.Throws<ArgumentException>(() => new ParameterArrayViewModel(values, columnHeaders: ["A", "B"]));
+        var editor = new ParamEditor2d { DataContext = parameters };
+        editor.Measure(new Size(280, 240));
+        editor.Arrange(new Rect(0, 0, 280, 240));
+        editor.UpdateLayout();
+        var cells = (ListBox)editor.FindName("Cells");
+        var slider = (Slider)editor.FindName("ValueSlider");
+        var valueEditor = (StackPanel)editor.FindName("ValueEditor");
+        Assert.Equal(Visibility.Collapsed, valueEditor.Visibility);
+        Button ButtonAt(int index) => Assert.IsType<Button>(
+            VisualTreeHelper.GetChild(cells.ItemContainerGenerator.ContainerFromIndex(index), 0));
+        void Select(Button button)
+        {
+            var item = (ListBoxItem)ItemsControl.ContainerFromElement(cells, button);
+            var peer = new ListBoxItemAutomationPeer(item.DataContext, new ListBoxAutomationPeer(cells));
+            ((ISelectionItemProvider)peer.GetPattern(PatternInterface.SelectionItem)!).Select();
+            editor.UpdateLayout();
+        }
+
+        var first = ButtonAt(0);
+        var last = ButtonAt(5);
+        var buttonWidth = first.ActualWidth;
+        Assert.Equal(buttonWidth, last.ActualWidth);
+        var rowLabels = (ItemsControl)editor.FindName("RowLabels");
+        var columnLabels = (ItemsControl)editor.FindName("ColumnLabels");
+        Assert.Equal(rows, rowLabels.Items.Cast<string>());
+        Assert.Equal(columns, columnLabels.Items.Cast<string>());
+        Point Center(FrameworkElement element) => element.TranslatePoint(new Point(element.ActualWidth / 2, element.ActualHeight / 2), editor);
+        Assert.Equal(Center(last).X, Center((FrameworkElement)columnLabels.ItemContainerGenerator.ContainerFromIndex(2)).X, 5);
+        Assert.Equal(Center(last).Y, Center((FrameworkElement)rowLabels.ItemContainerGenerator.ContainerFromIndex(1)).Y, 5);
+        Assert.Equal("Second, C", parameters.Cells[5].Label);
+        Assert.Equal(ButtonAt(2).TranslatePoint(new Point(), editor).X, last.TranslatePoint(new Point(), editor).X);
+        Assert.True(last.TranslatePoint(new Point(), editor).Y > first.TranslatePoint(new Point(), editor).Y);
+        Assert.Equal(Colors.Blue, ((SolidColorBrush)first.Background).Color);
+        Assert.Equal(Colors.Red, ((SolidColorBrush)last.Background).Color);
+        Assert.Equal("-2", Assert.IsType<TextBlock>(first.Content).Text);
+        Assert.Same(Brushes.White, first.Foreground);
+        Assert.Same(Brushes.Black, last.Foreground);
+        Select(last);
+        Assert.Equal(Visibility.Visible, valueEditor.Visibility);
+        Assert.Equal(2, slider.Value);
+        slider.SetCurrentValue(Slider.ValueProperty, 0.0);
+        Assert.Equal(0, values[1, 2]);
+        Assert.Equal(Colors.Lime, ((SolidColorBrush)last.Background).Color);
+        Select(first);
+        Assert.DoesNotContain(parameters.Cells[5], cells.SelectedItems.Cast<ParameterCell>());
+        Assert.Equal(-2, slider.Value);
+        slider.SetCurrentValue(Slider.ValueProperty, -1.0);
+        Assert.Equal(-1, values[0, 0]);
+        Assert.Equal(Colors.Cyan, ((SolidColorBrush)first.Background).Color);
+        Assert.Same(Brushes.Black, first.Foreground);
+        slider.SetCurrentValue(Slider.ValueProperty, -1.23456);
+        editor.UpdateLayout();
+        var valueText = Assert.IsType<TextBlock>(first.Content);
+        Assert.Equal("-1.23", valueText.Text);
+        Assert.Equal(-1.23456, values[0, 0]); // Formatting never rounds the backing value.
+        Assert.Equal(buttonWidth, first.ActualWidth);
+        Assert.Equal(buttonWidth, last.ActualWidth);
+        slider.SetCurrentValue(Slider.ValueProperty, -1.23456e-105);
+        editor.UpdateLayout();
+        Assert.Equal("-1.23E-105", valueText.Text);
+        Assert.Equal(buttonWidth, first.ActualWidth);
+        Assert.True(valueText.ActualWidth <= first.ActualWidth - 16);
+        slider.SetCurrentValue(Slider.ValueProperty, -1.23456);
+        Select(last);
+        Assert.Equal(0, slider.Value);
+
+        foreach (var width in new[] { 900.0, 180.0 })
+        {
+            editor.Measure(new Size(width, 240));
+            editor.Arrange(new Rect(0, 0, width, 240));
+            editor.UpdateLayout();
+            var viewport = (ScrollViewer)editor.FindName("ArrayViewport");
+            Assert.Equal(viewport.ActualWidth, valueEditor.ActualWidth, 5);
+            Assert.InRange(slider.ActualWidth, 1, 220);
+            var bounds = slider.TransformToAncestor(valueEditor).TransformBounds(new Rect(slider.RenderSize));
+            Assert.True(bounds.Left >= 0 && bounds.Right <= valueEditor.ActualWidth);
+        }
+
+        Select(first);
+        editor.DataContext = new ParameterArrayViewModel(new double[0, 0]);
+        editor.UpdateLayout();
+        Assert.Empty(cells.Items);
+        Assert.Equal(Visibility.Collapsed, valueEditor.Visibility);
+        Assert.Equal(-1.23456, values[0, 0]);
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Parameter_multi_selection_copies_the_first_value_and_edits_only_the_selected_group(bool logarithmic) => OnSta(() =>
+    {
+        var values = Enumerable.Range(1, 6).Select(i => logarithmic
+            ? (IParameterValue)new MutationParameter($"Value {i}", i / 10.0)
+            : new GenerationWeight($"Value {i}") { Value = i / 10.0 }).ToArray();
+        var parameters = new ParameterArrayViewModel(["First", "Second"], ["A", "B", "C"],
+            (row, column) => values[row * 3 + column], logarithmic ? -3 : 0, logarithmic ? 0 : 1);
+        var editor = new ParamEditor2d { DataContext = parameters };
+        editor.Measure(new Size(400, 240));
+        editor.Arrange(new Rect(0, 0, 400, 240));
+        editor.UpdateLayout();
+        var cells = (ListBox)editor.FindName("Cells");
+        var slider = (Slider)editor.FindName("ValueSlider");
+
+        // Clicking an earlier array position must not replace the original selection's value.
+        editor.SelectCell(parameters.Cells[4], extend: false);
+        editor.SelectCell(parameters.Cells[1], extend: true);
+        editor.UpdateLayout();
+        Assert.Same(parameters.Cells[4], editor.FirstSelected);
+        Assert.Equal(0.5, values[1].Value);
+        Assert.Equal(0.3, values[2].Value);
+        Assert.Equal(2, cells.SelectedItems.Count);
+        Assert.Contains("2 selected", editor.SelectionLabel);
+        foreach (var index in new[] { 1, 4 })
+        {
+            var button = (Button)VisualTreeHelper.GetChild(cells.ItemContainerGenerator.ContainerFromIndex(index), 0);
+            Assert.Same(Brushes.White, ((Border)button.Template.FindName("Outline", button)).BorderBrush);
+        }
+        slider.SetCurrentValue(Slider.ValueProperty, logarithmic ? -2.0 : 0.25);
+        var firstValue = logarithmic ? 0.01 : 0.25;
+        Assert.Equal(firstValue, values[1].Value, 12);
+        Assert.Equal(values[4].Value, values[1].Value);
+        editor.SelectCell(parameters.Cells[5], extend: true);
+        Assert.Equal(values[4].Value, values[5].Value);
+        editor.SelectCell(parameters.Cells[1], extend: true); // Adding an existing member is harmless.
+        Assert.Equal(3, cells.SelectedItems.Count);
+
+        // Removing the anchor promotes the next selection without changing any backing value.
+        cells.SelectedItems.Remove(parameters.Cells[4]);
+        Assert.Same(parameters.Cells[1], editor.FirstSelected);
+        slider.SetCurrentValue(Slider.ValueProperty, logarithmic ? -1.0 : 0.75);
+        Assert.Equal(logarithmic ? 0.1 : 0.75, values[1].Value, 12);
+        Assert.Equal(values[1].Value, values[5].Value);
+        Assert.Equal(firstValue, values[4].Value, 12);
+
+        editor.SelectCell(parameters.Cells[2], extend: false);
+        Assert.Single(cells.SelectedItems);
+        Assert.Equal(0.3, values[2].Value);
+        Assert.Equal(logarithmic ? Math.Log10(0.3) : 0.3, slider.Value, 12);
+        slider.SetCurrentValue(Slider.ValueProperty, logarithmic ? 0.0 : 0.9);
+        Assert.Equal(logarithmic ? 1 : 0.9, values[2].Value);
+        Assert.Equal(logarithmic ? 0.1 : 0.75, values[1].Value, 12);
+
+        if (logarithmic) slider.SetCurrentValue(Slider.ValueProperty, -2.0);
+        editor.SelectCell(parameters.Cells[0], extend: true);
+        var originalValues = values.Select(value => value.Value).ToArray();
+        double[,] nextValues = { { 0.1, 0.2 } };
+        var next = new ParameterArrayViewModel(nextValues);
+        editor.DataContext = next;
+        editor.UpdateLayout();
+        Assert.Empty(cells.SelectedItems);
+        Assert.Null(editor.FirstSelected);
+        Assert.Equal(Visibility.Collapsed, ((StackPanel)editor.FindName("ValueEditor")).Visibility);
+        editor.SelectCell(next.Cells[0], extend: false);
+        editor.SelectCell(next.Cells[1], extend: true);
+        slider.SetCurrentValue(Slider.ValueProperty, 0.4);
+        Assert.Equal(0.4, nextValues[0, 0]);
+        Assert.Equal(0.4, nextValues[0, 1]);
+        Assert.Equal(originalValues, values.Select(value => value.Value));
     });
 
     [Fact]

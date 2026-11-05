@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:Sortopia.WPF.Controls"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
              AutomationProperties.Name="Sampling and Evolution page">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -9,17 +10,20 @@
                 <ResourceDictionary Source="/Sortopia.WPF;component/Styles/NetworkWorkspace.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolVisibility" />
+            <sys:Double x:Key="SetupSamplingControlHeight">32</sys:Double>
             <SolidColorBrush x:Key="ControlText" Color="#F3F7FA" />
             <Style x:Key="GraphBufferToggle" TargetType="ToggleButton">
+                <Setter Property="Background" Value="#102B3B" />
+                <Setter Property="BorderBrush" Value="#466B7B" />
                 <Setter Property="Foreground" Value="#EAF4F7" />
                 <Setter Property="Margin" Value="2" />
-                <Setter Property="Padding" Value="8,6" />
+                <Setter Property="Padding" Value="8,4" />
                 <Setter Property="HorizontalContentAlignment" Value="Center" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ToggleButton">
-                            <Border x:Name="Tile" Background="#102B3B" BorderBrush="#466B7B" BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center" />
+                            <Border x:Name="Tile" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
@@ -35,22 +39,24 @@
                 </Setter>
             </Style>
             <DataTemplate x:Key="BufferStatsContent">
-                <StackPanel>
-                    <TextBlock FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,2">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                <Setter Property="Text" Value="{Binding Count, StringFormat='✓ {0:N0}'}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding DataContext.Successful, RelativeSource={RelativeSource AncestorType=ToggleButton}}" Value="False">
-                                        <Setter Property="Text" Value="{Binding Count, StringFormat='× {0:N0}'}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <UniformGrid Rows="2" Columns="2">
-                        <UniformGrid.Style>
-                            <Style TargetType="UniformGrid">
+                <StackPanel Width="180">
+                    <Viewbox Height="18" Stretch="Uniform" StretchDirection="DownOnly">
+                        <TextBlock FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" Typography.NumeralAlignment="Tabular">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                    <Setter Property="Text" Value="{Binding Count, StringFormat='✓ {0:N0}'}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.Successful, RelativeSource={RelativeSource AncestorType=ToggleButton}}" Value="False">
+                                            <Setter Property="Text" Value="{Binding Count, StringFormat='× {0:N0}'}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Viewbox>
+                    <Grid>
+                        <Grid.Style>
+                            <Style TargetType="Grid">
                                 <Setter Property="DataContext" Value="{Binding Ces}" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding DataContext.ShowStageStats, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
@@ -58,18 +64,52 @@
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </UniformGrid.Style>
-                        <TextBlock Margin="0,0,6,0" Text="{Binding Min, StringFormat='min {0:N0}', FallbackValue='min —'}" />
-                        <TextBlock Text="{Binding Max, StringFormat='max {0:N0}', FallbackValue='max —'}" />
-                        <TextBlock Margin="0,0,6,0" Text="{Binding Mean, StringFormat='mean {0:#,0.##}', FallbackValue='mean —'}" />
-                        <TextBlock Text="{Binding Sd, StringFormat='sd {0:#,0.##}', FallbackValue='sd —'}" />
-                    </UniformGrid>
+                        </Grid.Style>
+                        <Grid.Resources>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Foreground" Value="#A8C3CF" />
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                            </Style>
+                            <Style x:Key="StatValue" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="FontFamily" Value="Consolas" />
+                                <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+                                <Setter Property="HorizontalAlignment" Value="Right" />
+                            </Style>
+                            <Style TargetType="Viewbox">
+                                <Setter Property="Stretch" Value="Uniform" />
+                                <Setter Property="StretchDirection" Value="DownOnly" />
+                                <Setter Property="HorizontalAlignment" Value="Right" />
+                                <Setter Property="Margin" Value="4,1" />
+                            </Style>
+                        </Grid.Resources>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="34" />
+                            <ColumnDefinition Width="56" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="26" />
+                            <ColumnDefinition Width="56" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="18" /><RowDefinition Height="18" /></Grid.RowDefinitions>
+                        <Border Grid.Column="1" Grid.RowSpan="2" Background="#142F3C" CornerRadius="2" />
+                        <Border Grid.Column="4" Grid.RowSpan="2" Background="#142F3C" CornerRadius="2" />
+                        <TextBlock Text="min: " />
+                        <Viewbox Grid.Column="1"><TextBlock Style="{StaticResource StatValue}" Text="{Binding Min, StringFormat=N0, FallbackValue=—}" /></Viewbox>
+                        <TextBlock Grid.Column="3" Text="max: " />
+                        <Viewbox Grid.Column="4"><TextBlock Style="{StaticResource StatValue}" Text="{Binding Max, StringFormat=N0, FallbackValue=—}" /></Viewbox>
+                        <TextBlock Grid.Row="1" Text="mean: " />
+                        <Viewbox Grid.Row="1" Grid.Column="1"><TextBlock Style="{StaticResource StatValue}" Text="{Binding Mean, StringFormat='#,0.##', FallbackValue=—}" /></Viewbox>
+                        <TextBlock Grid.Row="1" Grid.Column="3" Text="sd: " />
+                        <Viewbox Grid.Row="1" Grid.Column="4"><TextBlock Style="{StaticResource StatValue}" Text="{Binding Sd, StringFormat='#,0.##', FallbackValue=—}" /></Viewbox>
+                    </Grid>
                 </StackPanel>
             </DataTemplate>
             <Style x:Key="GraphStatsToggle" TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
-                <Setter Property="MinWidth" Value="132" />
-                <Setter Property="MinHeight" Value="64" />
-                <Setter Property="Padding" Value="7,5" />
+                <Setter Property="Width" Value="190" />
+                <Setter Property="Height" Value="60" />
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Margin" Value="1" />
+                <Setter Property="Padding" Value="4,2" />
                 <Setter Property="IsChecked" Value="{Binding IsVisible, Mode=TwoWay}" />
                 <Setter Property="Content" Value="{Binding UniqueStats}" />
                 <Setter Property="ContentTemplate" Value="{StaticResource BufferStatsContent}" />
@@ -114,36 +154,6 @@
                 <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers><DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
             </Style>
-            <DataTemplate x:Key="GenerationWeightRow">
-                <Grid Margin="0,1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" MinWidth="82" MaxWidth="128" />
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="46" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource ControlText}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                    <Slider Grid.Column="1" x:Name="WeightSlider" Minimum="0" Maximum="1" Value="{Binding Value, Mode=TwoWay}"
-                            SmallChange="0.01" LargeChange="0.1" VerticalAlignment="Center" AutomationProperties.Name="{Binding Name}"
-                            AutomationProperties.ItemStatus="{Binding Value, StringFormat=G3}" ToolTip="Relative weight from 0 to 1. Zero excludes this mode." />
-                    <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="{Binding Value, StringFormat=G3}" Foreground="{StaticResource ControlText}" Margin="5,0,0,0" VerticalAlignment="Center" />
-                </Grid>
-            </DataTemplate>
-            <DataTemplate x:Key="MutationWeightRow">
-                <Grid Margin="0,1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" MinWidth="82" MaxWidth="128" />
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="46" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource ControlText}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                    <Slider Grid.Column="1" x:Name="ParameterSlider" Minimum="-3" Maximum="0" Value="{Binding LogValue, Mode=TwoWay}"
-                            SmallChange="0.01" LargeChange="0.1" VerticalAlignment="Center" AutomationProperties.Name="{Binding Name}"
-                            AutomationProperties.ItemStatus="{Binding Value, StringFormat=G3}" ToolTip="Logarithmic scale from 0.001 to 1. Each third of the slider multiplies the value by 10." />
-                    <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="{Binding Value, StringFormat=G3}" Foreground="{StaticResource ControlText}" Margin="5,0,0,0" VerticalAlignment="Center" />
-                </Grid>
-            </DataTemplate>
             <Style x:Key="ResultRow" TargetType="HeaderedContentControl">
                 <Setter Property="Focusable" Value="False" />
                 <Setter Property="Template">
@@ -188,7 +198,15 @@
             </Grid.RowDefinitions>
             <DockPanel Margin="0,0,0,6">
                 <Button DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}" Style="{StaticResource PageReturnButtonStyle}" />
-                <WrapPanel AutomationProperties.Name="Wizard steps">
+                <WrapPanel x:Name="WizardSteps" AutomationProperties.Name="Wizard steps">
+                    <WrapPanel.Style>
+                        <Style TargetType="WrapPanel">
+                            <Setter Property="ItemHeight" Value="{StaticResource SetupSamplingControlHeight}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding WizardStep}" Value="3"><Setter Property="ItemHeight" Value="Auto" /></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </WrapPanel.Style>
                     <Button Content="1  Setup" Command="{Binding SetupStepCommand}" AutomationProperties.Name="Step 1: Setup">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource StepNavigationButtonStyle}">
@@ -212,7 +230,17 @@
                     </Button>
                 </WrapPanel>
             </DockPanel>
-            <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid x:Name="SettingsArea" Grid.Row="1">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ShowResultPanes}" Value="False">
+                                <Setter Property="Grid.RowSpan" Value="6" />
+                                <Setter Property="VerticalAlignment" Value="Top" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
                 <Border Style="{StaticResource ControlGroup}">
                     <Grid Margin="2,4">
                         <Grid.ColumnDefinitions>
@@ -220,28 +248,30 @@
                             <ColumnDefinition Width="2*" />
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Margin="0,0,10,0">
+                        <Viewbox x:Name="SettingsViewport" Stretch="Uniform" StretchDirection="DownOnly"
+                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,10,0">
+                        <StackPanel>
                             <StackPanel Style="{StaticResource Step1Panel}" AutomationProperties.Name="Shared settings">
                                 <TextBlock Text="Shared settings" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
                                 <WrapPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Method" Target="{Binding ElementName=MethodPicker}" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="MethodPicker" Width="96" ItemsSource="{Binding Generator.Methods}" SelectedItem="{Binding Generator.Method}" AutomationProperties.Name="Generation method" />
+                                        <ComboBox x:Name="MethodPicker" Width="96" Height="{StaticResource SetupSamplingControlHeight}" ItemsSource="{Binding Generator.Methods}" SelectedItem="{Binding Generator.Method}" AutomationProperties.Name="Generation method" />
                                     </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Channels" Target="{Binding ElementName=ChannelPicker}" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="ChannelPicker" Width="72" ItemsSource="{Binding Generator.ChannelCounts}" SelectedItem="{Binding Generator.ChannelCount, Mode=TwoWay}" IsSynchronizedWithCurrentItem="False" ToolTip="{Binding Generator.WidthHint}" AutomationProperties.Name="Channel count" />
+                                        <ComboBox x:Name="ChannelPicker" Width="72" Height="{StaticResource SetupSamplingControlHeight}" ItemsSource="{Binding Generator.ChannelCounts}" SelectedItem="{Binding Generator.ChannelCount, Mode=TwoWay}" IsSynchronizedWithCurrentItem="False" ToolTip="{Binding Generator.WidthHint}" AutomationProperties.Name="Channel count" />
                                     </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Stages" Target="{Binding ElementName=StagesInput}" Style="{StaticResource FieldLabel}" />
-                                        <TextBox x:Name="StagesInput" Width="86" Text="{Binding Generator.CountText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Enter 1–10,000 stages to override the default for this setup. For msce this sets the equivalent comparator budget." />
+                                        <TextBox x:Name="StagesInput" Width="86" Height="{StaticResource SetupSamplingControlHeight}" Text="{Binding Generator.CountText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Enter 1–10,000 stages to override the default for this setup. For msce this sets the equivalent comparator budget." />
                                     </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Test inputs / all" Target="{Binding ElementName=SampleInput}" Style="{StaticResource FieldLabel}" />
-                                        <TextBox x:Name="SampleInput" Width="100" Text="{Binding Generator.SamplesText, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Generator.TestHint}" />
+                                        <TextBox x:Name="SampleInput" Width="100" Height="{StaticResource SetupSamplingControlHeight}" Text="{Binding Generator.SamplesText, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Generator.TestHint}" />
                                     </StackPanel>
                                 </WrapPanel>
-                                <CheckBox x:Name="Avx512Picker" Content="AVX512" Foreground="{StaticResource ControlText}" Margin="0,3"
+                                <CheckBox x:Name="Avx512Picker" Content="AVX512" Foreground="{StaticResource ControlText}" Margin="0,3" Height="{StaticResource SetupSamplingControlHeight}" VerticalContentAlignment="Center"
                                           IsChecked="{Binding UseAvx512}" IsEnabled="{Binding CanChooseAvx512}" ToolTip="{Binding Avx512Hint}" ToolTipService.ShowOnDisabled="True" />
                             </StackPanel>
 
@@ -257,7 +287,8 @@
                                 <WrapPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Store run in" Target="{Binding ElementName=SamplingDestination}" Style="{StaticResource FieldLabel}" />
-                                        <ToggleButton x:Name="SamplingDestination" IsChecked="{Binding SampleToB, Mode=TwoWay}"
+                                        <ToggleButton x:Name="SamplingDestination" IsChecked="{Binding SampleToB, Mode=TwoWay}" Height="{StaticResource SetupSamplingControlHeight}" Margin="0"
+                                                      Opacity="1" Background="#285D59" BorderBrush="#77D3C7"
                                                       AutomationProperties.Name="Sampling destination B" ToolTip="Switch between A and B before starting a sampling run.">
                                             <ToggleButton.Style>
                                                 <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
@@ -269,29 +300,33 @@
                                     </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Random source" Target="{Binding ElementName=SourcePicker}" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="SourcePicker" Width="112" ItemsSource="{Binding GenerationOptions.RandomSources}" SelectedItem="{Binding GenerationOptions.RandomSource}" />
+                                        <ComboBox x:Name="SourcePicker" Width="112" Height="{StaticResource SetupSamplingControlHeight}" ItemsSource="{Binding GenerationOptions.RandomSources}" SelectedItem="{Binding GenerationOptions.RandomSource}" />
                                     </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Random seed" Target="{Binding ElementName=SeedInput}" Style="{StaticResource FieldLabel}" />
-                                        <TextBox x:Name="SeedInput" Width="110" Text="{Binding Generator.SeedText, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Grid Width="132" Height="{StaticResource SetupSamplingControlHeight}">
+                                            <TextBox x:Name="SeedInput" Padding="8,4,34,4" Text="{Binding Generator.SeedText, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Button Command="{Binding NewSeedCommand}" Style="{StaticResource NewSeedButtonStyle}" Height="Auto" VerticalAlignment="Stretch" ToolTip="Choose a new random seed." />
+                                        </Grid>
                                     </StackPanel>
-                                    <CheckBox Content="Exclude self CEs" IsChecked="{Binding GenerationOptions.ExcludeSelf}" VerticalAlignment="Center" Margin="0,10,0,0"
+                                    <CheckBox Content="Exclude self CEs" IsChecked="{Binding GenerationOptions.ExcludeSelf}" Height="{StaticResource SetupSamplingControlHeight}" VerticalContentAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3"
                                               Visibility="{Binding GenerationOptions.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource ControlText}" />
                                 </WrapPanel>
                                 <StackPanel Visibility="{Binding GenerationOptions.HasDistributions, Converter={StaticResource BoolVisibility}}">
-                                    <WrapPanel Margin="0,4">
-                                        <Label Content="Relative weights for" Target="{Binding ElementName=DistributionPicker}" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="DistributionPicker" ItemsSource="{Binding GenerationOptions.Distributions}" SelectedItem="{Binding GenerationOptions.Selected}" Width="130"
-                                                  ToolTip="Weights in each group are normalized to probabilities.">
-                                            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                    </WrapPanel>
-                                    <ItemsControl ItemsSource="{Binding GenerationOptions.Selected.Weights}" ItemTemplate="{StaticResource GenerationWeightRow}" />
+                                    <TextBlock Text="Relative weights" Style="{StaticResource SectionTitle}" Margin="0,4" />
+                                    <ItemsControl x:Name="GenerationWeightTables" ItemsSource="{Binding GenerationOptions.WeightTables}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <controls:ParamEditor2d Margin="0,0,0,5" AutomationProperties.Name="Generator weights"
+                                                    ToolTip="Weights in each row are normalized to probabilities. Zero excludes a mode." />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </StackPanel>
 
                             <StackPanel Style="{StaticResource Step3Panel}" AutomationProperties.Name="Evolution settings">
-                                <TextBlock Style="{StaticResource SectionTitle}" ToolTip="{Binding Mutation.Hint}" Margin="0,0,0,4">
+                                <TextBlock Style="{StaticResource SectionTitle}" Margin="0,0,0,4">
                                     <TextBlock.Text>
                                         <MultiBinding StringFormat="{}{0} Channels · {1}">
                                             <Binding Path="Network.Width" />
@@ -299,7 +334,31 @@
                                         </MultiBinding>
                                     </TextBlock.Text>
                                 </TextBlock>
-                                <WrapPanel Margin="0,0,0,4">
+                                <Grid x:Name="EvolutionRateControls" Width="340" MaxWidth="{Binding ActualWidth, ElementName=EvolutionOptions}"
+                                      HorizontalAlignment="Left" Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <Label Target="{Binding ElementName=EvolutionSpeedSlider}" Style="{StaticResource FieldLabel}">
+                                        <TextBlock Text="Evolution speed" TextWrapping="Wrap" />
+                                    </Label>
+                                    <Label Grid.Column="2" Target="{Binding ElementName=ModificationRateSlider}" Style="{StaticResource FieldLabel}">
+                                        <TextBlock Text="Overall modification rate" TextWrapping="Wrap" />
+                                    </Label>
+                                    <Grid Grid.Row="1">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
+                                        <Slider x:Name="EvolutionSpeedSlider" Minimum="0" Maximum="500" TickFrequency="10" SmallChange="10" LargeChange="50" IsSnapToTickEnabled="True"
+                                                Value="{Binding GenerationMilliseconds}" VerticalAlignment="Center" AutomationProperties.Name="SGD generation speed" ToolTip="{Binding SpeedLabel}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding GenerationMilliseconds, StringFormat='{}{0} ms'}" TextAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Grid Grid.Row="1" Grid.Column="2" IsEnabled="{Binding CanChooseMutation}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
+                                        <Slider x:Name="ModificationRateSlider" Minimum="-3" Maximum="0" SmallChange="0.01" LargeChange="0.1"
+                                                Value="{Binding Mutation.OverallRate.LogValue, Mode=TwoWay}" VerticalAlignment="Center"
+                                                AutomationProperties.Name="Overall modification rate" ToolTip="Logarithmic scale from 0.001 to 1." />
+                                        <TextBlock Grid.Column="1" Text="{Binding Mutation.OverallRate.Value, StringFormat=G3}" TextAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Grid>
+                                <WrapPanel x:Name="EvolutionOptions" HorizontalAlignment="Left" Margin="0,0,0,4">
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Variant" Target="{Binding ElementName=VariantPicker}" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="VariantPicker" Width="57" ItemsSource="{Binding Mutation.Variants}" SelectedItem="{Binding Mutation.Variant}" IsEnabled="{Binding CanChooseMutation}" />
@@ -308,27 +367,27 @@
                                         <Label Content="Children / generation" Target="{Binding ElementName=ChildrenPicker}" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="ChildrenPicker" Width="57" ItemsSource="{Binding ChildChoices}" SelectedItem="{Binding Children}" ToolTip="Children per generation" />
                                     </StackPanel>
+                                    <StackPanel Margin="0,0,8,3" IsEnabled="{Binding CanChooseMutation}"
+                                                Visibility="{Binding Mutation.HasMultipleTables, Converter={StaticResource BoolVisibility}}">
+                                        <Label Content="Parameter table" Target="{Binding ElementName=MutationTablePicker}" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="MutationTablePicker" ItemsSource="{Binding Mutation.ParameterTables}" DisplayMemberPath="Name"
+                                                  SelectedItem="{Binding Mutation.SelectedTable}" Width="130"
+                                                  AutomationProperties.Name="Mutation parameter table" />
+                                    </StackPanel>
                                     <CheckBox Content="Exclude self CEs" IsChecked="{Binding Mutation.ExcludeSelf}" IsEnabled="{Binding CanChooseMutation}" VerticalAlignment="Center" Margin="0,10,0,0"
                                               Visibility="{Binding Mutation.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource ControlText}" />
                                 </WrapPanel>
-                                <ItemsControl ItemsSource="{Binding Mutation.Parameters}" IsEnabled="{Binding CanChooseMutation}" ItemTemplate="{StaticResource MutationWeightRow}" />
-                                <Grid Margin="0,5,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*" MinWidth="82" MaxWidth="128" />
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="46" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Evolution speed" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                    <Slider Grid.Column="1" Minimum="0" Maximum="500" TickFrequency="10" SmallChange="10" LargeChange="50" IsSnapToTickEnabled="True"
-                                            Value="{Binding GenerationMilliseconds}" VerticalAlignment="Center" AutomationProperties.Name="SGD generation speed" ToolTip="{Binding SpeedLabel}" />
-                                    <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="{Binding GenerationMilliseconds, StringFormat='{}{0} ms'}" Margin="5,0,0,0" VerticalAlignment="Center" />
-                                </Grid>
+                                <StackPanel IsEnabled="{Binding CanChooseMutation}">
+                                    <controls:ParamEditor2d x:Name="MutationEditor" DataContext="{Binding Mutation.SelectedTable.Parameters}"
+                                        Margin="0,0,0,5" AutomationProperties.Name="Mutation parameters" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
+                        </Viewbox>
 
                         <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#466B7B" Padding="10,0,0,0">
-                            <StackPanel>
+                            <Viewbox x:Name="OutputViewport" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Top">
+                            <StackPanel Width="320">
                                 <StackPanel Style="{StaticResource Step1Panel}" AutomationProperties.Name="Test plan">
                                     <TextBlock Text="Test plan" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="99% stage default" Content="{Binding Generator.StageDefaultDescription}"
@@ -341,9 +400,15 @@
 
                                 <StackPanel Style="{StaticResource Step2Panel}" AutomationProperties.Name="Generation output">
                                     <WrapPanel Margin="0,0,0,4">
-                                        <Button Content="New seed" Command="{Binding NewSeedCommand}" Margin="0,0,4,3" ToolTip="Choose a random seed for continuous sampling." />
-                                        <Button x:Name="GenerateButton" Content="Generate" Command="{Binding GenerateCommand}" CommandParameter="{Binding SelectedItem, ElementName=ChannelPicker}" Margin="0,0,4,3" />
-                                        <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,0,3" />
+                                        <Button x:Name="MakeOneButton" Content="Make one" Command="{Binding GenerateCommand}" CommandParameter="{Binding SelectedItem, ElementName=ChannelPicker}"
+                                                Margin="0,0,4,3" ToolTip="Make one sorter using the displayed seed." />
+                                        <Button x:Name="BatchButton" Content="Batch" Command="{Binding BatchCommand}" CommandParameter="{Binding SelectedItem, ElementName=ChannelPicker}"
+                                                Margin="0,0,4,3" ToolTip="Start with the displayed seed and keep sampling fresh seeds until stopped." />
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,4,3" />
+                                            <Button x:Name="EvolveButton" Content="Evolve" Command="{Binding EvolveSelectionCommand}" Margin="0,0,0,3"
+                                                    ToolTip="Open Evolution with the selected sample as the parent." />
+                                        </StackPanel>
                                     </WrapPanel>
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Success / Failures" Content="{Binding GenerationOutcomes}"
                                                           ToolTip="Generated sorters since Clear. A success passes every input tested in its draw." />
@@ -376,65 +441,79 @@
                                 </StackPanel>
                                 <TextBlock Text="{Binding Status}" Style="{StaticResource InlineError}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
                             </StackPanel>
+                            </Viewbox>
                         </Border>
                     </Grid>
                 </Border>
-            </ScrollViewer>
-            <GridSplitter Grid.Row="2" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+            </Grid>
+            <GridSplitter Grid.Row="2" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
                           Cursor="SizeNS" AutomationProperties.Name="Resize settings and network panes" ToolTip="Resize settings and network panes" />
-            <DockPanel Grid.Row="3">
-                <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,16,0">
-                        <StackPanel.Resources>
-                            <Style TargetType="RadioButton">
-                                <Setter Property="Foreground" Value="#F3F7FA" />
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="RadioButton">
-                                            <Border x:Name="ModeBorder" Background="#18394A" BorderBrush="#466B7B" BorderThickness="1" CornerRadius="4" Padding="8,6">
-                                                <ContentPresenter />
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsChecked" Value="True"><Setter TargetName="ModeBorder" Property="Background" Value="#28655F" /><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#77D3C7" /></Trigger>
-                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#F4CA7F" /></Trigger>
-                                                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="White" /></Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </StackPanel.Resources>
-                        <RadioButton Content="1 All CEs" GroupName="CeDisplay" Tag="0" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Show all CEs, colored by usage" />
-                        <RadioButton Content="2 Used stages" GroupName="CeDisplay" Tag="1" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Hide unused stages; retain every CE in remaining stages" />
-                        <RadioButton Content="3 Used CEs" GroupName="CeDisplay" Tag="2" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Remove unused CEs without stage compaction" />
-                        <RadioButton Content="4 Compact" GroupName="CeDisplay" Tag="3" Checked="DisplayModeChanged" IsChecked="True" ToolTip="Remove unused CEs and compact stages" />
-                    </StackPanel>
-                    <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="{Binding DisplayedNetworkDescription}">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <Button Content="←" Command="{Binding NetworkHistory.PreviousCommand}" AutomationProperties.Name="Previous network" Padding="8,4" />
-                            <TextBlock Text="{Binding NetworkHistory.Position}" Foreground="{StaticResource ControlText}" VerticalAlignment="Center" Margin="8,0" />
-                            <Button Content="→" Command="{Binding NetworkHistory.NextCommand}" AutomationProperties.Name="Next network" Padding="8,4" />
-                            <Button Content="Follow live" Command="{Binding NetworkHistory.FollowLiveCommand}" Padding="6,4" Margin="6,0,0,0"
+            <DockPanel x:Name="NetworkViewer" Grid.Row="3" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}">
+                <Grid DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Viewbox x:Name="NetworkLayoutViewport" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <StackPanel.Resources>
+                                <Style TargetType="RadioButton">
+                                    <Setter Property="Foreground" Value="#F3F7FA" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="RadioButton">
+                                                <Border x:Name="ModeBorder" Background="#18394A" BorderBrush="#466B7B" BorderThickness="1" CornerRadius="4" Padding="8,6">
+                                                    <ContentPresenter />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="ModeBorder" Property="Background" Value="#28655F" /><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#77D3C7" /></Trigger>
+                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="#F4CA7F" /></Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ModeBorder" Property="BorderBrush" Value="White" /></Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </StackPanel.Resources>
+                            <RadioButton Content="1 All CEs" GroupName="CeDisplay" Tag="0" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Show all CEs, colored by usage" />
+                            <RadioButton Content="2 Used stages" GroupName="CeDisplay" Tag="1" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Hide unused stages; retain every CE in remaining stages" />
+                            <RadioButton Content="3 Used CEs" GroupName="CeDisplay" Tag="2" Checked="DisplayModeChanged" Margin="0,0,10,0" ToolTip="Remove unused CEs without stage compaction" />
+                            <RadioButton Content="4 Compact" GroupName="CeDisplay" Tag="3" Checked="DisplayModeChanged" IsChecked="True" ToolTip="Remove unused CEs and compact stages" />
+                        </StackPanel>
+                    </Viewbox>
+                    <Viewbox x:Name="NetworkNavigationViewport" Grid.Column="2" Stretch="Uniform" StretchDirection="DownOnly"
+                             HorizontalAlignment="Right" VerticalAlignment="Center" DataContext="{Binding NetworkHistory}" ToolTip="{Binding Current.Description}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="←" Command="{Binding PreviousCommand}" AutomationProperties.Name="Previous network" Padding="6,3" Margin="0,0,4,0" />
+                            <TextBox x:Name="NetworkIndex" Text="{Binding IndexText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding HasEntries}"
+                                     MinWidth="32" MaxWidth="80" Padding="4,2" TextAlignment="Center" VerticalAlignment="Center"
+                                     AutomationProperties.Name="Network list index" ToolTip="Enter a network number and press Enter or Tab to jump to it."
+                                     GotKeyboardFocus="IndexGotFocus" LostKeyboardFocus="IndexLostFocus" PreviewKeyDown="IndexKeyDown" />
+                            <TextBlock Text="{Binding Entries.Count, StringFormat=' / {0}'}" Foreground="{StaticResource ControlText}" VerticalAlignment="Center" Margin="2,0,4,0" />
+                            <Button Content="→" Command="{Binding NextCommand}" AutomationProperties.Name="Next network" Padding="6,3" Margin="0" />
+                            <Button Content="Follow live" Command="{Binding FollowLiveCommand}" Padding="6,3" Margin="4,0,0,0"
                                     ToolTip="Return to the latest draw or Evolution parent and follow new results." />
                         </StackPanel>
-                        <TextBlock Text="{Binding DisplayedNetworkDescription}" Foreground="#9FBECC" FontSize="11" TextWrapping="Wrap" MaxWidth="220" Margin="0,3,0,0" />
-                    </StackPanel>
-                    <StackPanel>
-                    <TextBlock x:Name="UsageLegendTitle" Text="{Binding Network.Width, StringFormat='{}{0} channels · CE swap frequency', FallbackValue='CE swap frequency'}"
-                               Foreground="#9FBECC" Margin="0,0,0,4" />
-                    <ItemsControl ItemsSource="{Binding UsageBands}" Margin="0,0,0,6" AutomationProperties.Name="CE swap percentage legend">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{Binding Fill}" CornerRadius="3" Padding="7,5" MinWidth="51" Margin="0,0,3,3" ToolTip="{Binding Description}">
-                                    <TextBlock Text="{Binding Label}" Foreground="{Binding Foreground}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-                </DockPanel>
+                    </Viewbox>
+                    <Viewbox x:Name="UsageLegendViewport" Grid.Column="1" Margin="15,0" Stretch="Uniform" StretchDirection="DownOnly"
+                             HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel>
+                            <TextBlock x:Name="UsageLegendTitle" Text="CE swap frequency" Foreground="#9FBECC" Margin="0,0,0,2" />
+                            <ItemsControl ItemsSource="{Binding UsageBands}" AutomationProperties.Name="CE swap percentage legend">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="2" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{Binding Fill}" Padding="4,3" MinWidth="42" ToolTip="{Binding Description}">
+                                            <TextBlock Text="{Binding Label}" Foreground="{Binding Foreground}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Viewbox>
+                </Grid>
                 <Border BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="6">
                     <Canvas x:Name="DiagramHost">
                         <ScrollViewer Width="{Binding ActualWidth, ElementName=DiagramHost}" Height="{Binding ActualHeight, ElementName=DiagramHost}"
@@ -446,61 +525,75 @@
                     </Canvas>
                 </Border>
             </DockPanel>
-            <GridSplitter Grid.Row="4" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+            <GridSplitter Grid.Row="4" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
                           Cursor="SizeNS" AutomationProperties.Name="Resize network and graph panes" ToolTip="Resize network and graph panes" />
-            <Border Grid.Row="5" BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="10,7" Margin="0,4,0,6">
+            <Border x:Name="ResultsGraph" Grid.Row="5" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}"
+                    BorderBrush="#345464" BorderThickness="1" CornerRadius="8" Padding="10,7" Margin="0,4,0,6">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" MaxWidth="420" />
-                        <ColumnDefinition Width="3*" />
+                        <ColumnDefinition Width="2*" MinWidth="80" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="3*" MinWidth="100" />
                     </Grid.ColumnDefinitions>
-                    <ScrollViewer Margin="0,0,12,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                                  HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
-                        <StackPanel>
-                            <TextBlock Text="{Binding BestGraphTitle}" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap"
-                                       ToolTip="The green square marks the lowest size score among zero-failure sorters plotted since Clear." />
-                            <TextBlock Text="{Binding CurrentGraphTitle}" Foreground="HotPink" FontWeight="SemiBold" ToolTip="{Binding Summary}" />
-                            <ItemsControl ItemsSource="{Binding BestKnownNetworks}" AutomationProperties.Name="Best known catalog variants">
-                                <ItemsControl.ItemTemplate><DataTemplate>
-                                    <TextBlock Text="{Binding BestKnownTitle}" Foreground="LimeGreen" FontWeight="SemiBold"
-                                               TextWrapping="Wrap" ToolTip="Green dashed square: reference network from the sorting catalog." />
-                                </DataTemplate></ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Border Background="#18394A" BorderBrush="#345464" BorderThickness="1" CornerRadius="6" Padding="6" Margin="0,10,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Graph buffers" Foreground="#9EDAD6" FontWeight="SemiBold"
-                                               ToolTip="Toggle a buffer to show or hide its points. Hidden buffers keep recording. sd is the population standard deviation." />
-                                    <WrapPanel Margin="0,2,0,4">
-                                        <TextBlock Text="Count" VerticalAlignment="Center" />
-                                        <ToggleButton x:Name="StatsPopulationToggle" IsChecked="{Binding ShowVisitStats, Mode=TwoWay}" Opacity="1"
-                                                      AutomationProperties.Name="Count visits" ToolTip="Unique counts each sorter once per buffer tile and once per graph point across all visible buffers. Visits includes repeats.">
+                    <Viewbox x:Name="GraphControlsViewport" Margin="5" Stretch="Uniform" VerticalAlignment="Top">
+                        <Border BorderBrush="#345464" BorderThickness="1" CornerRadius="6" Padding="6">
+                            <StackPanel>
+                                <ItemsControl x:Name="AnnotationToggles" ItemsSource="{Binding Annotations}" MaxWidth="{Binding ActualWidth, ElementName=GraphBuffersPanel}"
+                                              HorizontalAlignment="Left" AutomationProperties.Name="Annotated sorters">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <ToggleButton Content="{Binding Label}" Foreground="{Binding Brush}" IsEnabled="{Binding HasSorter}"
+                                                      IsChecked="{Binding IsShown, Mode=TwoWay}" Padding="5,2" Margin="0,0,3,3">
                                             <ToggleButton.Style>
                                                 <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
-                                                    <Setter Property="Content" Value="Unique" />
-                                                    <Setter Property="Padding" Value="8,2" />
-                                                    <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Visits" /></Trigger></Style.Triggers>
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
+                                                        <DataTrigger Binding="{Binding Name}" Value="Best">
+                                                            <Setter Property="ToolTip" Value="Lowest size score among visible zero-failure sorters." />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Name}" Value="Current">
+                                                            <Setter Property="ToolTip" Value="{Binding DataContext.Summary, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
                                                 </Style>
                                             </ToggleButton.Style>
                                         </ToggleButton>
-                                        <TextBlock Text="Measure" VerticalAlignment="Center" Margin="8,0,0,0" />
-                                        <ToggleButton x:Name="StatsMeasureToggle" IsChecked="{Binding ShowStageStats, Mode=TwoWay}" Opacity="1"
-                                                      AutomationProperties.Name="Measure stages" ToolTip="Switch between compacted CE counts and stage counts.">
-                                            <ToggleButton.Style>
-                                                <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
-                                                    <Setter Property="Content" Value="CEs" />
-                                                    <Setter Property="Padding" Value="8,2" />
-                                                    <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Stages" /></Trigger></Style.Triggers>
-                                                </Style>
-                                            </ToggleButton.Style>
-                                        </ToggleButton>
-                                    </WrapPanel>
-                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border x:Name="GraphBuffersPanel" Background="#18394A" BorderBrush="#345464" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Graph buffers" ToolTip="Toggle a buffer to show or hide its points. Hidden buffers keep recording. sd is the population standard deviation.">
+                                    <StackPanel>
+                                        <WrapPanel Margin="0,0,0,4">
+                                            <TextBlock Text="Count" VerticalAlignment="Center" />
+                                            <ToggleButton x:Name="StatsPopulationToggle" IsChecked="{Binding ShowVisitStats, Mode=TwoWay}" Opacity="1"
+                                                          AutomationProperties.Name="Count visits" ToolTip="Unique counts each sorter once per buffer tile and once per graph point across all visible buffers. Visits includes repeats.">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+                                                        <Setter Property="Content" Value="Unique" />
+                                                        <Setter Property="Padding" Value="5,1" />
+                                                        <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Visits" /></Trigger></Style.Triggers>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                            </ToggleButton>
+                                            <TextBlock Text="Measure" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                            <ToggleButton x:Name="StatsMeasureToggle" IsChecked="{Binding ShowStageStats, Mode=TwoWay}" Opacity="1"
+                                                          AutomationProperties.Name="Measure stages" ToolTip="Switch between compacted CE counts and stage counts.">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+                                                        <Setter Property="Content" Value="CEs" />
+                                                        <Setter Property="Padding" Value="5,1" />
+                                                        <Style.Triggers><Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Stages" /></Trigger></Style.Triggers>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                            </ToggleButton>
+                                        </WrapPanel>
+                                        <Grid HorizontalAlignment="Left">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <TextBlock Grid.Column="1" Text="Successful" Foreground="#77D3C7" FontSize="11" HorizontalAlignment="Center" />
                                             <TextBlock Grid.Column="2" Text="Failures" Foreground="#F4CA7F" FontSize="11" HorizontalAlignment="Center" />
+                                            <TextBlock Grid.Column="3" Text="Clear" FontSize="11" HorizontalAlignment="Center" />
                                             <TextBlock Grid.Row="1" Text="{Binding FirstGroup.Name}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                             <TextBlock Grid.Row="2" Text="{Binding SecondGroup.Name}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                             <ToggleButton x:Name="ParentSuccessToggle" Grid.Row="1" Grid.Column="1" Style="{StaticResource GraphStatsToggle}" DataContext="{Binding FirstGroup.Success}"
@@ -511,53 +604,54 @@
                                                           AutomationProperties.Name="{Binding DataContext.SecondGroup.Name, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Show {0} successes'}" />
                                             <ToggleButton x:Name="ChildFailureToggle" Grid.Row="2" Grid.Column="2" Style="{StaticResource GraphStatsToggle}" DataContext="{Binding SecondGroup.Failure}"
                                                           AutomationProperties.Name="{Binding DataContext.SecondGroup.Name, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Show {0} failures'}" />
+                                            <Button x:Name="ClearFirstGroup" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" Padding="5,2" Margin="3,0,0,0"
+                                                    Command="{Binding ClearGroupCommand}" CommandParameter="{Binding FirstGroup}"
+                                                    AutomationProperties.Name="{Binding FirstGroup.Name, StringFormat='Clear {0}'}">
+                                                <TextBlock Text="{Binding FirstGroup.Name, StringFormat='Clear {0}'}" />
+                                            </Button>
+                                            <Button x:Name="ClearSecondGroup" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" Padding="5,2" Margin="3,0,0,0"
+                                                    Command="{Binding ClearGroupCommand}" CommandParameter="{Binding SecondGroup}"
+                                                    AutomationProperties.Name="{Binding SecondGroup.Name, StringFormat='Clear {0}'}">
+                                                <TextBlock Text="{Binding SecondGroup.Name, StringFormat='Clear {0}'}" />
+                                            </Button>
                                         </Grid>
-                                    </ScrollViewer>
-                                </StackPanel>
-                            </Border>
-                            <StackPanel Margin="0,10,0,0" ToolTip="The color scale uses the counts at visible points. Blue marks the minimum and red marks the maximum. Equal counts use blue.">
-                                <TextBlock x:Name="PlotLegendTitle" Text="{Binding PlotLegendTitle}" />
-                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                                    <TextBlock Text="{Binding PlotData.Minimum, StringFormat='Min {0:N0}'}" Margin="0,0,6,0" />
-                                    <Rectangle Width="72" Height="10" VerticalAlignment="Center">
-                                        <Rectangle.Style>
-                                            <Style TargetType="Rectangle">
-                                                <Setter Property="Fill" Value="{x:Static controls:EvolutionPlot.FrequencyLegend}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding PlotData.HasColorRange}" Value="False"><Setter Property="Fill" Value="Blue" /></DataTrigger>
-                                                    <DataTrigger Binding="{Binding PlotData.Maximum}" Value="0"><Setter Property="Fill" Value="Transparent" /></DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Rectangle.Style>
-                                    </Rectangle>
-                                    <TextBlock x:Name="PlotLegendMax" Text="{Binding PlotData.Maximum, StringFormat='Max {0:N0}'}" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <StackPanel Margin="24,12,24,4" ToolTip="When the maximum visible count is 1, the scale starts at red. For larger maxima, the scale starts at blue and reaches red when counts vary.">
+                                    <TextBlock x:Name="PlotLegendTitle" Text="{Binding PlotLegendTitle}" />
+                                    <Grid Margin="0,3,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <Rectangle x:Name="PlotLegendScale" Grid.ColumnSpan="2" Height="10">
+                                            <Rectangle.Style>
+                                                <Style TargetType="Rectangle">
+                                                    <Setter Property="Fill" Value="{x:Static controls:EvolutionPlot.FrequencyLegend}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding PlotData.HasColorRange}" Value="False"><Setter Property="Fill" Value="Blue" /></DataTrigger>
+                                                        <DataTrigger Binding="{Binding PlotData.Maximum}" Value="1"><Setter Property="Fill" Value="Red" /></DataTrigger>
+                                                        <DataTrigger Binding="{Binding PlotData.Maximum}" Value="0"><Setter Property="Fill" Value="Transparent" /></DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Rectangle.Style>
+                                        </Rectangle>
+                                        <TextBlock Grid.Row="1" Text="{Binding PlotData.Minimum, StringFormat='Min {0:N0}'}" />
+                                        <TextBlock x:Name="PlotLegendMax" Grid.Row="1" Grid.Column="1" TextAlignment="Right" Text="{Binding PlotData.Maximum, StringFormat='Max {0:N0}'}" />
+                                    </Grid>
                                 </StackPanel>
                             </StackPanel>
-                            <WrapPanel Margin="0,10,0,0">
-                                <Button x:Name="ClearFirstGroup" Command="{Binding ClearGroupCommand}" CommandParameter="{Binding FirstGroup}" Margin="0,0,5,2"
-                                        AutomationProperties.Name="{Binding FirstGroup.Name, StringFormat='Clear {0}'}">
-                                    <TextBlock Text="{Binding FirstGroup.Name, StringFormat='Clear {0}'}" />
-                                </Button>
-                                <Button x:Name="ClearSecondGroup" Command="{Binding ClearGroupCommand}" CommandParameter="{Binding SecondGroup}" Margin="0,0,0,2"
-                                        AutomationProperties.Name="{Binding SecondGroup.Name, StringFormat='Clear {0}'}">
-                                    <TextBlock Text="{Binding SecondGroup.Name, StringFormat='Clear {0}'}" />
-                                </Button>
-                            </WrapPanel>
-                        </StackPanel>
-                    </ScrollViewer>
-                    <Canvas Grid.Column="1" x:Name="PlotHost">
-                        <ScrollViewer x:Name="PlotScroll" Width="{Binding ActualWidth, ElementName=PlotHost}" Height="{Binding ActualHeight, ElementName=PlotHost}"
-                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
-                                      ScrollChanged="CenterPlotOnResize">
-                            <controls:EvolutionPlot AllBufferBounds="{Binding AllBufferBounds}" SelectedPosition="{Binding SelectedNetworkPosition}" SelectPointCommand="{Binding SelectGraphPointCommand}" Visits="{Binding PlotData}" FillHighlightMarkers="{Binding ShowVisitStats}" BestPosition="{Binding BestPosition}" BestKnownNetworks="{Binding BestKnownNetworks}"
-                                                    ViewportWidth="{Binding ViewportWidth, ElementName=PlotScroll}"
-                                                    HorizontalOffset="{Binding HorizontalOffset, ElementName=PlotScroll}"
-                                                    AutomationProperties.Name="Evolution lattice, CE count horizontally and stage count vertically, equally scaled" />
-                        </ScrollViewer>
-                    </Canvas>
+                        </Border>
+                    </Viewbox>
+                    <GridSplitter Grid.Column="1" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#345464"
+                                  Cursor="SizeWE" AutomationProperties.Name="Resize graph controls and plot" ToolTip="Resize graph controls and plot" />
+                    <Viewbox x:Name="PlotViewport" Grid.Column="2" Stretch="Uniform">
+                        <controls:EvolutionPlot AllBufferBounds="{Binding AllBufferBounds}" SelectedPosition="{Binding GraphSelectionPosition}" SelectPointCommand="{Binding SelectGraphPointCommand}" Visits="{Binding PlotData}" FillHighlightMarkers="{Binding ShowVisitStats}"
+                                                BestPosition="{Binding BestAnnotation.VisiblePosition}" ShowCurrent="{Binding CurrentAnnotation.IsShown}" BestKnownNetworks="{Binding VisibleCatalogNetworks}"
+                                                AutomationProperties.Name="Evolution lattice, CE count horizontally and stage count vertically, equally scaled" />
+                    </Viewbox>
                 </Grid>
             </Border>
-            <TextBlock Grid.Row="6" Text="SGD ranks by failures, then by size (CEs + 1.1 × stages). Graph Best is the smallest score among sorters with zero failures on their tested inputs." Foreground="#9FBECC" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="6" Visibility="{Binding ShowResultPanes, Converter={StaticResource BoolVisibility}}" Text="SGD ranks by failures, then by size (CEs + 1.1 × stages). Graph Best is the smallest score among sorters with zero failures on their tested inputs." Foreground="#9FBECC" TextWrapping="Wrap" />
         </Grid>
     </Border>
 </UserControl>

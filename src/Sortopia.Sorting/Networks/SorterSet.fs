@@ -20,6 +20,7 @@ open Sortopia.Sorting
     member this.Id with get() = this.sorterSetId
     member this.Sorters with get() : sorter[] = Array.copy this.sorters
 
+
  module SorterSet = 
     
     let mergeSorterSets (sorterSets: sorterSet []) : sorterSet =

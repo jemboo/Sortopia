@@ -1,4 +1,5 @@
 using System.Windows.Controls;
+using System.Windows.Input;
 using Sortopia.WPF.ViewModels;
 
 namespace Sortopia.WPF.Views;
@@ -17,12 +18,18 @@ public partial class SgdPage : UserControl
             SwitchDiagram.DisplayMode = int.Parse(tag);
     }
 
-    private void CenterPlotOnResize(object sender, ScrollChangedEventArgs e)
+    private void IndexGotFocus(object sender, KeyboardFocusChangedEventArgs e) => ((TextBox)sender).SelectAll();
+
+    private void IndexLostFocus(object sender, KeyboardFocusChangedEventArgs e) =>
+        (((TextBox)sender).DataContext as NetworkHistoryViewModel)?.FinishIndexEdit(commit: true);
+
+    private void IndexKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.ExtentWidthChange == 0 && e.ViewportWidthChange == 0) return;
-        var previousRange = Math.Max(0, (e.ExtentWidth - e.ExtentWidthChange) - (e.ViewportWidth - e.ViewportWidthChange));
-        var previousOffset = e.HorizontalOffset - e.HorizontalChange;
-        if (Math.Abs(previousOffset - previousRange / 2) <= 1)
-            PlotScroll.ScrollToHorizontalOffset(PlotScroll.ScrollableWidth / 2);
+        if (e.Key is not (Key.Enter or Key.Escape)) return;
+        var editor = (TextBox)sender;
+        (editor.DataContext as NetworkHistoryViewModel)?.FinishIndexEdit(commit: e.Key == Key.Enter);
+        editor.SelectAll();
+        e.Handled = true;
     }
+
 }
