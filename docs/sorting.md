@@ -65,11 +65,10 @@ All records use explicit numeric MessagePack keys. The following field order is 
 | SIMD dataset DTOs | `Id`, `ChannelCount`, `Blocks` |
 | SIMD block DTOs | `RawVectors`, `SortableCount` |
 | `sortableTestsDto` | `Version`, `Format`, `Payload` |
-| `sortableTestsWithPrefixDto` | `Tests`, `Prefix` |
 
 Dataset envelopes use version `1`. The stable format strings are `Ints`, `Bools`, `PackedInts`, `Uint8v256`, `Uint8v512` and `Bitv512`. `Payload` is a MessagePack binary value containing the corresponding dataset DTO encoded with the same explicit options. This keeps persisted tags independent of F# union case order. Unknown versions and formats are rejected.
 
-Byte vectors require exactly 32 or 64 bytes. Bit vectors require exactly eight unsigned 64-bit elements. Readers validate vector lengths, valid case counts, dataset widths, packed lengths, comparator bounds and prefix bounds. `MessagePackSecurity.UntrustedData` is supplied per call. No migration code changes `MessagePackSerializer.DefaultOptions`.
+Byte vectors require exactly 32 or 64 bytes. Bit vectors require exactly eight unsigned 64-bit elements. Readers validate vector lengths, valid case counts, dataset widths, packed lengths and comparator bounds. `MessagePackSecurity.UntrustedData` is supplied per call. No migration code changes `MessagePackSerializer.DefaultOptions`.
 
 ```fsharp
 open Sortopia.Core.Serialization

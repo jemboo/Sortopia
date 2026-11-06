@@ -48,16 +48,6 @@ let sorter_and_empty_sorter_set_round_trip () =
         Assert.Equal(set, copy)
 
 [<Fact>]
-let prefixes_round_trip_with_each_representation () =
-    let prefix = [|ce.create 0 1; ce.create 2 3|]
-    for input in datasets 33 do
-        let restored, ces =
-            (input, prefix) |> SortableTestsWithPrefixDto.fromDomain |> MessagePackSetup.serialize
-            |> MessagePackSetup.deserialize<sortableTestsWithPrefixDto> |> SortableTestsWithPrefixDto.toDomain
-        Assert.True((prefix = ces))
-        Assert.True((values input = values restored))
-
-[<Fact>]
 let transient_dataset_ids_are_preserved () =
     let id = Guid.Empty |> UMX.tag<sortableTestsId>
     let cases =
@@ -130,7 +120,7 @@ let malformed_512_payloads_and_widths_are_rejected () =
     Assert.Throws<ArgumentException>(fun () -> SortableBitv512TestsDto.toDomain invalidBits |> ignore) |> ignore
 
 [<Fact>]
-let invalid_scalar_packed_network_and_prefix_payloads_are_rejected () =
+let invalid_scalar_packed_and_network_payloads_are_rejected () =
     let scalar : sortableIntTestsDto =
         { Id = %datasetId; ChannelCount = 4; SortableArrays = [|{Values = [|1|]; ChannelCount = 1; SymbolSetSize = 2}|] }
     Assert.Throws<ArgumentException>(fun () -> SortableIntTestsDto.toDomain scalar |> ignore) |> ignore
@@ -138,8 +128,6 @@ let invalid_scalar_packed_network_and_prefix_payloads_are_rejected () =
     Assert.Throws<ArgumentException>(fun () -> PackedSortableIntTestsDto.toDomain packed |> ignore) |> ignore
     let network : SorterDto = {SorterId = Guid.NewGuid(); Width = 4; Ces = [|CeDto.fromDomain (ce.create 0 4)|]}
     Assert.Throws<ArgumentException>(fun () -> SorterDto.toDomain network |> ignore) |> ignore
-    let prefix = {Tests = SortableTestsDto.fromDomain (datasets 1).[0]; Prefix = network.Ces}
-    Assert.Throws<ArgumentException>(fun () -> SortableTestsWithPrefixDto.toDomain prefix |> ignore) |> ignore
 
 [<Fact>]
 let serialization_does_not_change_global_options () =

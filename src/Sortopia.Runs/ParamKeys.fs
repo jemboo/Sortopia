@@ -101,7 +101,6 @@ module ParamKeys =
     let selectedSorterPoolCountKey = ParamKey.integer "SelectedSorterPoolCount"
     let selfSymRateKey = ParamKey.floating "SelfSym"
     let setupParametersIdKey = ParamKey.guid "SetupParametersId"
-    let setupSortableTestsWithPrefixIdKey = ParamKey.guid "SetupSortableTestsWithPrefixId"
     let setupSorterModelSetIdKey = ParamKey.guid "SetupSorterModelSetId"
     let setupSorterPoolBinsSetSeriesIdKey = ParamKey.guid "SetupSorterPoolBinsSetSeriesId"
     let setupSorterPoolSetHistoryIdKey = ParamKey.guid "SetupSorterPoolSetHistoryId"

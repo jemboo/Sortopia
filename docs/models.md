@@ -16,7 +16,7 @@ The model libraries are ordinary libraries, with no console entry points. The co
 
 Sorting models retain CE, self-inverse permutation, reflection-symmetric permutation, Uf4 and Uf6 representations, their generators and mutators, model sets and the Simple/SimpleR/SimpleS unions. SimpleR uses bounded signed activators; SimpleS uses boolean activators. Inactive entries are filtered before CE conversion, preserving support for dormant entries that cannot themselves be expanded. Models can retain their original IDs, and model sets may contain different widths. Duplicate IDs are rejected rather than silently overwriting entries.
 
-Input models retain full binary datasets, permutation orbits, merge inputs and prefix-reduced inputs, including their original supported scalar/SIMD formats and partitioning entry point. Unsupported format combinations remain explicit failures; this migration does not add a sortable-model DTO contract.
+Input models retain full binary datasets, permutation orbits, merge inputs and prefix-reduced inputs, including their original supported scalar/SIMD formats and partitioning entry point. The prefix-input model returns its reduced dataset directly in Boolean or BitVector512 form. Unsupported format combinations remain explicit failures; this migration does not add a sortable-model DTO contract.
 
 ## Corrections
 

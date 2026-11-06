@@ -9,6 +9,7 @@ open Sortopia.Permutations
 open Sortopia.Sorting
 open Sortopia.Sorting.Catalog
 open Sortopia.Sorting.Networks
+open Sortopia.Sorting.Inputs
 open Sortopia.Models.Inputs
 open Sortopia.Models.Sorting
 open Sortopia.Models.Sorting.Simple
@@ -99,6 +100,26 @@ let prefix_and_merge_models_have_complete_value_equality () =
     Assert.Equal(8<channelCount>, baseline.SorterLibId.ChannelCount)
     let expected = SorterDataParse.getCeArrayFromMergeLib (mergeLibId.create 16<channelCount> 2<mergeDimension> VariantA) |> Option.get |> Array.concat
     Assert.Equal<ce>(expected, baseline.CeArray.Value)
+
+[<Fact>]
+let prefix_input_factories_return_matching_scalar_and_simd_datasets () =
+    let prefixes =
+        [ prefixLibId.create 8<channelCount> 1<stageLength> Prefix1
+          prefixLibId.create 9<channelCount> 1<stageLength> Prefix1
+          prefixLibId.create 8<channelCount> 3<stageLength> PrefixA ]
+    for prefix in prefixes do
+        let model = msasPfx.create prefix
+        let id = Guid.NewGuid() |> UMX.tag<sortableTestsId>
+        let scalar = model.MakeSortableBoolTest id
+        let dataset = SortableTestsModel.makeSortableTests id (sortableTestsModel.MsasPfx model) sortableDataFormat.BitVector512
+        match dataset with
+        | sortableTests.Bitv512 simd ->
+            Assert.Equal(id, simd.Id)
+            Assert.Equal(scalar.ChannelCount, simd.ChannelCount)
+            Assert.Equal(scalar.SortableCount, simd.SortableCount)
+            let rows = simd.SimdSortBlocks |> Array.collect SortBlockBitv512.toSortableBoolArrays
+            Assert.Equal<sortableBoolArray>(scalar.SortableBinaryArrays, rows)
+        | _ -> failwith "Expected a BitVector512 dataset."
 
 [<Fact>]
 let input_models_reject_invalid_dimensions_and_unavailable_prefixes () =

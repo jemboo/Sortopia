@@ -13,7 +13,6 @@
     <Compile Include="Inputs\SortableUint8v512TestsDto.fs" />
     <Compile Include="Inputs\PackedSortableIntTestsDto.fs" />
     <Compile Include="Inputs\SortableTestsDto.fs" />
-    <Compile Include="Inputs\SortableTestsWithPrefixDto.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sortopia.Sorting\Sortopia.Sorting.fsproj" />
