@@ -4,7 +4,9 @@
 
 ## Contents and use
 
-The library preserves all 49 complete networks, covering widths 2–32, and all 10 prefixes from GeneSort. Dispatch's editor enumerates these catalogs dynamically, so the migration includes every entry. The catalog also includes Batcher odd–even mergesort (variant `Batcher`) and bitonic sort (variant `BatcherBitonic`) at 8, 16 and 32 channels, for 55 networks total. There are 4,702 comparators in the complete networks and 385 in the prefixes. The embedded tables preserve the original comparator order and stage boundaries.
+The library preserves all 49 complete networks, covering widths 2–32, and all 10 prefixes from GeneSort. Dispatch's editor enumerates these catalogs dynamically, so the migration includes every entry. The catalog also includes Batcher odd–even mergesort (variant `Batcher`) and bitonic sort (variant `BatcherBitonic`) at 8, 16 and 32 channels, for 55 networks total. There are 4,702 comparators in the complete networks. The embedded tables preserve the original comparator order and stage boundaries.
+
+`Prefix1` adds a one-stage prefix for every channel count from 8 through 24. Its comparators are adjacent disjoint pairs `(0,1), (2,3), (4,5), …`; odd widths leave the final channel untouched. All `Prefix1` entries have `1<stageLength>`. Together with the original prefixes, the catalog contains 27 prefixes with 517 comparators across 49 stages.
 
 | File | Responsibility |
 | --- | --- |

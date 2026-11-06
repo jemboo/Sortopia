@@ -1,6 +1,6 @@
 # Workspace presentation
 
-The shared theme extends the Sandbox design across Sortopia, following
+The shared theme provides a consistent presentation across Sortopia, following
 [Fluent 2 principles](https://fluent2.microsoft.design/design-principles),
 [typography](https://fluent2.microsoft.design/typography), and
 [layout guidance](https://fluent2.microsoft.design/layout).
@@ -14,9 +14,12 @@ The shared theme extends the Sandbox design across Sortopia, following
 
 `WorkspaceTheme.xaml` is the application theme. The older `Navigation.xaml` and
 `NetworkWorkspace.xaml` resource paths forward to it so existing consumers share the same styles.
-Home, catalog playback, random networks, project runs, and both SGD presentations use these tokens.
+Home, Projects, catalog playback, random networks, and SGD use these tokens.
 
-`SgdPage.xaml` is the promoted Sandbox presentation. Its layout and `SandboxSgdPage.xaml` share
-the interaction handlers in `SgdWorkspacePage` and the same `SgdPageViewModel` instance.
-Workflow behavior belongs in the shared model or interaction base. Both reuse the parameter,
-network, and graph controls.
+`Views/Pages/Sgd/SgdPage.xaml` hosts the Setup, Sampling, and Evolution subpages from
+`Views/Pages/Sgd/SubPages`, using the retained `ViewModels/Pages/Sgd/SgdPageViewModel.cs`
+instance. Workflow behavior belongs in the matching page and subpage view models.
+Sampling and Evolution share `Views/Shared/Controls/SgdResultsView.xaml` and its
+annotation/history view models in `ViewModels/Shared/Controls`. Reusable visual controls,
+including the graph, network diagram, and parameter editor, live in `Views/Shared/Controls`.
+`Views/Pages/Projects/ProjectsPage.xaml` provides the Projects folder setting.

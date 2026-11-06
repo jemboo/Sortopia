@@ -1,5 +1,6 @@
 using System.Windows;
 using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Shared.Controls;
 
 namespace Sortopia.WPF.Models;
 

@@ -24,6 +24,7 @@ let all_identifiers_round_trip_under_other_cultures () =
                     Assert.Equal(id, id |> MergeLibId.toString |> MergeLibId.fromString)
             Assert.Equal("SorterLibId(channelCount=24, Variant=VariantB)", SorterLibId.toString (sorterLibId.create 24<channelCount> VariantB))
             Assert.Equal("PrefixLibId(channelCount=24, stageLength=4, Variant=PrefixB)", PrefixLibId.toString (prefixLibId.create 24<channelCount> 4<stageLength> PrefixB))
+            Assert.Equal("PrefixLibId(channelCount=24, stageLength=1, Variant=Prefix1)", PrefixLibId.toString (prefixLibId.create 24<channelCount> 1<stageLength> Prefix1))
             Assert.Equal("MergeLibId(channelCount=24, mergeDimension=3, Variant=VariantB)", MergeLibId.toString (mergeLibId.create 24<channelCount> 3<mergeDimension> VariantB))
     finally
         CultureInfo.CurrentCulture <- original
@@ -69,7 +70,7 @@ let all_identifier_readers_reject_null_wrong_labels_overflow_and_extra_fields ()
     Assert.Throws<FormatException>(fun () -> PrefixLibVariant.fromString "PrefixD" |> ignore) |> ignore
     for variant in [VariantA; VariantB; VariantC; Batcher; BatcherBitonic] do
         Assert.Equal(variant, variant |> SorterLibVariant.toString |> SorterLibVariant.fromString)
-    for variant in [PrefixA; PrefixB; PrefixC] do
+    for variant in [Prefix1; PrefixA; PrefixB; PrefixC] do
         Assert.Equal(variant, variant |> PrefixLibVariant.toString |> PrefixLibVariant.fromString)
 
 [<Fact>]
@@ -89,8 +90,8 @@ let equality_and_stable_identity_include_all_fields () =
                 yield box (sorterLibId.create (UMX.tag width) variant)
                 for dimension in [1; 2; 4] do
                     yield box (mergeLibId.create (UMX.tag width) (UMX.tag dimension) variant)
-            for variant in [PrefixA; PrefixB; PrefixC] do
-                for stages in [2; 3; 4] do
+            for variant in [Prefix1; PrefixA; PrefixB; PrefixC] do
+                for stages in [1; 2; 3; 4] do
                     yield box (prefixLibId.create (UMX.tag width) (UMX.tag stages) variant) ]
     Assert.Equal(values.Length, HashSet<obj>(values).Count)
     Assert.Equal(values.Length, values |> List.map (fun value -> GuidUtils.guidFromObjs [value]) |> Set.ofList |> Set.count)

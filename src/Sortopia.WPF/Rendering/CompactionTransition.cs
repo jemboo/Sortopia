@@ -15,8 +15,8 @@ public sealed class CompactionTransition
     public CompactionTransition(NetworkTrace before, NetworkTrace after,
         NetworkCheckResult? beforeUsage, NetworkCheckResult? afterUsage)
     {
-        Before = new NetworkLayout(before);
-        After = new NetworkLayout(after);
+        Before = new NetworkLayout(before.Network);
+        After = new NetworkLayout(after.Network);
         BeforeTrace = before;
         AfterTrace = after;
         Tested = afterUsage?.Tested ?? 0;

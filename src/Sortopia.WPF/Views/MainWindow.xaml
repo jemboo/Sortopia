@@ -1,0 +1,45 @@
+<Window x:Class="Sortopia.WPF.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:homeViews="clr-namespace:Sortopia.WPF.Views.Pages.Home"
+        xmlns:homeVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Home"
+        xmlns:networkViews="clr-namespace:Sortopia.WPF.Views.Pages.Networks"
+        xmlns:networkVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Networks"
+        xmlns:projectViews="clr-namespace:Sortopia.WPF.Views.Pages.Projects"
+        xmlns:projectVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Projects"
+        xmlns:randomViews="clr-namespace:Sortopia.WPF.Views.Pages.RandomNetworks"
+        xmlns:randomVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.RandomNetworks"
+        xmlns:sgdViews="clr-namespace:Sortopia.WPF.Views.Pages.Sgd"
+        xmlns:sgdVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Sgd"
+        Title="Sortopia"
+        Icon="/Sortopia.WPF;component/Assets/sortopia.ico"
+        Width="1100"
+        Height="780"
+        MinWidth="480"
+        MinHeight="360"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Workspace.Canvas}"
+        Foreground="{StaticResource Workspace.TextPrimary}"
+        FontFamily="Segoe UI"
+        UseLayoutRounding="True">
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type homeVm:HomePageViewModel}">
+            <homeViews:HomePage />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type projectVm:ProjectsPageViewModel}">
+            <projectViews:ProjectsPage />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type networkVm:NetworksPageViewModel}">
+            <networkViews:NetworksPage />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type randomVm:RandomNetworksPageViewModel}">
+            <randomViews:RandomNetworksPage />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type sgdVm:SgdPageViewModel}">
+            <sgdViews:SgdPage />
+        </DataTemplate>
+    </Window.Resources>
+    <ContentControl Content="{Binding CurrentPage}"
+                    HorizontalContentAlignment="Stretch"
+                    VerticalContentAlignment="Stretch" />
+</Window>

@@ -1,6 +1,6 @@
 using System.Runtime.ExceptionServices;
 using Sortopia.WPF.Models;
-using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Pages.Networks;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;
@@ -48,29 +48,43 @@ public sealed class CatalogPlaybackTests
     [InlineData(true, 2)]
     [InlineData(false, 8)]
     [InlineData(true, 8)]
-    public void Every_play_starts_a_different_random_input_and_preserves_colors(bool binary, int width) => OnSta(() =>
+    public void Play_resume_and_replay_preserve_the_selected_input(bool binary, int width) => OnSta(() =>
     {
         using var vm = new NetworksPageViewModel(() => { });
         vm.SelectedNetwork = vm.Networks.First(n => n.Width == width);
         vm.UseZeroOneRule = binary;
-        for (var attempt = 0; attempt < 20; attempt++)
+        var sorted = Enumerable.Range(0, width).Select(value => binary ? value < width / 2 ? 0 : 1 : value).ToArray();
+        foreach (var input in new[] { sorted, sorted.Reverse().ToArray() })
         {
-            var previous = vm.Trace.Values[0].ToArray();
+            vm.ReplaceTrace(NetworkTrace.Create(vm.SelectedNetwork, input));
+            var trace = vm.Trace;
             var colors = vm.ComparatorStates;
             vm.PlayPauseCommand.Execute(null);
             Assert.True(vm.IsPlaying);
             Assert.Equal(0, vm.Position);
-            Assert.False(previous.SequenceEqual(vm.Trace.Values[0]));
+            Assert.Same(trace, vm.Trace);
+            Assert.Equal(input, vm.Trace.Values[0]);
             Assert.Same(colors, vm.ComparatorStates);
-            if (binary) Assert.All(vm.Trace.Values[0], value => Assert.InRange(value, 0, 1));
-            else Assert.Equal(Enumerable.Range(0, width), vm.Trace.Values[0].Order());
             vm.Advance(TimeSpan.FromSeconds(0.325));
-            var playingTrace = vm.Trace;
-            vm.PlayPauseCommand.Execute(null); // Pause does not change the input.
+            vm.PlayPauseCommand.Execute(null);
             Assert.False(vm.IsPlaying);
-            Assert.Same(playingTrace, vm.Trace);
+            Assert.Same(trace, vm.Trace);
             Assert.Equal(0.5, vm.Position, 6);
-            if (attempt % 2 == 0) vm.SeekPosition = vm.StepCount;
+
+            vm.PlayPauseCommand.Execute(null);
+            Assert.True(vm.IsPlaying);
+            Assert.Same(trace, vm.Trace);
+            Assert.Equal(0.5, vm.Position, 6);
+            vm.Advance(TimeSpan.FromSeconds(100));
+            Assert.False(vm.IsPlaying);
+            Assert.Equal(vm.StepCount, vm.Position);
+            Assert.Equal(sorted, vm.Trace.Values[^1]);
+
+            vm.PlayPauseCommand.Execute(null);
+            Assert.True(vm.IsPlaying);
+            Assert.Same(trace, vm.Trace);
+            Assert.Equal(0, vm.Position);
+            vm.Pause();
         }
     });
 

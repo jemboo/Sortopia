@@ -2,7 +2,7 @@ using System.Runtime.ExceptionServices;
 using System.Windows.Threading;
 using Sortopia.Sorting.Networks;
 using Sortopia.WPF.Models;
-using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Pages.RandomNetworks;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;

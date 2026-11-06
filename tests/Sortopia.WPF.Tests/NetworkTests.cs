@@ -6,10 +6,15 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Sortopia.Models.Sorting;
 using Sortopia.Sorting.Inputs;
-using Sortopia.WPF.Controls;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.Rendering;
 using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Pages.Home;
+using Sortopia.WPF.ViewModels.Pages.Networks;
+using Sortopia.WPF.ViewModels.Pages.Sgd;
+using Sortopia.WPF.ViewModels.Pages.Sgd.SubPages;
+using Sortopia.WPF.ViewModels.Shared.Controls;
+using Sortopia.WPF.Views.Shared.Controls;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;
@@ -416,6 +421,8 @@ public sealed class NetworkTests
             Assert.Equal(network.ComparatorCount, layout.Comparators.Count);
             Assert.Equal(network.StageCount, layout.Bands.Count);
             Assert.True(layout.FrameX.Zip(layout.FrameX.Skip(1)).All(pair => pair.First <= pair.Second));
+            for (var index = 0; index < layout.Comparators.Count; index++)
+                Assert.InRange(layout.Comparators[index].X, layout.FrameX[index], layout.FrameX[index + 1]);
             foreach (var column in layout.Comparators.GroupBy(ce => (ce.StageIndex, ce.X)))
             {
                 var entries = column.ToArray();
@@ -704,53 +711,6 @@ public sealed class NetworkTests
         Assert.Equal(0.4, nextValues[0, 0]);
         Assert.Equal(0.4, nextValues[0, 1]);
         Assert.Equal(originalValues, values.Select(value => value.Value));
-    });
-
-    [Fact]
-    public void Opening_and_switching_projects_scopes_runs_and_manifests_to_the_selected_folder() => OnSta(() =>
-    {
-        var temp = System.IO.Directory.CreateTempSubdirectory("Sortopia-projects-");
-        try
-        {
-            var a = temp.CreateSubdirectory("A").FullName;
-            var b = temp.CreateSubdirectory("B").FullName;
-            var selections = new Queue<string?>([null, a, null, b, a]);
-            using var shell = new MainWindowViewModel(_ => selections.Dequeue());
-            var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
-            home.OpenSandboxCommand.Execute(null);
-            var sandbox = Assert.IsType<SandboxPageViewModel>(shell.CurrentPage);
-            sandbox.OpenSortableTestsCommand.Execute(null);
-            Assert.Same(sandbox, shell.CurrentPage);
-            sandbox.OpenProjectFolderCommand.Execute(null);
-            var page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
-            Assert.Equal(System.IO.Path.Combine(a, "runs"), page.LibraryPath);
-            var library = new Runs.RunLibrary(page.LibraryPath);
-            var run = library.Execute("A dataset", [new Runs.MergeTests(4, 2)], true, TestContext.Current.CancellationToken);
-            var manifest = Assert.Single(library.Manifests(run.Id));
-            var runDir = System.IO.Path.Combine(page.LibraryPath, run.Id.ToString("N"));
-            Assert.True(System.IO.File.Exists(System.IO.Path.Combine(runDir, "manifests", $"{manifest.Id:N}.json")));
-            var result = Assert.Single(Storage.ProjectFileStore.FromRunsFolder(page.LibraryPath).ListResults(run.Id));
-            Assert.Equal(run.Outputs[0].ArtifactId, result.DataId);
-            page.Back.Execute(null);
-            home.OpenSandboxCommand.Execute(null);
-            sandbox.OpenProjectFolderCommand.Execute(null); // Cancel the switch.
-            sandbox.OpenSortableTestsCommand.Execute(null);
-            Assert.Same(page, shell.CurrentPage);
-            page.Back.Execute(null);
-            home.OpenSandboxCommand.Execute(null);
-            sandbox.OpenProjectFolderCommand.Execute(null);
-            page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
-            Assert.Equal(System.IO.Path.Combine(b, "runs"), page.LibraryPath);
-            Assert.Empty(page.Runs);
-            Assert.Empty(page.Manifests);
-            page.Back.Execute(null);
-            home.OpenSandboxCommand.Execute(null);
-            sandbox.OpenProjectFolderCommand.Execute(null);
-            page = Assert.IsType<SortableTestsPageViewModel>(shell.CurrentPage);
-            Assert.Equal(run.Id, Assert.Single(page.Runs).Id);
-            Assert.Equal(manifest.Id, Assert.Single(page.Manifests).Id);
-        }
-        finally { temp.Delete(recursive: true); }
     });
 
     private static void OnSta(Action action)

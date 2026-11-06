@@ -1,0 +1,52 @@
+<UserControl x:Class="Sortopia.WPF.Views.Pages.Projects.ProjectsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI" UseLayoutRounding="True"
+             AutomationProperties.Name="Projects page" Foreground="{DynamicResource Workspace.TextPrimary}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid Background="{StaticResource Workspace.Canvas}" Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <DockPanel Margin="0,0,0,16">
+            <Button DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}"
+                    Style="{StaticResource PageReturnButtonStyle}" Margin="16,0,0,0"
+                    AutomationProperties.Name="Back to Sortopia" />
+            <TextBlock Text="Projects" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </DockPanel>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Border Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}"
+                    BorderThickness="1" CornerRadius="8" Padding="16" VerticalAlignment="Top">
+                <StackPanel>
+                    <Label Content="Projects _folder" Target="{Binding ElementName=ProjectsFolderPath}"
+                           Foreground="{StaticResource Workspace.TextPrimary}" FontSize="16" FontWeight="SemiBold" Padding="0" />
+                    <TextBlock Text="Choose the folder where your projects are stored. Your selection is saved automatically."
+                               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,8,0,16" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ProjectsFolderPath" Text="{Binding ProjectsFolder, Mode=OneWay}" IsReadOnly="True"
+                                 MinHeight="36" VerticalContentAlignment="Center" ToolTip="{Binding ProjectsFolder}"
+                                 AutomationProperties.Name="Projects folder" />
+                        <Button Grid.Column="1" Content="_Browse…" Command="{Binding BrowseProjectsFolderCommand}"
+                                Style="{StaticResource PrimaryAction}" MinHeight="36" MinWidth="100" Margin="8,0,0,0"
+                                AutomationProperties.Name="Browse for Projects folder" />
+                    </Grid>
+                    <TextBlock Text="{Binding Status}" Foreground="{StaticResource Workspace.TextSecondary}"
+                               TextWrapping="Wrap" Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,8,0,0"
+                               AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

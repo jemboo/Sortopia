@@ -1,4 +1,5 @@
 using Sortopia.WPF.Models;
+using Sortopia.WPF.Rendering.AnimationSchemes;
 
 namespace Sortopia.WPF.Rendering;
 
@@ -8,12 +9,13 @@ public sealed record ComparatorPosition(int Index, int StageIndex, double X, int
 /// <summary>Geometry only. Overlapping comparator spans receive separate columns, as in Archean.</summary>
 public sealed class NetworkLayout
 {
-    public const double LeftMargin = 58;
+    public const double LeftMargin = 74; // Leave room for swapping tokens beside the channel labels.
     public const double TopMargin = 62;
     public const double ChannelSpacing = 28;
     public static double ChannelY(double channel) => TopMargin + channel * ChannelSpacing;
 
-    public NetworkLayout(NetworkTrace trace) : this(trace.Network, trace.DisplayStageCount) { }
+    public NetworkLayout(NetworkTrace trace, CeAnimationScheme? animationScheme = null)
+        : this(trace.Network, trace.DisplayStageCount, animationScheme: animationScheme ?? CeSliderScheme.Instance) { }
     public NetworkLayout(NetworkDefinition network) : this(network, NetworkTrace.PreviewStages(network)) { }
 
     public NetworkLayout(NetworkDefinition network, NetworkCheckResult? usage, int mode) : this(Filter(network, usage, mode)) { }
@@ -21,7 +23,7 @@ public sealed class NetworkLayout
     private NetworkLayout((NetworkDefinition Network, IReadOnlyList<int>? Indices) display)
         : this(display.Network, NetworkTrace.PreviewStages(display.Network), display.Indices) { }
 
-    private NetworkLayout(NetworkDefinition network, int stageCount, IReadOnlyList<int>? originalIndices = null)
+    private NetworkLayout(NetworkDefinition network, int stageCount, IReadOnlyList<int>? originalIndices = null, CeAnimationScheme? animationScheme = null)
     {
         TotalStages = network.StageCount;
         TotalComparators = network.ComparatorCount;
@@ -48,6 +50,8 @@ public sealed class NetworkLayout
                 occupied.Add(ce);
                 var x = left + 16 + column * 12;
                 comparators.Add(new ComparatorPosition(originalIndices?[index] ?? index, stage, x, ce.Low, ce.High));
+                // Stay at a shared CE column until all its comparisons finish; never overshoot the next CE.
+                frameX[index] = Math.Min(frameX[index], x);
                 frameX[index + 1] = x + 6;
             }
             var right = left + 36 + column * 12;
@@ -56,10 +60,23 @@ public sealed class NetworkLayout
             frameX[end] = right - 6;
             left = right;
         }
+        var cutoff = left + 36;
+        if (animationScheme is not null && comparators.Count > 0)
+        {
+            // Keep the selected swap paths clear of channel labels and inside the viewport extent.
+            // Reserve space for every CE so changing the input does not move or resize the network.
+            var minX = comparators.Min(ce => ce.X - animationScheme.HorizontalExcursion((ce.High - ce.Low) * ChannelSpacing));
+            var maxX = comparators.Max(ce => ce.X + animationScheme.HorizontalExcursion((ce.High - ce.Low) * ChannelSpacing));
+            var shift = Math.Max(0, 42 - minX);
+            comparators = comparators.Select(ce => ce with { X = ce.X + shift }).ToList();
+            bands = bands.Select(band => new StageBand(band.Left + shift, band.Right + shift)).ToList();
+            for (var frame = 0; frame < frameX.Length; frame++) frameX[frame] += shift;
+            cutoff = Math.Max(cutoff, maxX + 12) + shift;
+        }
         Bands = bands.AsReadOnly();
         Comparators = comparators.AsReadOnly();
         FrameX = Array.AsReadOnly(frameX);
-        CutoffX = left + 36;
+        CutoffX = cutoff;
         Width = CutoffX + (IsTruncated ? 310 : 0);
         Height = ChannelY(network.Width - 1) + 42;
     }

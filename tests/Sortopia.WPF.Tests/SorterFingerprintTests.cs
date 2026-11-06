@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using Sortopia.Sorting.Networks;
 using Sortopia.WPF.Models;
-using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Pages.Sgd;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;

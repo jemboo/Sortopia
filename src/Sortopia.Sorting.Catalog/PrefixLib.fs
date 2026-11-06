@@ -4,6 +4,14 @@ open Sortopia.Sorting
 
 module PrefixLib =
 
+    let private singleStagePrefixes =
+        [ for width in 8 .. 24 do
+            // Odd widths leave the final channel untouched.
+            let pairs =
+                [ for low in 0 .. 2 .. width - 2 -> sprintf "(%d,%d)" low (low + 1) ]
+                |> String.concat ","
+            yield prefixLibId.create (width * 1<channelCount>) 1<stageLength> Prefix1, "[" + pairs + "]" ]
+
     let private AllNetworksList = 
     
         [ 
@@ -71,7 +79,7 @@ module PrefixLib =
              [(0,2),(1,3),(4,6),(5,7),(8,10),(9,11),(12,14),(13,15),(16,18),(17,19),(20,22),(21,23),(24,26),(25,27),(28,30),(29,31)]
              [(0,4),(1,5),(2,6),(3,7),(8,12),(9,13),(10,14),(11,15),(16,20),(17,21),(18,22),(19,23),(24,28),(25,29),(26,30),(27,31)]"
 
-        ] |> Map.ofList
+        ] |> List.append singleStagePrefixes |> Map.ofList
 
 
 

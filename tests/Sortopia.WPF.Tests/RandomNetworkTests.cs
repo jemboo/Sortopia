@@ -8,9 +8,16 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Sortopia.Models.Sorting;
 using Sortopia.Sorting.Catalog;
-using Sortopia.WPF.Controls;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Pages.Home;
+using Sortopia.WPF.ViewModels.Pages.Networks;
+using Sortopia.WPF.ViewModels.Pages.Projects;
+using Sortopia.WPF.ViewModels.Pages.RandomNetworks;
+using Sortopia.WPF.ViewModels.Pages.Sgd;
+using Sortopia.WPF.ViewModels.Shared.Controls;
+using Sortopia.WPF.Views;
+using Sortopia.WPF.Views.Shared.Controls;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;
@@ -500,7 +507,7 @@ public sealed class RandomNetworkTests
     [InlineData(300001, 11)]
     [InlineData(1000000, 11)]
     public void Usage_colors_have_explicit_percentage_boundaries(int uses, int level) =>
-        Assert.Equal(level, Sortopia.WPF.Controls.NetworkDiagram.UsageLevel(uses, 1000000));
+        Assert.Equal(level, Sortopia.WPF.Views.Shared.Controls.NetworkDiagram.UsageLevel(uses, 1000000));
     private static NetworkDefinition RedundantNetwork()
     {
         var ce01 = Sortopia.Sorting.Networks.ce.create(0, 1);
@@ -804,7 +811,7 @@ public sealed class RandomNetworkTests
         var before = NetworkTrace.CreateForPlayback(network, input);
         var after = NetworkTrace.CreateForPlayback(compact, input);
         var transition = new Sortopia.WPF.Rendering.CompactionTransition(before, after, usage, mapped);
-        var diagram = new Sortopia.WPF.Controls.NetworkDiagram { Trace = after, Usage = mapped, Zoom = 1.5 };
+        var diagram = new Sortopia.WPF.Views.Shared.Controls.NetworkDiagram { Trace = after, Usage = mapped, Zoom = 1.5 };
         byte[]? last = null;
         foreach (var progress in new[] { 0d, .5, 1d })
         {
@@ -873,7 +880,7 @@ public sealed class RandomNetworkTests
         var input = new[] { 3, 2, 1, 0 };
         var before = NetworkTrace.CreateForPlayback(network, input);
         var after = NetworkTrace.CreateForPlayback(compact, input);
-        var diagram = new Sortopia.WPF.Controls.NetworkDiagram { Trace = after };
+        var diagram = new Sortopia.WPF.Views.Shared.Controls.NetworkDiagram { Trace = after };
         var frame = new System.Windows.Threading.DispatcherFrame();
         var completed = false;
         var timeout = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -944,10 +951,8 @@ public sealed class RandomNetworkTests
         Assert.False(Candidate(1, 1).Improves(shallow));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Sgd_run_stop_resume_and_generate_publish_only_completed_generations(bool sandbox) => OnSta(() =>
+    [Fact]
+    public void Sgd_run_stop_resume_and_generate_publish_only_completed_generations() => OnSta(() =>
     {
         using var shell = new MainWindowViewModel(_ => throw new InvalidOperationException("Unexpected folder picker"));
         var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
@@ -955,9 +960,8 @@ public sealed class RandomNetworkTests
         var random = Assert.IsType<RandomNetworksPageViewModel>(shell.CurrentPage);
         var untouched = random.SelectedNetwork;
         random.ReturnHomeCommand.Execute(null);
-        (sandbox ? home.OpenSandboxCommand : home.OpenSgdCommand).Execute(null);
-        var vm = sandbox ? Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace
-            : Assert.IsType<SgdPageViewModel>(shell.CurrentPage);
+        home.OpenSgdCommand.Execute(null);
+        var vm = Assert.IsType<SgdPageViewModel>(shell.CurrentPage);
         vm.Setup.Generator.SamplesText = "invalid";
         Assert.False(vm.Evolution.RunSgdCommand.CanExecute(null));
         Assert.False(vm.Sampling.GenerateCommand.CanExecute(null));
@@ -1549,7 +1553,7 @@ public sealed class RandomNetworkTests
         Assert.Equal(12, vm.Evolution.Generation);
     });
 
-    private static void CheckGraphPaneResizing(Sortopia.WPF.Views.SgdPage page)
+    private static void CheckGraphPaneResizing(Sortopia.WPF.Views.Pages.Sgd.SgdPage page)
     {
         var controls = (Viewbox)FindSgdElement(page, "GraphControlsViewport");
         var border = Assert.IsType<Border>(controls.Child);
@@ -1561,7 +1565,7 @@ public sealed class RandomNetworkTests
         var legend = (Viewbox)FindSgdElement(page, "UsageLegendViewport");
         var toolbar = (Grid)legend.Parent;
         var layoutViewport = (Viewbox)FindSgdElement(page, "NetworkLayoutViewport");
-        var layouts = (Sortopia.WPF.Views.StageLayoutSelector)layoutViewport.Child;
+        var layouts = (Sortopia.WPF.Views.Shared.Controls.StageLayoutSelector)layoutViewport.Child;
         var buttons = ((WrapPanel)layouts.Content).Children.OfType<RadioButton>().ToArray();
         void Layout(double width)
         {
@@ -1577,7 +1581,7 @@ public sealed class RandomNetworkTests
             Assert.True(buttonBounds.Right <= toolbar.ColumnDefinitions[0].ActualWidth + 0.01);
             var bufferPanel = (Border)FindSgdElement(page, "GraphBuffersPanel");
             var annotations = (ItemsControl)FindSgdElement(page, "AnnotationToggles");
-            Assert.Equal(new Thickness(10), bufferPanel.Padding);
+            Assert.Equal(new Thickness(4), bufferPanel.Padding);
             Assert.Equal(bufferPanel.ActualWidth, annotations.MaxWidth, 5);
             Assert.True(annotations.ActualWidth <= bufferPanel.ActualWidth + 0.01);
         }
@@ -1603,9 +1607,9 @@ public sealed class RandomNetworkTests
         var bounds = border.TransformToAncestor(grid).TransformBounds(new Rect(border.RenderSize));
         Assert.True(plotColumn.ActualWidth > initialPlotWidth);
         Assert.InRange(bounds.Width, 1, initialBounds.Width - 1);
-        Assert.InRange(bounds.Left, 4.49, grid.ColumnDefinitions[0].ActualWidth);
-        Assert.True(bounds.Right <= grid.ColumnDefinitions[0].ActualWidth - 4.49);
-        Assert.True(bounds.Top >= 4.49 && bounds.Bottom <= grid.ActualHeight - 4.49);
+        Assert.InRange(bounds.Left, controls.Margin.Left - 0.51, grid.ColumnDefinitions[0].ActualWidth);
+        Assert.True(bounds.Right <= grid.ColumnDefinitions[0].ActualWidth - controls.Margin.Right + 0.51);
+        Assert.True(bounds.Top >= controls.Margin.Top - 0.51 && bounds.Bottom <= grid.ActualHeight - controls.Margin.Bottom + 0.51);
         Assert.Equal(border.ActualWidth / border.ActualHeight, bounds.Width / bounds.Height, 5);
         Layout(640);
         CheckLegend();
@@ -1638,7 +1642,7 @@ public sealed class RandomNetworkTests
     private static void CheckGraphBufferTiles()
     {
         var vm = new SgdPageViewModel(() => { });
-        var page = new Sortopia.WPF.Views.SgdPage { DataContext = vm };
+        var page = new Sortopia.WPF.Views.Pages.Sgd.SgdPage { DataContext = vm };
         page.Measure(new Size(1000, 800));
         page.Arrange(new Rect(0, 0, 1000, 800));
         CompleteRun(async () => await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle));
@@ -1688,7 +1692,7 @@ public sealed class RandomNetworkTests
         Assert.True(currentButton.IsEnabled);
         Assert.True(bestButton.IsEnabled);
         Assert.Equal("Current: [1, 1]", currentButton.Content);
-        Assert.Same(Results(vm).CurrentAnnotation.Brush, Labels(currentButton).Single().Foreground);
+        Assert.All(Labels(currentButton), label => Assert.Same(Results(vm).CurrentAnnotation.Brush, label.Foreground));
         Toggle(currentButton, false);
         Toggle(bestButton, false);
         Assert.False(annotatedPlot.ShowCurrent);
@@ -1842,7 +1846,7 @@ public sealed class RandomNetworkTests
         Assert.Equal("Visits", population.Content);
         Assert.Equal("Visits per point (log scale)", legend.Text);
         Assert.True(scale.ActualWidth > 0);
-        Assert.Equal(bufferPanel.ActualWidth - 48, scale.ActualWidth, 5);
+        Assert.Equal(bufferPanel.ActualWidth - 8, scale.ActualWidth, 5);
         Assert.Equal("Max 4", maximum.Text);
         Assert.Same(Results(vm).Visits, plot.Visits);
         Assert.True(plot.FillHighlightMarkers);
@@ -2147,11 +2151,8 @@ public sealed class RandomNetworkTests
             CheckRandomEducationControls();
             CheckFirstGenerateFromHome(deferSelection: false);
             CheckFirstGenerateFromHome(deferSelection: true);
-            CheckFirstGenerateFromHome(deferSelection: false, sandbox: true);
-            CheckFirstGenerateFromHome(deferSelection: true, sandbox: true);
             CheckGraphBufferTiles();
             CheckSgdControls();
-            CheckSgdControls(sandbox: true);
         }
         finally { app.Shutdown(); }
     });
@@ -2159,10 +2160,10 @@ public sealed class RandomNetworkTests
     private static void CheckRandomEducationControls()
     {
         using var vm = new RandomNetworksPageViewModel(() => { });
-        var page = new Sortopia.WPF.Views.RandomNetworksPage { DataContext = vm };
+        var page = new Sortopia.WPF.Views.Pages.RandomNetworks.RandomNetworksPage { DataContext = vm };
         var diagram = (NetworkDiagram)FindSgdElement(page, "Diagram");
         var viewport = (ScrollViewer)FindSgdElement(page, "DiagramViewport");
-        var selector = (Sortopia.WPF.Views.StageLayoutSelector)FindSgdElement(page, "StageLayouts");
+        var selector = (Sortopia.WPF.Views.Shared.Controls.StageLayoutSelector)FindSgdElement(page, "StageLayouts");
         var usedCes = (RadioButton)selector.FindName("UsedCes");
         var compact = (RadioButton)selector.FindName("Compact");
         page.Measure(new Size(1000, 720));
@@ -2220,9 +2221,10 @@ public sealed class RandomNetworkTests
     private static void CheckCatalogControls()
     {
         using var vm = new NetworksPageViewModel(() => { });
-        var page = new Sortopia.WPF.Views.NetworksPage { DataContext = vm };
+        var page = new Sortopia.WPF.Views.Pages.Networks.NetworksPage { DataContext = vm };
         var viewport = (ScrollViewer)FindSgdElement(page, "DiagramViewport");
         var diagram = (NetworkDiagram)FindSgdElement(page, "Diagram");
+        Assert.IsType<Sortopia.WPF.Rendering.AnimationSchemes.CeSliderScheme>(diagram.AnimationScheme);
         var rows = (Grid)FindSgdElement(page, "PageRows");
         Assert.Equal(3, rows.RowDefinitions.Count);
         foreach (var size in new[] { new Size(1000, 720), new Size(640, 430), new Size(480, 360) })
@@ -2261,7 +2263,7 @@ public sealed class RandomNetworkTests
         Assert.All(diagram.ComparatorStates!, state => Assert.Equal(ComparatorState.Unseen, state));
     }
 
-    private static void CheckFirstGenerateFromHome(bool deferSelection, bool sandbox = false)
+    private static void CheckFirstGenerateFromHome(bool deferSelection)
     {
         var window = new MainWindow();
         try
@@ -2277,14 +2279,11 @@ public sealed class RandomNetworkTests
             }
             Layout();
             var home = Assert.IsType<HomePageViewModel>(shell.CurrentPage);
-            (sandbox ? home.OpenSandboxCommand : home.OpenSgdCommand).Execute(null);
+            home.OpenSgdCommand.Execute(null);
             Layout();
             var presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
-            UserControl page = sandbox
-                ? (Sortopia.WPF.Views.SgdPage)Assert.IsType<Sortopia.WPF.Views.SandboxPage>(VisualTreeHelper.GetChild(presenter, 0)).FindName("Workspace")
-                : Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
+            var page = Assert.IsType<Sortopia.WPF.Views.Pages.Sgd.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
             var vm = Assert.IsType<SgdPageViewModel>(page.DataContext);
-            if (sandbox) Assert.Same(vm, Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace);
             var channels = (ComboBox)FindSgdElement(page, "ChannelPicker");
             var stepButtons = ((WrapPanel)FindSgdElement(page, "WizardSteps")).Children.OfType<Button>().ToArray();
             var controlHeight = channels.ActualHeight;
@@ -2364,38 +2363,34 @@ public sealed class RandomNetworkTests
             index.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, index, null)
                 { RoutedEvent = Keyboard.LostKeyboardFocusEvent });
             Assert.Same(parent, Results(vm).NetworkHistory.Current);
-            if (sandbox)
-            {
-                var diagram = (NetworkDiagram)FindSgdElement(page, "SwitchDiagram");
-                var layouts = (Sortopia.WPF.Views.StageLayoutSelector)((Viewbox)FindSgdElement(page, "NetworkLayoutViewport")).Child;
-                layouts.SetCurrentValue(Sortopia.WPF.Views.StageLayoutSelector.ModeProperty, 0);
-                Assert.Equal(0, diagram.DisplayMode);
+            var diagram = (NetworkDiagram)FindSgdElement(page, "SwitchDiagram");
+            var layouts = (Sortopia.WPF.Views.Shared.Controls.StageLayoutSelector)((Viewbox)FindSgdElement(page, "NetworkLayoutViewport")).Child;
+            layouts.SetCurrentValue(Sortopia.WPF.Views.Shared.Controls.StageLayoutSelector.ModeProperty, 0);
+            Assert.Equal(0, diagram.DisplayMode);
 
-                // Navigation preserves the actual model, including its settings, buffers and selection.
-                vm.ReturnHomeCommand.Execute(null);
-                home.OpenSgdCommand.Execute(null);
-                Layout();
-                Assert.Same(vm, shell.CurrentPage);
-                presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
-                var original = Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
-                Assert.Same(vm, original.DataContext);
-                Assert.Same(parent, Results(vm).NetworkHistory.Current);
-                Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)original.Content).Background).Color);
-                Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)page.Content).Background).Color);
-                vm.ReturnHomeCommand.Execute(null);
-                home.OpenSandboxCommand.Execute(null);
-                Assert.Same(vm, Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace);
-            }
+            // Visiting Projects preserves SGD settings, buffers and selection.
+            vm.ReturnHomeCommand.Execute(null);
+            home.OpenProjectsCommand.Execute(null);
+            Layout();
+            presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
+            Assert.IsType<Sortopia.WPF.Views.Pages.Projects.ProjectsPage>(VisualTreeHelper.GetChild(presenter, 0));
+            Assert.IsType<ProjectsPageViewModel>(shell.CurrentPage).ReturnHomeCommand.Execute(null);
+            home.OpenSgdCommand.Execute(null);
+            Layout();
+            Assert.Same(vm, shell.CurrentPage);
+            presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
+            var original = Assert.IsType<Sortopia.WPF.Views.Pages.Sgd.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
+            Assert.Same(vm, original.DataContext);
+            Assert.Same(parent, Results(vm).NetworkHistory.Current);
+            Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)original.Content).Background).Color);
         }
         finally { window.Close(); }
     }
 
-    private static void CheckSgdControls(bool sandbox = false)
+    private static void CheckSgdControls()
     {
         var vm = new SgdPageViewModel(() => { });
-        UserControl host = sandbox
-            ? new Sortopia.WPF.Views.SandboxPage { DataContext = new SandboxPageViewModel(vm) }
-            : new Sortopia.WPF.Views.SgdPage { DataContext = vm };
+        var host = new Sortopia.WPF.Views.Pages.Sgd.SgdPage { DataContext = vm };
         void CheckUpperViewports()
         {
             foreach (var size in new[] { new Size(640, 480), new Size(1000, 800) })

@@ -33,7 +33,7 @@ let private validateStages width (stages: ce[][]) =
 let complete_catalog_inventory_and_stage_invariants_are_preserved () =
     let sorters, prefixes = SorterLib.ids (), PrefixLib.ids ()
     Assert.Equal(55, sorters.Length)
-    Assert.Equal(10, prefixes.Length)
+    Assert.Equal(27, prefixes.Length)
     Assert.True(sorters |> Array.map (fun id -> int id.ChannelCount) |> Array.distinct = [|2..32|])
     let mutable sorterCes, sorterStages, prefixCes, prefixStages = 0, 0, 0, 0
     for id in sorters do
@@ -49,7 +49,22 @@ let complete_catalog_inventory_and_stage_invariants_are_preserved () =
         prefixCes <- prefixCes + (stages |> Array.sumBy Array.length)
         prefixStages <- prefixStages + stages.Length
         Assert.True(Array.concat stages = (SorterDataParse.getCeArrayFromPrefixLib id |> Option.get))
-    Assert.Equal((4702, 580, 385, 32), (sorterCes, sorterStages, prefixCes, prefixStages))
+    Assert.Equal((4702, 580, 517, 49), (sorterCes, sorterStages, prefixCes, prefixStages))
+
+[<Fact>]
+let prefix1_sorts_adjacent_pairs_in_one_stage_at_every_width_from_eight_to_twenty_four () =
+    let ids = PrefixLib.ids () |> Array.filter (fun id -> id.PrefixLibVariant = Prefix1)
+    Assert.True((ids |> Array.map (fun id -> int id.ChannelCount)) = [|8 .. 24|])
+    for id in ids do
+        let width = int id.ChannelCount
+        Assert.Equal(1<stageLength>, id.StageLength)
+        let stage = PrefixLib.tryGet id |> Option.get |> SorterDataParse.parseTo2dCeArray |> Assert.Single
+        let endpoints = stage |> Array.collect (fun comparator -> [|int comparator.LowChannel; int comparator.HighChannel|])
+        Assert.True((endpoints = [|0 .. (width / 2) * 2 - 1|]))
+        let input = [|width .. -1 .. 1|]
+        let expected = input |> Array.chunkBySize 2 |> Array.collect Array.sort
+        Assert.True(apply stage input = expected)
+        if width % 2 = 1 then Assert.Equal(input.[width - 1], (apply stage input).[width - 1])
 
 [<Fact>]
 let networks_up_to_sixteen_channels_sort_every_binary_input () =
@@ -121,6 +136,8 @@ let merge_choices_are_complete_and_sort_each_contiguous_segment () =
 let valid_unavailable_keys_return_none () =
     Assert.True(SorterDataParse.getCeArrayFromSorterLib (sorterLibId.create 100<channelCount> VariantA) |> Option.isNone)
     Assert.True(SorterDataParse.getCeArrayFromPrefixLib (prefixLibId.create 24<channelCount> 3<stageLength> PrefixC) |> Option.isNone)
+    for width, stages in [7, 1; 25, 1; 8, 2; 24, 2] do
+        Assert.True(SorterDataParse.getCeArrayFromPrefixLib (prefixLibId.create (UMX.tag width) (UMX.tag stages) Prefix1) |> Option.isNone)
     Assert.True(SorterDataParse.getCeArrayFromMergeLib (mergeLibId.create 768<channelCount> 2<mergeDimension> VariantA) |> Option.isNone)
 
 [<Fact>]

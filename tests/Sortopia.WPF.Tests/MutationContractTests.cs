@@ -1,7 +1,7 @@
 using Sortopia.Core;
 using Sortopia.Models.Sorting;
 using Sortopia.Models.Sorting.Simple;
-using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Shared.Controls;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;

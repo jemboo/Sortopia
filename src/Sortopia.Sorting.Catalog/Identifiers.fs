@@ -32,11 +32,12 @@ module SorterLibVariant =
         | "BatcherBitonic" -> BatcherBitonic
         | _ -> raise (FormatException("Unknown sorting-network variant."))
 
-type prefixLibVariant = PrefixA | PrefixB | PrefixC
+type prefixLibVariant = Prefix1 | PrefixA | PrefixB | PrefixC
 
 module PrefixLibVariant =
-    let toString = function PrefixA -> "PrefixA" | PrefixB -> "PrefixB" | PrefixC -> "PrefixC"
+    let toString = function Prefix1 -> "Prefix1" | PrefixA -> "PrefixA" | PrefixB -> "PrefixB" | PrefixC -> "PrefixC"
     let fromString = function
+        | "Prefix1" -> Prefix1
         | "PrefixA" -> PrefixA
         | "PrefixB" -> PrefixB
         | "PrefixC" -> PrefixC
@@ -94,7 +95,7 @@ module PrefixLibId =
         FormattableString.Invariant($"PrefixLibId(channelCount={int key.ChannelCount}, stageLength={int key.StageLength}, Variant={PrefixLibVariant.toString key.PrefixLibVariant})")
 
     let fromString text =
-        let fields = IdText.read @"PrefixLibId\(channelCount=([0-9]+),\s*stageLength=([0-9]+),\s*Variant=(Prefix[ABC])\)" text
+        let fields = IdText.read @"PrefixLibId\(channelCount=([0-9]+),\s*stageLength=([0-9]+),\s*Variant=(Prefix[1ABC])\)" text
         prefixLibId.create (UMX.tag (IdText.number fields.[1])) (UMX.tag (IdText.number fields.[2])) (PrefixLibVariant.fromString fields.[3].Value)
 
 /// Identifies a prefix that sorts equal contiguous segments independently, preparing them for a merge.
