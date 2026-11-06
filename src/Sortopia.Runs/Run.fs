@@ -2,7 +2,6 @@ namespace Sortopia.Runs
 
 open FSharp.UMX
 open Sortopia.Core  
-open Sortopia.Storage
 
 [<Measure>] type databaseName
 [<Measure>] type projectName

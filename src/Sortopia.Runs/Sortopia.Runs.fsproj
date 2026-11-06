@@ -3,10 +3,10 @@
     <Compile Include="ParamKeys.fs" />
     <Compile Include="ParameterSet.fs" />
     <Compile Include="ParameterSpan.fs" />
+    <Compile Include="OutputDataType.fs" />
     <Compile Include="Run.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Sortopia.Storage/Sortopia.Storage.fsproj" />
     <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
   </ItemGroup>
 </Project>

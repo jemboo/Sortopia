@@ -44,7 +44,7 @@ Choose **Random Networks** for the separate random-generation and testing page. 
 
 | Project | What belongs here |
 | --- | --- |
-| Sortopia.Runs | F# run library. |
+| Sortopia.Runs | Run configurations, output categories, parameter generation and result-query definitions. |
 | Sortopia.WPF | Windows desktop shell, MVVM page navigation, sorting-network visualization and trace playback. |
 | Sortopia.Core | Arrays, collections, stable IDs, random sources, sampling, combinatorics and computation builders. Core has no project references. |
 | Sortopia.Permutations | Permutations, involutions, orbits, merge lattices, unfolders and their generation and mutation rates. These types refer to one another and share mathematical invariants. |
@@ -69,14 +69,6 @@ Rate records use F# structural equality in dictionaries and sets. Rate arrays an
 For a reproducible model ID, pass the model discriminator and all identifying fields to `GuidUtils.guidFromObjs`. For example, `GuidUtils.guidFromObjs [box "example/v1"; box rates; box flag]` writes the actual rate content. Each rate writes its type tag and ordered fields, arrays include their length, and signed zeros share one encoding. Collection hash codes are process-local implementation details. Permutation IDs use the first 16 bytes of SHA-256 over little-endian Int32 elements, interpreted in .NET Guid byte order.
 
 ## Persisting values
-
-### Project files
-
-`Sortopia.Storage.ProjectFileStore(projectFolder)` opens the project's `runs` folder. Use `SaveParameters` with a run ID, parameter ID and string map. Pass the same parameter reference to `SaveResult` with a typed payload. The returned `ResultRef` identifies the producer, output type and data ID. Each write creates a new file and rejects an existing address.
-
-On reopening the project, `ListParameters(runId)` and `ListResults(runId)` enumerate the saved files. Pass a reference to `LoadParameters` or `LoadResult` to read it directly. Parameters use JSON and Results use the corresponding MessagePack DTO.
-
-All sortable-test outputs use `SortableTestsWithPrefix(tests, prefix)`. The prefix is the ordered array of CEs already applied to the inputs. Use `[||]` when no prefix was applied.
 
 Use `fromDomain` to create a DTO, then encode it with `MessagePackSetup.serialize`. On read, choose the DTO type explicitly and call its `toDomain` function. For example, a consumer referencing `Sortopia.Core.Serialization` can round-trip a deterministic RNG factory as follows.
 
