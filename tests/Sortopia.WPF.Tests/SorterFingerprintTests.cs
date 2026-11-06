@@ -41,13 +41,13 @@ public sealed class SorterFingerprintTests
     public async Task Run_tracker_detects_repeats_across_generations_and_resets_for_another_run()
     {
         var vm = new SgdPageViewModel(() => { });
-        vm.Generator.ChannelCount = 2;
-        vm.Generator.CountText = "8";
-        var recipe = vm.Generator.Snapshot();
+        vm.Setup.Generator.ChannelCount = 2;
+        vm.Setup.Generator.CountText = "8";
+        var recipe = vm.Setup.Generator.Snapshot();
         var parent = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), null, CancellationToken.None);
         var tracker = new SgdDuplicateTracker();
         Assert.False(tracker.Observe(parent.Network));
-        var mutator = vm.Mutation.Create(parent.Model);
+        var mutator = vm.Evolution.Mutation.Create(parent.Model);
         var observed = new List<SearchCandidate>();
         for (var generation = 1; generation <= 2; generation++)
             parent = await NetworkSearch.NextGenerationAsync(parent, mutator, generation, 4, CancellationToken.None,

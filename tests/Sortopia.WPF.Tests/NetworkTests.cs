@@ -61,9 +61,10 @@ public sealed class NetworkTests
     [Fact]
     public void Failure_plot_toggle_restores_history_and_records_while_hidden()
     {
-        var vm = new SgdPageViewModel(() => { });
-        vm.Generator.ChannelCount = 2;
-        var model = vm.Generator.Snapshot().CreateModel();
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Evolution;
+        workflow.Setup.Generator.ChannelCount = 2;
+        var model = workflow.Setup.Generator.Snapshot().CreateModel();
         void Visit(int failures, int size)
         {
             var network = new NetworkDefinition("sample", RandomNetwork.generate("msce", 2, size, Guid.Empty));
@@ -165,23 +166,20 @@ public sealed class NetworkTests
     [Fact]
     public void Evolution_history_adds_improvements_and_browsing_does_not_change_parent()
     {
-        var vm = new SgdPageViewModel(() => { });
-        var recipe = vm.Generator.Snapshot();
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Evolution;
+        var recipe = workflow.Setup.Generator.Snapshot();
         var initial = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), 16, CancellationToken.None);
         initial = initial with { Usage = initial.Usage with { Failed = 2 } };
         var improved = initial with { Usage = initial.Usage with { Failed = 1 }, RawUsage = initial.RawUsage with { Failed = 1 } };
-        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-        var publish = typeof(SgdPageViewModel).GetMethod("Publish", flags)!;
-        publish.Invoke(vm, new object[] { initial, 0, false });
-        var activity = typeof(SgdPageViewModel).GetField("activity", flags)!;
-        activity.SetValue(vm, Enum.Parse(activity.FieldType, "Evolve"));
-        publish.Invoke(vm, new object[] { improved, 1, false });
+        vm.SetParent(initial);
+        vm.Publish(improved, 1);
         Assert.Equal(2, vm.NetworkHistory.Entries.Count);
         vm.NetworkHistory.PreviousCommand.Execute(null);
         Assert.Same(initial.RawUsage, vm.DisplayUsage);
         Assert.Same(improved.RawUsage, vm.Usage);
-        Assert.Same(improved, typeof(SgdPageViewModel).GetField("incumbent", flags)!.GetValue(vm));
-        publish.Invoke(vm, new object[] { improved, 2, false });
+        Assert.Same(improved, vm.Parent);
+        vm.Publish(improved, 2);
         Assert.Equal(2, vm.NetworkHistory.Entries.Count);
         vm.NetworkHistory.NextCommand.Execute(null);
         Assert.Same(improved.RawUsage, vm.DisplayUsage);
@@ -190,8 +188,9 @@ public sealed class NetworkTests
     [Fact]
     public void Graph_selection_keeps_latest_success_and_failure_without_adding_history()
     {
-        var vm = new SgdPageViewModel(() => { });
-        var recipe = vm.Generator.Snapshot();
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Evolution;
+        var recipe = workflow.Setup.Generator.Snapshot();
         var candidate = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), 16, CancellationToken.None);
         SearchCandidate Snapshot(string label, int failures) => candidate with
         {
@@ -216,10 +215,10 @@ public sealed class NetworkTests
         vm.PlotFailures = true;
         Assert.Same(latestFailure.RawNetwork, vm.Network);
         foreach (var name in new[] { "ParentSuccess", "ParentFailure" })
-            Assert.Equal(1, ((GraphNetworkBuffer)typeof(SgdPageViewModel).GetProperty(name)!.GetValue(vm)!).Count);
+            Assert.Equal(1, ((GraphNetworkBuffer)typeof(SgdEvolutionPageViewModel).GetProperty(name)!.GetValue(vm)!).Count);
         vm.NetworkHistory.Add(new(success.RawNetwork, success.RawUsage, "initial"));
         vm.NetworkHistory.Add(new(failure.RawNetwork, failure.RawUsage, "improvement"));
-        vm.Stop();
+        workflow.Stop();
         Assert.Equal(2, vm.NetworkHistory.Entries.Count);
         vm.NetworkHistory.PreviousCommand.Execute(null);
         Assert.Same(success.RawNetwork, vm.Network);
@@ -237,7 +236,8 @@ public sealed class NetworkTests
     [Fact]
     public void Selected_graph_point_follows_history_navigation_and_clear()
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Evolution;
         var network = CatalogNetwork.LoadAll()[0];
         var first = new System.Windows.Point(10, 4);
         var second = new System.Windows.Point(8, 3);
@@ -266,8 +266,9 @@ public sealed class NetworkTests
     [Fact]
     public void Four_graph_buffers_filter_independently_and_retain_latest_snapshots_while_hidden()
     {
-        var vm = new SgdPageViewModel(() => { });
-        var recipe = vm.Generator.Snapshot();
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Evolution;
+        var recipe = workflow.Setup.Generator.Snapshot();
         var candidate = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), 16, CancellationToken.None);
         var buffers = new[] { vm.ParentSuccess, vm.ParentFailure, vm.ChildSuccess, vm.ChildFailure };
         var latest = new SearchCandidate[4];
@@ -316,8 +317,9 @@ public sealed class NetworkTests
     [Fact]
     public void Category_uniqueness_counts_distinct_networks_at_same_point_and_scale_uses_visible_buffers()
     {
-        var vm = new SgdPageViewModel(() => { });
-        var recipe = vm.Generator.Snapshot();
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Evolution;
+        var recipe = workflow.Setup.Generator.Snapshot();
         var model = recipe.CreateModel();
         var a = new NetworkDefinition("a", Sortopia.Sorting.Networks.stageSequence.create(new[] {
             Sortopia.Sorting.Networks.stage.create(new[] { Sortopia.Sorting.Networks.ce.create(0, 1) }, 4) }, 4));
@@ -376,8 +378,9 @@ public sealed class NetworkTests
         Assert.Equal(new System.Windows.Rect(1, 1, 1, 1), vm.AllBufferBounds);
         vm.ClearGroupCommand.Execute(vm.SecondGroup);
         Assert.Equal(new System.Windows.Rect(1, 1, 0, 0), vm.AllBufferBounds);
-        vm.GenerationStepCommand.Execute(null);
-        Assert.True(vm.AllBufferBounds.IsEmpty);
+        workflow.SamplingStepCommand.Execute(null);
+        Assert.True(workflow.Sampling.AllBufferBounds.IsEmpty);
+        Assert.False(vm.AllBufferBounds.IsEmpty);
     }
 
     public static IEnumerable<object[]> CatalogEntries => CatalogNetwork.LoadAll().Select((_, index) => new object[] { index });

@@ -18,9 +18,116 @@ namespace Sortopia.WPF.Tests;
 public sealed class RandomNetworkTests
 {
     [Fact]
+    public async Task A_replaced_SGD_operation_cannot_finish_or_cancel_the_new_run()
+    {
+        var operation = new SgdOperation();
+        var finishOld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishNew = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken oldToken = default, newToken = default;
+        var oldRun = operation.RunAsync(SgdActivity.Sample, async token => { oldToken = token; await finishOld.Task; });
+        var newRun = operation.RunAsync(SgdActivity.Evolve, async token => { newToken = token; await finishNew.Task; });
+        Assert.True(oldToken.IsCancellationRequested);
+        Assert.False(operation.IsCurrent(oldToken));
+        finishOld.SetResult();
+        await oldRun;
+        Assert.Equal(SgdActivity.Evolve, operation.Activity);
+        Assert.True(operation.IsCurrent(newToken));
+        Assert.True(operation.CanStop);
+        operation.Stop();
+        Assert.True(newToken.IsCancellationRequested);
+        finishNew.SetResult();
+        await newRun;
+        Assert.True(operation.IsIdle);
+        Assert.False(operation.CanStop);
+    }
+
+    [Fact]
+    public void Sgd_pages_keep_independent_settings_histories_and_the_explicit_parent() => OnSta(() =>
+    {
+        var workflow = new SgdPageViewModel(() => { });
+        var setup = workflow.Setup;
+        var sampling = workflow.Sampling;
+        var evolution = workflow.Evolution;
+        Assert.Same(setup, workflow.CurrentPage);
+        setup.Generator.ChannelCount = 4;
+        setup.Generator.CountText = "4";
+        setup.ContinueCommand.Execute(null);
+        Assert.Same(sampling, workflow.CurrentPage);
+        CompleteRun(sampling.GenerateAsync);
+        var selected = sampling.NetworkHistory.Current!;
+        sampling.DisplayMode = 1;
+        sampling.ShowVisitStats = true;
+        sampling.EvolveSelectionCommand.Execute(null);
+        Assert.Same(evolution, workflow.CurrentPage);
+        Assert.Same(selected.Sample, evolution.Parent);
+        Assert.Same(selected.Sample!.Model, evolution.Parent!.Model);
+        Assert.Same(selected.Usage, evolution.Usage);
+        Assert.NotSame(sampling.NetworkHistory, evolution.NetworkHistory);
+        Assert.NotSame(sampling.FirstGroup, evolution.FirstGroup);
+
+        evolution.DisplayMode = 2;
+        evolution.Mutation.OverallRate.Value = 0.25;
+        evolution.Children = 1;
+        evolution.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(evolution.Generation) && evolution.Generation == 1) workflow.Stop();
+        };
+        CompleteRun(evolution.RunSgdAsync);
+        Assert.Equal(1, evolution.Generation);
+        var parent = evolution.Parent;
+        var history = evolution.NetworkHistory.Entries.ToArray();
+        var visits = evolution.Visits;
+
+        workflow.SamplingStepCommand.Execute(null);
+        Assert.Same(sampling, workflow.CurrentPage);
+        Assert.Same(selected, sampling.NetworkHistory.Current);
+        Assert.Equal(1, sampling.DisplayMode);
+        Assert.True(sampling.ShowVisitStats);
+        sampling.SampleToB = true;
+        CompleteRun(sampling.GenerateAsync);
+        Assert.Same(parent, evolution.Parent);
+        Assert.Equal(history, evolution.NetworkHistory.Entries);
+        Assert.Same(visits, evolution.Visits);
+
+        workflow.SetupStepCommand.Execute(null);
+        Assert.Same(setup, workflow.CurrentPage);
+        Assert.Equal(4, setup.Generator.ChannelCount);
+        workflow.EvolutionStepCommand.Execute(null);
+        Assert.Same(evolution, workflow.CurrentPage);
+        Assert.Same(parent, evolution.Parent);
+        Assert.Equal(1, evolution.Generation);
+        Assert.Equal(2, evolution.DisplayMode);
+        Assert.False(evolution.ShowVisitStats);
+        Assert.Equal(0.25, evolution.Mutation.OverallRate.Value);
+    });
+
+    [Fact]
+    public void Invalid_setup_blocks_navigation_without_erasing_the_sample() => OnSta(() =>
+    {
+        var workflow = new SgdPageViewModel(() => { });
+        workflow.Setup.Generator.ChannelCount = 2;
+        workflow.Setup.ContinueCommand.Execute(null);
+        CompleteRun(workflow.Sampling.GenerateAsync);
+        var sample = workflow.Sampling.NetworkHistory.Current;
+        workflow.SetupStepCommand.Execute(null);
+        workflow.Setup.Generator.SamplesText = "invalid";
+        Assert.False(workflow.Setup.ContinueCommand.CanExecute(null));
+        Assert.False(workflow.SamplingStepCommand.CanExecute(null));
+        Assert.False(workflow.EvolutionStepCommand.CanExecute(null));
+        Assert.False(workflow.Sampling.GenerateCommand.CanExecute(null));
+        workflow.SamplingStepCommand.Execute(null);
+        Assert.Same(workflow.Setup, workflow.CurrentPage);
+        Assert.Same(sample, workflow.Sampling.NetworkHistory.Current);
+        workflow.Setup.Generator.SamplesText = "all";
+        workflow.Setup.ContinueCommand.Execute(null);
+        Assert.Same(workflow.Sampling, workflow.CurrentPage);
+        Assert.Same(sample, workflow.Sampling.NetworkHistory.Current);
+    });
+
+    [Fact]
     public void Setup_refreshes_the_editable_stage_default_when_the_sorting_problem_changes()
     {
-        var settings = new SgdPageViewModel(() => { }).Generator;
+        var settings = new SgdPageViewModel(() => { }).Setup.Generator;
         Assert.Equal("40", settings.CountText);
         settings.Method = "mssi";
         Assert.Equal("49", settings.CountText);
@@ -47,22 +154,22 @@ public sealed class RandomNetworkTests
     public void Generation_step_uses_distinct_seed_and_unfolding_distributions()
     {
         var vm = new SgdPageViewModel(() => { });
-        vm.Generator.Method = "msuf6";
-        vm.Generator.ChannelCount = 24;
-        vm.Generator.CountText = "5";
-        var groups = vm.GenerationOptions.Distributions;
+        vm.Setup.Generator.Method = "msuf6";
+        vm.Setup.Generator.ChannelCount = 24;
+        vm.Setup.Generator.CountText = "5";
+        var groups = vm.Sampling.GenerationOptions.Distributions;
         Assert.Equal(new[] { 7, 3, 3 }, groups.Select(g => g.Weights.Length));
-        var tables = vm.GenerationOptions.WeightTables;
+        var tables = vm.Sampling.GenerationOptions.WeightTables;
         Assert.Equal(new[] { "Seed" }, tables[0].RowHeaders);
         Assert.Equal(new[] { "Unfold 6 → 12", "Unfold 12 → 24" }, tables[1].RowHeaders);
         Assert.Equal(new[] { "Ortho", "Para", "SR" }, tables[1].ColumnHeaders);
         foreach (var cell in tables.SelectMany(table => table.Cells)) cell.SliderValue = 0;
-        Assert.False(vm.GenerateCommand.CanExecute(null));
+        Assert.False(vm.Sampling.GenerateCommand.CanExecute(null));
         tables[0].Cells[5].SliderValue = 1; // Para 4 seed
         tables[1].Cells[1].SliderValue = 0.5; // First unfolding is entirely para
         tables[1].Cells[3].SliderValue = 1; // Second unfolding is entirely ortho
-        Assert.True(vm.GenerateCommand.CanExecute(null));
-        var recipe = vm.Generator.Snapshot();
+        Assert.True(vm.Sampling.GenerateCommand.CanExecute(null));
+        var recipe = vm.Setup.Generator.Snapshot();
         var model = Assert.IsType<Sortopia.Models.Sorting.Simple.simpleSorterModel.Msuf6>(recipe.CreateModel());
         Assert.Equal(5, model.Item.TwoOrbitUnfolder6s.Length);
         Assert.All(model.Item.TwoOrbitUnfolder6s, stage =>
@@ -79,12 +186,12 @@ public sealed class RandomNetworkTests
     public void Small_UF4_widths_generate_and_evolve_with_the_available_unfolding_steps(int width, int distributions)
     {
         var vm = new SgdPageViewModel(() => { });
-        vm.Generator.Method = "msuf4";
-        vm.Generator.ChannelCount = width;
-        Assert.Equal(distributions, vm.GenerationOptions.Distributions.Count);
-        var model = vm.Generator.Snapshot().CreateModel();
+        vm.Setup.Generator.Method = "msuf4";
+        vm.Setup.Generator.ChannelCount = width;
+        Assert.Equal(distributions, vm.Sampling.GenerationOptions.Distributions.Count);
+        var model = vm.Setup.Generator.Snapshot().CreateModel();
         var child = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(
-            vm.Mutation.Create(model), model, 0, 1);
+            vm.Evolution.Mutation.Create(model), model, 0, 1);
         Assert.Equal(width, RandomNetwork.toStages(child).ChannelCount);
     }
 
@@ -851,73 +958,75 @@ public sealed class RandomNetworkTests
         (sandbox ? home.OpenSandboxCommand : home.OpenSgdCommand).Execute(null);
         var vm = sandbox ? Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace
             : Assert.IsType<SgdPageViewModel>(shell.CurrentPage);
-        vm.Generator.SamplesText = "invalid";
-        Assert.False(vm.RunSgdCommand.CanExecute(null));
-        Assert.False(vm.GenerateCommand.CanExecute(null));
-        vm.Generator.SamplesText = "all";
-        vm.GenerationMilliseconds = 500;
-        Assert.Contains("500", vm.SpeedLabel);
-        vm.GenerationMilliseconds = 0;
-        Assert.Contains("quickly", vm.SpeedLabel);
+        vm.Setup.Generator.SamplesText = "invalid";
+        Assert.False(vm.Evolution.RunSgdCommand.CanExecute(null));
+        Assert.False(vm.Sampling.GenerateCommand.CanExecute(null));
+        vm.Setup.Generator.SamplesText = "all";
+        vm.Evolution.GenerationMilliseconds = 500;
+        Assert.Contains("500", vm.Evolution.SpeedLabel);
+        vm.Evolution.GenerationMilliseconds = 0;
+        Assert.Contains("quickly", vm.Evolution.SpeedLabel);
         // A two-channel sorter is already correct. Evolution still counts generations and retains the tied parent.
-        vm.Generator.ChannelCount = 2;
-        vm.Generator.CountText = "8";
-        Assert.False(vm.RunSgdCommand.CanExecute(null));
-        CompleteRun(vm.GenerateAsync);
-        vm.PropertyChanged += (_, change) =>
+        vm.Setup.Generator.ChannelCount = 2;
+        vm.Setup.Generator.CountText = "8";
+        Assert.False(vm.Evolution.RunSgdCommand.CanExecute(null));
+        CompleteRun(vm.Sampling.GenerateAsync);
+        vm.Evolution.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(vm.Generation) && vm.Generation == 2) vm.StopCommand.Execute(null);
+            if (change.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 2) vm.Stop();
         };
-        CompleteRun(vm.RunSgdAsync);
-        Assert.Equal(2, vm.Generation);
-        Assert.Equal(8, vm.Network!.StageCount);
-        Assert.Equal(vm.Network.ComparatorCount, vm.Usage!.CeUses.Count);
-        Assert.Equal(0, vm.Usage!.Failed);
-        Assert.Equal("Best: [1, 1]", vm.BestAnnotation.Label);
-        Assert.Equal("Current: [1, 1]", vm.CurrentAnnotation.Label);
-        Assert.Equal("0 failures across all 4 binary inputs", vm.Summary);
-        Assert.Equal(1, vm.Usage.CeUses.Sum());
-        Assert.Equal(1L + 2 * (1 + vm.Children), vm.Visits.Counts[new Point(1, 1)]);
-        Assert.Equal(new Point(1, 1), vm.Visits.Current);
-        var winner = vm.Network;
-        vm.GenerationMilliseconds = 30;
-        vm.PropertyChanged += (_, change) =>
+        CompleteRun(() => Evolve(vm));
+        Assert.Equal(2, vm.Evolution.Generation);
+        Assert.Equal(8, Results(vm).Network!.StageCount);
+        Assert.Equal(Results(vm).Network!.ComparatorCount, CurrentUsage(vm)!.CeUses.Count);
+        Assert.Equal(0, CurrentUsage(vm)!.Failed);
+        Assert.Equal("Best: [1, 1]", Results(vm).BestAnnotation.Label);
+        Assert.Equal("Current: [1, 1]", Results(vm).CurrentAnnotation.Label);
+        Assert.Equal("0 failures across all 4 binary inputs", Results(vm).Summary);
+        Assert.Equal(1, CurrentUsage(vm)!.CeUses.Sum());
+        Assert.Equal(1L + 2 * (1 + vm.Evolution.Children), Results(vm).Visits.Counts[new Point(1, 1)]);
+        Assert.Equal(new Point(1, 1), Results(vm).Visits.Current);
+        var winner = Results(vm).Network;
+        vm.Evolution.GenerationMilliseconds = 30;
+        vm.Evolution.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(vm.Generation) && vm.Generation == 3) vm.ReturnHomeCommand.Execute(null);
+            if (change.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 3) vm.ReturnHomeCommand.Execute(null);
         };
-        CompleteRun(vm.RunSgdAsync);
-        Assert.Equal(3, vm.Generation);
-        Assert.Same(winner, vm.Network);
-        Assert.Single(vm.Visits.Counts);
-        Assert.Equal(1L + 3 * (1 + vm.Children), vm.Visits.Maximum);
+        CompleteRun(() => Evolve(vm));
+        Assert.Equal(3, vm.Evolution.Generation);
+        Assert.Same(winner, Results(vm).Network);
+        Assert.Single(Results(vm).Visits.Counts);
+        Assert.Equal(1L + 3 * (1 + vm.Evolution.Children), Results(vm).Visits.Maximum);
         Assert.Same(home, shell.CurrentPage);
         home.OpenSgdCommand.Execute(null);
 
         CompleteRun(async () =>
         {
-            vm.GenerationMilliseconds = 500;
-            var previousRun = vm.RunSgdAsync();
-            Assert.False(vm.RunSgdCommand.CanExecute(null));
-            Assert.True(vm.StopCommand.CanExecute(null));
-            vm.Generator.ChannelCount = 7;
-            vm.Generator.Method = "mssi";
-            vm.Generator.SamplesText = "16";
-            await vm.GenerateAsync();
+            vm.Evolution.GenerationMilliseconds = 500;
+            var previousRun = Evolve(vm);
+            Assert.False(vm.Evolution.RunSgdCommand.CanExecute(null));
+            Assert.True(vm.Evolution.StopCommand.CanExecute(null));
+            vm.Setup.Generator.ChannelCount = 7;
+            vm.Setup.Generator.Method = "mssi";
+            vm.Setup.Generator.SamplesText = "16";
+            await vm.Sampling.GenerateAsync();
             await previousRun;
         });
-        Assert.Equal(0, vm.Generation);
-        Assert.Equal(7, vm.Network!.Width);
-        Assert.Equal(2, vm.Visits.Counts.Values.Sum());
-        var packed = NetworkTransforms.Compact(NetworkTransforms.RemoveUnusedCes(vm.Network, vm.Usage!));
-        Assert.Equal(new Point(packed.ComparatorCount, packed.StageCount), vm.Visits.Current);
-        Assert.Equal(16, vm.Usage!.Tested);
-        Assert.False(vm.Usage.Exhaustive);
-        Assert.Equal("Best: [1, 1]", vm.BestAnnotation.Label);
-        Assert.Equal($"Current: [{packed.ComparatorCount}, {packed.StageCount}]", vm.CurrentAnnotation.Label);
-        Assert.Equal($"{vm.Usage.Failed:N0} failures across 16 sampled binary inputs", vm.Summary);
-        Assert.Equal(vm.Network.ComparatorCount, vm.Usage.CeUses.Count);
-        Assert.True(vm.RunSgdCommand.CanExecute(null));
-        Assert.False(vm.StopCommand.CanExecute(null));
+        vm.SamplingStepCommand.Execute(null);
+        Assert.Equal(3, vm.Evolution.Generation);
+        Assert.Same(winner, vm.Evolution.Network);
+        Assert.Equal(7, Results(vm).Network!.Width);
+        Assert.Equal(2, Results(vm).Visits.Counts.Values.Sum());
+        var packed = NetworkTransforms.Compact(NetworkTransforms.RemoveUnusedCes(Results(vm).Network!, CurrentUsage(vm)!));
+        Assert.Equal(new Point(packed.ComparatorCount, packed.StageCount), Results(vm).Visits.Current);
+        Assert.Equal(16, CurrentUsage(vm)!.Tested);
+        Assert.False(CurrentUsage(vm)!.Exhaustive);
+        Assert.Equal("Best: [1, 1]", Results(vm).BestAnnotation.Label);
+        Assert.Equal($"Current: [{packed.ComparatorCount}, {packed.StageCount}]", Results(vm).CurrentAnnotation.Label);
+        Assert.Equal($"{CurrentUsage(vm)!.Failed:N0} failures across 16 sampled binary inputs", Results(vm).Summary);
+        Assert.Equal(Results(vm).Network!.ComparatorCount, CurrentUsage(vm)!.CeUses.Count);
+        Assert.True(vm.Evolution.RunSgdCommand.CanExecute(null));
+        Assert.False(vm.Evolution.StopCommand.CanExecute(null));
         Assert.Same(untouched, random.SelectedNetwork);
     });
 
@@ -926,13 +1035,13 @@ public sealed class RandomNetworkTests
     {
         var vm = new SgdPageViewModel(() => { });
         // Child two sorts all inputs. The next child plots at a smaller size but fails two inputs.
-        vm.Generator.ChannelCount = 4;
-        vm.Generator.CountText = "4";
-        vm.Generator.SeedText = "44";
-        var recipe = vm.Generator.Snapshot();
+        vm.Setup.Generator.ChannelCount = 4;
+        vm.Setup.Generator.CountText = "4";
+        vm.Setup.Generator.SeedText = "44";
+        var recipe = vm.Setup.Generator.Snapshot();
         var token = TestContext.Current.CancellationToken;
         var parent = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), null, token);
-        var mutator = vm.Mutation.Create(parent.Model);
+        var mutator = vm.Evolution.Mutation.Create(parent.Model);
         var best = parent;
         var expected = new List<Point> { parent.Position };
         var expectedFailures = new List<int> { parent.Usage.Failed };
@@ -940,7 +1049,7 @@ public sealed class RandomNetworkTests
             ? $"Best: [{best.Network.ComparatorCount}, {best.Network.StageCount}]"
             : "Best";
         var expectedBest = new List<string> { ExpectedTitle() };
-        for (var i = 0; i < vm.Children; i++)
+        for (var i = 0; i < vm.Evolution.Children; i++)
         {
             var model = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(mutator, parent.Model, i, 1);
             var child = NetworkSearch.Prepare(recipe.Label, model, null, token);
@@ -955,35 +1064,36 @@ public sealed class RandomNetworkTests
         var recorded = new List<Point>();
         var recordedBest = new List<string>();
         var recordedSummaries = new List<string>();
-        CompleteRun(vm.GenerateAsync);
-        vm.PropertyChanged += (_, change) =>
+        CompleteRun(vm.Sampling.GenerateAsync);
+        vm.Evolution.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(vm.Visits) && vm.Visits.Current.HasValue)
+            if (change.PropertyName == nameof(SgdResultsViewModel.Visits) && vm.Evolution.Visits.Current.HasValue)
             {
-                recorded.Add(vm.Visits.Current!.Value);
-                recordedBest.Add(vm.BestAnnotation.Label);
-                recordedSummaries.Add(vm.Summary);
+                recorded.Add(vm.Evolution.Visits.Current!.Value);
+                recordedBest.Add(vm.Evolution.BestAnnotation.Label);
+                recordedSummaries.Add(vm.Evolution.Summary);
             }
-            if (change.PropertyName == nameof(vm.Generation) && vm.Generation == 1) vm.Stop();
+            if (change.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 1) vm.Stop();
         };
-        CompleteRun(vm.RunSgdAsync);
+        CompleteRun(() => Evolve(vm));
         Assert.Equal(new[] { 1, 1, 0, 2, 1, 0 }, expectedFailures);
         Assert.Equal(expected, recorded);
         Assert.Equal(expectedBest, recordedBest);
         Assert.Equal(expectedFailures.Select(n => $"{n:N0} failures across all {parent.Usage.Tested:N0} binary inputs"), recordedSummaries);
-        Assert.Equal(expected[^1], vm.Visits.Current);
-        Assert.Equal($"Current: [{expected[^1].X:0}, {expected[^1].Y:0}]", vm.CurrentAnnotation.Label);
-        foreach (var cell in expected.GroupBy(p => p)) Assert.Equal(cell.LongCount(), vm.Visits.Counts[cell.Key]);
-        Assert.Equal(expected.Count, vm.Visits.Counts.Values.Sum());
-        Assert.Equal(best.RawNetwork.Comparators, vm.Network!.Comparators);
-        Assert.Equal(2, vm.ParentSuccess.TotalVisits + vm.ParentFailure.TotalVisits);
-        Assert.Equal(vm.Children, vm.ChildSuccess.TotalVisits + vm.ChildFailure.TotalVisits);
+        Assert.Equal(expected[^1], vm.Evolution.Visits.Current);
+        Assert.Equal($"Current: [{expected[^1].X:0}, {expected[^1].Y:0}]", vm.Evolution.CurrentAnnotation.Label);
+        foreach (var cell in expected.GroupBy(p => p)) Assert.Equal(cell.LongCount(), vm.Evolution.Visits.Counts[cell.Key]);
+        Assert.Equal(expected.Count, vm.Evolution.Visits.Counts.Values.Sum());
+        Assert.Equal(best.RawNetwork.Comparators, vm.Evolution.Network!.Comparators);
+        Assert.Equal(2, vm.Evolution.ParentSuccess.TotalVisits + vm.Evolution.ParentFailure.TotalVisits);
+        Assert.Equal(vm.Evolution.Children, vm.Evolution.ChildSuccess.TotalVisits + vm.Evolution.ChildFailure.TotalVisits);
     });
 
     [Fact]
     public void Graph_best_tracks_only_zero_failure_sorters_until_clear() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         vm.Generator.ChannelCount = 4;
         vm.Generator.CountText = "1";
         vm.Generator.SeedText = "3";
@@ -1019,7 +1129,8 @@ public sealed class RandomNetworkTests
     [Fact]
     public void Best_known_rows_follow_the_channel_picker_and_match_each_catalog_variant() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         var ids = SorterLib.ids();
         foreach (var width in new[] { 8, 17, 22, 32, 64, 2 })
         {
@@ -1042,30 +1153,31 @@ public sealed class RandomNetworkTests
     public void Clear_and_Stop_apply_between_evaluated_children() => OnSta(() =>
     {
         var vm = new SgdPageViewModel(() => { });
-        vm.Generator.ChannelCount = 2;
-        CompleteRun(vm.GenerateAsync);
-        var original = vm.Network;
+        vm.Setup.Generator.ChannelCount = 2;
+        CompleteRun(vm.Sampling.GenerateAsync);
+        var original = vm.Sampling.Network;
         var childrenSeen = 0;
-        vm.PropertyChanged += (_, change) =>
+        vm.Evolution.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName != nameof(vm.Visits) || !vm.Visits.Current.HasValue) return;
+            if (change.PropertyName != nameof(SgdResultsViewModel.Visits) || !vm.Evolution.Visits.Current.HasValue) return;
             childrenSeen++;
-            if (childrenSeen == 1) vm.ClearGraphCommand.Execute(null);
+            if (childrenSeen == 1) vm.Evolution.ClearGraphCommand.Execute(null);
             if (childrenSeen == 3) vm.Stop();
         };
-        CompleteRun(vm.RunSgdAsync);
+        CompleteRun(() => Evolve(vm));
         Assert.Equal(3, childrenSeen);
-        Assert.Equal(0, vm.Generation);
-        Assert.Same(original, vm.Network);
-        Assert.Equal(new Point(1, 1), vm.Visits.Current);
-        Assert.Equal(2, vm.Visits.Maximum);
-        Assert.Equal(2, vm.Visits.Counts.Values.Sum());
+        Assert.Equal(0, vm.Evolution.Generation);
+        Assert.Same(original, vm.Evolution.Network);
+        Assert.Equal(new Point(1, 1), vm.Evolution.Visits.Current);
+        Assert.Equal(2, vm.Evolution.Visits.Maximum);
+        Assert.Equal(2, vm.Evolution.Visits.Counts.Values.Sum());
     });
 
     [Fact]
     public void Generation_counts_completed_sorters_across_sampling_and_single_draws_until_clear() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         vm.Generator.ChannelCount = 2;
         vm.Generator.CountText = "8";
         vm.PropertyChanged += (_, change) =>
@@ -1104,13 +1216,14 @@ public sealed class RandomNetworkTests
         Assert.Equal(0, vm.Visits.Maximum);
         Assert.Null(vm.Network);
         Assert.Null(vm.DisplayUsage);
-        Assert.True(vm.RunSgdCommand.CanExecute(null));
+        Assert.True(workflow.EvolutionStepCommand.CanExecute(null));
     });
 
     [Fact]
     public void Make_one_chooses_a_fresh_seed_for_each_single_draw_even_if_the_seed_editor_is_invalid() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         vm.Generator.ChannelCount = 2;
         vm.Generator.CountText = "8";
         vm.Generator.SeedText = "73";
@@ -1147,7 +1260,8 @@ public sealed class RandomNetworkTests
     [Fact]
     public void Sampling_clicks_prefer_visible_A_and_summary_follows_the_visible_draw() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         vm.Generator.ChannelCount = 4;
         vm.Generator.CountText = "1";
         vm.Generator.SeedText = "3";
@@ -1187,9 +1301,10 @@ public sealed class RandomNetworkTests
     [Fact]
     public void Clearing_the_selected_sampling_buffer_leaves_the_viewer_empty_until_another_selection_or_draw() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         vm.Generator.ChannelCount = 2;
-        vm.GenerationStepCommand.Execute(null);
+        workflow.SamplingStepCommand.Execute(null);
         CompleteRun(vm.GenerateAsync);
         vm.SampleToB = true;
         CompleteRun(vm.GenerateAsync);
@@ -1220,29 +1335,29 @@ public sealed class RandomNetworkTests
     public void Empty_graph_selection_keeps_its_coordinate_across_buffer_visibility_changes(bool evolution) => OnSta(() =>
     {
         var vm = new SgdPageViewModel(() => { });
-        vm.Generator.ChannelCount = 2;
-        CompleteRun(vm.GenerateAsync);
-        if (evolution) vm.EvolveSelectionCommand.Execute(null);
-        foreach (var annotation in vm.Annotations.Skip(3)) annotation.IsShown = false;
-        var network = vm.Network;
-        var occupied = vm.SelectedNetworkPosition!.Value;
+        vm.Setup.Generator.ChannelCount = 2;
+        CompleteRun(vm.Sampling.GenerateAsync);
+        if (evolution) vm.Sampling.EvolveSelectionCommand.Execute(null);
+        foreach (var annotation in Results(vm).Annotations.Skip(3)) annotation.IsShown = false;
+        var network = Results(vm).Network;
+        var occupied = Results(vm).SelectedNetworkPosition!.Value;
         var empty = new Point(occupied.X + 1, occupied.Y + 1);
-        vm.SelectGraphPointCommand.Execute(empty);
+        Results(vm).SelectGraphPointCommand.Execute(empty);
         void AssertEmpty(Point position)
         {
-            Assert.Equal(position, vm.GraphSelectionPosition);
-            Assert.Equal(position, vm.NetworkHistory.GraphPosition);
-            Assert.Equal("Graph", vm.NetworkHistory.IndexText);
-            Assert.Null(vm.Network);
-            Assert.Null(vm.DisplayUsage);
-            Assert.Null(vm.SelectedNetworkPosition);
-            Assert.Empty(vm.DisplayedNetworkDescription);
-            Assert.False(vm.SelectedAnnotation.HasSorter);
-            Assert.False(vm.EvolveSelectionCommand.CanExecute(null));
-            Assert.True(vm.NetworkHistory.FollowLiveCommand.CanExecute(null));
+            Assert.Equal(position, Results(vm).GraphSelectionPosition);
+            Assert.Equal(position, Results(vm).NetworkHistory.GraphPosition);
+            Assert.Equal("Graph", Results(vm).NetworkHistory.IndexText);
+            Assert.Null(Results(vm).Network);
+            Assert.Null(Results(vm).DisplayUsage);
+            Assert.Null(Results(vm).SelectedNetworkPosition);
+            Assert.Empty(Results(vm).DisplayedNetworkDescription);
+            Assert.False(Results(vm).SelectedAnnotation.HasSorter);
+            if (!evolution) Assert.False(vm.Sampling.EvolveSelectionCommand.CanExecute(null));
+            Assert.True(Results(vm).NetworkHistory.FollowLiveCommand.CanExecute(null));
         }
         AssertEmpty(empty);
-        foreach (var group in new[] { vm.FirstGroup, vm.SecondGroup })
+        foreach (var group in new[] { Results(vm).FirstGroup, Results(vm).SecondGroup })
             foreach (var buffer in new[] { group.Success, group.Failure })
             {
                 buffer.IsVisible = false;
@@ -1250,28 +1365,29 @@ public sealed class RandomNetworkTests
                 buffer.IsVisible = true;
                 AssertEmpty(empty);
             }
-        vm.NetworkHistory.FollowLiveCommand.Execute(null);
-        Assert.Same(network, vm.Network);
-        Assert.Null(vm.NetworkHistory.GraphPosition);
-        vm.FirstGroup.Success.IsVisible = false;
-        vm.ShowGraphNetwork(occupied);
+        Results(vm).NetworkHistory.FollowLiveCommand.Execute(null);
+        Assert.Same(network, Results(vm).Network);
+        Assert.Null(Results(vm).NetworkHistory.GraphPosition);
+        Results(vm).FirstGroup.Success.IsVisible = false;
+        Results(vm).ShowGraphNetwork(occupied);
         AssertEmpty(occupied);
-        vm.FirstGroup.Success.IsVisible = true;
-        Assert.Same(network, vm.Network);
-        Assert.Equal(occupied, vm.GraphSelectionPosition);
-        Assert.True(vm.SelectedAnnotation.HasSorter);
-        vm.FirstGroup.Success.IsVisible = false;
+        Results(vm).FirstGroup.Success.IsVisible = true;
+        Assert.Same(network, Results(vm).Network);
+        Assert.Equal(occupied, Results(vm).GraphSelectionPosition);
+        Assert.True(Results(vm).SelectedAnnotation.HasSorter);
+        Results(vm).FirstGroup.Success.IsVisible = false;
         AssertEmpty(occupied);
-        vm.NetworkHistory.IndexText = "1";
-        vm.NetworkHistory.FinishIndexEdit(commit: true);
-        Assert.Same(network, vm.Network);
-        Assert.Null(vm.NetworkHistory.GraphPosition);
+        Results(vm).NetworkHistory.IndexText = "1";
+        Results(vm).NetworkHistory.FinishIndexEdit(commit: true);
+        Assert.Same(network, Results(vm).Network);
+        Assert.Null(Results(vm).NetworkHistory.GraphPosition);
     });
 
     [Fact]
     public void Continuous_sampling_follows_new_draws_and_keeps_inspections_until_released() => OnSta(() =>
     {
-        var vm = new SgdPageViewModel(() => { });
+        var workflow = new SgdPageViewModel(() => { });
+        var vm = workflow.Sampling;
         vm.Generator.ChannelCount = 2;
         vm.Generator.CountText = "8";
         NetworkDefinition? first = null, inspected = null;
@@ -1309,7 +1425,7 @@ public sealed class RandomNetworkTests
                     Assert.Single(history.Entries);
                     history.FollowLiveCommand.Execute(null);
                     Assert.Same(vm.Usage, vm.DisplayUsage);
-                    vm.Stop();
+                    workflow.Stop();
                     break;
             }
         };
@@ -1323,64 +1439,64 @@ public sealed class RandomNetworkTests
     public void Evolve_uses_the_inspected_sample_even_as_a_batch_generates_newer_sorters() => OnSta(() =>
     {
         var vm = new SgdPageViewModel(() => { });
-        vm.Generator.Method = "mssi";
-        vm.Generator.ChannelCount = 4;
-        vm.Generator.CountText = "4";
-        vm.GenerationStepCommand.Execute(null);
-        Assert.False(vm.EvolveSelectionCommand.CanExecute(null));
-        CompleteRun(vm.GenerateAsync);
-        var selected = vm.NetworkHistory.Current!;
-        var recipe = vm.Generator.Snapshot();
+        vm.Setup.Generator.Method = "mssi";
+        vm.Setup.Generator.ChannelCount = 4;
+        vm.Setup.Generator.CountText = "4";
+        vm.SamplingStepCommand.Execute(null);
+        Assert.False(vm.Sampling.EvolveSelectionCommand.CanExecute(null));
+        CompleteRun(vm.Sampling.GenerateAsync);
+        var selected = Results(vm).NetworkHistory.Current!;
+        var recipe = vm.Setup.Generator.Snapshot();
 
-        vm.SampleToB = true;
-        vm.Generator.Method = "msce";
-        vm.Generator.ChannelCount = 2;
-        CompleteRun(vm.GenerateAsync);
-        vm.EvolveSelectionCommand.Execute(null);
-        vm.ShowGraphNetwork(vm.SelectedNetworkPosition!.Value);
-        vm.GenerationStepCommand.Execute(null);
-        vm.NetworkHistory.PreviousCommand.Execute(null);
-        Assert.Same(selected.Network, vm.Network);
-        vm.ShowGraphNetwork(selected.Position!.Value);
-        Assert.Same(selected.Network, vm.Network);
+        vm.Sampling.SampleToB = true;
+        vm.Setup.Generator.Method = "msce";
+        vm.Setup.Generator.ChannelCount = 2;
+        CompleteRun(vm.Sampling.GenerateAsync);
+        vm.Sampling.EvolveSelectionCommand.Execute(null);
+        Results(vm).ShowGraphNetwork(Results(vm).SelectedNetworkPosition!.Value);
+        vm.SamplingStepCommand.Execute(null);
+        Results(vm).NetworkHistory.PreviousCommand.Execute(null);
+        Assert.Same(selected.Network, Results(vm).Network);
+        Results(vm).ShowGraphNetwork(selected.Position!.Value);
+        Assert.Same(selected.Network, Results(vm).Network);
 
         CompleteRun(async () =>
         {
             var newerDraws = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            vm.PropertyChanged += (_, e) =>
+            vm.Sampling.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(vm.GeneratedCount) && vm.GeneratedCount == 2) newerDraws.TrySetResult();
+                if (e.PropertyName == nameof(vm.Sampling.GeneratedCount) && vm.Sampling.GeneratedCount == 2) newerDraws.TrySetResult();
             };
-            var batch = vm.BatchAsync();
+            var batch = vm.Sampling.BatchAsync();
             try
             {
                 await newerDraws.Task.WaitAsync(TimeSpan.FromSeconds(10));
-                Assert.Equal(2, vm.GenerationResult!.Channels);
-                Assert.True(vm.EvolveSelectionCommand.CanExecute(null));
-                vm.EvolveSelectionCommand.Execute(null);
+                Assert.Equal(2, vm.Sampling.GenerationResult!.Channels);
+                Assert.True(vm.Sampling.EvolveSelectionCommand.CanExecute(null));
+                vm.Sampling.EvolveSelectionCommand.Execute(null);
                 await batch.WaitAsync(TimeSpan.FromSeconds(10));
             }
             finally { vm.Stop(); }
         });
 
-        Assert.Equal(3, vm.WizardStep);
-        Assert.Same(selected.Network, vm.Network);
-        Assert.Same(selected.Usage, vm.Usage);
-        Assert.Equal(selected.Position, vm.SelectedNetworkPosition);
-        Assert.StartsWith("Parents", vm.DisplayedNetworkDescription);
-        Assert.Equal("mssi", vm.Mutation.Method);
-        Assert.True(vm.RunSgdCommand.CanExecute(null));
-        Assert.False(vm.StopCommand.CanExecute(null));
-        Assert.Equal(0, vm.Generation);
+        Assert.Equal(3, (int)vm.CurrentStep);
+        Assert.Same(selected.Network, Results(vm).Network);
+        Assert.Same(selected.Usage, CurrentUsage(vm));
+        Assert.Equal(selected.Position, Results(vm).SelectedNetworkPosition);
+        Assert.StartsWith("Parents", Results(vm).DisplayedNetworkDescription);
+        Assert.Equal("mssi", vm.Evolution.Mutation.Method);
+        Assert.True(vm.Evolution.RunSgdCommand.CanExecute(null));
+        Assert.False(vm.Evolution.StopCommand.CanExecute(null));
+        Assert.Equal(0, vm.Evolution.Generation);
         var token = TestContext.Current.CancellationToken;
         var parent = NetworkSearch.Prepare(recipe.Label, recipe.CreateModel(), null, token);
-        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.Generation) && vm.Generation == 1) vm.Stop(); };
+        vm.Evolution.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 1) vm.Stop(); };
         CompleteRun(async () =>
         {
-            var expected = await NetworkSearch.NextGenerationAsync(parent, vm.Mutation.Create(parent.Model), 1, vm.Children, token);
-            await vm.RunSgdAsync().WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Equal(1, vm.Generation);
-            Assert.Equal(expected.RawNetwork.Comparators, vm.Network!.Comparators);
+            var expected = await NetworkSearch.NextGenerationAsync(parent, vm.Evolution.Mutation.Create(parent.Model), 1, vm.Evolution.Children, token);
+            await Evolve(vm).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, vm.Evolution.Generation);
+            Assert.Equal(expected.RawNetwork.Comparators, Results(vm).Network!.Comparators);
         });
     });
 
@@ -1391,51 +1507,62 @@ public sealed class RandomNetworkTests
         NetworkRecipe? seed = null;
         Point? lastDraw = null;
         Task? evolution = null;
-        vm.PropertyChanged += (_, change) =>
+        vm.Sampling.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(vm.Network) && vm.GeneratedCount == 3)
+            if (change.PropertyName == nameof(SgdResultsViewModel.Network) && vm.Sampling.GeneratedCount == 3)
             {
-                seed = vm.Generator.Snapshot();
-                lastDraw = vm.Visits.Current;
-                evolution = vm.RunSgdAsync();
+                seed = vm.Setup.Generator.Snapshot();
+                lastDraw = Results(vm).Visits.Current;
+                vm.EvolutionStepCommand.Execute(null);
+                evolution = ResumeAfterSampling();
             }
-            if (change.PropertyName == nameof(vm.Generation) && vm.Generation == 12) vm.Stop();
+
         };
+        vm.Evolution.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 12) vm.Stop();
+        };
+        async Task ResumeAfterSampling()
+        {
+            while (vm.Sampling.IsRunning) await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            await vm.Evolution.RunSgdAsync();
+        }
         CompleteRun(async () =>
         {
-            await vm.BatchAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await vm.Sampling.BatchAsync().WaitAsync(TimeSpan.FromSeconds(10));
             Assert.NotNull(evolution);
             await evolution.WaitAsync(TimeSpan.FromSeconds(10));
         });
         Assert.NotNull(seed);
         var token = TestContext.Current.CancellationToken;
         var parent = NetworkSearch.Prepare(seed.Label, seed.CreateModel(), null, token);
-        var mutator = vm.Mutation.Create(parent.Model);
+        var mutator = vm.Evolution.Mutation.Create(parent.Model);
         Assert.Equal(parent.Position, lastDraw);
         CompleteRun(async () =>
         {
             for (var g = 1; g <= 12; g++)
-                parent = await NetworkSearch.NextGenerationAsync(parent, mutator, g, vm.Children, token);
+                parent = await NetworkSearch.NextGenerationAsync(parent, mutator, g, vm.Evolution.Children, token);
         });
-        Assert.Equal(parent.RawNetwork.Comparators, vm.Network!.Comparators);
-        Assert.Equal(1L + 12 * (1 + vm.Children), vm.Visits.Counts.Values.Sum());
-        Assert.Equal(0, vm.GeneratedCount);
-        Assert.Equal(12, vm.Generation);
+        Assert.Equal(parent.RawNetwork.Comparators, Results(vm).Network!.Comparators);
+        Assert.Equal(1L + 12 * (1 + vm.Evolution.Children), Results(vm).Visits.Counts.Values.Sum());
+        Assert.Equal(0, vm.Sampling.GeneratedCount);
+        Assert.Equal(12, vm.Evolution.Generation);
     });
 
     private static void CheckGraphPaneResizing(Sortopia.WPF.Views.SgdPage page)
     {
-        var controls = (Viewbox)page.FindName("GraphControlsViewport");
+        var controls = (Viewbox)FindSgdElement(page, "GraphControlsViewport");
         var border = Assert.IsType<Border>(controls.Child);
         var grid = (Grid)controls.Parent;
         var splitter = grid.Children.OfType<GridSplitter>().Single();
-        var plotViewport = (Viewbox)page.FindName("PlotViewport");
+        var plotViewport = (Viewbox)FindSgdElement(page, "PlotViewport");
         var plot = Assert.IsType<EvolutionPlot>(plotViewport.Child);
         var plotColumn = grid.ColumnDefinitions[Grid.GetColumn(plotViewport)];
-        var legend = (Viewbox)page.FindName("UsageLegendViewport");
+        var legend = (Viewbox)FindSgdElement(page, "UsageLegendViewport");
         var toolbar = (Grid)legend.Parent;
-        var layoutViewport = (Viewbox)page.FindName("NetworkLayoutViewport");
-        var buttons = ((StackPanel)layoutViewport.Child).Children.OfType<RadioButton>().ToArray();
+        var layoutViewport = (Viewbox)FindSgdElement(page, "NetworkLayoutViewport");
+        var layouts = (Sortopia.WPF.Views.StageLayoutSelector)layoutViewport.Child;
+        var buttons = ((WrapPanel)layouts.Content).Children.OfType<RadioButton>().ToArray();
         void Layout(double width)
         {
             page.Measure(new Size(width, 800));
@@ -1448,8 +1575,8 @@ public sealed class RandomNetworkTests
             var lastButton = buttons.Last();
             var buttonBounds = lastButton.TransformToAncestor(toolbar).TransformBounds(new Rect(lastButton.RenderSize));
             Assert.True(buttonBounds.Right <= toolbar.ColumnDefinitions[0].ActualWidth + 0.01);
-            var bufferPanel = (Border)page.FindName("GraphBuffersPanel");
-            var annotations = (ItemsControl)page.FindName("AnnotationToggles");
+            var bufferPanel = (Border)FindSgdElement(page, "GraphBuffersPanel");
+            var annotations = (ItemsControl)FindSgdElement(page, "AnnotationToggles");
             Assert.Equal(new Thickness(10), bufferPanel.Padding);
             Assert.Equal(bufferPanel.ActualWidth, annotations.MaxWidth, 5);
             Assert.True(annotations.ActualWidth <= bufferPanel.ActualWidth + 0.01);
@@ -1482,17 +1609,17 @@ public sealed class RandomNetworkTests
         Assert.Equal(border.ActualWidth / border.ActualHeight, bounds.Width / bounds.Height, 5);
         Layout(640);
         CheckLegend();
-        var diagram = (NetworkDiagram)page.FindName("SwitchDiagram");
+        var diagram = (NetworkDiagram)FindSgdElement(page, "SwitchDiagram");
         foreach (var button in buttons)
         {
             button.IsChecked = true;
-            Assert.Equal(int.Parse((string)button.Tag), diagram.DisplayMode);
+            Assert.Equal(Array.IndexOf(buttons, button), diagram.DisplayMode);
         }
         Layout(480);
-        var navigation = (Viewbox)page.FindName("NetworkNavigationViewport");
+        var navigation = (Viewbox)FindSgdElement(page, "NetworkNavigationViewport");
         var row = (StackPanel)navigation.Child;
         var slot = toolbar.ColumnDefinitions[Grid.GetColumn(navigation)];
-        var index = (TextBox)page.FindName("NetworkIndex");
+        var index = (TextBox)FindSgdElement(page, "NetworkIndex");
         var centerY = index.TranslatePoint(new Point(0, index.ActualHeight / 2), toolbar).Y;
         var previousRight = slot.Offset;
         foreach (FrameworkElement control in row.Children)
@@ -1515,8 +1642,15 @@ public sealed class RandomNetworkTests
         page.Measure(new Size(1000, 800));
         page.Arrange(new Rect(0, 0, 1000, 800));
         CompleteRun(async () => await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle));
-        var population = (System.Windows.Controls.Primitives.ToggleButton)page.FindName("StatsPopulationToggle");
-        var measure = (System.Windows.Controls.Primitives.ToggleButton)page.FindName("StatsMeasureToggle");
+        Assert.Same(vm.Setup, vm.CurrentPage);
+        vm.Setup.Generator.ChannelCount = 2;
+        vm.SamplingStepCommand.Execute(null);
+        page.UpdateLayout();
+        Assert.False(vm.Sampling.ShowResultPanes);
+        CompleteRun(vm.Sampling.GenerateAsync);
+        page.UpdateLayout();
+        var population = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "StatsPopulationToggle");
+        var measure = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "StatsMeasureToggle");
         Assert.Equal("Unique", population.Content);
         Assert.Equal("CEs", measure.Content);
         static void Toggle(System.Windows.Controls.Primitives.ToggleButton button, bool value) =>
@@ -1528,38 +1662,33 @@ public sealed class RandomNetworkTests
                 foreach (var text in Labels(VisualTreeHelper.GetChild(visual, i))) yield return text;
         }
         var names = new[] { "ParentSuccessToggle", "ParentFailureToggle", "ChildSuccessToggle", "ChildFailureToggle" };
-        var viewer = (DockPanel)page.FindName("NetworkViewer");
-        var graph = (Border)page.FindName("ResultsGraph");
-        Assert.Equal(Visibility.Collapsed, viewer.Visibility);
-        Assert.Equal(Visibility.Collapsed, graph.Visibility);
-        vm.Generator.ChannelCount = 2;
-        vm.GenerationStepCommand.Execute(null);
-        Assert.Equal(Visibility.Collapsed, viewer.Visibility);
-        Assert.Equal(Visibility.Collapsed, graph.Visibility);
-        CompleteRun(vm.GenerateAsync);
+        var viewer = (DockPanel)FindSgdElement(page, "NetworkViewer");
+        var graph = (Border)FindSgdElement(page, "ResultsGraph");
+        Assert.Equal(Visibility.Visible, viewer.Visibility);
+        Assert.Equal(Visibility.Visible, graph.Visibility);
         CheckGraphPaneResizing(page);
-        var annotations = (ItemsControl)page.FindName("AnnotationToggles");
+        var annotations = (ItemsControl)FindSgdElement(page, "AnnotationToggles");
         System.Windows.Controls.Primitives.ToggleButton AnnotationButton(SorterAnnotation item)
         {
             page.UpdateLayout();
             var container = annotations.ItemContainerGenerator.ContainerFromItem(item);
             return Assert.IsType<System.Windows.Controls.Primitives.ToggleButton>(VisualTreeHelper.GetChild(container, 0));
         }
-        var annotatedPlot = (EvolutionPlot)((Viewbox)page.FindName("PlotViewport")).Child;
-        var currentButton = AnnotationButton(vm.CurrentAnnotation);
-        var bestButton = AnnotationButton(vm.BestAnnotation);
-        var selectedButton = AnnotationButton(vm.SelectedAnnotation);
+        var annotatedPlot = (EvolutionPlot)((Viewbox)FindSgdElement(page, "PlotViewport")).Child;
+        var currentButton = AnnotationButton(Results(vm).CurrentAnnotation);
+        var bestButton = AnnotationButton(Results(vm).BestAnnotation);
+        var selectedButton = AnnotationButton(Results(vm).SelectedAnnotation);
         Assert.True(selectedButton.IsEnabled);
         Assert.Equal("Selected: [1, 1]", selectedButton.Content);
         Toggle(selectedButton, false);
         Assert.Null(annotatedPlot.SelectedPosition);
-        Assert.NotNull(vm.Network);
+        Assert.NotNull(Results(vm).Network);
         Toggle(selectedButton, true);
-        Assert.Equal(vm.SelectedNetworkPosition, annotatedPlot.SelectedPosition);
+        Assert.Equal(Results(vm).SelectedNetworkPosition, annotatedPlot.SelectedPosition);
         Assert.True(currentButton.IsEnabled);
         Assert.True(bestButton.IsEnabled);
         Assert.Equal("Current: [1, 1]", currentButton.Content);
-        Assert.Same(vm.CurrentAnnotation.Brush, Labels(currentButton).Single().Foreground);
+        Assert.Same(Results(vm).CurrentAnnotation.Brush, Labels(currentButton).Single().Foreground);
         Toggle(currentButton, false);
         Toggle(bestButton, false);
         Assert.False(annotatedPlot.ShowCurrent);
@@ -1567,24 +1696,32 @@ public sealed class RandomNetworkTests
         Toggle(currentButton, true);
         Toggle(bestButton, true);
         Assert.True(annotatedPlot.ShowCurrent);
-        Assert.Equal(vm.Visits.Current, annotatedPlot.BestPosition);
-        var variantButton = AnnotationButton(vm.Annotations.Single(item => item.Name == "Variant A"));
+        Assert.Equal(Results(vm).Visits.Current, annotatedPlot.BestPosition);
+        var variantButton = AnnotationButton(Results(vm).Annotations.Single(item => item.Name == "Variant A"));
         Toggle(variantButton, false);
         Assert.Empty(annotatedPlot.BestKnownNetworks);
         Toggle(variantButton, true);
         Assert.Single(annotatedPlot.BestKnownNetworks);
-        vm.ClearGroupCommand.Execute(vm.FirstGroup);
+        Results(vm).ClearGroupCommand.Execute(Results(vm).FirstGroup);
         Assert.False(selectedButton.IsEnabled);
         Assert.Null(annotatedPlot.SelectedPosition);
         vm.EvolutionStepCommand.Execute(null);
-        Assert.True(AnnotationButton(vm.SelectedAnnotation).IsEnabled);
+        vm.Evolution.ClearGraphCommand.Execute(null);
+        page.UpdateLayout();
+        annotations = (ItemsControl)FindSgdElement(page, "AnnotationToggles");
+        annotatedPlot = (EvolutionPlot)((Viewbox)FindSgdElement(page, "PlotViewport")).Child;
+        population = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "StatsPopulationToggle");
+        measure = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "StatsMeasureToggle");
+        viewer = (DockPanel)FindSgdElement(page, "NetworkViewer");
+        graph = (Border)FindSgdElement(page, "ResultsGraph");
+        Assert.True(AnnotationButton(Results(vm).SelectedAnnotation).IsEnabled);
         Assert.Equal(new Point(1, 1), annotatedPlot.SelectedPosition); // Viewer shows the Evolution parent.
-        Assert.False(AnnotationButton(vm.CurrentAnnotation).IsEnabled);
-        Assert.False(AnnotationButton(vm.BestAnnotation).IsEnabled);
-        var buffers = new[] { vm.ParentSuccess, vm.ParentFailure, vm.ChildSuccess, vm.ChildFailure };
+        Assert.False(AnnotationButton(Results(vm).CurrentAnnotation).IsEnabled);
+        Assert.False(AnnotationButton(Results(vm).BestAnnotation).IsEnabled);
+        var buffers = new[] { vm.Evolution.ParentSuccess, vm.Evolution.ParentFailure, vm.Evolution.ChildSuccess, vm.Evolution.ChildFailure };
         for (var i = 0; i < names.Length; i++)
         {
-            var tile = Assert.IsType<System.Windows.Controls.Primitives.ToggleButton>(page.FindName(names[i]));
+            var tile = Assert.IsType<System.Windows.Controls.Primitives.ToggleButton>(FindSgdElement(page, names[i]));
             Assert.True(tile.IsChecked);
             var network = CatalogNetwork.LoadAll()[0];
             var entry = new NetworkHistoryEntry(network, null, "identity");
@@ -1592,7 +1729,7 @@ public sealed class RandomNetworkTests
             var score = new SorterScore(buffers[i].Successful ? 0 : 1, 2, 4);
             page.UpdateLayout();
             var initialTileSize = tile.RenderSize;
-            var statisticsPanel = (Border)page.FindName("GraphBuffersPanel");
+            var statisticsPanel = (Border)FindSgdElement(page, "GraphBuffersPanel");
             var initialPanelSize = statisticsPanel.RenderSize;
             void CheckStats(int count, string min, string max, string mean, string sd)
             {
@@ -1633,24 +1770,32 @@ public sealed class RandomNetworkTests
             Toggle(measure, false);
             buffers[i].IsVisible = true;
             Assert.True(tile.IsChecked);
-            buffers[i].Clear();
+            vm.Evolution.ClearGroupCommand.Execute(i < 2 ? vm.Evolution.FirstGroup : vm.Evolution.SecondGroup);
             CheckStats(0, "—", "—", "—", "—");
             Toggle(population, true);
             CheckStats(0, "—", "—", "—", "—");
             Toggle(population, false);
             buffers[i].Record(score with { StageCount = 10_000, ComparatorCount = 1_000_000 }, 4, entry, fingerprint);
             CheckStats(1, "1,000,000", "1,000,000", "1,000,000", "0");
-            buffers[i].Clear();
+            vm.Evolution.ClearGroupCommand.Execute(i < 2 ? vm.Evolution.FirstGroup : vm.Evolution.SecondGroup);
             CheckStats(0, "—", "—", "—", "—");
         }
 
+        vm.Evolution.ClearGraphCommand.Execute(null);
         vm.SetupStepCommand.Execute(null);
-        Assert.Equal(Visibility.Collapsed, viewer.Visibility);
-        Assert.Equal(Visibility.Collapsed, graph.Visibility);
-        vm.GenerationStepCommand.Execute(null);
-        var destination = (System.Windows.Controls.Primitives.ToggleButton)page.FindName("SamplingDestination");
-        var clearFirst = (Button)page.FindName("ClearFirstGroup");
-        var clearSecond = (Button)page.FindName("ClearSecondGroup");
+        page.UpdateLayout();
+        Assert.Same(vm.Setup, vm.CurrentPage);
+        vm.SamplingStepCommand.Execute(null);
+        page.UpdateLayout();
+        annotations = (ItemsControl)FindSgdElement(page, "AnnotationToggles");
+        annotatedPlot = (EvolutionPlot)((Viewbox)FindSgdElement(page, "PlotViewport")).Child;
+        population = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "StatsPopulationToggle");
+        measure = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "StatsMeasureToggle");
+        viewer = (DockPanel)FindSgdElement(page, "NetworkViewer");
+        graph = (Border)FindSgdElement(page, "ResultsGraph");
+        var destination = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "SamplingDestination");
+        var clearFirst = (Button)FindSgdElement(page, "ClearFirstGroup");
+        var clearSecond = (Button)FindSgdElement(page, "ClearSecondGroup");
         Assert.Equal(3, Grid.GetColumn(clearFirst));
         Assert.Equal(3, Grid.GetColumn(clearSecond));
         Assert.Equal(1, Grid.GetRow(clearFirst));
@@ -1662,35 +1807,35 @@ public sealed class RandomNetworkTests
         var tileSurface = (Border)destination.Template.FindName("Tile", destination);
         var bufferAColor = ((SolidColorBrush)tileSurface.Background).Color;
         Assert.Equal(1, destination.Opacity);
-        CompleteRun(vm.GenerateAsync);
+        CompleteRun(vm.Sampling.GenerateAsync);
         Assert.Equal(Visibility.Visible, viewer.Visibility);
         Assert.Equal(Visibility.Visible, graph.Visibility);
-        vm.Generator.ChannelCount = 4;
-        vm.Generator.CountText = "1";
-        vm.Generator.SeedText = "3";
-        CompleteRun(vm.GenerateAsync);
-        Assert.Equal(1, vm.FirstGroup.Failure.UniqueCount);
-        vm.Generator.ChannelCount = 2;
-        vm.Generator.CountText = "8";
+        vm.Setup.Generator.ChannelCount = 4;
+        vm.Setup.Generator.CountText = "1";
+        vm.Setup.Generator.SeedText = "3";
+        CompleteRun(vm.Sampling.GenerateAsync);
+        Assert.Equal(1, Results(vm).FirstGroup.Failure.UniqueCount);
+        vm.Setup.Generator.ChannelCount = 2;
+        vm.Setup.Generator.CountText = "8";
         destination.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
         Assert.Equal("Buffer B", destination.Content);
         Assert.Equal(bufferAColor, ((SolidColorBrush)tileSurface.Background).Color);
         Assert.Equal(1, destination.Opacity);
-        vm.PropertyChanged += (_, args) =>
+        vm.Sampling.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName != nameof(vm.GeneratedCount)) return;
-            if (vm.GeneratedCount == 1) vm.SampleToB = false; // The current run still belongs to B.
-            if (vm.GeneratedCount == 2) vm.Stop();
+            if (args.PropertyName != nameof(vm.Sampling.GeneratedCount)) return;
+            if (vm.Sampling.GeneratedCount == 1) vm.Sampling.SampleToB = false; // The current run still belongs to B.
+            if (vm.Sampling.GeneratedCount == 2) vm.Stop();
         };
-        CompleteRun(() => vm.BatchAsync().WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Equal(1, vm.FirstGroup.Success.TotalVisits);
-        Assert.Equal(2, vm.SecondGroup.Success.TotalVisits);
-        var bSuccess = (System.Windows.Controls.Primitives.ToggleButton)page.FindName("ChildSuccessToggle");
-        var plot = (EvolutionPlot)((Viewbox)page.FindName("PlotViewport")).Child;
-        var legend = (TextBlock)page.FindName("PlotLegendTitle");
-        var maximum = (TextBlock)page.FindName("PlotLegendMax");
-        var scale = (System.Windows.Shapes.Rectangle)page.FindName("PlotLegendScale");
-        var bufferPanel = (Border)page.FindName("GraphBuffersPanel");
+        CompleteRun(() => vm.Sampling.BatchAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, Results(vm).FirstGroup.Success.TotalVisits);
+        Assert.Equal(2, Results(vm).SecondGroup.Success.TotalVisits);
+        var bSuccess = (System.Windows.Controls.Primitives.ToggleButton)FindSgdElement(page, "ChildSuccessToggle");
+        var plot = (EvolutionPlot)((Viewbox)FindSgdElement(page, "PlotViewport")).Child;
+        var legend = (TextBlock)FindSgdElement(page, "PlotLegendTitle");
+        var maximum = (TextBlock)FindSgdElement(page, "PlotLegendMax");
+        var scale = (System.Windows.Shapes.Rectangle)FindSgdElement(page, "PlotLegendScale");
+        var bufferPanel = (Border)FindSgdElement(page, "GraphBuffersPanel");
         Toggle(population, true);
         Toggle(measure, true);
         page.UpdateLayout();
@@ -1699,7 +1844,7 @@ public sealed class RandomNetworkTests
         Assert.True(scale.ActualWidth > 0);
         Assert.Equal(bufferPanel.ActualWidth - 48, scale.ActualWidth, 5);
         Assert.Equal("Max 4", maximum.Text);
-        Assert.Same(vm.Visits, plot.Visits);
+        Assert.Same(Results(vm).Visits, plot.Visits);
         Assert.True(plot.FillHighlightMarkers);
         Assert.Equal("Stages", measure.Content);
         Assert.Equal(new[] { "✓ 2", "min: ", "1", "max: ", "1", "mean: ", "1", "sd: ", "0" }, Labels(bSuccess).Select(label => label.Text));
@@ -1708,36 +1853,43 @@ public sealed class RandomNetworkTests
         Assert.Equal("✓ 1", Labels(bSuccess).First().Text);
         Assert.Equal("Unique sorters per point (log scale)", legend.Text);
         Assert.Equal("Max 2", maximum.Text); // The width-two sorter occurs in both A and B.
-        Assert.Same(vm.PlotData, plot.Visits);
+        Assert.Same(Results(vm).PlotData, plot.Visits);
         Assert.False(plot.FillHighlightMarkers);
         Clear(clearFirst);
         Assert.Equal("Max 1", maximum.Text);
         Assert.Equal(Colors.Red, Assert.IsType<SolidColorBrush>(scale.Fill).Color);
-        Assert.Equal(0, vm.FirstGroup.Success.UniqueCount);
-        Assert.Equal(0, vm.FirstGroup.Failure.UniqueCount);
-        Assert.Equal(2, vm.Visits.Counts.Values.Sum());
-        Assert.Single(vm.NetworkHistory.Entries);
+        Assert.Equal(0, Results(vm).FirstGroup.Success.UniqueCount);
+        Assert.Equal(0, Results(vm).FirstGroup.Failure.UniqueCount);
+        Assert.Equal(2, Results(vm).Visits.Counts.Values.Sum());
+        Assert.Single(Results(vm).NetworkHistory.Entries);
 
         vm.EvolutionStepCommand.Execute(null);
+        page.UpdateLayout();
+        clearFirst = (Button)FindSgdElement(page, "ClearFirstGroup");
+        clearSecond = (Button)FindSgdElement(page, "ClearSecondGroup");
         Assert.Equal("Clear Parents", ((TextBlock)clearFirst.Content).Text);
-        Assert.Empty(vm.Visits.Counts);
-        vm.Children = 1;
-        vm.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(vm.Generation) && vm.Generation == 1) vm.Stop(); };
-        CompleteRun(() => vm.RunSgdAsync().WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Equal(2, vm.ParentSuccess.TotalVisits);
-        Assert.Equal(1, vm.ChildSuccess.TotalVisits);
+        Assert.Empty(Results(vm).Visits.Counts);
+        vm.Evolution.Children = 1;
+        vm.Evolution.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 1) vm.Stop(); };
+        CompleteRun(() => Evolve(vm).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(2, vm.Evolution.ParentSuccess.TotalVisits);
+        Assert.Equal(1, vm.Evolution.ChildSuccess.TotalVisits);
         Clear(clearSecond);
-        Assert.Equal(2, vm.Visits.Counts.Values.Sum());
-        Assert.Single(vm.NetworkHistory.Entries);
+        Assert.Equal(2, Results(vm).Visits.Counts.Values.Sum());
+        Assert.Single(Results(vm).NetworkHistory.Entries);
         Clear(clearFirst);
-        Assert.Empty(vm.NetworkHistory.Entries);
-        Assert.Empty(vm.Visits.Counts);
-        vm.GenerationStepCommand.Execute(null);
+        Assert.Empty(Results(vm).NetworkHistory.Entries);
+        Assert.Empty(Results(vm).Visits.Counts);
+        vm.SamplingStepCommand.Execute(null);
+        page.UpdateLayout();
+        clearSecond = (Button)FindSgdElement(page, "ClearSecondGroup");
+        maximum = (TextBlock)FindSgdElement(page, "PlotLegendMax");
+        scale = (System.Windows.Shapes.Rectangle)FindSgdElement(page, "PlotLegendScale");
         Assert.Equal("Clear B", ((TextBlock)clearSecond.Content).Text);
         Assert.Equal("Max 1", maximum.Text);
-        Assert.Equal(2, vm.SecondGroup.Success.TotalVisits);
+        Assert.Equal(2, Results(vm).SecondGroup.Success.TotalVisits);
         Clear(clearSecond);
-        Assert.Empty(vm.Visits.Counts);
+        Assert.Empty(Results(vm).Visits.Counts);
         Assert.Equal("Max 0", maximum.Text);
         Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(scale.Fill).Color);
     }
@@ -2008,9 +2160,9 @@ public sealed class RandomNetworkTests
     {
         using var vm = new RandomNetworksPageViewModel(() => { });
         var page = new Sortopia.WPF.Views.RandomNetworksPage { DataContext = vm };
-        var diagram = (NetworkDiagram)page.FindName("Diagram");
-        var viewport = (ScrollViewer)page.FindName("DiagramViewport");
-        var selector = (Sortopia.WPF.Views.StageLayoutSelector)page.FindName("StageLayouts");
+        var diagram = (NetworkDiagram)FindSgdElement(page, "Diagram");
+        var viewport = (ScrollViewer)FindSgdElement(page, "DiagramViewport");
+        var selector = (Sortopia.WPF.Views.StageLayoutSelector)FindSgdElement(page, "StageLayouts");
         var usedCes = (RadioButton)selector.FindName("UsedCes");
         var compact = (RadioButton)selector.FindName("Compact");
         page.Measure(new Size(1000, 720));
@@ -2020,7 +2172,7 @@ public sealed class RandomNetworkTests
         Assert.Same(vm.SelectedNetwork, diagram.StaticNetwork);
         Assert.False(usedCes.IsEnabled);
         Assert.False(compact.IsEnabled);
-        Assert.Equal("160", ((TextBox)page.FindName("CeCountInput")).Text);
+        Assert.Equal("160", ((TextBox)FindSgdElement(page, "CeCountInput")).Text);
         vm.SelectedNetwork = RedundantNetwork();
         CompleteTest(vm);
         Assert.True(usedCes.IsEnabled);
@@ -2042,7 +2194,7 @@ public sealed class RandomNetworkTests
                 Assert.True(viewport.ExtentHeight <= viewport.ViewportHeight + 0.1, $"Height {viewport.ExtentHeight}/{viewport.ViewportHeight}, size {size}, mode {mode}");
             }
             var fitZoom = diagram.Zoom;
-            ((Slider)page.FindName("ZoomSlider")).Value = 4;
+            ((Slider)FindSgdElement(page, "ZoomSlider")).Value = 4;
             page.Measure(size);
             page.Arrange(new Rect(new Point(), size));
             page.UpdateLayout();
@@ -2053,7 +2205,7 @@ public sealed class RandomNetworkTests
             viewport.ScrollToVerticalOffset(viewport.ScrollableHeight / 2);
             page.UpdateLayout();
             Assert.True(viewport.HorizontalOffset > 0 || viewport.VerticalOffset > 0);
-            ((Slider)page.FindName("ZoomSlider")).Value = 1;
+            ((Slider)FindSgdElement(page, "ZoomSlider")).Value = 1;
             page.UpdateLayout();
             Assert.True(viewport.ExtentWidth <= viewport.ViewportWidth + 0.1);
             Assert.True(viewport.ExtentHeight <= viewport.ViewportHeight + 0.1);
@@ -2069,9 +2221,9 @@ public sealed class RandomNetworkTests
     {
         using var vm = new NetworksPageViewModel(() => { });
         var page = new Sortopia.WPF.Views.NetworksPage { DataContext = vm };
-        var viewport = (ScrollViewer)page.FindName("DiagramViewport");
-        var diagram = (NetworkDiagram)page.FindName("Diagram");
-        var rows = (Grid)page.FindName("PageRows");
+        var viewport = (ScrollViewer)FindSgdElement(page, "DiagramViewport");
+        var diagram = (NetworkDiagram)FindSgdElement(page, "Diagram");
+        var rows = (Grid)FindSgdElement(page, "PageRows");
         Assert.Equal(3, rows.RowDefinitions.Count);
         foreach (var size in new[] { new Size(1000, 720), new Size(640, 430), new Size(480, 360) })
         {
@@ -2118,6 +2270,7 @@ public sealed class RandomNetworkTests
             var content = Assert.IsType<ContentControl>(window.Content);
             void Layout()
             {
+                CompleteRun(async () => await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle));
                 content.Measure(new Size(1000, 740));
                 content.Arrange(new Rect(0, 0, 1000, 740));
                 content.UpdateLayout();
@@ -2127,13 +2280,13 @@ public sealed class RandomNetworkTests
             (sandbox ? home.OpenSandboxCommand : home.OpenSgdCommand).Execute(null);
             Layout();
             var presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
-            Sortopia.WPF.Views.SgdWorkspacePage page = sandbox
-                ? (Sortopia.WPF.Views.SandboxSgdPage)Assert.IsType<Sortopia.WPF.Views.SandboxPage>(VisualTreeHelper.GetChild(presenter, 0)).FindName("Workspace")
+            UserControl page = sandbox
+                ? (Sortopia.WPF.Views.SgdPage)Assert.IsType<Sortopia.WPF.Views.SandboxPage>(VisualTreeHelper.GetChild(presenter, 0)).FindName("Workspace")
                 : Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
             var vm = Assert.IsType<SgdPageViewModel>(page.DataContext);
             if (sandbox) Assert.Same(vm, Assert.IsType<SandboxPageViewModel>(shell.CurrentPage).Workspace);
-            var channels = (ComboBox)LogicalTreeHelper.FindLogicalNode(page, "ChannelPicker");
-            var stepButtons = ((WrapPanel)page.FindName("WizardSteps")).Children.OfType<Button>().ToArray();
+            var channels = (ComboBox)FindSgdElement(page, "ChannelPicker");
+            var stepButtons = ((WrapPanel)FindSgdElement(page, "WizardSteps")).Children.OfType<Button>().ToArray();
             var controlHeight = channels.ActualHeight;
             Assert.True(controlHeight > 0);
             void CheckHeights(params string[] names)
@@ -2141,7 +2294,7 @@ public sealed class RandomNetworkTests
                 Assert.All(stepButtons, button => Assert.Equal(controlHeight, button.ActualHeight));
                 foreach (var name in names)
                 {
-                    var control = (FrameworkElement)page.FindName(name);
+                    var control = (FrameworkElement)FindSgdElement(page, name);
                     Assert.Equal(controlHeight, control.ActualHeight);
                     if (control is TextBox editor)
                     {
@@ -2152,10 +2305,7 @@ public sealed class RandomNetworkTests
                 }
             }
             CheckHeights("MethodPicker", "StagesInput", "SampleInput", "Avx512Picker");
-            var makeOne = (Button)page.FindName("MakeOneButton");
-            var batch = (Button)page.FindName("BatchButton");
-            var evolve = (Button)page.FindName("EvolveButton");
-            Assert.Same(vm.BatchCommand, batch.Command);
+
             if (deferSelection)
             {
                 // Keep the source at its initial eight channels until Make one receives the displayed choice.
@@ -2164,54 +2314,61 @@ public sealed class RandomNetworkTests
             }
             channels.SetCurrentValue(ComboBox.SelectedItemProperty, 16);
             Assert.Equal(16, channels.SelectedItem);
-            Assert.Equal(deferSelection ? 8 : 16, vm.Generator.ChannelCount);
-            Assert.Equal(1, vm.WizardStep);
+            Assert.Equal(deferSelection ? 8 : 16, vm.Setup.Generator.ChannelCount);
+            Assert.Equal(1, (int)vm.CurrentStep);
             Assert.False(vm.EvolutionStepCommand.CanExecute(null));
-            vm.GenerationStepCommand.Execute(null);
+            // An explicitly deferred binding is committed before leaving Setup.
+            channels.GetBindingExpression(ComboBox.SelectedItemProperty)!.UpdateSource();
+            vm.SamplingStepCommand.Execute(null);
             Layout();
-            Assert.Equal(2, vm.WizardStep);
+            Assert.Equal(2, (int)vm.CurrentStep);
+            var makeOne = (Button)FindSgdElement(page, "MakeOneButton");
+            var batch = (Button)FindSgdElement(page, "BatchButton");
+            var evolve = (Button)FindSgdElement(page, "EvolveButton");
+            Assert.Same(vm.Sampling.BatchCommand, batch.Command);
             CheckHeights("SamplingDestination", "SourcePicker", "SeedInput");
-            var seedInput = (TextBox)page.FindName("SeedInput");
+            var seedInput = (TextBox)FindSgdElement(page, "SeedInput");
             Assert.Equal(controlHeight, ((Grid)seedInput.Parent).Children.OfType<Button>().Single().ActualHeight);
             Assert.False(evolve.IsEnabled);
-            var previousSeed = vm.Generator.SeedText;
+            var previousSeed = vm.Setup.Generator.SeedText;
             CompleteRun(async () =>
             {
                 var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                vm.PropertyChanged += (_, e) =>
+                vm.Sampling.PropertyChanged += (_, e) =>
                 {
-                    if (e.PropertyName == nameof(vm.CanEdit) && vm.EvolutionStepCommand.CanExecute(null)) published.TrySetResult();
+                    if (e.PropertyName == nameof(vm.Sampling.CanEdit) && vm.EvolutionStepCommand.CanExecute(null)) published.TrySetResult();
                 };
                 var peer = new ButtonAutomationPeer(makeOne);
                 ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)!).Invoke();
                 await published.Task.WaitAsync(TimeSpan.FromSeconds(10));
             });
-            Assert.Equal(16, vm.Generator.ChannelCount);
-            Assert.NotEqual(previousSeed, vm.Generator.SeedText);
-            Assert.Equal(vm.Generator.SeedText, seedInput.Text);
-            Assert.Equal(int.Parse(seedInput.Text), vm.GenerationResult!.Seed);
-            Assert.Equal(16, vm.Network!.Width);
-            Assert.True(vm.Usage!.Exhaustive);
-            Assert.Equal(65_536, vm.Usage.Tested);
-            Assert.Equal(vm.Usage.Failed, vm.GenerationResult!.Failures);
-            Assert.Equal(vm.Usage.Tested, vm.GenerationResult.Inputs);
+            Assert.Equal(16, vm.Setup.Generator.ChannelCount);
+            Assert.NotEqual(previousSeed, vm.Setup.Generator.SeedText);
+            Assert.Equal(vm.Setup.Generator.SeedText, seedInput.Text);
+            Assert.Equal(int.Parse(seedInput.Text), vm.Sampling.GenerationResult!.Seed);
+            Assert.Equal(16, Results(vm).Network!.Width);
+            Assert.True(CurrentUsage(vm)!.Exhaustive);
+            Assert.Equal(65_536, CurrentUsage(vm)!.Tested);
+            Assert.Equal(CurrentUsage(vm)!.Failed, vm.Sampling.GenerationResult!.Failures);
+            Assert.Equal(CurrentUsage(vm)!.Tested, vm.Sampling.GenerationResult.Inputs);
             Assert.True(evolve.IsEnabled);
             evolve.Command.Execute(evolve.CommandParameter);
-            Assert.Equal(3, vm.WizardStep);
-            Assert.Equal("CE swap frequency", ((TextBlock)page.FindName("UsageLegendTitle")).Text);
-            var index = (TextBox)page.FindName("NetworkIndex");
-            var parent = vm.NetworkHistory.Current!;
-            vm.NetworkHistory.Add(parent with { Description = "Another network" });
+            Assert.Equal(3, (int)vm.CurrentStep);
+            Layout();
+            Assert.Equal("CE swap frequency", ((TextBlock)FindSgdElement(page, "UsageLegendTitle")).Text);
+            var index = (TextBox)FindSgdElement(page, "NetworkIndex");
+            var parent = Results(vm).NetworkHistory.Current!;
+            Results(vm).NetworkHistory.Add(parent with { Description = "Another network" });
             Assert.Equal("2", index.Text);
             index.SetCurrentValue(TextBox.TextProperty, "1");
             index.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, index, null)
                 { RoutedEvent = Keyboard.LostKeyboardFocusEvent });
-            Assert.Same(parent, vm.NetworkHistory.Current);
+            Assert.Same(parent, Results(vm).NetworkHistory.Current);
             if (sandbox)
             {
-                var diagram = (NetworkDiagram)page.FindName("SwitchDiagram");
-                var layouts = (StackPanel)((Viewbox)page.FindName("NetworkLayoutViewport")).Child;
-                layouts.Children.OfType<RadioButton>().First().SetCurrentValue(RadioButton.IsCheckedProperty, true);
+                var diagram = (NetworkDiagram)FindSgdElement(page, "SwitchDiagram");
+                var layouts = (Sortopia.WPF.Views.StageLayoutSelector)((Viewbox)FindSgdElement(page, "NetworkLayoutViewport")).Child;
+                layouts.SetCurrentValue(Sortopia.WPF.Views.StageLayoutSelector.ModeProperty, 0);
                 Assert.Equal(0, diagram.DisplayMode);
 
                 // Navigation preserves the actual model, including its settings, buffers and selection.
@@ -2222,7 +2379,7 @@ public sealed class RandomNetworkTests
                 presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
                 var original = Assert.IsType<Sortopia.WPF.Views.SgdPage>(VisualTreeHelper.GetChild(presenter, 0));
                 Assert.Same(vm, original.DataContext);
-                Assert.Same(parent, vm.NetworkHistory.Current);
+                Assert.Same(parent, Results(vm).NetworkHistory.Current);
                 Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)original.Content).Background).Color);
                 Assert.Equal(Color.FromRgb(16, 19, 24), ((SolidColorBrush)((Border)page.Content).Background).Color);
                 vm.ReturnHomeCommand.Execute(null);
@@ -2236,8 +2393,8 @@ public sealed class RandomNetworkTests
     private static void CheckSgdControls(bool sandbox = false)
     {
         var vm = new SgdPageViewModel(() => { });
-        Sortopia.WPF.Views.SgdWorkspacePage host = sandbox
-            ? new Sortopia.WPF.Views.SandboxSgdPage { DataContext = vm }
+        UserControl host = sandbox
+            ? new Sortopia.WPF.Views.SandboxPage { DataContext = new SandboxPageViewModel(vm) }
             : new Sortopia.WPF.Views.SgdPage { DataContext = vm };
         void CheckUpperViewports()
         {
@@ -2248,13 +2405,13 @@ public sealed class RandomNetworkTests
                 host.UpdateLayout();
                 foreach (var name in new[] { "SettingsViewport", "OutputViewport" })
                 {
-                    var viewport = (Viewbox)host.FindName(name);
+                    var viewport = (Viewbox)FindSgdElement(host, name);
                     var child = (FrameworkElement)viewport.Child;
                     var bounds = child.TransformToAncestor(viewport).TransformBounds(new Rect(child.RenderSize));
                     Assert.True(bounds.Width > 0 && bounds.Height > 0);
                     Assert.True(bounds.Left >= -0.01 && bounds.Right <= viewport.ActualWidth + 0.01);
                     Assert.True(bounds.Top >= -0.01 && bounds.Bottom <= viewport.ActualHeight + 0.01);
-                    var area = (Grid)host.FindName("SettingsArea");
+                    var area = (Grid)FindSgdElement(host, "SettingsArea");
                     bounds = child.TransformToAncestor(area).TransformBounds(new Rect(child.RenderSize));
                     Assert.True(bounds.Left >= -0.01 && bounds.Right <= area.ActualWidth + 0.01);
                     Assert.True(bounds.Top >= -0.01 && bounds.Bottom <= area.ActualHeight + 0.01);
@@ -2264,53 +2421,53 @@ public sealed class RandomNetworkTests
         host.Measure(new Size(1000, 800));
         host.Arrange(new Rect(0, 0, 1000, 800));
         CompleteRun(async () => await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle));
-        var channels = (ComboBox)LogicalTreeHelper.FindLogicalNode(host, "ChannelPicker");
-        var methods = (ComboBox)LogicalTreeHelper.FindLogicalNode(host, "MethodPicker");
-        var avx = (CheckBox)LogicalTreeHelper.FindLogicalNode(host, "Avx512Picker");
+        var channels = (ComboBox)FindSgdElement(host, "ChannelPicker");
+        var methods = (ComboBox)FindSgdElement(host, "MethodPicker");
+        var avx = (CheckBox)FindSgdElement(host, "Avx512Picker");
         Assert.Equal(System.Runtime.Intrinsics.X86.Avx512F.IsSupported, avx.IsChecked);
         Assert.Equal(System.Runtime.Intrinsics.X86.Avx512F.IsSupported, avx.IsEnabled);
-        CompleteRun(vm.GenerateAsync);
-        Assert.Equal(8, vm.Network!.Width);
+        CompleteRun(vm.Sampling.GenerateAsync);
+        Assert.Equal(8, Results(vm).Network!.Width);
         if (avx.IsEnabled) avx.SetCurrentValue(CheckBox.IsCheckedProperty, true);
-        Assert.Equal(avx.IsEnabled, vm.UseAvx512);
+        Assert.Equal(avx.IsEnabled, vm.Setup.UseAvx512);
         methods.SetCurrentValue(ComboBox.SelectedItemProperty, "msuf4");
         Assert.Equal(8, channels.SelectedItem);
         channels.SetCurrentValue(ComboBox.SelectedItemProperty, 16);
-        Assert.Equal(16, vm.Generator.ChannelCount);
+        Assert.Equal(16, vm.Setup.Generator.ChannelCount);
         methods.SetCurrentValue(ComboBox.SelectedItemProperty, "msuf6");
         Assert.Equal(12, channels.SelectedItem);
         channels.SetCurrentValue(ComboBox.SelectedItemProperty, 24);
-        Assert.Equal(24, vm.Generator.ChannelCount);
-        Assert.False(vm.Generator.CanTestAll);
-        Assert.Equal("4096", vm.Generator.SamplesText);
-        vm.Generator.SamplesText = "513";
-        Assert.False(vm.RunSgdCommand.CanExecute(null));
-        vm.GenerationStepCommand.Execute(null);
+        Assert.Equal(24, vm.Setup.Generator.ChannelCount);
+        Assert.False(vm.Setup.Generator.CanTestAll);
+        Assert.Equal("4096", vm.Setup.Generator.SamplesText);
+        vm.Setup.Generator.SamplesText = "513";
+        Assert.False(vm.Evolution.RunSgdCommand.CanExecute(null));
+        vm.SamplingStepCommand.Execute(null);
         host.UpdateLayout();
         CheckUpperViewports();
-        var tables = (ItemsControl)host.FindName("GenerationWeightTables");
+        var tables = (ItemsControl)FindSgdElement(host, "GenerationWeightTables");
         Assert.Equal(2, tables.Items.Count);
         var unfolding = Assert.IsType<ParamEditor2d>(VisualTreeHelper.GetChild(tables.ItemContainerGenerator.ContainerFromIndex(1), 0));
         var weights = (ListBox)unfolding.FindName("Cells");
         weights.SelectedIndex = 4;
         ((Slider)unfolding.FindName("ValueSlider")).SetCurrentValue(Slider.ValueProperty, 0.25);
-        Assert.Equal(0.25, vm.GenerationOptions.Distributions[2].Weights[1].Value);
-        CompleteRun(vm.GenerateAsync);
+        Assert.Equal(0.25, vm.Sampling.GenerationOptions.Distributions[2].Weights[1].Value);
+        CompleteRun(vm.Sampling.GenerateAsync);
         vm.EvolutionStepCommand.Execute(null);
         host.UpdateLayout();
-        var editor = (ParamEditor2d)host.FindName("MutationEditor");
-        var overall = (Slider)host.FindName("ModificationRateSlider");
+        var editor = (ParamEditor2d)FindSgdElement(host, "MutationEditor");
+        var overall = (Slider)FindSgdElement(host, "ModificationRateSlider");
         host.UpdateLayout();
         CheckUpperViewports();
         Assert.InRange(overall.ActualWidth, 1, 126);
-        var rateControls = (Grid)host.FindName("EvolutionRateControls");
-        var options = (WrapPanel)host.FindName("EvolutionOptions");
+        var rateControls = (Grid)FindSgdElement(host, "EvolutionRateControls");
+        var options = (WrapPanel)FindSgdElement(host, "EvolutionOptions");
         Assert.True(rateControls.ActualWidth <= options.ActualWidth);
-        var variant = (ComboBox)host.FindName("VariantPicker");
+        var variant = (ComboBox)FindSgdElement(host, "VariantPicker");
         Assert.True(overall.TranslatePoint(new Point(0, overall.ActualHeight), host).Y < variant.TranslatePoint(new Point(), host).Y);
         Assert.Equal(-1, overall.Value);
         overall.SetCurrentValue(Slider.ValueProperty, -2.0);
-        Assert.Equal(0.01, vm.Mutation.OverallRate.Value);
+        Assert.Equal(0.01, vm.Evolution.Mutation.OverallRate.Value);
         var overallTrack = (System.Windows.Controls.Primitives.Track)overall.Template.FindName("PART_Track", overall);
         Assert.Equal(overall.Value, overallTrack.Value);
         Assert.Equal(overall.Minimum, overallTrack.Minimum);
@@ -2319,41 +2476,71 @@ public sealed class RandomNetworkTests
         var rate = (Slider)editor.FindName("ValueSlider");
         Assert.Equal(1, rate.Value);
         rate.SetCurrentValue(Slider.ValueProperty, 0.25);
-        Assert.Equal(0.25, vm.Mutation.ParameterTables[0].Parameters.Cells[1].Value);
-        var tablePicker = (ComboBox)host.FindName("MutationTablePicker");
+        Assert.Equal(0.25, vm.Evolution.Mutation.ParameterTables[0].Parameters.Cells[1].Value);
+        var tablePicker = (ComboBox)FindSgdElement(host, "MutationTablePicker");
         static IEnumerable<TextBlock> Labels(DependencyObject visual)
         {
             if (visual is TextBlock label) yield return label;
             for (var i = 0; i < VisualTreeHelper.GetChildrenCount(visual); i++)
                 foreach (var text in Labels(VisualTreeHelper.GetChild(visual, i))) yield return text;
         }
-        for (var index = 0; index < vm.Mutation.ParameterTables.Count; index++)
+        for (var index = 0; index < vm.Evolution.Mutation.ParameterTables.Count; index++)
         {
             tablePicker.SetCurrentValue(ComboBox.SelectedIndexProperty, index);
             host.UpdateLayout();
             var label = Assert.Single(Labels(tablePicker));
-            Assert.Equal(vm.Mutation.ParameterTables[index].Name, label.Text);
+            Assert.Equal(vm.Evolution.Mutation.ParameterTables[index].Name, label.Text);
             var bounds = label.TransformToAncestor(tablePicker).TransformBounds(new Rect(label.RenderSize));
             Assert.True(bounds.Left >= 0 && bounds.Right <= tablePicker.ActualWidth - 20);
             Assert.True(bounds.Top >= 2 && bounds.Bottom <= tablePicker.ActualHeight - 2);
         }
         tablePicker.SetCurrentValue(ComboBox.SelectedIndexProperty, 2);
         host.UpdateLayout();
-        Assert.Equal("Unfold 6 → 12", vm.Mutation.SelectedTable!.Name);
+        Assert.Equal("Unfold 6 → 12", vm.Evolution.Mutation.SelectedTable!.Name);
         ((ListBox)editor.FindName("Cells")).SelectedIndex = 1;
         rate.SetCurrentValue(Slider.ValueProperty, 0.5);
-        Assert.Equal(0.5, vm.Mutation.ParameterTables[2].Parameters.Cells[1].Value);
-        vm.Children = 1;
-        vm.PropertyChanged += (_, change) =>
+        Assert.Equal(0.5, vm.Evolution.Mutation.ParameterTables[2].Parameters.Cells[1].Value);
+        vm.Evolution.Children = 1;
+        vm.Evolution.PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName == nameof(vm.Generation) && vm.Generation == 1) vm.Stop();
+            if (change.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 1) vm.Stop();
         };
-        CompleteRun(() => vm.RunSgdAsync().WaitAsync(TimeSpan.FromSeconds(15)));
-        Assert.Equal(24, vm.Network.Width);
-        Assert.Equal(513, vm.Usage!.Tested);
-        Assert.Equal(1, vm.Generation);
-        Assert.Equal(3L, vm.Visits.Counts.Values.Sum());
-        Assert.Equal(1L + vm.Children, vm.UniqueSorters + vm.DuplicateSorters);
+        CompleteRun(() => Evolve(vm).WaitAsync(TimeSpan.FromSeconds(15)));
+        Assert.Equal(24, Results(vm).Network!.Width);
+        Assert.Equal(513, CurrentUsage(vm)!.Tested);
+        Assert.Equal(1, vm.Evolution.Generation);
+        Assert.Equal(3L, Results(vm).Visits.Counts.Values.Sum());
+        Assert.Equal(1L + vm.Evolution.Children, vm.Evolution.UniqueSorters + vm.Evolution.DuplicateSorters);
+    }
+
+
+    private static SgdResultsViewModel Results(SgdPageViewModel vm) =>
+        vm.CurrentStep == SgdStep.Evolution ? vm.Evolution : vm.Sampling;
+
+    private static NetworkCheckResult? CurrentUsage(SgdPageViewModel vm) =>
+        vm.CurrentStep == SgdStep.Evolution ? vm.Evolution.Usage : vm.Sampling.Usage;
+
+    private static Task Evolve(SgdPageViewModel vm)
+    {
+        vm.EvolutionStepCommand.Execute(null);
+        return vm.Evolution.RunSgdAsync();
+    }
+
+    private static object FindSgdElement(FrameworkElement host, string name)
+    {
+        host.UpdateLayout();
+        object? Find(DependencyObject node)
+        {
+            if (node is FrameworkElement element)
+            {
+                if (element.Name == name) return element;
+                if (element.FindName(name) is { } named) return named;
+            }
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+                if (Find(VisualTreeHelper.GetChild(node, i)) is { } found) return found;
+            return null;
+        }
+        return Find(host) ?? throw new InvalidOperationException($"Missing {name} in {host.GetType().Name}.");
     }
 
     private static void CompleteRun(Func<Task> run)

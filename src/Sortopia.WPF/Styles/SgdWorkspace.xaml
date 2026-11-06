@@ -1,0 +1,174 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:Sortopia.WPF.Controls" xmlns:views="clr-namespace:Sortopia.WPF.Views" xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels" xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+    <BooleanToVisibilityConverter x:Key="BoolVisibility" />
+    <sys:Double x:Key="SetupSamplingControlHeight">32</sys:Double>
+    <Style x:Key="GraphBufferToggle" TargetType="ToggleButton">
+        <Setter Property="Background" Value="{StaticResource Workspace.Canvas}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Workspace.Stroke}" />
+        <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+        <Setter Property="Margin" Value="2" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Tile" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Tile" Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" />
+                            <Setter TargetName="Tile" Property="BorderBrush" Value="{StaticResource Workspace.Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Tile" Property="BorderBrush" Value="{StaticResource Workspace.Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Tile" Property="BorderBrush" Value="White" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <DataTemplate x:Key="BufferStatsContent">
+        <StackPanel Width="180">
+            <Viewbox Height="18" Stretch="Uniform" StretchDirection="DownOnly">
+                <TextBlock FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" Typography.NumeralAlignment="Tabular">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                            <Setter Property="Text" Value="{Binding Count, StringFormat='✓ {0:N0}'}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataContext.Successful, RelativeSource={RelativeSource AncestorType=ToggleButton}}" Value="False">
+                                    <Setter Property="Text" Value="{Binding Count, StringFormat='× {0:N0}'}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Viewbox>
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="DataContext" Value="{Binding Ces}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.ShowStageStats, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                <Setter Property="DataContext" Value="{Binding Stages}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.Resources>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                        <Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" />
+                        <Setter Property="VerticalAlignment" Value="Center" />
+                    </Style>
+                    <Style x:Key="StatValue" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                        <Setter Property="Foreground" Value="White" />
+                        <Setter Property="FontFamily" Value="Consolas" />
+                        <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+                        <Setter Property="HorizontalAlignment" Value="Right" />
+                    </Style>
+                    <Style TargetType="Viewbox">
+                        <Setter Property="Stretch" Value="Uniform" />
+                        <Setter Property="StretchDirection" Value="DownOnly" />
+                        <Setter Property="HorizontalAlignment" Value="Right" />
+                        <Setter Property="Margin" Value="4,1" />
+                    </Style>
+                </Grid.Resources>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="34" />
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="26" />
+                    <ColumnDefinition Width="56" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="18" />
+                    <RowDefinition Height="18" />
+                </Grid.RowDefinitions>
+                <Border Grid.Column="1" Grid.RowSpan="2" Background="{StaticResource Workspace.Canvas}" CornerRadius="2" />
+                <Border Grid.Column="4" Grid.RowSpan="2" Background="{StaticResource Workspace.Canvas}" CornerRadius="2" />
+                <TextBlock Text="min: " />
+                <Viewbox Grid.Column="1">
+                    <TextBlock Style="{StaticResource StatValue}" Text="{Binding Min, StringFormat=N0, FallbackValue=—}" />
+                </Viewbox>
+                <TextBlock Grid.Column="3" Text="max: " />
+                <Viewbox Grid.Column="4">
+                    <TextBlock Style="{StaticResource StatValue}" Text="{Binding Max, StringFormat=N0, FallbackValue=—}" />
+                </Viewbox>
+                <TextBlock Grid.Row="1" Text="mean: " />
+                <Viewbox Grid.Row="1" Grid.Column="1">
+                    <TextBlock Style="{StaticResource StatValue}" Text="{Binding Mean, StringFormat='#,0.##', FallbackValue=—}" />
+                </Viewbox>
+                <TextBlock Grid.Row="1" Grid.Column="3" Text="sd: " />
+                <Viewbox Grid.Row="1" Grid.Column="4">
+                    <TextBlock Style="{StaticResource StatValue}" Text="{Binding Sd, StringFormat='#,0.##', FallbackValue=—}" />
+                </Viewbox>
+            </Grid>
+        </StackPanel>
+    </DataTemplate>
+    <Style x:Key="GraphStatsToggle" TargetType="ToggleButton" BasedOn="{StaticResource GraphBufferToggle}">
+        <Setter Property="Width" Value="190" />
+        <Setter Property="Height" Value="60" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Margin" Value="1" />
+        <Setter Property="Padding" Value="4,2" />
+        <Setter Property="IsChecked" Value="{Binding IsVisible, Mode=TwoWay}" />
+        <Setter Property="Content" Value="{Binding UniqueStats}" />
+        <Setter Property="ContentTemplate" Value="{StaticResource BufferStatsContent}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding DataContext.ShowVisitStats, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                <Setter Property="Content" Value="{Binding VisitStats}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="SectionTitle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="15" />
+    </Style>
+    <Style x:Key="ControlGroup" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource Workspace.Surface}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Workspace.Stroke}" />
+        <Setter Property="Padding" Value="14,12" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="Label">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Padding" Value="0,0,4,0" />
+    </Style>
+    <Style TargetType="ComboBox" BasedOn="{StaticResource NetworkComboBoxStyle}">
+        <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style x:Key="ResultRow" TargetType="HeaderedContentControl">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="HeaderedContentControl">
+                    <Border BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="0,0,0,1" Padding="0,2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.15*" MaxWidth="132" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{TemplateBinding Header}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,5,0" />
+                            <ContentPresenter Grid.Column="1" ContentSource="Content" TextElement.Foreground="{StaticResource Workspace.TextPrimary}" />
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>
