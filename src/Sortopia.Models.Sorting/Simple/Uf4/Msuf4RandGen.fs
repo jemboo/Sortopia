@@ -5,7 +5,9 @@ open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Permutations
 open Sortopia.Sorting
+open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
 open MathUtils
 
 [<Struct; CustomEquality; NoComparison>]
@@ -15,6 +17,7 @@ type msuf4RandGen =
           id: Guid<sorterModelGenId>
           rngFactory: rngFactory
           channelCount: int<channelCount>
+          prefix: ce array
           stageLength: int<stageLength>
           genRates: uf4GenRates
         }
@@ -22,11 +25,13 @@ type msuf4RandGen =
     static member create
             (rngFactory: rngFactory)
             (channelCount: int<channelCount>)
+            (prefix: ce array)
             (stageLength: int<stageLength>)
             (genRates: uf4GenRates)
             : msuf4RandGen =
 
         // Validation logic
+        let prefix = ModelPrefix.snapshot channelCount prefix
         if %channelCount < 1 then
             failwith $"ChannelCount must be at least 1, got {%channelCount}"
         else if (%channelCount - 1) &&& %channelCount <> 0 then
@@ -38,19 +43,21 @@ type msuf4RandGen =
         else
             let id =
                 [
-                    box "Sortopia.Models.Sorting/msuf4RandGen/v1"
+                    box "Sortopia.Models.Sorting/msuf4RandGen/v2"
                     box rngFactory
                     box (channelCount |> UMX.untag)
                     box (stageLength |> UMX.untag)
                     box genRates
-                ] |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
+                ] @ (ModelPrefix.hashValues prefix |> Seq.toList) |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
 
             { id = id
               rngFactory = rngFactory
               channelCount = channelCount
+              prefix = prefix
               stageLength = stageLength
               genRates = genRates }
 
+    member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
     member this.CeLength with get () = (this.ChannelCount * %this.StageLength / 2) |> UMX.tag<ceLength>
     member this.RngFactory with get () = this.rngFactory
@@ -65,7 +72,7 @@ type msuf4RandGen =
         | _ -> false
 
     override this.GetHashCode() =
-        hash (this.rngFactory, this.channelCount, this.stageLength, this.genRates)
+        hash (this.rngFactory, this.channelCount, this.stageLength, this.genRates, this.prefix)
 
     interface IEquatable<msuf4RandGen> with
         member this.Equals(other) = this.id = other.id
@@ -83,7 +90,7 @@ type msuf4RandGen =
             Array.init sc (fun _ ->
                 RandomUnfolderOps4.makeRandomTwoOrbitUf4 rando.NextFloat rates)
 
-        msuf4.create id width twoOrbitUnfolder4s
+        msuf4.create id width this.Prefix twoOrbitUnfolder4s
 
 
     member this.MakeSorterModelFromIndex (index: int<sortingGenIndex>) : msuf4 =

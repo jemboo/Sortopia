@@ -53,11 +53,20 @@ module SorterModelSet =
         SorterModel.getId model
 
 
-    let makeSorterSet (id:Guid<sorterSetId>)
+    let makeSorterSetWithoutPrefix (id:Guid<sorterSetId>)
                       (maxCeCount: int<ceLength> option)
                       (sorterModelSet: sorterModelSet) : sorterSet =
         let sorters =
             sorterModelSet.SorterModels
-            |> Array.map (fun sm -> SorterModel.makeSorter sm maxCeCount)
+            |> Array.map (fun sm -> SorterModel.makeSorterWithoutPrefix sm maxCeCount)
+        sorterSet.create id sorters
+
+
+    let makeSorterSetWithPrefix (id:Guid<sorterSetId>)
+                      (maxCeCount: int<ceLength> option)
+                      (sorterModelSet: sorterModelSet) : sorterSet =
+        let sorters =
+            sorterModelSet.SorterModels
+            |> Array.map (fun sm -> SorterModel.makeSorterWithPrefix sm maxCeCount)
         sorterSet.create id sorters
 

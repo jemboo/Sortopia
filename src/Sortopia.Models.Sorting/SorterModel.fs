@@ -15,6 +15,13 @@ type sorterModel =
 
 module SorterModel =
 
+    let getPrefix (model: sorterModel) : ce array =
+        match model with
+        | Simple model -> SimpleSorterModel.getPrefix model
+        | SimpleR model -> model.Prefix
+        | SimpleS model -> model.Prefix
+        | Unknown -> failwith "Unknown sorterModel"
+
     let getChannelCount (model: sorterModel) : int<channelCount> =
         match model with
         | Simple sms -> sms |> SimpleSorterModel.getChannelCount
@@ -45,11 +52,18 @@ module SorterModel =
         | Unknown -> failwith "Unknown sorterModel"
 
 
-    let makeSorter (model: sorterModel) (maxCeCount: int<ceLength> option)  : sorter =
+    let makeSorterWithoutPrefix (model: sorterModel) (maxCeCount: int<ceLength> option)  : sorter =
         match model with
-        | Simple sms -> sms |> SimpleSorterModel.makeSorter maxCeCount
-        | SimpleR sms -> sms |> SimpleSorterModelR.makeSorter maxCeCount
-        | SimpleS sms -> sms |> SimpleSorterModelS.makeSorter maxCeCount
+        | Simple sms -> sms |> SimpleSorterModel.makeSorterWithoutPrefix maxCeCount
+        | SimpleR sms -> sms |> SimpleSorterModelR.makeSorterWithoutPrefix maxCeCount
+        | SimpleS sms -> sms |> SimpleSorterModelS.makeSorterWithoutPrefix maxCeCount
+        | Unknown -> failwith "Unknown sorterModel"
+
+    let makeSorterWithPrefix (model: sorterModel) (maxCeCount: int<ceLength> option)  : sorter =
+        match model with
+        | Simple sms -> sms |> SimpleSorterModel.makeSorterWithPrefix maxCeCount
+        | SimpleR sms -> sms |> SimpleSorterModelR.makeSorterWithPrefix maxCeCount
+        | SimpleS sms -> sms |> SimpleSorterModelS.makeSorterWithPrefix maxCeCount
         | Unknown -> failwith "Unknown sorterModel"
 
     let asSimpleSorterModel (model: sorterModel) : simpleSorterModel =

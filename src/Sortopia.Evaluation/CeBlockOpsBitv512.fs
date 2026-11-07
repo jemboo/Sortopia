@@ -100,8 +100,10 @@ module CeBlockOpsBitv512 =
                         for word = 0 to 7 do
                             let bits = unsortedMask.GetElement(word) &&& activeBits currentBlock.SortableCount word
                             if bits <> 0UL then
-                                if failures = 0 then
-                                    reportFirstFailedLane nIdx blockIndex (word * 64 + BitOperations.TrailingZeroCount(bits))
+                                match reportFirstFailedLane with
+                                | Some report when failures = 0 ->
+                                    report nIdx blockIndex (word * 64 + BitOperations.TrailingZeroCount(bits))
+                                | _ -> ()
                                 failures <- failures + int (BitOperations.PopCount(bits))
                         localUnsortedCount.[nIdx] <- localUnsortedCount.[nIdx] + failures
 
@@ -122,28 +124,45 @@ module CeBlockOpsBitv512 =
 
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        countFailures CancellationToken.None (fun _ _ _ -> ()) inputs prefix ceBlocks
+        countFailures CancellationToken.None None inputs prefix ceBlocks
 
     let eval
             (test: sortableBitv512Tests)
             (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
             CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-            countFailures CancellationToken.None (fun _ _ _ -> ()) test.SimdSortBlocks prefix ceBlocks
+            countFailures CancellationToken.None None test.SimdSortBlocks prefix ceBlocks
 
-    /// Counts swaps and failures for one sorter and returns its first failing input in dataset order.
-    let evalWithCounterexample (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
+    /// Counts swaps and all failures for one sorter without tracking or reconstructing a counterexample.
+    let evalCounts (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        CeBlock.validateWidth test.ChannelCount ceBlock.Empty network
+        countFailures token None test.SimdSortBlocks ceBlock.Empty [| network |] |> Array.exactlyOne
+
+    let private evalWithFirstLane (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
         CeBlock.validateWidth test.ChannelCount ceBlock.Empty network
         let blocks = test.SimdSortBlocks
         let firstLanes = Array.create blocks.Length -1
         let recordLane _ blockIndex lane = firstLanes[blockIndex] <- lane
-        let result = countFailures token recordLane blocks ceBlock.Empty [| network |] |> Array.exactlyOne
-        let firstInput =
+        let result = countFailures token (Some recordLane) blocks ceBlock.Empty [| network |] |> Array.exactlyOne
+        let firstLane =
             firstLanes |> Array.tryFindIndex (fun lane -> lane >= 0)
-            |> Option.map (fun index ->
-                let lane = firstLanes[index]
-                blocks[index].Vectors |> Array.map (fun wire -> int ((wire.GetElement(lane / 64) >>> (lane % 64)) &&& 1UL)))
+            |> Option.map (fun index -> index, firstLanes[index])
+        result, blocks, firstLane
+
+    /// Return the original dataset position so a presorted-input caller can recover its original input.
+    let evalWithCounterexampleIndex (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
+        let result, blocks, firstLane = evalWithFirstLane test network token
+        let firstIndex = firstLane |> Option.map (fun (index, lane) ->
+            (blocks |> Array.take index |> Array.sumBy (fun block -> block.SortableCount)) + lane)
+        result, firstIndex
+
+    /// Counts swaps and failures for one sorter and returns its first failing input in dataset order.
+    let evalWithCounterexample (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
+        let result, blocks, firstLane = evalWithFirstLane test network token
+        let firstInput = firstLane |> Option.map (fun (index, lane) ->
+            blocks[index].Vectors |> Array.map (fun wire -> int ((wire.GetElement(lane / 64) >>> (lane % 64)) &&& 1UL)))
         result, firstInput
 
 

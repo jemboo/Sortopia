@@ -54,7 +54,7 @@ type simpleSorterModelSMutator =
                     |> IndelRates.mutate mutator.IndelRates (fun () -> newCode (), false)
                         (fun (_, activator) -> newCode (), activator) rng.NextFloat
                 let codes, values = Array.unzip entries
-                msce.create id source.ChannelCount codes |> simpleSorterModel.Msce, values
+                msce.create id source.ChannelCount source.Prefix codes |> simpleSorterModel.Msce, values
             | _ ->
                 SimpleSorterModelMutator.makeMutantSorterModelFromId this.ModelMutator parent.Model id,
                 parent.Activators

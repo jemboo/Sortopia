@@ -21,6 +21,12 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
 
     internal NetworkGeneratorSettings(bool configureSimpleGenerator)
     {
+        Prefix.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName != nameof(Prefix.Selected)) return;
+            OnPropertyChanged(nameof(CountLabel));
+            NotifyInputs();
+        };
         if (configureSimpleGenerator)
         {
             Options = new();
@@ -30,13 +36,14 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
     }
 
     public SimpleGenerationSettings? Options { get; }
+    public PrefixSelectorSettings Prefix { get; } = new();
     public string StageDefaultDescription { get; private set; } = "";
     private bool UsesCeCount => Options is null && Method == "msce";
 
     private void ApplyStageDefault()
     {
         if (Options is null) return;
-        // Both exhaustive and sampled checks use unrestricted binary inputs.
+        // Keep the full-sort recommendation as a conservative suffix budget.
         var recommendation = SimpleSorterStageCounts.fullSortDefault(SimpleSorterModelType.fromString(Method), ChannelCount);
         var source = recommendation.IsEstimate ? "estimate" : "measured";
         StageDefaultDescription = $"{recommendation.Stages} ({source}, full sort)";
@@ -59,6 +66,7 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
             method = value;
             channelCounts = SupportedWidths(value);
             channelCount = channelCounts.Contains(channelCount) ? channelCount : channelCounts[0];
+            Prefix.Configure(channelCount);
             Options?.Configure(method, channelCount);
             ApplyStageDefault();
             OnPropertyChanged(nameof(Method));
@@ -76,13 +84,15 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
         set
         {
             if (!channelCounts.Contains(value) || !SetProperty(ref channelCount, value)) return;
+            Prefix.Configure(value);
             Options?.Configure(method, value);
             ApplyStageDefault();
             NotifyInputs();
         }
     }
     public string CountText { get => countText; set { if (SetProperty(ref countText, value)) NotifyInputs(); } }
-    public string CountLabel => UsesCeCount ? "CE count (≤1M)" : "Stages (≤10,000)";
+    public string CountLabel => UsesCeCount ? "CE count (≤1M)"
+        : Prefix.Selected.Comparators.Length > 0 ? "Suffix stages (≤10,000)" : "Stages (≤10,000)";
     public string WidthHint => Method switch
     {
         "msrs" => "Even channel counts, starting at 4.",
@@ -109,11 +119,11 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
     public bool CanTestAll => testWidth <= NetworkCheck.MaxExhaustiveWidth;
     public string TestHint => CanTestAll
         ? $"Enter all for all {1 << testWidth:N0} binary combinations, or 1–1,000,000 random samples."
-        : "More than 18 channels: enter 1–1,000,000 random samples; all is unavailable.";
+        : $"More than {NetworkCheck.MaxExhaustiveWidth} channels: enter 1–1,000,000 random samples; all is unavailable.";
     internal bool AllSamples => string.Equals(SamplesText.Trim(), "all", StringComparison.OrdinalIgnoreCase);
-    public string TestInputError => AllSamples ? CanTestAll ? "" : "All inputs is available only through 18 channels."
+    public string TestInputError => AllSamples ? CanTestAll ? "" : $"All inputs is available only through {NetworkCheck.MaxExhaustiveWidth} channels."
         : int.TryParse(SamplesText, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count >= 1 && count <= NetworkCheck.MaxSamples
-            ? "" : "Enter a sample count from 1 to 1,000,000, or all for 18 channels or fewer.";
+            ? "" : $"Enter a sample count from 1 to 1,000,000, or all for {NetworkCheck.MaxExhaustiveWidth} channels or fewer.";
 
     internal void SetTestWidth(int width)
     {
@@ -152,20 +162,25 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
     internal NetworkRecipe Snapshot()
     {
         int size = int.Parse(CountText, CultureInfo.InvariantCulture);
-        return new(Method, ChannelCount, size, int.Parse(SeedText, CultureInfo.InvariantCulture), Options?.CreateGenerator(size));
+        return new(Method, ChannelCount, size, int.Parse(SeedText, CultureInfo.InvariantCulture),
+            Options?.CreateGenerator(size, Prefix.Selected.Comparators), Prefix.Selected);
     }
 }
 
-internal sealed record NetworkRecipe(string Method, int Width, int Size, int Seed, simpleSorterModelGen? ConfiguredGenerator = null)
+internal sealed record NetworkRecipe(string Method, int Width, int Size, int Seed,
+    simpleSorterModelGen? ConfiguredGenerator = null, PrefixChoice? PrefixSelection = null)
 {
-    internal string Label => $"{Method} · {Width} channels";
+    internal Sortopia.Sorting.Networks.ce[] Prefix => ConfiguredGenerator is null
+        ? PrefixSelection?.Comparators ?? [] : SimpleSorterModelGen.getPrefix(ConfiguredGenerator);
+    internal string PrefixName => PrefixSelection?.Name ?? "None";
+    internal string Label => $"{Method} · {Width} channels" + (Prefix.Length == 0 ? "" : $" · {PrefixName}");
     internal simpleSorterModel CreateModel()
     {
         Span<byte> bytes = stackalloc byte[16];
         bytes.Clear();
         System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes, Seed);
         var id = new Guid(bytes);
-        return ConfiguredGenerator is null ? RandomNetwork.generateModel(Method, Width, Size, id)
+        return ConfiguredGenerator is null ? SimpleSorterModel.withPrefix(Prefix, RandomNetwork.generateModel(Method, Width, Size, id))
             : SimpleSorterModelGen.makeSorterModelFromId(id, ConfiguredGenerator);
     }
 }

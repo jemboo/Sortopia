@@ -18,6 +18,7 @@ internal sealed record SearchCandidate(simpleSorterModel Model, NetworkDefinitio
     public NetworkDefinition Network { get; } = Network;
     internal NetworkDefinition RawNetwork { get; init; } = Network;
     internal NetworkCheckResult RawUsage { get; init; } = Usage;
+    internal int? RequestedSamples { get; init; } = Usage.Exhaustive ? null : Usage.Tested;
     internal SorterFingerprint Fingerprint { get; } = SorterFingerprint.FromPacked(Network.Sequence);
     internal bool IsDuplicate { get; init; }
     internal SorterScore Score => new(Usage.Failed, Network.StageCount, Network.ComparatorCount);
@@ -28,27 +29,35 @@ internal sealed record SearchCandidate(simpleSorterModel Model, NetworkDefinitio
 internal static class NetworkSearch
 {
     public static SearchCandidate Prepare(string label, simpleSorterModel model, int? samples, CancellationToken token,
-        SimdNetworkCheck? simd = null)
+        PreparedNetworkCheck? inputs = null)
     {
         token.ThrowIfCancellationRequested();
-        var raw = new NetworkDefinition(label, RandomNetwork.toStages(model));
-        var check = simd?.Run(raw, token) ?? NetworkCheck.Run(raw, samples, token);
+        var prefix = SimpleSorterModel.getPrefix(model);
+        var suffix = SimpleSorterModel.makeSorterWithoutPrefix(null, model);
+        var full = SimpleSorterModel.makeSorterWithPrefix(null, model);
+        inputs ??= new PreparedNetworkCheck(full.ChannelCount, samples, prefix, useSimd: false, token);
+        if (!inputs.Matches(full.ChannelCount, samples, prefix))
+            throw new ArgumentException("Prepared inputs must have the same width, coverage, and prefix as the model.", nameof(inputs));
+        var checkedSequence = inputs.EvaluateSuffix(suffix, token);
+        var raw = NetworkDefinition.FromSorter(label, full, prefix.Length);
+        var check = NetworkTransforms.PreserveUsage(full.Ces, raw, checkedSequence, removeUnused: false)!;
         token.ThrowIfCancellationRequested();
         var used = NetworkTransforms.RemoveUnusedCes(raw, check);
         token.ThrowIfCancellationRequested();
         var compact = NetworkTransforms.Compact(used);
         token.ThrowIfCancellationRequested();
         var usage = NetworkTransforms.PreserveUsage(raw, compact, check, removeUnused: true)!;
-        return new(model, compact, usage) { RawNetwork = raw, RawUsage = check };
+        return new(model, compact, usage) { RawNetwork = raw, RawUsage = check, RequestedSamples = samples };
     }
 
     public static async Task<SearchCandidate> NextGenerationAsync(SearchCandidate parent, simpleSorterModelMutator mutator,
         int generation, int children, CancellationToken token, Func<SorterScore, int, Task>? childEvaluated = null,
-        SimdNetworkCheck? simd = null, Func<SearchCandidate, int, Task>? candidateEvaluated = null,
+        PreparedNetworkCheck? inputs = null, Func<SearchCandidate, int, Task>? candidateEvaluated = null,
         SgdDuplicateTracker? duplicates = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(children);
-        int? samples = parent.Usage.Exhaustive ? null : parent.Usage.Tested;
+        var samples = parent.RequestedSamples;
+        inputs ??= new PreparedNetworkCheck(parent.Network.Width, samples, SimpleSorterModel.getPrefix(parent.Model), useSimd: false, token);
         var best = parent;
         for (var child = 0; child < children; child++)
         {
@@ -57,7 +66,7 @@ internal static class NetworkSearch
             var candidate = await Task.Run(() =>
             {
                 var mutant = SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(mutator, parent.Model, childIndex, generation);
-                var prepared = Prepare(parent.Network.Label, mutant, samples, token, simd);
+                var prepared = Prepare(parent.Network.Label, mutant, samples, token, inputs);
                 return duplicates is null ? prepared : prepared with { IsDuplicate = duplicates.Observe(prepared.Fingerprint) };
             }, token);
             token.ThrowIfCancellationRequested();

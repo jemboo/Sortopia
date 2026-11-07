@@ -31,6 +31,10 @@ Collection preserves scalar/packed representation; SIMD collectors return scalar
 
 The optional prefix describes CEs **already applied** to the supplied inputs, for example by Models.Inputs. Evaluation applies only the suffix block. Prefix CEs remain in result metrics and use `-1` as an unknown usage sentinel. They are never removed based on suffix counts. Last-used indices include the prefix offset; an entirely empty result uses `-1` in all versions.
 
+`CeBlockOpsBitv512.evalCounts` counts all failures and per-CE swaps for one sorter, supports cancellation, and skips tracking the first failing lane. Sampling and Evolution use this counts-only path for SIMD evaluation and likewise skip counterexamples in their scalar evaluator. Prefixed exhaustive runs use the reduced `msasPfx` datasets; prefixed sampled runs collapse duplicate presorted draws. Statistics count each distinct prefix output once, without weighting it by original-input multiplicity. Prefix usage is unmeasured because only the suffix is evaluated.
+
+`CeBlockOpsBitv512.evalWithCounterexampleIndex` remains available when a counterexample is needed. It returns the first failing input's zero-based position in dataset order, including when preceding SIMD blocks are shorter than 512 lanes. Callers that retain original inputs can use this to recover an original counterexample after presorting. `evalWithCounterexample` returns the failing value from the supplied dataset.
+
 ## Ownership and validation
 
 Blocks snapshot CE arrays. Evaluation results snapshot mutable usage counters and return copies of exposed arrays. V2/V3 results also snapshot their CE usage arrays. Mutable `ceUseCounts` supports atomic accumulation; finish writers before reading snapshots, equality or hashes, and do not use a changing counter container as a dictionary key.

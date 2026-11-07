@@ -24,6 +24,7 @@ type simpleSorterModelSGen =
             |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
         { modelGen = modelGen; activationProbability = activationProbability; id = id }
 
+    member this.Prefix = SimpleSorterModelGen.getPrefix this.modelGen
     member this.ModelGen = this.modelGen
     member this.ActivationProbability = this.activationProbability
     member this.Id = this.id

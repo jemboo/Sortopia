@@ -314,7 +314,7 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     }
 
     private static NetworkDefinition GenerateNetwork(NetworkGeneratorSettings generator) =>
-        new(generator.Label, RandomNetwork.toStages(generator.Snapshot().CreateModel()));
+        new(generator.Label, RandomNetwork.toStagesWithPrefix(generator.Snapshot().CreateModel()));
 
     private void Generate()
     {

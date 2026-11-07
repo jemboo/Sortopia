@@ -18,10 +18,12 @@
     <Compile Include="Activated/SimpleSorterModelRGenTests.fs" />
     <Compile Include="Serialization/SorterModelDtoTests.fs" />
     <Compile Include="MigrationTests.fs" />
+    <Compile Include="Sorting/PrefixTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sortopia.Models.Sorting.Serialization/Sortopia.Models.Sorting.Serialization.fsproj" />
     <ProjectReference Include="../../src/Sortopia.Models.Inputs/Sortopia.Models.Inputs.fsproj" />
+    <ProjectReference Include="../../src/Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FsUnit.xUnit" Version="8.0.0" />

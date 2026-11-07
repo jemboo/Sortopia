@@ -14,6 +14,19 @@ open Sortopia.Evaluation
 open Sortopia.Evaluation.Serialization
 
 module MigrationTests =
+    [<Fact>]
+    let ``counterexample index respects short blocks before the failing block`` () =
+        let zero = Vector512<uint64>.Zero
+        let first = sortBlockBitv512.createFromVectors [|zero; zero|] 2
+        let next = sortBlockBitv512.createFromVectors [|Vector512.Create(2UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL); zero|] 3
+        let inputs = sortableBitv512Tests.create (UMX.tag (Guid.NewGuid())) 2<channelCount> [|first; next|]
+        let suffix = ceBlock.create (UMX.tag (Guid.NewGuid())) 2<channelCount> [||]
+        let result, index = CeBlockOpsBitv512.evalWithCounterexampleIndex inputs suffix Threading.CancellationToken.None
+        Assert.Equal(Some 3, index)
+        Assert.Equal(1<sortableCount>, result.UnsortedCount)
+        let _, counterexample = CeBlockOpsBitv512.evalWithCounterexample inputs suffix Threading.CancellationToken.None
+        Assert.Equal<int>([|1; 0|], counterexample.Value)
+
     let private block (width: int) ces = ceBlock.create (UMX.tag (Guid.NewGuid())) (UMX.tag width) ces
     let private formats (values: int[][]) (width: int) =
         let width = UMX.tag<channelCount> width
@@ -57,6 +70,12 @@ module MigrationTests =
             let counted = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty network (UMX.tag false)
             counted.UseCountArray |> should equal expectedUsage
             int counted.UnsortedCount |> should equal failures.Count
+            match inputs with
+            | sortableTests.Bitv512 bitInputs ->
+                let countsOnly = CeBlockOpsBitv512.evalCounts bitInputs network Threading.CancellationToken.None
+                countsOnly.UseCountArray |> should equal expectedUsage
+                int countsOnly.UnsortedCount |> should equal failures.Count
+            | _ -> ()
             let collected = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty network (UMX.tag true)
             collected.UseCountArray |> should equal expectedUsage
             int collected.UnsortedCount |> should equal (failures |> Set.ofSeq |> Set.count)
@@ -64,6 +83,17 @@ module MigrationTests =
             for result in batch do
                 result.UseCountArray |> should equal expectedUsage
                 result.UnsortedCount |> should equal counted.UnsortedCount
+
+    [<Fact>]
+    let ``counts only evaluation validates width and honors cancellation`` () =
+        let zero = Vector512<uint64>.Zero
+        let inputs = sortableBitv512Tests.create (UMX.tag (Guid.NewGuid())) 2<channelCount>
+                         [|sortBlockBitv512.createFromVectors [|zero; zero|] 3|]
+        let network = block 2 [|ce.create 0 1|]
+        Assert.Throws<OperationCanceledException>(fun () ->
+            CeBlockOpsBitv512.evalCounts inputs network (Threading.CancellationToken(true)) |> ignore) |> ignore
+        Assert.Throws<ArgumentException>(fun () ->
+            CeBlockOpsBitv512.evalCounts inputs (block 3 [||]) Threading.CancellationToken.None |> ignore) |> ignore
 
     [<Fact>]
     let ``padding lanes never contribute usage or failures`` () =

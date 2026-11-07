@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Windows.Threading;
+using Sortopia.Models.Sorting.Simple;
+using Sortopia.Sorting.Networks;
 using Sortopia.WPF.Commands;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.ViewModels.Shared.Controls;
@@ -12,6 +14,7 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
     private readonly SgdOperation operation;
     private int generation;
     private int generationMilliseconds;
+    private bool syncingPrefix;
 
     internal SgdEvolutionPageViewModel(SgdSetupPageViewModel setup, SgdOperation operation)
         : base("Parents", "Children", secondIsChild: true)
@@ -27,18 +30,28 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
             if (Parent is null && change.PropertyName is nameof(NetworkGeneratorSettings.Method) or nameof(NetworkGeneratorSettings.ChannelCount))
             {
                 Mutation.SelectMethod(setup.Generator.Method, setup.Generator.ChannelCount);
+                Prefix.Configure(setup.Generator.ChannelCount);
                 UpdateBestKnownNetworks(setup.Generator.ChannelCount);
             }
         };
         Mutation.SelectMethod(setup.Generator.Method, setup.Generator.ChannelCount);
+        Prefix.PropertyChanged += (_, change) =>
+        {
+            if (syncingPrefix || change.PropertyName != nameof(Prefix.Selected)) return;
+            if (!CanChoosePrefix) { SyncPrefix(); return; }
+            PrefixChangeTask = ChangePrefixAsync(Prefix.Selected.Comparators);
+        };
         UpdateBestKnownNetworks(setup.Generator.ChannelCount);
     }
 
     internal SearchCandidate? Parent { get; private set; }
     public bool HasParent => Parent is not null;
     public bool CanRun => operation.IsIdle && HasParent && setup.IsValid;
-    public bool IsRunning => operation.Activity == SgdActivity.Evolve;
+    public bool IsRunning => operation.Activity is SgdActivity.Evolve or SgdActivity.ChangePrefix;
     public bool CanChooseMutation => operation.IsIdle;
+    public bool CanChoosePrefix => operation.IsIdle && HasParent;
+    public PrefixSelectorSettings Prefix { get; } = new();
+    internal Task PrefixChangeTask { get; private set; } = Task.CompletedTask;
     public override bool ShowResultPanes => HasParent;
     private protected override SearchCandidate? DisplayFallback => Parent;
     public NetworkCheckResult? Usage => Parent?.RawUsage;
@@ -65,6 +78,7 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
     internal void SetParent(SearchCandidate parent)
     {
         Parent = parent;
+        SyncPrefix();
         SetProperty(ref generation, 0, nameof(Generation));
         Mutation.SelectMethod(parent.Model.IsMsce ? "msce" : parent.Model.IsMssi ? "mssi" :
             parent.Model.IsMsrs ? "msrs" : parent.Model.IsMsuf4 ? "msuf4" : "msuf6", parent.RawNetwork.Width);
@@ -82,6 +96,45 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
         Status = "Selected sorter is ready. Choose Run SGD to start evolution.";
     }
 
+    private void SyncPrefix()
+    {
+        syncingPrefix = true;
+        try
+        {
+            if (Parent is { } parent) Prefix.SelectPrefix(parent.Network.Width, SimpleSorterModel.getPrefix(parent.Model));
+        }
+        finally { syncingPrefix = false; }
+    }
+
+    private Task ChangePrefixAsync(ce[] prefix) => operation.RunAsync(SgdActivity.ChangePrefix, async token =>
+    {
+        try
+        {
+            var previous = Parent!;
+            var samples = setup.Generator.SamplesFor(previous.Network.Width);
+            var useAvx512 = setup.UseAvx512;
+            var label = $"{Mutation.Method} · {previous.Network.Width} channels · {Prefix.Selected.Name}";
+            Status = "Testing the new prefix with the current suffix…";
+            var candidate = await Task.Run(() =>
+            {
+                var model = SimpleSorterModel.withPrefix(prefix, previous.Model);
+                var inputs = new PreparedNetworkCheck(previous.Network.Width, samples, prefix, useAvx512, token);
+                return NetworkSearch.Prepare(label, model, samples, token, inputs);
+            }, token);
+            token.ThrowIfCancellationRequested();
+            SetParent(candidate);
+            Status = "Prefix updated. Choose Run SGD to start from this sorter.";
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (operation.IsCurrent(token)) { SyncPrefix(); Status = "Prefix change stopped. The previous parent is retained."; }
+        }
+        catch (Exception error)
+        {
+            if (operation.IsCurrent(token)) { SyncPrefix(); Status = $"Prefix could not be changed. {error.Message}"; }
+        }
+    });
+
     public Task RunSgdAsync() => CanRun ? operation.RunAsync(SgdActivity.Evolve, EvolveAsync) : Task.CompletedTask;
 
     private async Task EvolveAsync(CancellationToken token)
@@ -90,13 +143,15 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
         {
             var parent = Parent!;
             var samples = setup.Generator.SamplesFor(parent.Network.Width);
-            var simd = setup.UseAvx512 ? await Task.Run(() => new SimdNetworkCheck(parent.Network.Width, samples, token), token) : null;
+            var useAvx512 = setup.UseAvx512;
+            var inputs = await Task.Run(() => new PreparedNetworkCheck(parent.Network.Width, samples,
+                SimpleSorterModel.getPrefix(parent.Model), useAvx512, token), token);
             token.ThrowIfCancellationRequested();
-            if (samples != (parent.Usage.Exhaustive ? (int?)null : parent.Usage.Tested))
+            if (samples != parent.RequestedSamples)
             {
                 Status = "Testing the parent on the new input set…";
                 var previous = parent;
-                parent = await Task.Run(() => NetworkSearch.Prepare(previous.Network.Label, previous.Model, samples, token, simd), token);
+                parent = await Task.Run(() => NetworkSearch.Prepare(previous.Network.Label, previous.Model, samples, token, inputs), token);
                 token.ThrowIfCancellationRequested();
                 Publish(parent, Generation);
                 RecordCandidate(parent, Generation);
@@ -125,7 +180,7 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
                     if (delay > TimeSpan.Zero) await Task.Delay(delay, token);
                     await Dispatcher.Yield(DispatcherPriority.Background);
                 }
-                parent = await NetworkSearch.NextGenerationAsync(parent, mutator, next, children, token, simd: simd, candidateEvaluated: RecordChild, duplicates: duplicates);
+                parent = await NetworkSearch.NextGenerationAsync(parent, mutator, next, children, token, inputs: inputs, candidateEvaluated: RecordChild, duplicates: duplicates);
                 token.ThrowIfCancellationRequested();
                 RecordCandidate(parent, next);
                 Publish(parent, next);
@@ -180,6 +235,7 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
         OnPropertyChanged(nameof(CanRun));
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(CanChooseMutation));
+        OnPropertyChanged(nameof(CanChoosePrefix));
         RunSgdCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();
     }

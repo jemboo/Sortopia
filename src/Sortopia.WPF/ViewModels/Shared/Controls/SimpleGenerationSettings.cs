@@ -7,6 +7,7 @@ using Sortopia.Models.Sorting.Simple.Uf4;
 using Sortopia.Models.Sorting.Simple.Uf6;
 using Sortopia.Permutations;
 using Sortopia.Sorting;
+using Sortopia.Sorting.Networks;
 
 namespace Sortopia.WPF.ViewModels.Shared.Controls;
 
@@ -85,8 +86,9 @@ public sealed class SimpleGenerationSettings : ViewModelBase
         new(rows.Select(group => group.Name).ToArray(), rows[0].Weights.Select(weight => weight.Name).ToArray(),
             (row, column) => rows[row].Weights[column]);
 
-    internal simpleSorterModelGen CreateGenerator(int stages)
+    internal simpleSorterModelGen CreateGenerator(int stages, ce[]? prefix = null)
     {
+        prefix ??= [];
         var rng = RandomSource switch
         {
             "SplitMix64" => rngFactory.SmxFactory,
@@ -98,19 +100,19 @@ public sealed class SimpleGenerationSettings : ViewModelBase
         switch (method)
         {
             case "msce":
-                return simpleSorterModelGen.NewSmmMsceRandGen(msceRandGen.create(rng, width, ExcludeSelf, StageLength.toCeLength(width, stages)));
+                return simpleSorterModelGen.NewSmmMsceRandGen(msceRandGen.create(rng, width, prefix, ExcludeSelf, StageLength.toCeLength(width, stages)));
             case "mssi":
-                return simpleSorterModelGen.NewSmmMssiRandGen(mssiRandGen.create(rng, width, stages));
+                return simpleSorterModelGen.NewSmmMssiRandGen(mssiRandGen.create(rng, width, prefix, stages));
             case "msrs":
-                return simpleSorterModelGen.NewSmmMsrsRandGen(msrsRandGen.create(rng, width, Distributions[0].OpsRates(), stages));
+                return simpleSorterModelGen.NewSmmMsrsRandGen(msrsRandGen.create(rng, width, prefix, Distributions[0].OpsRates(), stages));
             case "msuf4":
                 var uf4 = uf4GenRates.create(width, Distributions[0].OpsRates(), UnfoldingRates());
-                return simpleSorterModelGen.NewSmmMsuf4RandGen(msuf4RandGen.create(rng, width, stages, uf4));
+                return simpleSorterModelGen.NewSmmMsuf4RandGen(msuf4RandGen.create(rng, width, prefix, stages, uf4));
             case "msuf6":
                 var p = Distributions[0].Probabilities();
                 var seed = seed6GenRates.create(p[0], p[1], p[2], p[3], p[4], p[5], p[6]);
                 var uf6 = uf6GenRates.create(width, seed, UnfoldingRates());
-                return simpleSorterModelGen.NewSmmMsuf6RandGen(msuf6RandGen.create(rng, width, stages, uf6));
+                return simpleSorterModelGen.NewSmmMsuf6RandGen(msuf6RandGen.create(rng, width, prefix, stages, uf6));
             default: throw new InvalidOperationException("Choose a simple sorter model.");
         }
     }

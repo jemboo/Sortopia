@@ -3,6 +3,7 @@ namespace Sortopia.Models.Sorting.Serialization.Simple.Uf4
 
 open System
 open FSharp.UMX
+open Sortopia.Models.Sorting.Serialization
 open Sortopia.Permutations.Serialization.TwoOrbitUnfolder
 open Sortopia.Sorting
 open Sortopia.Models.Sorting
@@ -11,9 +12,10 @@ open Sortopia.Models.Sorting.Simple.Uf4
 type msuf4Dto =
     { id: Guid
       channelCount: int
-      twoOrbitUf4Dtos: twoOrbitUf4Dto array }
+      twoOrbitUf4Dtos: twoOrbitUf4Dto array
+      prefixCeCodes: int array }
 
-    static member Create(id: Guid, channelCount: int, twoOrbitUnfolder4s: twoOrbitUf4Dto array) : msuf4Dto =
+    static member Create(id: Guid, channelCount: int, twoOrbitUnfolder4s: twoOrbitUf4Dto array, ?prefixCeCodes: int array) : msuf4Dto =
         if isNull twoOrbitUnfolder4s then
             raise (ArgumentNullException(nameof twoOrbitUnfolder4s, "TwoOrbitUnfolder4s array cannot be null"))
         elif twoOrbitUnfolder4s.Length < 1 then
@@ -25,14 +27,16 @@ type msuf4Dto =
         else
             { id = id
               channelCount = channelCount
-              twoOrbitUf4Dtos = twoOrbitUnfolder4s }
+              twoOrbitUf4Dtos = twoOrbitUnfolder4s
+              prefixCeCodes = defaultArg prefixCeCodes [||] }
 
 module Msuf4Dto =
 
     let fromDomain (msuf4: msuf4) : msuf4Dto =
         { id = %msuf4.Id
           channelCount = %msuf4.ChannelCount
-          twoOrbitUf4Dtos = msuf4.TwoOrbitUnfolder4s |> Array.map TwoOrbitUf4Dto.fromDomain }
+          twoOrbitUf4Dtos = msuf4.TwoOrbitUnfolder4s |> Array.map TwoOrbitUf4Dto.fromDomain
+          prefixCeCodes = PrefixDto.encode msuf4.Prefix }
 
     let toDomain (dto: msuf4Dto) : msuf4 =
         let twoOrbitUnfolder4s =
@@ -41,6 +45,6 @@ module Msuf4Dto =
 
         msuf4.create
             (UMX.tag<sorterModelId> dto.id)
-            (UMX.tag<channelCount> dto.channelCount)
+            (UMX.tag<channelCount> dto.channelCount) (PrefixDto.decode dto.prefixCeCodes)
             twoOrbitUnfolder4s
 

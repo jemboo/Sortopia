@@ -26,14 +26,14 @@ let private modelId = UMX.tag<sorterModelId> (Guid.Parse "904bc889-6df3-4d9c-b3d
 [<Fact>]
 let model_arrays_are_owned_and_cannot_invalidate_activator_lengths () =
     let codes = [|1; 3|]
-    let model = msce.create modelId 4<channelCount> codes
+    let model = msce.create modelId 4<channelCount> [||] codes
     let activated = simpleSorterModelS.create (simpleSorterModel.Msce model) [|true; true|]
     codes.[0] <- -1
     model.CeCodes.[1] <- -1
     Assert.Equal<int>([|1; 3|], model.CeCodes)
-    Assert.Equal<ce>([|Ce.fromIndex 1; Ce.fromIndex 3|], activated.MakeSorter(None).Ces)
+    Assert.Equal<ce>([|Ce.fromIndex 1; Ce.fromIndex 3|], activated.MakeSorterWithoutPrefix(None).Ces)
     let permutations = [|permSi.create [|1; 0; 3; 2|]|]
-    let si = mssi.create modelId 4<channelCount> permutations
+    let si = mssi.create modelId 4<channelCount> [||] permutations
     permutations.[0] <- permSi.create [|3; 2; 1; 0|]
     si.Perm_Sis.[0] <- permutations.[0]
     Assert.Equal<int>([|1; 0; 3; 2|], si.Perm_Sis.[0].Array)
@@ -66,11 +66,11 @@ let all_model_array_containers_snapshot_inputs_and_outputs () =
         entries.[0] <- second
         (read model).[0] <- second
         Assert.True((first = (read model).[0]))
-    check (msrs.create modelId 4<channelCount>) (fun m -> m.Perm_Rss)
+    check (msrs.create modelId 4<channelCount> [||]) (fun m -> m.Perm_Rss)
         (permRs.create [|1; 0; 3; 2|]) (permRs.create [|3; 2; 1; 0|])
-    check (msuf4.create modelId 4<channelCount>) (fun m -> m.TwoOrbitUnfolder4s)
+    check (msuf4.create modelId 4<channelCount> [||]) (fun m -> m.TwoOrbitUnfolder4s)
         (twoOrbitUf4.create twoOrbitPairType.Ortho [||]) (twoOrbitUf4.create twoOrbitPairType.Para [||])
-    check (msuf6.create modelId 6<channelCount>) (fun m -> m.TwoOrbitUnfolder6s)
+    check (msuf6.create modelId 6<channelCount> [||]) (fun m -> m.TwoOrbitUnfolder6s)
         (twoOrbitUf6.create twoOrbitTripleType.Ortho1 [||]) (twoOrbitUf6.create twoOrbitTripleType.Ortho2 [||])
 
 [<Fact>]
@@ -132,10 +132,10 @@ let input_models_reject_invalid_dimensions_and_unavailable_prefixes () =
 
 [<Fact>]
 let models_reject_invalid_shapes_and_sets_reject_duplicate_ids () =
-    Assert.Throws<ArgumentNullException>(fun () -> msce.create modelId 4<channelCount> null |> ignore) |> ignore
-    Assert.Throws<ArgumentException>(fun () -> mssi.create modelId 8<channelCount> [|permSi.create [|1; 0; 3; 2|]|] |> ignore) |> ignore
-    Assert.Throws<ArgumentException>(fun () -> msceRandGen.create rngFactory.LcgFactory 1<channelCount> (UMX.tag true) 1<ceLength> |> ignore) |> ignore
-    let model = msce.create modelId 4<channelCount> [|1|] |> simpleSorterModel.Msce |> sorterModel.Simple
+    Assert.Throws<ArgumentNullException>(fun () -> msce.create modelId 4<channelCount> [||] null |> ignore) |> ignore
+    Assert.Throws<ArgumentException>(fun () -> mssi.create modelId 8<channelCount> [||] [|permSi.create [|1; 0; 3; 2|]|] |> ignore) |> ignore
+    Assert.Throws<ArgumentException>(fun () -> msceRandGen.create rngFactory.LcgFactory 1<channelCount> [||] (UMX.tag true) 1<ceLength> |> ignore) |> ignore
+    let model = msce.create modelId 4<channelCount> [||] [|1|] |> simpleSorterModel.Msce |> sorterModel.Simple
     Assert.Throws<ArgumentException>(fun () -> sorterModelSet.create (UMX.tag Guid.Empty) [|model; model|] 1<ceLength> |> ignore) |> ignore
     Assert.Throws<ArgumentException>(fun () -> sorterModelSet.create (UMX.tag Guid.Empty) [|model|] -1<ceLength> |> ignore) |> ignore
     Assert.Equal(sorterModelType.Unknown, SorterModelType.fromString (SorterModelType.toString sorterModelType.Unknown))

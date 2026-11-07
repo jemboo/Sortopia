@@ -1,12 +1,13 @@
 using System.Globalization;
 using System.Windows.Threading;
+using Sortopia.Models.Sorting.Simple;
 using Sortopia.WPF.Commands;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.ViewModels.Shared.Controls;
 
 namespace Sortopia.WPF.ViewModels.Pages.Sgd.SubPages;
 
-public sealed record GenerationDraw(string Method, int Channels, int Stages, int Seed, int Failures, int Inputs, string Coverage);
+public sealed record GenerationDraw(string Method, int Channels, int Stages, int Seed, int Failures, int Inputs, string Coverage, string Prefix = "None");
 
 public sealed class SgdSamplingPageViewModel : SgdResultsViewModel
 {
@@ -45,7 +46,8 @@ public sealed class SgdSamplingPageViewModel : SgdResultsViewModel
     internal SearchCandidate? LatestCandidate { get; private set; }
     internal bool LatestMatchesSetup => LatestCandidate is not null && GenerationResult is { } draw
         && draw.Method == Generator.Method && draw.Channels == Generator.ChannelCount
-        && int.TryParse(Generator.CountText, out var stages) && stages == draw.Stages;
+        && int.TryParse(Generator.CountText, out var stages) && stages == draw.Stages
+        && Generator.Prefix.Selected.Matches(SimpleSorterModel.getPrefix(LatestCandidate.Model));
     public NetworkCheckResult? Usage => LatestCandidate?.RawUsage;
     public long GeneratedCount { get; private set; }
     public string GenerationOutcomes => $"{FirstGroup.Success.TotalVisits + SecondGroup.Success.TotalVisits:N0} / {FirstGroup.Failure.TotalVisits + SecondGroup.Failure.TotalVisits:N0}";
@@ -82,16 +84,16 @@ public sealed class SgdSamplingPageViewModel : SgdResultsViewModel
             {
                 Status = repeat ? "Sampling random seeds. Choose Stop to finish the batch."
                     : "Generating, testing and compacting the starting network…";
-                var simd = useAvx512 ? await Task.Run(() => new SimdNetworkCheck(recipe.Width, samples, token), token) : null;
+                var inputs = await Task.Run(() => new PreparedNetworkCheck(recipe.Width, samples, recipe.Prefix, useAvx512, token), token);
                 token.ThrowIfCancellationRequested();
                 while (true)
                 {
                     var draw = recipe;
-                    var candidate = await Task.Run(() => NetworkSearch.Prepare(draw.Label, draw.CreateModel(), samples, token, simd), token);
+                    var candidate = await Task.Run(() => NetworkSearch.Prepare(draw.Label, draw.CreateModel(), samples, token, inputs), token);
                     token.ThrowIfCancellationRequested();
                     if (repeat) Generator.SeedText = draw.Seed.ToString(CultureInfo.InvariantCulture);
                     GenerationResult = new(draw.Method, draw.Width, draw.Size, draw.Seed,
-                        candidate.Usage.Failed, candidate.Usage.Tested, candidate.Usage.Coverage);
+                        candidate.Usage.Failed, candidate.Usage.Tested, candidate.Usage.Coverage, draw.PrefixName);
                     Publish(candidate, group, repeat);
                     if (!repeat)
                     {

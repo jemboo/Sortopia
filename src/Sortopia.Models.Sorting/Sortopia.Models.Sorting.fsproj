@@ -3,6 +3,7 @@
     <Compile Include="ModelSortingTypes.fs" />
     <Compile Include="SorterModelType.fs" />
     <Compile Include="Simple/SimpleSorterStageCounts.fs" />
+    <Compile Include="Simple/ModelPrefix.fs" />
     <Compile Include="Simple/Ce/Msce.fs" />
     <Compile Include="Simple/Ce/MsceRandGen.fs" />
     <Compile Include="Simple/Ce/MsceRandMutate.fs" />

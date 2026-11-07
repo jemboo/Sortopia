@@ -84,7 +84,7 @@ type msceRandMutate =
                         (rng.NextFloat)
                         parent.CeCodes
 
-        msce.create id parent.ChannelCount ceCodes
+        msce.create id parent.ChannelCount parent.Prefix ceCodes
 
 
     member this.MakeSorterModelFromIndexAndMod

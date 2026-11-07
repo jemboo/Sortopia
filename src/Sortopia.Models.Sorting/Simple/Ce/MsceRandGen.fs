@@ -7,6 +7,7 @@ open Sortopia.Permutations
 open Sortopia.Sorting
 open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
 
 [<Struct; CustomEquality; NoComparison>]
 type msceRandGen =
@@ -15,14 +16,17 @@ type msceRandGen =
           id : Guid<sorterModelGenId>
           rngFactory: rngFactory
           channelCount: int<channelCount>
+          prefix: ce array
           excludeSelfCe: bool<excludeSelfCe>
           ceLength: int<ceLength> }
     with
     static member create
             (rngFactory: rngFactory)
             (channelCount: int<channelCount>)
+            (prefix: ce array)
             (excludeSelfCe: bool<excludeSelfCe>)
             (ceLength: int<ceLength>) : msceRandGen =
+        let prefix = ModelPrefix.snapshot channelCount prefix
         if %ceLength < 1 then
             failwith "ceLength length must be at least 1"
         else if %channelCount < 1 then
@@ -32,20 +36,22 @@ type msceRandGen =
         else
             let id =
                 [
-                    box "msceRandGen"
+                    box "Sortopia.Models.Sorting/msceRandGen/v2"
                     box rngFactory
                     box (channelCount |> UMX.untag)
                     box (excludeSelfCe |> UMX.untag)
                     box (ceLength |> UMX.untag)
-                ] |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
+                ] @ (ModelPrefix.hashValues prefix |> Seq.toList) |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
 
             { id = id;
               rngFactory = rngFactory;
-              channelCount = channelCount;
+              channelCount = channelCount
+              prefix = prefix
               excludeSelfCe = excludeSelfCe;
               ceLength = ceLength }
 
 
+    member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
     member this.RngFactory with get () = this.rngFactory
     member this.ChannelCount with get () = this.channelCount
@@ -56,17 +62,19 @@ type msceRandGen =
         match obj with
         | :? msceRandGen as other ->
             this.rngFactory = other.rngFactory &&
+            this.prefix = other.prefix &&
             this.channelCount = other.channelCount &&
             this.excludeSelfCe = other.excludeSelfCe &&
             this.ceLength = other.ceLength
         | _ -> false
 
     override this.GetHashCode() =
-        hash (this.rngFactory, this.channelCount, this.excludeSelfCe, this.ceLength)
+        hash (this.rngFactory, this.channelCount, this.excludeSelfCe, this.ceLength, this.prefix)
 
     interface IEquatable<msceRandGen> with
         member this.Equals(other) =
             this.rngFactory = other.rngFactory &&
+            this.prefix = other.prefix &&
             this.channelCount = other.channelCount &&
             this.excludeSelfCe = other.excludeSelfCe &&
             this.ceLength = other.ceLength
@@ -89,7 +97,7 @@ type msceRandGen =
 
         msce.create
             id
-            this.ChannelCount
+            this.ChannelCount this.Prefix
             ceCodes
 
 

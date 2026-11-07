@@ -2,6 +2,7 @@
 namespace Sortopia.Models.Sorting.Serialization.Simple.Si
 
 open FSharp.UMX
+open Sortopia.Models.Sorting.Serialization
 open Sortopia.Core.Serialization
 open Sortopia.Permutations.Serialization
 open Sortopia.Sorting
@@ -10,14 +11,16 @@ open Sortopia.Models.Sorting.Simple.Si
 type mssiRandGenDto =
     { channelCount: int
       rngFactoryDto: rngFactoryDto
-      stageLength: int }
+      stageLength: int
+      prefixCeCodes: int array }
 
 module MssiRandGenDto =
 
     let fromDomain (mssiRandGen: mssiRandGen) : mssiRandGenDto =
         { channelCount = %mssiRandGen.ChannelCount
           rngFactoryDto = mssiRandGen.RngFactory |> RngFactoryDto.fromDomain
-          stageLength = %mssiRandGen.StageLength }
+          stageLength = %mssiRandGen.StageLength
+          prefixCeCodes = PrefixDto.encode mssiRandGen.Prefix }
 
     let toDomain (dto: mssiRandGenDto) : Result<mssiRandGen, string> =
         try
@@ -29,7 +32,7 @@ module MssiRandGenDto =
                 let mssiRandGen =
                     mssiRandGen.create
                         (dto.rngFactoryDto |> RngFactoryDto.toDomain)
-                        (UMX.tag<channelCount> dto.channelCount)
+                        (UMX.tag<channelCount> dto.channelCount) (PrefixDto.decode dto.prefixCeCodes)
                         (UMX.tag<stageLength> dto.stageLength)
                 Ok mssiRandGen
         with

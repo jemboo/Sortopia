@@ -199,7 +199,7 @@ public sealed class RandomNetworkTests
         var model = vm.Setup.Generator.Snapshot().CreateModel();
         var child = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(
             vm.Evolution.Mutation.Create(model), model, 0, 1);
-        Assert.Equal(width, RandomNetwork.toStages(child).ChannelCount);
+        Assert.Equal(width, RandomNetwork.toStagesWithPrefix(child).ChannelCount);
     }
 
     [Theory]
@@ -249,8 +249,8 @@ public sealed class RandomNetworkTests
         Assert.Equal(expected, mutator);
         var mutant = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(mutator, model, 0, 1);
         var replay = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(expected, model, 0, 1);
-        Assert.Equal(new NetworkDefinition("expected", RandomNetwork.toStages(replay)).Comparators,
-            new NetworkDefinition("child", RandomNetwork.toStages(mutant)).Comparators);
+        Assert.Equal(new NetworkDefinition("expected", RandomNetwork.toStagesWithPrefix(replay)).Comparators,
+            new NetworkDefinition("child", RandomNetwork.toStagesWithPrefix(mutant)).Comparators);
     }
 
     [Theory]
@@ -403,7 +403,7 @@ public sealed class RandomNetworkTests
         vm.GenerateCommand.Execute(null);
         var first = vm.SelectedNetwork.Comparators.ToArray();
         var seed = vm.SeedText;
-        var replay = new NetworkDefinition("replay", RandomNetwork.toStages(vm.Generator.Snapshot().CreateModel()));
+        var replay = new NetworkDefinition("replay", RandomNetwork.toStagesWithPrefix(vm.Generator.Snapshot().CreateModel()));
         Assert.Equal(first, replay.Comparators);
         Assert.Contains($"seed {seed}", vm.GenerationLabel);
         vm.GenerateCommand.Execute(null);
@@ -424,16 +424,19 @@ public sealed class RandomNetworkTests
         vm.NewSeedCommand.Execute(null);
         Assert.True(vm.GenerateCommand.CanExecute(null));
     });
-    [Fact]
-    public void Exhaustive_testing_reaches_18_channels_and_rejects_19()
+    [Theory]
+    [InlineData(18)]
+    [InlineData(19)]
+    [InlineData(20)]
+    public void Exhaustive_testing_reaches_20_channels_and_rejects_21(int width)
     {
-        var network = new NetworkDefinition("18", RandomNetwork.generate("msce", 18, 1, Guid.Empty));
+        var network = new NetworkDefinition("exhaustive", RandomNetwork.generate("msce", width, 1, Guid.Empty));
         var result = NetworkCheck.Run(network, CancellationToken.None);
         Assert.True(result.Exhaustive);
-        Assert.Equal(1 << 18, result.Tested);
+        Assert.Equal(1 << width, result.Tested);
         Assert.True(result.Failed > 0);
-        Assert.Equal(1 << 16, result.CeUses.Single());
-        var large = new NetworkDefinition("19", RandomNetwork.generate("msce", 19, 1, Guid.Empty));
+        Assert.Equal(1 << (width - 2), result.CeUses.Single());
+        var large = new NetworkDefinition("21", RandomNetwork.generate("msce", 21, 1, Guid.Empty));
         Assert.Throws<ArgumentOutOfRangeException>(() => NetworkCheck.Run(large, null, CancellationToken.None));
         Assert.False(NetworkCheck.Run(large, CancellationToken.None).Exhaustive);
     }
@@ -472,6 +475,11 @@ public sealed class RandomNetworkTests
         vm.ChannelCount = 20;
         Assert.True(vm.CanTestAll); // The displayed network is still eight channels.
         vm.GenerateCommand.Execute(null);
+        Assert.True(vm.CanTestAll);
+        Assert.Equal("all", vm.SamplesText);
+        Assert.True(vm.TestCommand.CanExecute(null));
+        vm.ChannelCount = 21;
+        vm.GenerateCommand.Execute(null);
         Assert.False(vm.CanTestAll);
         Assert.Equal("4096", vm.SamplesText);
         vm.SamplesText = "all";
@@ -483,7 +491,7 @@ public sealed class RandomNetworkTests
             vm.SamplesText = invalid;
             Assert.False(vm.TestCommand.CanExecute(null));
         }
-        vm.ChannelCount = 18;
+        vm.ChannelCount = 20;
         vm.GenerateCommand.Execute(null);
         vm.SamplesText = "ALL";
         Assert.True(vm.TestCommand.CanExecute(null));
@@ -2122,19 +2130,20 @@ public sealed class RandomNetworkTests
     [InlineData(8, 1)]
     [InlineData(17, 513)]
     [InlineData(64, 1025)]
-    public void Bit512_evaluation_matches_ordered_inputs_and_swap_counts(int width, int? samples)
+    public void Bit512_evaluation_matches_failure_and_swap_counts_without_counterexamples(int width, int? samples)
     {
         var token = TestContext.Current.CancellationToken;
-        var simd = new SimdNetworkCheck(width, samples, token);
+        var inputs = new PreparedNetworkCheck(width, samples, [], useSimd: true, token);
         var network = new NetworkDefinition("comparison", RandomNetwork.generate("msce", width, 12, Guid.Empty));
         var expected = NetworkCheck.Run(network, samples, token);
-        var actual = simd.Run(network, token);
+        var suffix = Sortopia.Sorting.Networks.sorter.create(Guid.NewGuid(), width, network.Comparators);
+        var actual = inputs.EvaluateSuffix(suffix, token);
         Assert.Equal(expected.Tested, actual.Tested);
         Assert.Equal(expected.Exhaustive, actual.Exhaustive);
         Assert.Equal(expected.Failed, actual.Failed);
-        Assert.Equal(expected.Counterexample, actual.Counterexample);
+        Assert.Null(actual.Counterexample);
         Assert.Equal(expected.CeUses.ToArray(), actual.CeUses.ToArray());
-        Assert.Throws<OperationCanceledException>(() => simd.Run(network, new CancellationToken(true)));
+        Assert.Throws<OperationCanceledException>(() => inputs.EvaluateSuffix(suffix, new CancellationToken(true)));
     }
 
     [Fact]
@@ -2153,6 +2162,7 @@ public sealed class RandomNetworkTests
             CheckFirstGenerateFromHome(deferSelection: true);
             CheckGraphBufferTiles();
             CheckSgdControls();
+            CheckSgdPrefixControls();
         }
         finally { app.Shutdown(); }
     });
@@ -2508,6 +2518,111 @@ public sealed class RandomNetworkTests
         Assert.Equal(1L + vm.Evolution.Children, vm.Evolution.UniqueSorters + vm.Evolution.DuplicateSorters);
     }
 
+
+    private static void CheckSgdPrefixControls()
+    {
+        var vm = new SgdPageViewModel(() => { });
+        vm.Setup.Generator.CountText = "3";
+        vm.Setup.Generator.SamplesText = "all";
+        vm.Setup.Generator.CountText = "3";
+        vm.Setup.UseAvx512 = false;
+        var host = new Sortopia.WPF.Views.Pages.Sgd.SgdPage { DataContext = vm };
+        void Layout()
+        {
+            host.Measure(new Size(1000, 800));
+            host.Arrange(new Rect(0, 0, 1000, 800));
+            host.UpdateLayout();
+        }
+        void Render(string name)
+        {
+            Layout();
+            var image = new System.Windows.Media.Imaging.RenderTargetBitmap(1000, 800, 96, 96, PixelFormats.Pbgra32);
+            image.Render(host);
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+            using var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, name));
+            encoder.Save(stream);
+        }
+        vm.SamplingStepCommand.Execute(null);
+        Layout();
+        var samplingPicker = (ComboBox)FindSgdElement(host, "PrefixPicker");
+        Assert.Equal("Sampling prefix", System.Windows.Automation.AutomationProperties.GetName(samplingPicker));
+        var first = vm.Setup.Generator.Prefix.Choices.Single(choice => choice.Key == "Prefix1/1");
+        samplingPicker.SetCurrentValue(ComboBox.SelectedItemProperty, first);
+        CompleteRun(vm.Sampling.GenerateAsync);
+        Assert.Equal("Prefix1 · 1 stage", vm.Sampling.GenerationResult!.Prefix);
+        Assert.Equal(81, vm.Sampling.GenerationResult.Inputs);
+        Assert.Equal(81, ((HeaderedContentControl)FindSgdElement(host, "TestInputsResult")).Content);
+        Assert.Contains("distinct prefix outputs", vm.Sampling.Summary);
+        vm.Setup.Generator.SamplesText = "513";
+        vm.Setup.Generator.CountText = "3";
+        CompleteRun(vm.Sampling.GenerateAsync);
+        Assert.InRange(vm.Sampling.GenerationResult!.Inputs, 1, 81);
+        Assert.Equal(513, vm.Sampling.LatestCandidate!.RequestedSamples);
+        var original = vm.Sampling.LatestCandidate!;
+        Assert.Equal(first.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(original.Model));
+        Assert.True(vm.Sampling.LatestMatchesSetup);
+        var other = vm.Setup.Generator.Prefix.Choices.Single(choice => choice.Key == "PrefixA/3");
+        samplingPicker.SetCurrentValue(ComboBox.SelectedItemProperty, other);
+        Assert.False(vm.Sampling.LatestMatchesSetup);
+        samplingPicker.SetCurrentValue(ComboBox.SelectedItemProperty, first);
+        Render("prefix-sampling.png");
+
+        vm.EvolutionStepCommand.Execute(null);
+        Layout();
+        var evolutionPicker = (ComboBox)FindSgdElement(host, "PrefixPicker");
+        Assert.Equal("Evolution prefix", System.Windows.Automation.AutomationProperties.GetName(evolutionPicker));
+        Assert.Equal("Prefix1/1", vm.Evolution.Prefix.Selected.Key);
+        var before = Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, vm.Evolution.Parent!.Model).Ces;
+        var nextPrefix = vm.Evolution.Prefix.Choices.Single(choice => choice.Key == "PrefixA/3");
+        CompleteRun(() =>
+        {
+            evolutionPicker.SetCurrentValue(ComboBox.SelectedItemProperty, nextPrefix);
+            Assert.False(evolutionPicker.IsEnabled);
+            return vm.Evolution.PrefixChangeTask;
+        });
+        Assert.True(evolutionPicker.IsEnabled);
+        Assert.Equal(nextPrefix.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent!.Model));
+        Assert.Equal(before, Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, vm.Evolution.Parent.Model).Ces);
+        Assert.Equal(first.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(original.Model));
+        Assert.Equal(0, vm.Evolution.Generation);
+        var reduced = PrefixNetworkTests.ReducedOracle(vm.Evolution.Parent.RawNetwork, nextPrefix.Comparators, vm.Evolution.Usage!.FixedCes, 513);
+        Assert.Equal(reduced.CeUses, vm.Evolution.Usage.CeUses);
+        Assert.Equal(reduced.Tested, vm.Evolution.Usage.Tested);
+        Assert.True(vm.Evolution.Usage.Tested < 513);
+        Render("prefix-evolution.png");
+
+        vm.Evolution.Children = 2;
+        vm.Evolution.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(vm.Evolution.Generation) && vm.Evolution.Generation == 1) vm.Stop();
+        };
+        CompleteRun(() => vm.Evolution.RunSgdAsync().WaitAsync(TimeSpan.FromSeconds(15)));
+        Assert.Equal(1, vm.Evolution.Generation);
+        Assert.Equal(nextPrefix.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent.Model));
+        Assert.Equal(513, vm.Evolution.Parent.RequestedSamples);
+        Assert.Equal(reduced.Tested, vm.Evolution.Usage!.Tested);
+        var retainedParent = vm.Evolution.Parent;
+        var none = vm.Evolution.Prefix.Choices.Single(choice => choice.Key == "none");
+        CompleteRun(() =>
+        {
+            evolutionPicker.SetCurrentValue(ComboBox.SelectedItemProperty, none);
+            vm.Stop();
+            return vm.Evolution.PrefixChangeTask;
+        });
+        Assert.Same(retainedParent, vm.Evolution.Parent);
+        Assert.Equal(nextPrefix.Key, vm.Evolution.Prefix.Selected.Key);
+        Assert.Equal(1, vm.Evolution.Generation);
+        CompleteRun(() =>
+        {
+            evolutionPicker.SetCurrentValue(ComboBox.SelectedItemProperty, none);
+            return vm.Evolution.PrefixChangeTask;
+        });
+        Assert.Equal(0, vm.Evolution.Generation);
+        Assert.Empty(Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent!.Model));
+        Assert.Equal(Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, retainedParent.Model).Ces,
+            Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, vm.Evolution.Parent.Model).Ces);
+    }
 
     private static SgdResultsViewModel Results(SgdPageViewModel vm) =>
         vm.CurrentStep == SgdStep.Evolution ? vm.Evolution : vm.Sampling;

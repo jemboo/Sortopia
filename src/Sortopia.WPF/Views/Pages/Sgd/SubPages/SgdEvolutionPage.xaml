@@ -81,6 +81,10 @@
                                     </Grid>
                                 </Grid>
                                 <WrapPanel x:Name="EvolutionOptions" HorizontalAlignment="Left" Margin="0,0,0,4">
+                                    <StackPanel Margin="0,0,8,3" IsEnabled="{Binding CanChoosePrefix}">
+                                        <Label Content="Prefix" Target="{Binding ElementName=PrefixPicker}" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="PrefixPicker" Width="165" ItemsSource="{Binding Prefix.Choices}" DisplayMemberPath="Name" SelectedItem="{Binding Prefix.Selected, Mode=TwoWay}" IsSynchronizedWithCurrentItem="False" AutomationProperties.Name="Evolution prefix" ToolTip="Change the fixed prefix and retest the current suffix as a new parent." />
+                                    </StackPanel>
                                     <StackPanel Margin="0,0,8,3">
                                         <Label Content="Variant" Target="{Binding ElementName=VariantPicker}" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="VariantPicker" Width="57" ItemsSource="{Binding Mutation.Variants}" SelectedItem="{Binding Mutation.Variant}" IsEnabled="{Binding CanChooseMutation}" />

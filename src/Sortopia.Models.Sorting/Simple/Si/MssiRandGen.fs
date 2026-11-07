@@ -5,7 +5,9 @@ open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Permutations
 open Sortopia.Sorting
+open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
 
 /// Represents a configuration for generating random Mssi instances with specified width and stage count.
 [<Struct; CustomEquality; NoComparison>]
@@ -15,6 +17,7 @@ type mssiRandGen =
           id : Guid<sorterModelGenId>
           rngFactory: rngFactory
           channelCount: int<channelCount>
+          prefix: ce array
           stageLength: int<stageLength>
         }
     with
@@ -22,7 +25,9 @@ type mssiRandGen =
     static member create
             (rngFactory: rngFactory)
             (channelCount: int<channelCount>)
+            (prefix: ce array)
             (stageLength: int<stageLength>) : mssiRandGen =
+        let prefix = ModelPrefix.snapshot channelCount prefix
         if %channelCount < 2 then
             failwith $"ChannelCount must be at least 2, got {%channelCount}"
         else if %stageLength < 1 then
@@ -30,19 +35,21 @@ type mssiRandGen =
         else
             let id =
                 [
-                    box "mssiRandGen"
+                    box "Sortopia.Models.Sorting/mssiRandGen/v2"
                     box rngFactory
                     box (channelCount |> UMX.untag)
                     box (stageLength |> UMX.untag)
-                ] |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
+                ] @ (ModelPrefix.hashValues prefix |> Seq.toList) |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
 
             {
                 id = id;
                 rngFactory = rngFactory;
-                channelCount = channelCount;
+                channelCount = channelCount
+                prefix = prefix
                 stageLength = stageLength
             }
 
+    member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
     member this.CeLength with get () = (this.ChannelCount * %this.StageLength / 2) |> UMX.tag<ceLength>
     member this.RngFactory with get () = this.rngFactory
@@ -53,16 +60,18 @@ type mssiRandGen =
         match obj with
         | :? mssiRandGen as other ->
             this.RngFactory = other.RngFactory &&
+            this.prefix = other.prefix &&
             this.channelCount = other.channelCount &&
             this.stageLength = other.stageLength
         | _ -> false
 
     override this.GetHashCode() =
-        hash (this.GetType(), this.RngFactory, this.channelCount, this.stageLength)
+        hash (this.GetType(), this.RngFactory, this.channelCount, this.stageLength, this.prefix)
 
     interface IEquatable<mssiRandGen> with
         member this.Equals(other) =
             this.RngFactory = other.RngFactory &&
+            this.prefix = other.prefix &&
             this.channelCount = other.channelCount &&
             this.stageLength = other.stageLength
 
@@ -76,7 +85,7 @@ type mssiRandGen =
         let perm_Sis = PermSi.makeRandoms (rando.NextIndex) (%this.ChannelCount)
                         |> Seq.take (%this.StageLength)
                         |> Seq.toArray
-        mssi.create id this.ChannelCount perm_Sis
+        mssi.create id this.ChannelCount this.Prefix perm_Sis
 
 
     member this.MakeSorterModelFromIndex (index: int<sortingGenIndex>) : mssi =

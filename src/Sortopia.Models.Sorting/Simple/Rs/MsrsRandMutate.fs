@@ -75,7 +75,7 @@ type msrsRandMutate =
                         (rng.NextFloat)
                         parent.Perm_Rss
 
-        msrs.create id parent.ChannelCount mutated
+        msrs.create id parent.ChannelCount parent.Prefix mutated
 
     member this.MakeSorterModelFromIndexAndMod
                             (parent: msrs)

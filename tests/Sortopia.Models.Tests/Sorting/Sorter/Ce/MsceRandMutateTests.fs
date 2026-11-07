@@ -17,7 +17,7 @@ type MsceRandMutateTests() =
     [<InlineData(0.0, 0.0, 1.0)>]
     [<InlineData(0.0, 0.0, 0.0)>]
     member _.``Uniform mutation modes preserve length and produce valid reproducible comparators`` mutation insertion deletion =
-        let parent = msce.create (UMX.tag (Guid.Parse "00000000-0000-0000-0000-000000000001")) 10<channelCount> [|42; 42; 42; 42|]
+        let parent = msce.create (UMX.tag (Guid.Parse "00000000-0000-0000-0000-000000000001")) 10<channelCount> [||] [|42; 42; 42; 42|]
         let mutator = msceRandMutate.create rngFactory.LcgFactory (indelRates.create (mutation, insertion, deletion)) (UMX.tag false) mutatorVariant.V1
         let result = mutator.MakeSorterModelFromIndexAndMod parent (UMX.tag 0) (UMX.tag 0)
         Assert.Equal(parent.ChannelCount, result.ChannelCount)

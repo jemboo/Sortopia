@@ -28,7 +28,7 @@ module RandomNetwork =
         let channels = UMX.tag<channelCount> width
         let modelId = UMX.tag<sorterModelId> id
         if kind = "msce" then
-            let gen = msceRandGen.create rngFactory.SmxFactory channels (UMX.tag true) (UMX.tag size)
+            let gen = msceRandGen.create rngFactory.SmxFactory channels [||] (UMX.tag true) (UMX.tag size)
             simpleSorterModel.Msce (gen.MakeSorterModelFromId modelId)
         else
             let modelType =
@@ -37,10 +37,10 @@ module RandomNetwork =
                 | "msrs" -> simpleSorterModelType.Msrs
                 | "msuf4" -> simpleSorterModelType.Msuf4
                 | _ -> simpleSorterModelType.Msuf6
-            let generator = SimpleSorterModelGen.makeUniform rngFactory.SmxFactory channels (UMX.tag size) modelType (UMX.tag true)
+            let generator = SimpleSorterModelGen.makeUniform rngFactory.SmxFactory channels [||] (UMX.tag size) modelType (UMX.tag true)
             SimpleSorterModelGen.makeSorterModelFromId modelId generator
 
-    let toStages (model: simpleSorterModel) =
+    let toStagesWithoutPrefix (model: simpleSorterModel) =
         let channels = SimpleSorterModel.getChannelCount model
         let fromPermutation (permutation: permSi) =
             // Fixed points in an odd-width involution are idle wires, not comparisons.
@@ -73,7 +73,14 @@ module RandomNetwork =
             | simpleSorterModel.Msuf6 model -> model.TwoOrbitUnfolder6s |> Array.map (fun p -> fromPermutation p.MakePerm_Si)
         stageSequence.create stages channels
 
-    let generate kind width size id = generateModel kind width size id |> toStages
+    /// Include the fixed prefix while retaining the suffix's native stage boundaries.
+    let toStagesWithPrefix (model: simpleSorterModel) =
+        let channels = SimpleSorterModel.getChannelCount model
+        let prefixStages = StageBuilderSequence.toStageSequence channels (SimpleSorterModel.getPrefix model)
+        let suffixStages = toStagesWithoutPrefix model
+        stageSequence.create (Array.append prefixStages.Stages suffixStages.Stages) channels
+
+    let generate kind width size id = generateModel kind width size id |> toStagesWithPrefix
 
     /// Use each model family's native mutation, preserving the number of CEs or stages.
     let createMutator (model: simpleSorterModel) (rate: float) =

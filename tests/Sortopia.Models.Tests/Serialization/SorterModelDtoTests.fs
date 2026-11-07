@@ -82,7 +82,7 @@ type SorterModelDtoTests() =
 
     [<Fact>]
     let ``Msce round-trip serialization and deserialization should succeed`` () =
-        let msce = msce.create (Guid.NewGuid() |> UMX.tag<sorterModelId>) (UMX.tag<channelCount> 16) [|1;2;3|]
+        let msce = msce.create (Guid.NewGuid() |> UMX.tag<sorterModelId>) (UMX.tag<channelCount> 16) [||] [|1;2;3|]
         let simpleSorterModel = simpleSorterModel.Msce msce
         let result = roundTrip simpleSorterModel
         match result with
@@ -95,7 +95,7 @@ type SorterModelDtoTests() =
     [<Fact>]
     let ``Mssi round-trip serialization and deserialization should succeed`` () =
         let permSi = permSi.create [|1; 0; 2; 3|] // (0 1)
-        let mssi = mssi.create (Guid.NewGuid() |> UMX.tag<sorterModelId>) (UMX.tag<channelCount> 4) [|permSi|]
+        let mssi = mssi.create (Guid.NewGuid() |> UMX.tag<sorterModelId>) (UMX.tag<channelCount> 4) [||] [|permSi|]
         let simpleSorterModel = simpleSorterModel.Mssi mssi
         let result = roundTrip simpleSorterModel
         match result with
@@ -109,7 +109,7 @@ type SorterModelDtoTests() =
     [<Fact>]
     let ``Msrs round-trip serialization and deserialization should succeed`` () =
         let permRss = [| permRs.create([| 3; 2; 1; 0 |]); permRs.create([| 1; 0; 3; 2 |]) |]
-        let msrs = msrs.create (Guid.NewGuid() |> UMX.tag<sorterModelId>) (UMX.tag<channelCount> 4) permRss
+        let msrs = msrs.create (Guid.NewGuid() |> UMX.tag<sorterModelId>) (UMX.tag<channelCount> 4) [||] permRss
         let simpleSorterModel = simpleSorterModel.Msrs msrs
         let result = roundTrip simpleSorterModel
         match result with
@@ -125,7 +125,7 @@ type SorterModelDtoTests() =
         let id = Guid.NewGuid() |> UMX.tag<sorterModelId>
         let width = 16<channelCount>
         let tou = createTestTwoOrbitUnfolder4 16 twoOrbitPairType.Ortho (Some twoOrbitPairType.Para)
-        let msuf4 = msuf4.create id width [|tou|]
+        let msuf4 = msuf4.create id width [||] [|tou|]
         let simpleSorterModel = simpleSorterModel.Msuf4 msuf4
         let result = roundTrip simpleSorterModel
         match result with
@@ -143,7 +143,7 @@ type SorterModelDtoTests() =
         let width = 12<channelCount>
         let tou = createTestTwoOrbitUnfolder6 order twoOrbitPairType.Ortho (Some twoOrbitPairType.Para)
 
-        let msuf6 = msuf6.create id width [|tou|]
+        let msuf6 = msuf6.create id width [||] [|tou|]
         let simpleSorterModel = simpleSorterModel.Msuf6 msuf6
         let result = roundTrip simpleSorterModel
         match result with

@@ -7,6 +7,7 @@ open Sortopia.Permutations
 open Sortopia.Sorting
 open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
 
 /// Represents a rank-swap-based sorting model composed of an array of Perm_Rs instances.
 [<Struct; CustomEquality; NoComparison>]
@@ -14,6 +15,7 @@ type msrs =
     private
         { id: Guid<sorterModelId>
           channelCount: int<channelCount>
+          prefix: ce array
           perm_Rss: permRs array }
     with
     /// Creates an Msrs instance with the specified ID, width, and Perm_Rs array.
@@ -21,8 +23,10 @@ type msrs =
     static member create
             (id: Guid<sorterModelId>)
             (width: int<channelCount>)
+            (prefix: ce array)
             (perm_Rss: permRs array) : msrs =
 
+        let prefix = ModelPrefix.snapshot width prefix
         if isNull perm_Rss then nullArg "perm_Rss"
         if perm_Rss.Length < 1 then
             failwith $"Must have at least 1 Perm_Rs, got %d{perm_Rss.Length}"
@@ -31,9 +35,11 @@ type msrs =
         else if perm_Rss |> Array.exists (fun prs -> %prs.Order <> %width) then
             failwith $"All Perm_Rs must have width {%width}"
         else
-            { id = id; channelCount = width; perm_Rss = Array.copy perm_Rss }
+            { id = id; channelCount = width; prefix = prefix; perm_Rss = Array.copy perm_Rss }
 
+    member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
+    /// Suffix size only; full-sorter properties come from MakeSorterWithPrefix.
     member this.CeLength with get () = (this.StageLength * %this.ChannelCount / 2) |> UMX.tag<ceLength>
     member this.StageLength with get () = this.perm_Rss.Length |> UMX.tag<stageLength>
     member this.ChannelCount with get () = this.channelCount
@@ -47,28 +53,36 @@ type msrs =
     override this.Equals(obj) =
         match obj with
         | :? msrs as other ->
+            this.prefix = other.prefix &&
             this.id = other.id
         | _ -> false
 
     override this.GetHashCode() =
-        hash (this.GetType(), this.id)
+        hash (this.GetType(), this.prefix, this.id)
 
     interface IEquatable<msrs> with
         member this.Equals(other) =
+            this.prefix = other.prefix &&
             this.id = other.id
 
-    member this.MakeSorter (maxCeLength: int<ceLength> option) =
+    member private this.MakeSuffix (maxCeLength: int<ceLength> option) =
         let allCes =
             this.Perm_Rss
             |> Array.collect (fun prs ->
                 prs.PermSi
                 |> PermSi.getTwoOrbits
                 |> Array.map (fun tbit -> ce.create tbit.First tbit.Second))
-        let ces =
-            match maxCeLength with
-            | Some n -> allCes |> Array.truncate %n
-            | None   -> allCes
-        sorter.create (%this.Id |> UMX.tag<sorterId>) this.ChannelCount ces
+        ModelPrefix.truncate maxCeLength allCes
+
+    /// Limit the suffix CEs; use with inputs already presorted by Prefix.
+    member this.MakeSorterWithoutPrefix (maxCeLength: int<ceLength> option) =
+        let ces = this.MakeSuffix maxCeLength
+        ModelPrefix.materialize this.Id this.ChannelCount this.prefix false ces
+
+    /// Prepend the fixed prefix after limiting the suffix. The prefix is never truncated.
+    member this.MakeSorterWithPrefix (maxCeLength: int<ceLength> option) =
+        let suffix = this.MakeSuffix maxCeLength
+        ModelPrefix.materialize this.Id this.ChannelCount this.prefix true suffix
 
 
 module Msrs =
@@ -87,11 +101,8 @@ module Msrs =
     /// Converts an Msrs instance to a Sorter by mapping each Perm_Rs to comparison elements (Ce) via TwoOrbits.
     /// <param name="msrs">The Msrs instance to convert.</param>
     /// <returns>A Sorter instance with the same width and derived comparison elements.</returns>
-    let makeSorter (msrs: msrs) : sorter =
-        let ces =
-            msrs.Perm_Rss
-            |> Array.collect (fun prs ->
-                prs.PermSi
-                |> PermSi.getTwoOrbits
-                |> Array.map (fun tbit -> ce.create tbit.First tbit.Second))
-        sorter.create (%msrs.Id |> UMX.tag<sorterId>) msrs.ChannelCount ces
+    let makeSorterWithoutPrefix (model: msrs) : sorter =
+        model.MakeSorterWithoutPrefix None
+
+    let makeSorterWithPrefix (model: msrs) : sorter =
+        model.MakeSorterWithPrefix None

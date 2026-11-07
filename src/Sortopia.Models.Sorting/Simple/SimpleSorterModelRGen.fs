@@ -23,6 +23,7 @@ type simpleSorterModelRGen =
             |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
         { modelGen = modelGen; aMax = aMax; id = id }
 
+    member this.Prefix = SimpleSorterModelGen.getPrefix this.modelGen
     member this.ModelGen = this.modelGen
     member this.AMax = this.aMax
     member this.Id = this.id

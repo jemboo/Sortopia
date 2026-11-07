@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <Compile Include="PrefixDto.fs" />
     <Compile Include="Simple/Ce/MsceDto.fs" />
     <Compile Include="Simple/Ce/MsceRandGenDto.fs" />
     <Compile Include="Simple/Ce/MsceRandMutateDto.fs" />

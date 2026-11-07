@@ -19,7 +19,7 @@ type MsrsRandGenTests() =
     let createModelRsGen rngType (width:int) stageLength orthoRate paraRate selfSymRate =
         let rates = opsGenRates.create (orthoRate, paraRate, selfSymRate)
         let ratesArray = opsGenRatesArray.create (Array.create stageLength rates)
-        msrsRandGen.create rngType (UMX.tag<channelCount> width) rates (UMX.tag<stageLength> stageLength)
+        msrsRandGen.create rngType (UMX.tag<channelCount> width) [||] rates (UMX.tag<stageLength> stageLength)
 
     [<Fact>]
     let ``MakeSorterModelFromIndex creates correct number of stages`` () =

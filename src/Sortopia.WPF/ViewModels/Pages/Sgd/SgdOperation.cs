@@ -1,6 +1,6 @@
 namespace Sortopia.WPF.ViewModels.Pages.Sgd;
 
-internal enum SgdActivity { Idle, Generate, Sample, Evolve }
+internal enum SgdActivity { Idle, Generate, Sample, Evolve, ChangePrefix }
 
 /// <summary>Owns the one active run for an SGD workflow, including replacement and cancellation.</summary>
 internal sealed class SgdOperation

@@ -76,7 +76,7 @@ type msuf4RandMutate =
             | mutatorVariant.V3 ->
                 failwith "V3 mutator variant not implemented for msuf4RandMutate"
 
-        msuf4.create id parent.ChannelCount mutTwoOrbitUf4s
+        msuf4.create id parent.ChannelCount parent.Prefix mutTwoOrbitUf4s
 
     member this.MakeSorterModelFromIndexAndMod
                         (parent: msuf4)

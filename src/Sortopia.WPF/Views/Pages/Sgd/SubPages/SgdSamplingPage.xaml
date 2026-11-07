@@ -49,6 +49,10 @@
                                 </TextBlock>
                                 <WrapPanel>
                                     <StackPanel Margin="0,0,8,3">
+                                        <Label Content="Prefix" Target="{Binding ElementName=PrefixPicker}" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="PrefixPicker" Width="165" Height="{StaticResource SetupSamplingControlHeight}" ItemsSource="{Binding Generator.Prefix.Choices}" DisplayMemberPath="Name" SelectedItem="{Binding Generator.Prefix.Selected, Mode=TwoWay}" IsSynchronizedWithCurrentItem="False" AutomationProperties.Name="Sampling prefix" ToolTip="Fixed prefix for every sorter in the next run." />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,8,3">
                                         <Label Content="Store run in" Target="{Binding ElementName=SamplingDestination}" Style="{StaticResource FieldLabel}" />
                                         <ToggleButton x:Name="SamplingDestination" IsChecked="{Binding SampleToB, Mode=TwoWay}" Height="{StaticResource SetupSamplingControlHeight}" Margin="0" Opacity="1" Background="{StaticResource Workspace.SurfaceSelected}" BorderBrush="{StaticResource Workspace.Accent}" AutomationProperties.Name="Sampling destination B" ToolTip="Switch between A and B before starting a sampling run.">
                                             <ToggleButton.Style>
@@ -104,11 +108,12 @@
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Success / Failures" Content="{Binding GenerationOutcomes}" ToolTip="Generated sorters since Clear. A success passes every input tested in its draw." />
                                     <TextBlock Text="Last generated sorter" Style="{StaticResource SectionTitle}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                     <StackPanel DataContext="{Binding GenerationResult}">
-                                        <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Test inputs" Content="{Binding Inputs, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
+                                        <HeaderedContentControl x:Name="TestInputsResult" Style="{StaticResource ResultRow}" Header="Test inputs" Content="{Binding Inputs, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" ToolTip="Actual inputs evaluated. With a prefix, each distinct presorted input is tested once." />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Coverage" Content="{Binding Coverage, TargetNullValue=—, FallbackValue=—}" />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Method" Content="{Binding Method, TargetNullValue=—, FallbackValue=—}" />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Channels" Content="{Binding Channels, TargetNullValue=—, FallbackValue=—}" />
-                                        <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Stages" Content="{Binding Stages, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
+                                        <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Prefix" Content="{Binding Prefix, TargetNullValue=—, FallbackValue=—}" />
+                                        <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Suffix stages" Content="{Binding Stages, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Seed" Content="{Binding Seed, TargetNullValue=—, FallbackValue=—}" />
                                     </StackPanel>
                                     <TextBlock Text="{Binding Generator.SeedError}" Style="{StaticResource InlineError}" />

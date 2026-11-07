@@ -4,6 +4,7 @@ open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Permutations
 open Sortopia.Sorting
+open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
 open Sortopia.Models.Sorting.Simple
 open Sortopia.Models.Sorting.Simple.Ce
@@ -26,25 +27,34 @@ module SimpleSorterModelGen =
     let makeUniform
             (rngFactory: rngFactory)
             (channelCount: int<channelCount>)
+            (prefix: ce array)
             (stageLength: int<stageLength>)
             (simpleorterModelType: simpleSorterModelType)
             (excludeSelfCe: bool<excludeSelfCe>) =
         match simpleorterModelType with
         | simpleSorterModelType.Msce ->
             let ceLength = stageLength |> StageLength.toCeLength channelCount
-            SmmMsceRandGen (msceRandGen.create rngFactory channelCount excludeSelfCe ceLength)
+            SmmMsceRandGen (msceRandGen.create rngFactory channelCount prefix excludeSelfCe ceLength)
         | simpleSorterModelType.Mssi ->
-            SmmMssiRandGen (mssiRandGen.create rngFactory channelCount stageLength)
+            SmmMssiRandGen (mssiRandGen.create rngFactory channelCount prefix stageLength)
         | simpleSorterModelType.Msrs ->
             let opsGenRates = opsGenRates.createUniform()
-            SmmMsrsRandGen (msrsRandGen.create rngFactory channelCount opsGenRates stageLength)
+            SmmMsrsRandGen (msrsRandGen.create rngFactory channelCount prefix opsGenRates stageLength)
         | simpleSorterModelType.Msuf4 ->
             let uf4GenRates = Uf4GenRates.makeUniform %channelCount
-            SmmMsuf4RandGen (msuf4RandGen.create rngFactory channelCount stageLength uf4GenRates)
+            SmmMsuf4RandGen (msuf4RandGen.create rngFactory channelCount prefix stageLength uf4GenRates)
         | simpleSorterModelType.Msuf6 ->
             let uf6GenRates = Uf6GenRates.makeUniform %channelCount
-            SmmMsuf6RandGen (msuf6RandGen.create rngFactory channelCount stageLength uf6GenRates)
+            SmmMsuf6RandGen (msuf6RandGen.create rngFactory channelCount prefix stageLength uf6GenRates)
 
+
+    let getPrefix (model: simpleSorterModelGen) : ce array =
+        match model with
+        | SmmMsceRandGen model -> model.Prefix
+        | SmmMssiRandGen model -> model.Prefix
+        | SmmMsrsRandGen model -> model.Prefix
+        | SmmMsuf4RandGen model -> model.Prefix
+        | SmmMsuf6RandGen model -> model.Prefix
 
     let getId (model:simpleSorterModelGen) : Guid<sorterModelGenId> =
         match model with

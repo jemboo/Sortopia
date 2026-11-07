@@ -256,7 +256,7 @@ public sealed class NetworkDiagram : FrameworkElement
                     ComparatorState.Compared => IdlePen,
                     _ => FuturePen
                 };
-            if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == network.ComparatorCount)
+            if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == network.ComparatorCount && !usage.IsFixedCe(ce.Index))
                 pen = UsagePens[UsageLevel(usage.CeUses[ce.Index], usage.Tested)];
             var low = new Point(ce.X, NetworkLayout.ChannelY(ce.Low));
             var high = new Point(ce.X, NetworkLayout.ChannelY(ce.High));
@@ -309,7 +309,7 @@ public sealed class NetworkDiagram : FrameworkElement
             var will = next.TryGetValue(index, out var to);
             var ce = to ?? from!;
             var x = Interpolate(from?.X ?? ce.X, to?.X ?? ce.X, t);
-            var pen = Usage is { Tested: > 0 } usage && usage.CeUses.Count == StaticNetwork!.ComparatorCount
+            var pen = Usage is { Tested: > 0 } usage && usage.CeUses.Count == StaticNetwork!.ComparatorCount && !usage.IsFixedCe(index)
                 ? UsagePens[UsageLevel(usage.CeUses[index], usage.Tested)] : FuturePen;
             dc.PushOpacity(was ? will ? 1 : 1 - t : t);
             var low = new Point(x, NetworkLayout.ChannelY(ce.Low));
@@ -395,7 +395,9 @@ public sealed class NetworkDiagram : FrameworkElement
                 && point.Y / Zoom <= NetworkLayout.ChannelY(ce.High) + 5 && ce.Index < usage.CeUses.Count)
             {
                 var count = usage.CeUses[ce.Index];
-                var text = $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {count:N0} swaps / {usage.Tested:N0} inputs ({(double)count / usage.Tested:P2})";
+                var text = usage.IsFixedCe(ce.Index)
+                    ? $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: fixed prefix. Applied when preparing inputs; usage is not measured in suffix tests."
+                    : $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {count:N0} swaps / {usage.Tested:N0} inputs ({(double)count / usage.Tested:P2})";
                 if (!Equals(ToolTip, text)) ToolTip = text;
                 return;
             }

@@ -3,18 +3,25 @@ namespace Sortopia.WPF.Models;
 public sealed record NetworkCheckResult(int Tested, bool Exhaustive, int[]? Counterexample,
     int Failed, IReadOnlyList<int> CeUses)
 {
+    public bool UsesReducedInputs { get; init; }
+    public string InputKind => UsesReducedInputs ? "distinct prefix outputs" : "binary inputs";
+    public IReadOnlyList<bool> FixedCes { get; init; } = Array.Empty<bool>();
+    public bool IsFixedCe(int index) => FixedCes.Count == CeUses.Count && FixedCes[index];
     public string Coverage => Exhaustive ? "Exhaustive" : "Sampled";
     public string Description => Failed > 0
-        ? $"Failed: {Failed:N0} of {Tested:N0} {(Exhaustive ? "all" : "sampled")} binary inputs were unsorted. The first failing input is loaded below."
-        : Exhaustive ? $"Verified: sorted all {Tested:N0} binary inputs (0–1 rule)."
-        : $"Passed {Tested:N0} sampled binary inputs. This is not a proof that the network sorts every input.";
-    public string UsageSummary => $"CE usage: {CeUses.Count(n => n > 0):N0} of {CeUses.Count:N0} CEs swapped values across {Tested:N0} inputs. Hover over a CE for its count and percentage.";
+        ? $"Failed: {Failed:N0} of {Tested:N0} {(Exhaustive ? "all" : "sampled")} {InputKind} were unsorted."
+            + (Counterexample is null ? "" : " The first failing input is loaded below.")
+        : Exhaustive ? $"Verified: sorted all {Tested:N0} {InputKind} (0–1 rule)."
+        : $"Passed {Tested:N0} sampled {InputKind}. This is not a proof that the network sorts every input.";
+    public string UsageSummary => UsesReducedInputs
+        ? $"Suffix CE usage: {CeUses.Count(n => n > 0):N0} of {CeUses.Count - FixedCes.Count(fixedCe => fixedCe):N0} CEs swapped values across {Tested:N0} distinct prefix outputs. Prefix usage is not measured."
+        : $"CE usage: {CeUses.Count(n => n > 0):N0} of {CeUses.Count:N0} CEs swapped values across {Tested:N0} inputs. Hover over a CE for its count and percentage.";
 }
 
 /// <summary>Checks the entire requested input set and records swaps per comparator.</summary>
 public static class NetworkCheck
 {
-    public const int MaxExhaustiveWidth = 18;
+    public const int MaxExhaustiveWidth = 20;
     public const int MaxSamples = 1_000_000;
     internal const int SampleSeed = 8675309;
 
@@ -73,7 +80,7 @@ public static class NetworkCheck
     internal static int InputCount(int width, int? samples)
     {
         if (samples is null && width > MaxExhaustiveWidth)
-            throw new ArgumentOutOfRangeException(nameof(samples), "All inputs is available only through 18 channels.");
+            throw new ArgumentOutOfRangeException(nameof(samples), $"All inputs is available only through {MaxExhaustiveWidth} channels.");
         if (samples is < 1 or > MaxSamples) throw new ArgumentOutOfRangeException(nameof(samples));
         return samples ?? (1 << width);
     }

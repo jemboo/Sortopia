@@ -3,6 +3,7 @@ namespace Sortopia.Models.Sorting.Serialization.Simple.Uf4
 
 open System
 open FSharp.UMX
+open Sortopia.Models.Sorting.Serialization
 open Sortopia.Core.Serialization
 open Sortopia.Permutations.Serialization
 open Sortopia.Permutations.Serialization.RatesAndOps
@@ -14,7 +15,8 @@ type msuf4RandGenDto =
       rngFactoryDto: rngFactoryDto
       channelCount: int
       stageLength: int
-      uf4GenRatesDto: uf4GenRatesDto }
+      uf4GenRatesDto: uf4GenRatesDto
+      prefixCeCodes: int array }
 
 module Msuf4RandGenDto =
 
@@ -23,7 +25,8 @@ module Msuf4RandGenDto =
           rngFactoryDto = msuf4RandGen.RngFactory |> RngFactoryDto.fromDomain
           channelCount = %msuf4RandGen.ChannelCount
           stageLength = %msuf4RandGen.StageLength
-          uf4GenRatesDto = Uf4GenRatesDto.fromDomain msuf4RandGen.GenRates }
+          uf4GenRatesDto = Uf4GenRatesDto.fromDomain msuf4RandGen.GenRates
+          prefixCeCodes = PrefixDto.encode msuf4RandGen.Prefix }
 
     let toDomain (dto: msuf4RandGenDto) : msuf4RandGen =
         try
@@ -37,7 +40,7 @@ module Msuf4RandGenDto =
 
             msuf4RandGen.create
                     (dto.rngFactoryDto |> RngFactoryDto.toDomain)
-                    (UMX.tag<channelCount> dto.channelCount)
+                    (UMX.tag<channelCount> dto.channelCount) (PrefixDto.decode dto.prefixCeCodes)
                     (UMX.tag<stageLength> dto.stageLength)
                     genRates
         with

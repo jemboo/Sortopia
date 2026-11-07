@@ -3,6 +3,7 @@ namespace Sortopia.Models.Sorting.Serialization.Simple.Rs
 
 open System
 open FSharp.UMX
+open Sortopia.Models.Sorting.Serialization
 open Sortopia.Core.Serialization
 open Sortopia.Permutations.Serialization
 open Sortopia.Sorting
@@ -12,9 +13,10 @@ open Sortopia.Models.Sorting.Simple.Rs
 type msrsDto =
     { Id: Guid
       Width: int
-      Perm_Rss: permRsDto array }
+      Perm_Rss: permRsDto array
+      prefixCeCodes: int array }
 
-    static member Create(id: Guid, width: int, permRss: permRsDto array) : msrsDto =
+    static member Create(id: Guid, width: int, permRss: permRsDto array, ?prefixCeCodes: int array) : msrsDto =
         if isNull permRss then
             raise (ArgumentNullException(nameof permRss, "Perm_Rss array cannot be null"))
         elif permRss.Length < 1 then
@@ -26,7 +28,8 @@ type msrsDto =
         else
             { Id = id
               Width = width
-              Perm_Rss = permRss }
+              Perm_Rss = permRss
+              prefixCeCodes = defaultArg prefixCeCodes [||] }
 
 
 module MsrsDto =
@@ -34,7 +37,8 @@ module MsrsDto =
     let fromDomain (msrs: msrs) : msrsDto =
         { Id = %msrs.Id
           Width = %msrs.ChannelCount
-          Perm_Rss = msrs.Perm_Rss |> Array.map PermRsDto.toPerm_RsDto }
+          Perm_Rss = msrs.Perm_Rss |> Array.map PermRsDto.toPerm_RsDto
+          prefixCeCodes = PrefixDto.encode msrs.Prefix }
 
     let toDomain (dto: msrsDto) : msrs =
         let permRss =
@@ -43,5 +47,5 @@ module MsrsDto =
 
         msrs.create
             (UMX.tag<sorterModelId> dto.Id)
-            (UMX.tag<channelCount> dto.Width)
+            (UMX.tag<channelCount> dto.Width) (PrefixDto.decode dto.prefixCeCodes)
             permRss

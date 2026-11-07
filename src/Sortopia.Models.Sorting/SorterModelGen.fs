@@ -5,6 +5,7 @@ open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Permutations
 open Sortopia.Sorting
+open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting.Simple
 
 
@@ -16,6 +17,13 @@ type sorterModelGen =
 
 
 module SorterModelGen =
+
+    let getPrefix (model: sorterModelGen) : ce array =
+        match model with
+        | Simple generator -> SimpleSorterModelGen.getPrefix generator
+        | SimpleR generator -> generator.Prefix
+        | SimpleS generator -> generator.Prefix
+        | Unknown -> failwith "Unknown sorterModelGen"
 
     let getId (model:sorterModelGen) : Guid<sorterModelGenId> =
         match model with

@@ -18,6 +18,24 @@ Sorting models retain CE, self-inverse permutation, reflection-symmetric permuta
 
 Input models retain full binary datasets, permutation orbits, merge inputs and prefix-reduced inputs, including their original supported scalar/SIMD formats and partitioning entry point. The prefix-input model returns its reduced dataset directly in Boolean or BitVector512 form. Unsupported format combinations remain explicit failures; this migration does not add a sortable-model DTO contract.
 
+## Fixed prefixes
+
+Each concrete simple model (`msce`, `mssi`, `msrs`, `msuf4`, `msuf6`) and generator owns a `prefix: ce array`. Constructors take it immediately after the channel count, for example `msce.create id channelCount prefix ceCodes` and `SimpleSorterModelGen.makeUniform rng channelCount prefix stages modelType excludeSelfCe`. Empty prefixes are allowed; null arrays and endpoints outside the model width are rejected. Inputs and exposed `Prefix` arrays are copied. Prefix contents participate in model and generator equality. SimpleR/S and their generators expose the underlying prefix without storing another copy.
+
+`MakeSorterWithoutPrefix maxCeLength` expands the suffix, filters inactive model entries where applicable, and limits the resulting suffix CEs. `MakeSorterWithPrefix maxCeLength` prepends the complete fixed prefix to that same limited suffix. The prefix is never truncated or filtered by activators. `None` takes the whole suffix, `Some 0` takes none, and negative limits are rejected. Model `CeLength`, `StageLength`, and underlying entry counts continue to describe the suffix representation; they are not complete-network property evaluations.
+
+The shared model modules and `SorterModel` expose corresponding `makeSorterWithoutPrefix` and `makeSorterWithPrefix` functions. Model sets have `makeSorterSetWithoutPrefix` and `makeSorterSetWithPrefix`. Every mutation path inherits the parent's prefix unchanged, including insertion/deletion and activated-model mutations. Mutators do not have their own prefix configuration.
+
+Use the suffix form only when the input dataset has already been sorted by the identical ordered prefix. When passing several suffix sorters to one evaluation batch, they must share that prefix and input width. Dataset values alone cannot prove which prefix was applied, so the caller must retain that provenance separately. Pass the prefix to the evaluator as already-applied metadata; do not apply the full sorter again to those presorted inputs. Deduplicating presorted inputs preserves sorting correctness but changes input multiplicities and therefore aggregate failure and usage counts.
+
+Use the full form for complete-sorter properties and fingerprints. Compute stage depth from the combined CE sequence, rather than adding prefix and suffix stage counts. `RandomNetwork.toStagesWithPrefix` retains the prefix before the suffix's native stages; `toStagesWithoutPrefix` exposes only those suffix stages. Search then compacts the combined network for scoring, keeps all fixed-prefix CEs even when unused, and removes only unused suffix CEs.
+
+Sampling and Evolution expose a prefix selector with `None` and the catalog entries for the current channel count. Sampling snapshots the selection into its generator. Evolution inherits the sampled prefix; changing it between runs retains the suffix, derives a new model ID through `SimpleSorterModel.withPrefix`, reevaluates the parent, and resets the generation count. Cancellation retains the previous parent and selection. Mutation itself continues to inherit the prefix unchanged.
+
+Both pages prepare one input context per run and reuse it for every `MakeSorterWithoutPrefix` evaluation. With a catalog prefix and `all`, scalar checks use `msasPfx.MakeSortableBoolTest` and SIMD checks use `msasPfx.MakeSortableBitv512Test`. Custom prefixes use the same distinct-output generator. Sampled inputs are presorted and deduplicated once; the original requested draw count is retained separately so Evolution recreates the same context. Each distinct output contributes once to failure and suffix CE-use counts, without multiplicity weighting. Prefix CE-use slots are unmeasured placeholders; fixed-prefix markers retain those CEs for display and sorter properties. These pages request counts only and do not retain counterexamples. Prepared inputs reject a mismatched model width, prefix, or requested sample coverage.
+
+Display networks are constructed from `MakeSorterWithPrefix`; full-network compaction supplies stage counts, CE counts, and fingerprints. Usage and fixed-prefix markers are remapped when independent CEs change order, so used-CE and compact views retain the prefix even where its swap count is zero. Self-inverse model expansion treats fixed points as idle channels, including odd channel counts.
+
 ## Corrections
 
 - All five sorting model array containers copy their input arrays and return copies. Unfolder steps and Uf4/Uf6 step arrays also own their contents, so nested changes cannot mutate a model through its dependencies.
@@ -31,9 +49,15 @@ Input models retain full binary datasets, permutation orbits, merge inputs and p
 
 Affected generator and mutator identities now serialize the actual rate records using `IStableSerializable`; they no longer use process-local `GetHashCode()` values as persistent identity. Every simple mutator ID includes its variant. The affected discriminators have the form `Sortopia.Models.Sorting/<type>/v1`.
 
+Simple generator IDs now use `Sortopia.Models.Sorting/<type>/v2` and include the prefix length followed by its ordered canonical CE codes. This changes generator IDs even for empty prefixes. Index-generated model IDs and their random streams consequently change too. Generation from an explicitly supplied model ID still seeds the suffix from that supplied ID. Generator DTOs recompute the current ID from their configuration, including DTOs that carry an older saved generator ID.
+
+Materialized sorter IDs use `Sortopia.Models.Sorting/materializedSorter/v1`, the source model ID, width, prefix, form, and actual limited suffix. Full and suffix forms with nonempty prefixes have distinct IDs; limits producing identical suffixes produce identical IDs, and empty-prefix forms have the same ID. These IDs are no longer casts of model IDs. Keep the source model association when joining evaluation and full-sorter property results; do not cast a materialized sorter ID back to a model ID.
+
 This deliberately changes the derived IDs and therefore random sequences for affected generators and mutators. Replaying a legacy configuration in Sortopia is deterministic within Sortopia but is not a promise of the same legacy random stream. Stored concrete model IDs are retained by DTO conversion. Do not resume a GeneSort evolutionary run across this boundary without an explicit history migration.
 
 Existing DTO record fields, model union case order and numeric model-set keys are retained. Use `fromDomain`, `MessagePackSetup.serialize`, `MessagePackSetup.deserialize<...>` and `toDomain`; conversion invokes the domain constructors. No global serializer configuration is needed. Some malformed legacy data accepted by the old constructors is now rejected. Byte-for-byte compatibility of every legacy model payload has not been certified; FileDb migration remains the place to validate real saved projects.
+
+Model and generator DTOs add `prefixCeCodes: int array`. Missing legacy fields decode as an empty prefix; populated fields are decoded and validated by the domain constructors. This does not couple sortable datasets with CE arrays or introduce a new dataset DTO. Regression tests cover reading the preceding CE model/generator record shapes, prefix round trips for all five families and activated wrappers, and scalar/SIMD presorted evaluation equivalence.
 
 ## Verification
 

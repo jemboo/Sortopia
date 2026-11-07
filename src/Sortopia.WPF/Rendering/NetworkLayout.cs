@@ -92,10 +92,10 @@ public sealed class NetworkLayout
             var start = offset;
             var original = stage.Ces;
             offset += original.Length;
-            var keepStage = mode == 1 && Enumerable.Range(start, original.Length).Any(i => usage.CeUses[i] > 0);
+            var keepStage = mode == 1 && Enumerable.Range(start, original.Length).Any(i => usage.CeUses[i] > 0 || usage.IsFixedCe(i));
             var ces = original.Where((ce, i) =>
             {
-                var keep = mode == 1 ? keepStage : usage.CeUses[start + i] > 0;
+                var keep = mode == 1 ? keepStage : usage.CeUses[start + i] > 0 || usage.IsFixedCe(start + i);
                 if (keep) indices.Add(start + i);
                 return keep;
             }).ToArray();

@@ -98,7 +98,7 @@ type mssiRandMutate =
             | mutatorVariant.V3 ->
                 failwith "V3 mutator variant not implemented for mssiRandMutate"
 
-        mssi.create id parent.ChannelCount mutated
+        mssi.create id parent.ChannelCount parent.Prefix mutated
 
     member this.MakeSorterModelFromIndexAndMod
                                 (parent:mssi)

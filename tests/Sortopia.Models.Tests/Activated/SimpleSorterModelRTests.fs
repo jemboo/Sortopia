@@ -23,11 +23,11 @@ open Sortopia.Models.Sorting.Serialization.Simple
 let private model kind =
     let id = UMX.tag (Guid.NewGuid())
     match kind with
-    | "Msce" -> msce.create id 4<channelCount> [|0; 1; 2|] |> simpleSorterModel.Msce
-    | "Mssi" -> mssi.create id 4<channelCount> ([|[|1; 0; 3; 2|]; [|2; 3; 0; 1|]; [|3; 2; 1; 0|]|] |> Array.map permSi.create) |> simpleSorterModel.Mssi
-    | "Msrs" -> msrs.create id 4<channelCount> ([|[|1; 0; 3; 2|]; [|2; 3; 0; 1|]; [|3; 2; 1; 0|]|] |> Array.map permRs.create) |> simpleSorterModel.Msrs
-    | "Msuf4" -> msuf4.create id 4<channelCount> ([|twoOrbitPairType.Ortho; twoOrbitPairType.Para; twoOrbitPairType.SelfRefl|] |> Array.map (fun seed -> twoOrbitUf4.create seed [||])) |> simpleSorterModel.Msuf4
-    | "Msuf6" -> msuf6.create id 6<channelCount> ([|twoOrbitTripleType.Ortho1; twoOrbitTripleType.Ortho2; twoOrbitTripleType.SelfRefl|] |> Array.map (fun seed -> twoOrbitUf6.create seed [||])) |> simpleSorterModel.Msuf6
+    | "Msce" -> msce.create id 4<channelCount> [||] [|0; 1; 2|] |> simpleSorterModel.Msce
+    | "Mssi" -> mssi.create id 4<channelCount> [||] ([|[|1; 0; 3; 2|]; [|2; 3; 0; 1|]; [|3; 2; 1; 0|]|] |> Array.map permSi.create) |> simpleSorterModel.Mssi
+    | "Msrs" -> msrs.create id 4<channelCount> [||] ([|[|1; 0; 3; 2|]; [|2; 3; 0; 1|]; [|3; 2; 1; 0|]|] |> Array.map permRs.create) |> simpleSorterModel.Msrs
+    | "Msuf4" -> msuf4.create id 4<channelCount> [||] ([|twoOrbitPairType.Ortho; twoOrbitPairType.Para; twoOrbitPairType.SelfRefl|] |> Array.map (fun seed -> twoOrbitUf4.create seed [||])) |> simpleSorterModel.Msuf4
+    | "Msuf6" -> msuf6.create id 6<channelCount> [||] ([|twoOrbitTripleType.Ortho1; twoOrbitTripleType.Ortho2; twoOrbitTripleType.SelfRefl|] |> Array.map (fun seed -> twoOrbitUf6.create seed [||])) |> simpleSorterModel.Msuf6
     | _ -> failwith "Unknown test model"
 
 [<Theory>]
@@ -104,7 +104,7 @@ let ``External array mutation cannot change stored activators`` () =
 [<InlineData("Msuf6", 3)>]
 let ``Sorter includes whole active entries in original order before truncation`` kind cesPerEntry =
     let source = model kind
-    let original = SimpleSorterModel.makeSorter None source
+    let original = SimpleSorterModel.makeSorterWithoutPrefix None source
     let blocks = original.Ces |> Array.chunkBySize cesPerEntry
     for activators, indices in
         [ [|0; -2; 1|], [|2|]
@@ -115,26 +115,26 @@ let ``Sorter includes whole active entries in original order before truncation``
         let paired = simpleSorterModelR.create source 2 activators
         let expected = indices |> Array.collect (fun index -> blocks.[index])
         for limit in [None; Some 0<ceLength>; Some 1<ceLength>; Some 3<ceLength>; Some 100<ceLength>] do
-            let sorter = paired |> SimpleSorterModelR.makeSorter limit
+            let sorter = paired |> SimpleSorterModelR.makeSorterWithoutPrefix limit
             let expectedCes = match limit with None -> expected | Some n -> Array.truncate (int n) expected
             Assert.Equal<ce>(expectedCes, sorter.Ces)
             Assert.Equal(original.ChannelCount, sorter.ChannelCount)
-            Assert.Equal(original.SorterId, sorter.SorterId)
-    Assert.Equal<ce>(original.Ces, (SimpleSorterModel.makeSorter None source).Ces)
+            Assert.Equal((expectedCes = original.Ces), (original.SorterId = sorter.SorterId))
+    Assert.Equal<ce>(original.Ces, (SimpleSorterModel.makeSorterWithoutPrefix None source).Ces)
 
 [<Fact>]
 let ``Inactive permutations are skipped before expanding their orbits`` () =
-    let source = mssi.create (UMX.tag (Guid.NewGuid())) 4<channelCount>
+    let source = mssi.create (UMX.tag (Guid.NewGuid())) 4<channelCount> [||]
                     [|permSi.create [|0; 1; 2; 3|]; permSi.create [|1; 0; 2; 3|]; permSi.create [|3; 2; 1; 0|]|]
                  |> simpleSorterModel.Mssi
-    // Fixed points cannot be expanded by the existing CE converter, but are inactive.
-    let sorter = (simpleSorterModelR.create source 1 [|0; -1; 1|]).MakeSorter None
+    // Inactive entries contribute no CEs, including identity permutations.
+    let sorter = (simpleSorterModelR.create source 1 [|0; -1; 1|]).MakeSorterWithoutPrefix None
     Assert.Equal<ce>([|ce.create 0 3; ce.create 1 2|], sorter.Ces)
 
 [<Fact>]
 let ``Inactive entries are not converted to comparison elements`` () =
-    let source = msce.create (UMX.tag (Guid.NewGuid())) 4<channelCount> [|-1; 1; -1|] |> simpleSorterModel.Msce
-    let sorter = (simpleSorterModelR.create source 1 [|-1; 1; 0|]).MakeSorter None
+    let source = msce.create (UMX.tag (Guid.NewGuid())) 4<channelCount> [||] [|-1; 1; -1|] |> simpleSorterModel.Msce
+    let sorter = (simpleSorterModelR.create source 1 [|-1; 1; 0|]).MakeSorterWithoutPrefix None
     Assert.Equal<ce>([|Ce.fromIndex 1|], sorter.Ces)
 
 let private options =
@@ -167,9 +167,9 @@ let ``SimpleR union helpers and MessagePack preserve active entries and model da
         Assert.Equal(SorterModel.getId current, SorterModelSet.getId current)
         Assert.Equal(SorterModel.getChannelCount current, SorterModelSet.getChannelCount current)
         Assert.Equal(SorterModel.getStageLength current, SorterModelSet.getStageLength current)
-        Assert.Equal<ce>((SimpleSorterModel.makeSorter None source).Ces, (SimpleSorterModel.makeSorter None actual.Model).Ces)
+        Assert.Equal<ce>((SimpleSorterModel.makeSorterWithoutPrefix None source).Ces, (SimpleSorterModel.makeSorterWithoutPrefix None actual.Model).Ces)
         for limit in [None; Some 1<ceLength>; Some 100<ceLength>] do
-            Assert.Equal<ce>((paired.MakeSorter limit).Ces, (SorterModel.makeSorter current limit).Ces)
+            Assert.Equal<ce>((paired.MakeSorterWithoutPrefix limit).Ces, (SorterModel.makeSorterWithoutPrefix current limit).Ces)
         Assert.Throws<ArgumentException>(fun () -> SorterModel.asSimpleSorterModel current |> ignore) |> ignore
     let tag = SimpleSorterModelType.fromString kind |> sorterModelType.SimpleR
     Assert.Equal(kind + "R", SorterModelType.toString tag)
@@ -178,7 +178,7 @@ let ``SimpleR union helpers and MessagePack preserve active entries and model da
 [<Fact>]
 let ``Inactive SimpleR survives serialization as an empty sorter`` () =
     let wrapped = simpleSorterModelR.create (model "Msrs") 5 [|-5; 0; -1|] |> sorterModel.SimpleR |> roundTrip
-    Assert.Empty((SorterModel.makeSorter wrapped None).Ces)
+    Assert.Empty((SorterModel.makeSorterWithoutPrefix wrapped None).Ces)
     Assert.Equal(0<ceLength>, SorterModel.getCeLength wrapped)
     Assert.Equal(0<stageLength>, SorterModel.getStageLength wrapped)
     Assert.Equal<int>([|-5; 0; -1|], (SorterModel.asSimpleSorterModelR wrapped).Activators)
@@ -188,7 +188,7 @@ let ``Simple and Unknown union cases still round trip`` () =
     let source = model "Msce"
     let restored = source |> sorterModel.Simple |> roundTrip
     Assert.Equal(SimpleSorterModel.getId source, SimpleSorterModel.getId (SorterModel.asSimpleSorterModel restored))
-    Assert.Equal<ce>((SimpleSorterModel.makeSorter None source).Ces, (SorterModel.makeSorter restored None).Ces)
+    Assert.Equal<ce>((SimpleSorterModel.makeSorterWithoutPrefix None source).Ces, (SorterModel.makeSorterWithoutPrefix restored None).Ces)
     Assert.Throws<ArgumentException>(fun () -> SorterModel.asSimpleSorterModelR restored |> ignore) |> ignore
     Assert.Equal(sorterModel.Unknown, roundTrip sorterModel.Unknown)
 
@@ -218,8 +218,8 @@ let ``Model sets containing Simple and SimpleR serialize and produce filtered so
     Assert.Equal(3, restored.Count)
     for current in restored.SorterModels do
         let expected = models |> Array.find (fun expected -> SorterModel.getId expected = SorterModel.getId current)
-        Assert.Equal<ce>((SorterModel.makeSorter expected None).Ces, (SorterModel.makeSorter current None).Ces)
-    let sorters = SorterModelSet.makeSorterSet (UMX.tag (Guid.NewGuid())) None restored
+        Assert.Equal<ce>((SorterModel.makeSorterWithoutPrefix expected None).Ces, (SorterModel.makeSorterWithoutPrefix current None).Ces)
+    let sorters = SorterModelSet.makeSorterSetWithoutPrefix (UMX.tag (Guid.NewGuid())) None restored
     Assert.Equal(3, sorters.Sorters.Length)
     Assert.Equal<int>([|0; 2; 3|], sorters.Sorters |> Array.map (fun sorter -> int sorter.ceLength) |> Array.sort)
 
@@ -244,8 +244,8 @@ let ``SimpleR mutation delegates model changes and reproduces bounded activators
     let id = Guid.Parse("9081a492-6ec3-42e9-a962-b14476d560b4") |> UMX.tag<sorterModelId>
     let source =
         match kind with
-        | "Msuf4" -> msuf4.create id 16<channelCount> (Array.init 3 (fun _ -> RandomUnfolderOps4.makeRandomTwoOrbitUf4 (fun () -> 0.5) (Uf4GenRates.makeUniform 16))) |> simpleSorterModel.Msuf4
-        | "Msuf6" -> msuf6.create id 12<channelCount> (Array.init 3 (fun _ -> RandomUnfolderOps6.makeRandomTwoOrbitUf6 (fun () -> 0.5) (Uf6GenRates.makeUniform 12))) |> simpleSorterModel.Msuf6
+        | "Msuf4" -> msuf4.create id 16<channelCount> [||] (Array.init 3 (fun _ -> RandomUnfolderOps4.makeRandomTwoOrbitUf4 (fun () -> 0.5) (Uf4GenRates.makeUniform 16))) |> simpleSorterModel.Msuf4
+        | "Msuf6" -> msuf6.create id 12<channelCount> [||] (Array.init 3 (fun _ -> RandomUnfolderOps6.makeRandomTwoOrbitUf6 (fun () -> 0.5) (Uf6GenRates.makeUniform 12))) |> simpleSorterModel.Msuf6
         | _ -> model kind
     let parent = simpleSorterModelR.create source 2 [|-2; 0; 2|]
     let underlying = mutator kind 1.0
@@ -262,14 +262,14 @@ let ``SimpleR mutation delegates model changes and reproduces bounded activators
         let actual = SorterModel.asSimpleSorterModelR child
         let reconstructed = SorterModelMutator.makeMutantSorterModelFromId wrapped (sorterModel.SimpleR parent) id |> SorterModel.asSimpleSorterModelR
         let ordinary = SimpleSorterModelMutator.makeMutantSorterModelFromId underlying source id
-        Assert.Equal<ce>((SimpleSorterModel.makeSorter None ordinary).Ces, (SimpleSorterModel.makeSorter None actual.Model).Ces)
+        Assert.Equal<ce>((SimpleSorterModel.makeSorterWithoutPrefix None ordinary).Ces, (SimpleSorterModel.makeSorterWithoutPrefix None actual.Model).Ces)
         Assert.Equal<int>(actual.Activators, reconstructed.Activators)
         Assert.Equal(2, actual.AMax)
         Assert.All(actual.Activators, fun value -> Assert.InRange(value, -2, 2))
         Assert.Equal(1, abs actual.Activators.[1])
         seenZeroSteps <- Set.add actual.Activators.[1] seenZeroSteps
-        sawModelChange <- sawModelChange || (SimpleSorterModel.makeSorter None source).Ces <> (SimpleSorterModel.makeSorter None actual.Model).Ces
-        Assert.Equal<ce>((actual.MakeSorter None).Ces, (SorterModel.makeSorter (roundTrip child) None).Ces)
+        sawModelChange <- sawModelChange || (SimpleSorterModel.makeSorterWithoutPrefix None source).Ces <> (SimpleSorterModel.makeSorterWithoutPrefix None actual.Model).Ces
+        Assert.Equal<ce>((actual.MakeSorterWithoutPrefix None).Ces, (SorterModel.makeSorterWithoutPrefix (roundTrip child) None).Ces)
     Assert.True(sawModelChange)
     Assert.Equal<Set<int>>(set [-1; 1], seenZeroSteps)
     Assert.Equal<int>([|-2; 0; 2|], parent.Activators)
@@ -316,7 +316,7 @@ let ``All inactive SimpleR models can mutate with zero maximum`` () =
     let parent = simpleSorterModelR.create source 0 [|0; 0; 0|]
     let child = (simpleSorterModelRMutator.create (mutator "Msce" 1.0) 1.0).MakeSorterModelFromIndexAndMod parent (UMX.tag 0) (UMX.tag 0)
     Assert.Equal<int>([|0; 0; 0|], child.Activators)
-    Assert.Empty((child.MakeSorter None).Ces)
+    Assert.Empty((child.MakeSorterWithoutPrefix None).Ces)
 
 [<Fact>]
 let ``SimpleR mutators validate rates and serialize their configuration`` () =
@@ -332,7 +332,7 @@ let ``SimpleR mutators validate rates and serialize their configuration`` () =
     let original = configured.MakeSorterModelFromIndexAndMod parent (UMX.tag 3) (UMX.tag 4)
     let decoded = restored.MakeSorterModelFromIndexAndMod parent (UMX.tag 3) (UMX.tag 4)
     Assert.Equal<int>(original.Activators, decoded.Activators)
-    Assert.Equal<ce>((original.MakeSorter None).Ces, (decoded.MakeSorter None).Ces)
+    Assert.Equal<ce>((original.MakeSorterWithoutPrefix None).Ces, (decoded.MakeSorterWithoutPrefix None).Ces)
     Assert.NotEqual(SimpleSorterModelR.getId original, configured.MakeSorterModelId parent (UMX.tag 4) (UMX.tag 4))
     Assert.NotEqual(SimpleSorterModelR.getId original, configured.MakeSorterModelId parent (UMX.tag 3) (UMX.tag 5))
 

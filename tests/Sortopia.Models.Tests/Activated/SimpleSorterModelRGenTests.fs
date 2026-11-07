@@ -17,7 +17,7 @@ open Sortopia.Models.Sorting.Serialization.Simple
 
 let private generator factory kind =
     let width = if kind = "Msuf6" then 12 else 16
-    SimpleSorterModelGen.makeUniform factory (UMX.tag width) 5<stageLength>
+    SimpleSorterModelGen.makeUniform factory (UMX.tag width) [||] 5<stageLength>
         (SimpleSorterModelType.fromString kind) (UMX.tag true)
 
 let private options =
@@ -33,7 +33,7 @@ let private assertSameModel (expected: sorterModel) (actual: sorterModel) =
     let e, a = SorterModel.asSimpleSorterModelR expected, SorterModel.asSimpleSorterModelR actual
     Assert.Equal(e.AMax, a.AMax)
     Assert.Equal<int>(e.Activators, a.Activators)
-    Assert.Equal<ce>((SimpleSorterModel.makeSorter None e.Model).Ces, (SimpleSorterModel.makeSorter None a.Model).Ces)
+    Assert.Equal<ce>((SimpleSorterModel.makeSorterWithoutPrefix None e.Model).Ces, (SimpleSorterModel.makeSorterWithoutPrefix None a.Model).Ces)
 
 [<Theory>]
 [<InlineData("Msce")>]
@@ -62,13 +62,13 @@ let ``All SimpleR generators initialize one bounded activator per entry and repl
         Assert.All(actual.Activators, fun value -> Assert.InRange(value, -3, 3))
         observed <- Set.union observed (Set.ofArray actual.Activators)
         let ordinary = SimpleSorterModelGen.makeSorterModelFromId id underlying
-        Assert.Equal<ce>((SimpleSorterModel.makeSorter None ordinary).Ces, (SimpleSorterModel.makeSorter None actual.Model).Ces)
+        Assert.Equal<ce>((SimpleSorterModel.makeSorterWithoutPrefix None ordinary).Ces, (SimpleSorterModel.makeSorterWithoutPrefix None actual.Model).Ces)
         assertSameModel child (SorterModelGen.makeSorterModelFromId id wrapped)
         assertSameModel child (SorterModelGen.makeSorterModelFromIndex (UMX.tag index) restored)
         let cesPerEntry = if kind = "Msce" then 1 else int configured.ChannelCount / 2
-        let expected = (SimpleSorterModel.makeSorter None ordinary).Ces |> Array.chunkBySize cesPerEntry
+        let expected = (SimpleSorterModel.makeSorterWithoutPrefix None ordinary).Ces |> Array.chunkBySize cesPerEntry
                        |> Array.indexed |> Array.filter (fun (i, _) -> actual.Activators.[i] > 0) |> Array.collect snd
-        Assert.Equal<ce>(expected, (SorterModel.makeSorter child None).Ces)
+        Assert.Equal<ce>(expected, (SorterModel.makeSorterWithoutPrefix child None).Ces)
         let bytes = MessagePackSerializer.Serialize(SorterModelDto.fromDomain child, options)
         let decoded = MessagePackSerializer.Deserialize<sorterModelDto>(bytes, options) |> SorterModelDto.toDomain
         assertSameModel child decoded
@@ -87,7 +87,7 @@ let ``Activator generation supports inclusive bounds across the full nonnegative
         Assert.All(values, fun value -> Assert.InRange(value, -maximum, maximum))
         if maximum = 0 then
             Assert.All(values, fun value -> Assert.Equal(0, value))
-            Assert.Empty((configured.MakeSorterModelFromIndex (UMX.tag 0)).MakeSorter(None).Ces)
+            Assert.Empty((configured.MakeSorterModelFromIndex (UMX.tag 0)).MakeSorterWithoutPrefix(None).Ces)
         elif maximum = 1 then
             Assert.Equal<Set<int>>(set [-1; 0; 1], Set.ofArray values)
         else
@@ -143,5 +143,5 @@ let ``Existing Simple and Unknown generator cases still serialize`` () =
     let a = SorterModelGen.makeSorterModelFromIndex (UMX.tag 3) original
     let b = SorterModelGen.makeSorterModelFromIndex (UMX.tag 3) restored
     Assert.Equal(SorterModel.getId a, SorterModel.getId b)
-    Assert.Equal<ce>((SorterModel.makeSorter a None).Ces, (SorterModel.makeSorter b None).Ces)
+    Assert.Equal<ce>((SorterModel.makeSorterWithoutPrefix a None).Ces, (SorterModel.makeSorterWithoutPrefix b None).Ces)
     Assert.Equal(sorterModelGen.Unknown, roundTrip sorterModelGen.Unknown)

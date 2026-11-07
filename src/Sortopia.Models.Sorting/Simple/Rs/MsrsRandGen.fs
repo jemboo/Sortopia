@@ -5,7 +5,9 @@ open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Permutations
 open Sortopia.Sorting
+open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
 
 /// Represents a configuration for generating random Msrs instances with specified mutation rates.
 /// Combines random generation and mutation probabilities for Perm_Rs instances.
@@ -17,35 +19,40 @@ type msrsRandGen =
               rngFactory: rngFactory
               opsGenRates: opsGenRates
               channelCount: int<channelCount>
+              prefix: ce array
               stageLength: int<stageLength>
         }
     static member create
             (rngFactory: rngFactory)
             (channelCount: int<channelCount>)
+            (prefix: ce array)
             (opsGenRates: opsGenRates)
             (stageLength: int<stageLength>)
             : msrsRandGen =
 
+        let prefix = ModelPrefix.snapshot channelCount prefix
         if %channelCount < 2 then
             failwith $"ChannelCount must be at least 2, got {%channelCount}"
         if int stageLength < 1 then invalidArg "stageLength" "Stage length must be positive."
         let id =
             [
-                box "Sortopia.Models.Sorting/msrsRandGen/v1"
+                box "Sortopia.Models.Sorting/msrsRandGen/v2"
                 box rngFactory
                 box (channelCount |> UMX.untag)
                 box (stageLength |> UMX.untag)
                 box opsGenRates
-            ] |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
+            ] @ (ModelPrefix.hashValues prefix |> Seq.toList) |> GuidUtils.guidFromObjs |> UMX.tag<sorterModelGenId>
 
         {
             id = id
             channelCount = channelCount
+            prefix = prefix
             opsGenRates = opsGenRates
             rngFactory = rngFactory
             stageLength = stageLength
         }
 
+    member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
     member this.CeLength with get () = (this.ChannelCount * %this.StageLength / 2) |> UMX.tag<ceLength>
     member this.RngFactory with get () = this.rngFactory
@@ -60,7 +67,7 @@ type msrsRandGen =
         | _ -> false
 
     override this.GetHashCode() =
-        hash (this.rngFactory, this.opsGenRates, this.channelCount, this.stageLength)
+        hash (this.rngFactory, this.opsGenRates, this.channelCount, this.stageLength, this.prefix)
 
     interface IEquatable<msrsRandGen> with
         member this.Equals(other) =
@@ -84,7 +91,7 @@ type msrsRandGen =
                     (opsGenRates)
                     (channelCount) |]
 
-        msrs.create id this.ChannelCount perm_Rss
+        msrs.create id this.ChannelCount this.Prefix perm_Rss
 
 
     member this.MakeSorterModelFromIndex (index: int<sortingGenIndex>) : msrs =

@@ -18,7 +18,7 @@ type MsrsRandMutateTests() =
     [<InlineData(0.25, 0.25, 0.25)>]
     member _.``Uniform mutation modes preserve reflection symmetry and replay deterministically`` ortho para selfSym =
         let input = permRs.create [|1; 0; 3; 2|]
-        let parent = msrs.create (UMX.tag (Guid.Parse "00000000-0000-0000-0000-000000000001")) 4<channelCount> [|input; input|]
+        let parent = msrs.create (UMX.tag (Guid.Parse "00000000-0000-0000-0000-000000000001")) 4<channelCount> [||] [|input; input|]
         let mutator = msrsRandMutate.create rngFactory.LcgFactory (opsActionRates.create ortho para selfSym) mutatorVariant.V1
         let result = mutator.MakeSorterModelFromIndexAndMod parent (UMX.tag 0) (UMX.tag 0)
         Assert.Equal(parent.ChannelCount, result.ChannelCount)
@@ -38,6 +38,6 @@ type MsrsRandMutateTests() =
     [<InlineData(3)>]
     member _.``Uniform mutator accepts parents with different stage counts`` count =
         let mutator = msrsRandMutate.create rngFactory.LcgFactory (opsActionRates.create 0.0 0.0 0.0) mutatorVariant.V1
-        let parent = msrs.create (UMX.tag Guid.Empty) 4<channelCount> (Array.create count (permRs.create [|1; 0; 3; 2|]))
+        let parent = msrs.create (UMX.tag Guid.Empty) 4<channelCount> [||] (Array.create count (permRs.create [|1; 0; 3; 2|]))
         let result = mutator.MakeSorterModelFromIndexAndMod parent (UMX.tag 0) (UMX.tag 0)
         Assert.Equal<permRs>(parent.Perm_Rss :> seq<permRs>, result.Perm_Rss :> seq<permRs>)
