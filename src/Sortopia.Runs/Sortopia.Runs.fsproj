@@ -4,6 +4,7 @@
     <Compile Include="ParameterSet.fs" />
     <Compile Include="ParameterSpan.fs" />
     <Compile Include="OutputDataType.fs" />
+    <Compile Include="FolderName.fs" />
     <Compile Include="Run.fs" />
   </ItemGroup>
   <ItemGroup>

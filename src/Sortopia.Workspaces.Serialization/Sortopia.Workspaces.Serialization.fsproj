@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="WorkspaceDto.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Workspaces/Sortopia.Workspaces.fsproj" />
+    <ProjectReference Include="../Sortopia.Core.Serialization/Sortopia.Core.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

@@ -12,7 +12,7 @@ using Sortopia.WPF.Models;
 using Sortopia.WPF.ViewModels;
 using Sortopia.WPF.ViewModels.Pages.Home;
 using Sortopia.WPF.ViewModels.Pages.Networks;
-using Sortopia.WPF.ViewModels.Pages.Projects;
+using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Sortopia.WPF.ViewModels.Pages.RandomNetworks;
 using Sortopia.WPF.ViewModels.Pages.Sgd;
 using Sortopia.WPF.ViewModels.Shared.Controls;
@@ -2163,9 +2163,202 @@ public sealed class RandomNetworkTests
             CheckGraphBufferTiles();
             CheckSgdControls();
             CheckSgdPrefixControls();
+            CheckWorkspaceHierarchy();
         }
         finally { app.Shutdown(); }
     });
+
+    private static void CheckWorkspaceHierarchy()
+    {
+        var temporary = System.IO.Directory.CreateTempSubdirectory("Sortopia-workspace-view-");
+        try
+        {
+            string? importSource = null;
+            var vm = new WorkspacePageViewModel(() => { }, _ => temporary.FullName,
+                new Sortopia.WPF.Settings.WorkspaceFolderSettings(System.IO.Path.Combine(temporary.FullName, "setting.txt")), pickExistingFolder: _ => importSource);
+            vm.BrowseWorkspaceFolderCommand.Execute(null);
+            var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
+            void LayoutWorkspace()
+            {
+                page.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+                page.Measure(new Size(1000, 800)); page.Arrange(new Rect(0, 0, 1000, 800)); page.UpdateLayout();
+            }
+            void RenderWorkspaceState(string state)
+            {
+                LayoutWorkspace();
+                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(1000, 800, 96, 96, PixelFormats.Pbgra32);
+                image.Render(page);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                using var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-{state}.png"));
+                encoder.Save(stream);
+            }
+            LayoutWorkspace();
+            var addModule = (Button)page.FindName("AddExistingModuleButton");
+            var addProject = (Button)page.FindName("AddExistingProjectButton");
+            Assert.True(addModule.IsEnabled);
+            Assert.False(addProject.IsEnabled);
+            var prompt = new Sortopia.WPF.Views.Pages.Workspace.WorkspaceUnsavedChangesDialog();
+            Assert.True(((Button)prompt.FindName("SaveChangesButton")).IsDefault);
+            Assert.True(((Button)prompt.FindName("CancelChangesButton")).IsCancel);
+            Assert.Equal(WorkspaceUnsavedChoice.Cancel, prompt.Choice);
+            var promptContent = (Panel)prompt.Content;
+            promptContent.Background = (Brush)prompt.FindResource("Workspace.Canvas");
+            promptContent.Measure(new Size(470, double.PositiveInfinity));
+            var promptHeight = (int)Math.Ceiling(promptContent.DesiredSize.Height);
+            promptContent.Arrange(new Rect(0, 0, 470, promptHeight));
+            promptContent.UpdateLayout();
+            var promptImage = new System.Windows.Media.Imaging.RenderTargetBitmap(470, promptHeight, 96, 96, PixelFormats.Pbgra32);
+            promptImage.Render(promptContent);
+            var promptEncoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            promptEncoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(promptImage));
+            using (var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, "workspace-unsaved-prompt.png"))) promptEncoder.Save(stream);
+            prompt.Close();
+            var newPanel = (StackPanel)page.FindName("WorkspaceNamePanel");
+            var newName = (TextBox)page.FindName("WorkspaceNameInput");
+            var save = (Button)page.FindName("SaveWorkspaceButton");
+            var discard = (Button)page.FindName("DiscardChangesButton");
+            Assert.False(discard.IsEnabled);
+            var fileStatus = (TextBlock)page.FindName("WorkspaceFileStatus");
+            Assert.Equal(Visibility.Visible, newPanel.Visibility);
+            Assert.Contains("No workspace file", fileStatus.Text);
+            newName.SetCurrentValue(TextBox.TextProperty, "");
+            Assert.False(save.IsEnabled);
+            newName.SetCurrentValue(TextBox.TextProperty, "Research");
+            Assert.True(save.IsEnabled);
+            Assert.True(discard.IsEnabled);
+            Assert.Equal("Research", vm.WorkspaceName);
+            RenderWorkspaceState("not-saved");
+            CompleteRun(vm.SaveWorkspaceAsync);
+            LayoutWorkspace();
+            Assert.Empty(vm.Error);
+            Assert.Equal(Visibility.Visible, newPanel.Visibility);
+            Assert.False(save.IsEnabled);
+            Assert.False(discard.IsEnabled);
+            Assert.Contains("Saved workspace file", fileStatus.Text);
+            RenderWorkspaceState("saved");
+            var entityName = (TextBox)page.FindName("EntityNameInput");
+            var folderName = (TextBox)page.FindName("EntityFolderNameInput");
+            var details = (Border)page.FindName("EntityDetailsPanel");
+            Assert.Equal(Visibility.Collapsed, details.Visibility);
+            Assert.True(folderName.IsReadOnly);
+            var originalFolderName = folderName.Text;
+            newName.SetCurrentValue(TextBox.TextProperty, "Updated research");
+            Assert.Equal("Updated research", vm.WorkspaceName);
+            Assert.True(save.IsEnabled);
+            Assert.Contains("Unsaved changes", fileStatus.Text);
+            RenderWorkspaceState("renamed");
+            CompleteRun(vm.SaveWorkspaceAsync);
+            LayoutWorkspace();
+            Assert.Empty(vm.Error);
+            Assert.False(save.IsEnabled);
+            Assert.DoesNotContain("Unsaved changes", fileStatus.Text);
+            Assert.Equal(originalFolderName, folderName.Text);
+            Assert.Equal("Updated research", WorkspaceFileStore.LoadDefinition(temporary.FullName).WorkspaceName);
+            vm.AddModuleCommand.Execute(null);
+            LayoutWorkspace();
+            Assert.Equal(Visibility.Visible, details.Visibility);
+            entityName.SetCurrentValue(TextBox.TextProperty, "Sorting");
+            Assert.Equal("Sorting", folderName.Text);
+            entityName.SetCurrentValue(TextBox.TextProperty, "Sorting research");
+            Assert.Equal("Sorting research", folderName.Text);
+            entityName.SetCurrentValue(TextBox.TextProperty, "Sorting");
+            CompleteRun(vm.SaveWorkspaceAsync);
+            Assert.Empty(vm.Error);
+            vm.AddModuleCommand.Execute(null);
+            LayoutWorkspace();
+            var newModule = vm.Selected!;
+            var defaultName = newModule.Name;
+            entityName.SetCurrentValue(TextBox.TextProperty, "SORTING");
+            Assert.Equal(defaultName, newModule.Name);
+            Assert.Equal(defaultName, newModule.FolderName);
+            Assert.Equal("SORTING", entityName.Text);
+            var nameError = (TextBlock)page.FindName("EntityNameError");
+            Assert.Contains("saved workspace", nameError.Text);
+            Assert.Equal(Visibility.Visible, nameError.Visibility);
+            Assert.False(save.IsEnabled);
+            RenderWorkspaceState("name-conflict");
+            entityName.SetCurrentValue(TextBox.TextProperty, "Sorting 2");
+            Assert.Equal("Sorting 2", folderName.Text);
+            folderName.SetCurrentValue(TextBox.TextProperty, "SORTING");
+            Assert.Equal("Sorting 2", newModule.FolderName);
+            var folderError = (TextBlock)page.FindName("EntityFolderNameError");
+            Assert.Contains("Duplicate folder name", folderError.Text);
+            Assert.False(save.IsEnabled);
+            RenderWorkspaceState("folder-conflict");
+            folderName.SetCurrentValue(TextBox.TextProperty, "sorting-2");
+            Assert.Empty(folderError.Text);
+            vm.RemoveCommand.Execute(null);
+            vm.Selected = vm.Roots.Single().Children.Single();
+            vm.AddProjectCommand.Execute(null);
+            vm.Selected!.Name = "Search";
+            vm.AddRunCommand.Execute(null);
+            vm.Selected!.Name = "Trial 01";
+            Assert.False(addModule.IsEnabled);
+            Assert.False(addProject.IsEnabled);
+            var runJson = System.Text.Json.JsonSerializer.SerializeToNode(
+                Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial 01", true)))!.AsObject();
+            runJson.Remove("schemaVersion"); runJson.Remove("projectName"); runJson.Remove("runName"); runJson.Remove("folderName");
+            vm.Selected.RunConfiguration = runJson.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            LayoutWorkspace();
+            Assert.False(folderName.IsReadOnly);
+            entityName.SetCurrentValue(TextBox.TextProperty, "Trial 02");
+            Assert.Equal("Trial 02", folderName.Text);
+            folderName.SetCurrentValue(TextBox.TextProperty, "trial-01");
+            Assert.Equal("trial-01", vm.Selected.FolderName);
+            entityName.SetCurrentValue(TextBox.TextProperty, "Trial: renamed");
+            Assert.Equal("trial-01", folderName.Text);
+            Assert.Equal("Trial: renamed", vm.Selected.Name);
+            Assert.Empty(vm.Error);
+            Assert.True(save.IsEnabled);
+            foreach (var size in new[] { new Size(1000, 800), new Size(640, 480) })
+            {
+                page.Measure(size); page.Arrange(new Rect(size)); page.UpdateLayout();
+                var tree = (TreeView)page.FindName("WorkspaceTree");
+                Assert.Single(tree.Items);
+                Assert.True(tree.ActualHeight > 0);
+                Assert.True(vm.Selected?.IsRun, $"Selected entity: {vm.Selected?.KindLabel ?? "none"}");
+                var editor = (TextBox)page.FindName("RunConfigurationEditor");
+                Assert.Equal(Visibility.Visible, editor.Visibility);
+                Assert.True(editor.ActualHeight > 50);
+                var image = new System.Windows.Media.Imaging.RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+                image.Render(page);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                using var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-hierarchy-{size.Width}.png"));
+                encoder.Save(stream);
+            }
+            importSource = System.IO.Path.Combine(temporary.FullName, "library-project");
+            WorkspaceImportTests.WriteProject(importSource, "Imported project");
+            vm.Selected = vm.Roots.Single().Children.Single();
+            CompleteRun(() => vm.AddExistingAsync(WorkspaceEntityKind.Project));
+            Assert.Empty(vm.Error);
+            LayoutWorkspace();
+            Assert.Contains(importSource, ((TextBlock)page.FindName("PendingCopyNotice")).Text);
+            RenderWorkspaceState("pending-copy");
+            discard.Command.Execute(null);
+            LayoutWorkspace();
+            Assert.False(discard.IsEnabled);
+            Assert.False(save.IsEnabled);
+            Assert.Empty(vm.Roots.Single().Children.Single().Children);
+            Assert.True(System.IO.Directory.Exists(importSource));
+            Assert.False(System.IO.Directory.Exists(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting", "projects", "library-project")));
+            RenderWorkspaceState("discarded");
+            vm.Selected = vm.Roots.Single().Children.Single();
+            var moduleFolder = System.IO.Path.Combine(temporary.FullName, "modules", "Sorting");
+            System.IO.File.Delete(WorkspaceDefinitionFiles.Require(moduleFolder, "module"));
+            vm.RefreshDiskStatus();
+            LayoutWorkspace();
+            Assert.Equal("Missing definition", vm.Selected.DiskStatus);
+            Assert.Equal(Visibility.Visible, ((TextBlock)page.FindName("MissingComponentsNotice")).Visibility);
+            Assert.True(save.IsEnabled);
+            RenderWorkspaceState("missing-definition");
+            CompleteRun(vm.SaveWorkspaceAsync);
+            Assert.Empty(vm.Error);
+            Assert.False(vm.HasMissingComponents);
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
 
     private static void CheckRandomEducationControls()
     {
@@ -2378,13 +2571,13 @@ public sealed class RandomNetworkTests
             layouts.SetCurrentValue(Sortopia.WPF.Views.Shared.Controls.StageLayoutSelector.ModeProperty, 0);
             Assert.Equal(0, diagram.DisplayMode);
 
-            // Visiting Projects preserves SGD settings, buffers and selection.
+            // Visiting Workspace preserves SGD settings, buffers and selection.
             vm.ReturnHomeCommand.Execute(null);
-            home.OpenProjectsCommand.Execute(null);
+            home.OpenWorkspaceCommand.Execute(null);
             Layout();
             presenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(content, 0));
-            Assert.IsType<Sortopia.WPF.Views.Pages.Projects.ProjectsPage>(VisualTreeHelper.GetChild(presenter, 0));
-            Assert.IsType<ProjectsPageViewModel>(shell.CurrentPage).ReturnHomeCommand.Execute(null);
+            Assert.IsType<Sortopia.WPF.Views.Pages.Workspace.WorkspacePage>(VisualTreeHelper.GetChild(presenter, 0));
+            Assert.IsType<WorkspacePageViewModel>(shell.CurrentPage).ReturnHomeCommand.Execute(null);
             home.OpenSgdCommand.Execute(null);
             Layout();
             Assert.Same(vm, shell.CurrentPage);

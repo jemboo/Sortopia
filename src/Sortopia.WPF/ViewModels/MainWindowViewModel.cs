@@ -1,7 +1,7 @@
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Home;
 using Sortopia.WPF.ViewModels.Pages.Networks;
-using Sortopia.WPF.ViewModels.Pages.Projects;
+using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Sortopia.WPF.ViewModels.Pages.RandomNetworks;
 using Sortopia.WPF.ViewModels.Pages.Sgd;
 
@@ -11,20 +11,21 @@ namespace Sortopia.WPF.ViewModels;
 public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly HomePageViewModel homePage;
-    private readonly ProjectsPageViewModel projectsPage;
+    private readonly WorkspacePageViewModel workspacePage;
     private readonly NetworksPageViewModel networksPage;
     private readonly RandomNetworksPageViewModel randomNetworksPage;
     private readonly SgdPageViewModel sgdPage;
     private ViewModelBase currentPage;
 
-    public MainWindowViewModel(Func<string?, string?> pickProjectsFolder,
-        ProjectsFolderSettings? projectsSettings = null)
+    public MainWindowViewModel(Func<string?, string?> pickWorkspaceFolder,
+        WorkspaceFolderSettings? workspaceSettings = null, Func<WorkspaceUnsavedChoice>? confirmWorkspaceChanges = null,
+        Func<WorkspaceFolderRequest, string?>? pickExistingWorkspaceFolder = null)
     {
-        homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenProjects);
+        homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenWorkspace);
         networksPage = new NetworksPageViewModel(ReturnHome);
         randomNetworksPage = new RandomNetworksPageViewModel(ReturnHome);
         sgdPage = new SgdPageViewModel(ReturnHome);
-        projectsPage = new ProjectsPageViewModel(ReturnHome, pickProjectsFolder, projectsSettings ?? new ProjectsFolderSettings());
+        workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder);
         currentPage = homePage;
     }
 
@@ -34,7 +35,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref currentPage, value);
     }
 
-    private void OpenProjects() => CurrentPage = projectsPage;
+    private void OpenWorkspace() => CurrentPage = workspacePage;
+
+    public Task<bool> TryCloseAsync() => workspacePage.TryLeaveAsync();
 
     private void OpenNetworks() => CurrentPage = networksPage;
 
@@ -50,5 +53,5 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         CurrentPage = homePage;
     }
 
-    public void Dispose() { networksPage.Dispose(); randomNetworksPage.Dispose(); sgdPage.Stop(); }
+    public void Dispose() { workspacePage.Cancel(); networksPage.Dispose(); randomNetworksPage.Dispose(); sgdPage.Stop(); }
 }

@@ -5,8 +5,8 @@
         xmlns:homeVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Home"
         xmlns:networkViews="clr-namespace:Sortopia.WPF.Views.Pages.Networks"
         xmlns:networkVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Networks"
-        xmlns:projectViews="clr-namespace:Sortopia.WPF.Views.Pages.Projects"
-        xmlns:projectVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Projects"
+        xmlns:workspaceViews="clr-namespace:Sortopia.WPF.Views.Pages.Workspace"
+        xmlns:workspaceVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Workspace"
         xmlns:randomViews="clr-namespace:Sortopia.WPF.Views.Pages.RandomNetworks"
         xmlns:randomVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.RandomNetworks"
         xmlns:sgdViews="clr-namespace:Sortopia.WPF.Views.Pages.Sgd"
@@ -26,8 +26,8 @@
         <DataTemplate DataType="{x:Type homeVm:HomePageViewModel}">
             <homeViews:HomePage />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type projectVm:ProjectsPageViewModel}">
-            <projectViews:ProjectsPage />
+        <DataTemplate DataType="{x:Type workspaceVm:WorkspacePageViewModel}">
+            <workspaceViews:WorkspacePage />
         </DataTemplate>
         <DataTemplate DataType="{x:Type networkVm:NetworksPageViewModel}">
             <networkViews:NetworksPage />

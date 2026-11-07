@@ -5,10 +5,10 @@ namespace Sortopia.WPF.ViewModels.Pages.Home;
 
 public sealed class HomePageViewModel : ViewModelBase
 {
-    public HomePageViewModel(Action openNetworks, Action openRandomNetworks, Action openSgd, Action openProjects)
+    public HomePageViewModel(Action openNetworks, Action openRandomNetworks, Action openSgd, Action openWorkspace)
     {
         OpenSgdCommand = new RelayCommand(openSgd);
-        OpenProjectsCommand = new RelayCommand(openProjects);
+        OpenWorkspaceCommand = new RelayCommand(openWorkspace);
         OpenNetworksCommand = new RelayCommand(openNetworks);
         OpenRandomNetworksCommand = new RelayCommand(openRandomNetworks);
     }
@@ -19,5 +19,5 @@ public sealed class HomePageViewModel : ViewModelBase
 
     public ICommand OpenNetworksCommand { get; }
 
-    public ICommand OpenProjectsCommand { get; }
+    public ICommand OpenWorkspaceCommand { get; }
 }

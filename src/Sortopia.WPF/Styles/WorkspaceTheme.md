@@ -14,7 +14,7 @@ The shared theme provides a consistent presentation across Sortopia, following
 
 `WorkspaceTheme.xaml` is the application theme. The older `Navigation.xaml` and
 `NetworkWorkspace.xaml` resource paths forward to it so existing consumers share the same styles.
-Home, Projects, catalog playback, random networks, and SGD use these tokens.
+Home, Workspace, catalog playback, random networks, and SGD use these tokens.
 
 `Views/Pages/Sgd/SgdPage.xaml` hosts the Setup, Sampling, and Evolution subpages from
 `Views/Pages/Sgd/SubPages`, using the retained `ViewModels/Pages/Sgd/SgdPageViewModel.cs`
@@ -22,4 +22,4 @@ instance. Workflow behavior belongs in the matching page and subpage view models
 Sampling and Evolution share `Views/Shared/Controls/SgdResultsView.xaml` and its
 annotation/history view models in `ViewModels/Shared/Controls`. Reusable visual controls,
 including the graph, network diagram, and parameter editor, live in `Views/Shared/Controls`.
-`Views/Pages/Projects/ProjectsPage.xaml` provides the Projects folder setting.
+`Views/Pages/Workspace/WorkspacePage.xaml` groups Save and Discard beside the workspace name, with creation/import actions above the hierarchy and entity editor. Retained folders appear in a compact expandable notice after saving.

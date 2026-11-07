@@ -4,6 +4,8 @@ open FSharp.UMX
 open Sortopia.Core  
 
 [<Measure>] type databaseName
+[<Measure>] type workspaceName
+[<Measure>] type moduleName
 [<Measure>] type projectName
 [<Measure>] type runName
 
@@ -68,6 +70,7 @@ module private RunConfiguration =
 type rootRunConfig = {
     ProjectName: string<projectName>
     RunName: string<runName>
+    FolderName: string
     Description: string
     ResultsDatabaseName: string<databaseName>
     ExecuteFunctionName: string
@@ -82,6 +85,7 @@ type rootRun =
 
     member this.ProjectName = this.config.ProjectName
     member this.RunName = this.config.RunName
+    member this.FolderName = this.config.FolderName
     member this.Description = this.config.Description
     member this.ResultsDatabaseName = this.config.ResultsDatabaseName
     member this.ExecuteFunctionName = this.config.ExecuteFunctionName
@@ -91,6 +95,7 @@ type rootRun =
 
 module RootRun =
     let create (config: rootRunConfig) : rootRun =
+        FolderName.validate config.FolderName |> ignore
         let outputSpanKeys =
             RunConfiguration.validate "resultsDatabaseName" config.ResultsDatabaseName config.ProjectName config.RunName
                 config.OutputParameterSpans "executeFunctionName" config.ExecuteFunctionName
@@ -103,6 +108,7 @@ module RootRun =
 type branchRunConfig = {
     ProjectName: string<projectName>
     RunName: string<runName>
+    FolderName: string
     Description: string
     ResultsDatabaseName: string<databaseName>
     ExecuteFunctionName: string
@@ -122,6 +128,7 @@ type branchRun =
 
     member this.ProjectName = this.config.ProjectName
     member this.RunName = this.config.RunName
+    member this.FolderName = this.config.FolderName
     member this.Description = this.config.Description
     member this.ResultsDatabaseName = this.config.ResultsDatabaseName
     member this.ExecuteFunctionName = this.config.ExecuteFunctionName
@@ -136,6 +143,7 @@ type branchRun =
 
 module BranchRun =
     let create (config: branchRunConfig) : branchRun =
+        FolderName.validate config.FolderName |> ignore
         let outputSpanKeys =
             RunConfiguration.validate "resultsDatabaseName" config.ResultsDatabaseName config.ProjectName config.RunName
                 config.OutputParameterSpans "executeFunctionName" config.ExecuteFunctionName
@@ -181,6 +189,11 @@ type run =
         match this with
         | RootRun value -> value.RunName
         | BranchRun value -> value.RunName
+
+    member this.FolderName =
+        match this with
+        | RootRun value -> value.FolderName
+        | BranchRun value -> value.FolderName
 
     member this.Description =
         match this with

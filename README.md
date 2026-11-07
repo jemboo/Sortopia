@@ -15,9 +15,11 @@ In Visual Studio, set `Sortopia.WPF` as the startup project and press F5. From t
 dotnet run --project src/Sortopia.WPF/Sortopia.WPF.csproj
 ```
 
-The home page displays the Sortopia fisherman artwork with navigation buttons on the left. Choose **Projects** to set your Projects folder, then **Browse…** to select it. The selected path is saved automatically in `%LOCALAPPDATA%/Sortopia/projects-folder.txt` and restored on the next launch. Choosing a folder keeps you on the Projects page; use **Back to Sortopia** to return home. The image scales proportionally with the window, and the Sortopia icon is embedded in the window and executable. Both assets are packaged with the app.
+The home page displays the Sortopia fisherman artwork with navigation buttons on the left. Choose **Workspace** to set your Workspace folder, then **Browse…** to select it. The selected path is saved automatically in `%LOCALAPPDATA%/Sortopia/workspace-folder.txt` and restored on the next launch. Existing saved folder choices are retained after the rename. Choosing a folder keeps you on the Workspace page; use **Back to Sortopia** to return home. The image scales proportionally with the window, and the Sortopia icon is embedded in the window and executable. Both assets are packaged with the app.
 
-The WPF shell uses MVVM. `MainWindowViewModel.CurrentPage` selects a page through typed XAML data templates. `HomePageViewModel` and `ProjectsPageViewModel` expose navigation commands; their views contain no navigation logic. The shell retains the page view models when switching pages. Shared appearance lives in `Styles/WorkspaceTheme.xaml`.
+The Workspace page edits modules, projects, and runs, saves them in typed folders, and imports existing modules/projects from disk. Save or discard edits with the controls beside the workspace name. See [workspace hierarchy and saving](docs/workspaces.md) for the layout and workflow.
+
+The WPF shell uses MVVM. `MainWindowViewModel.CurrentPage` selects a page through typed XAML data templates. `HomePageViewModel` and `WorkspacePageViewModel` expose navigation commands; their views contain no navigation logic. The shell retains the page view models when switching pages. Shared appearance lives in `Styles/WorkspaceTheme.xaml`.
 
 `src/Sortopia.WPF/Views` and `ViewModels` follow the same Pages → SubPages → Controls hierarchy. Top-level pages own their subpages, and reusable controls live in a shared location:
 
@@ -25,7 +27,7 @@ The WPF shell uses MVVM. `MainWindowViewModel.CurrentPage` selects a page throug
 | --- | --- |
 | `Pages/Home` | Home page and navigation commands. |
 | `Pages/Networks`, `Pages/RandomNetworks` | Separate top-level pages for catalog playback and random networks. |
-| `Pages/Projects` | Projects folder selection and saved folder setting. |
+| `Pages/Workspace` | Workspace hierarchy editor, saved folder setting, and module/project imports. |
 | `Pages/Sgd` | SGD page, workflow navigation, and operation coordination. |
 | `Pages/Sgd/SubPages` | Setup, Sampling, and Evolution subpages owned by the SGD page. |
 | `Shared/Controls` | Reusable results pane, graph, network diagram, parameter editor, layout selector, generation inputs, and navigation control. The matching view-model folder holds shared playback, results, annotations, history, and editor settings. |
@@ -45,6 +47,8 @@ Choose **Random Networks** for the separate random-generation and testing page. 
 | Project | What belongs here |
 | --- | --- |
 | Sortopia.Runs | Run configurations, output categories, parameter generation and result-query definitions. |
+| Sortopia.Workspaces | Recursive workspace, module and project definitions containing existing run types. |
+| Sortopia.Workspaces.Serialization | Versioned MessagePack definitions for workspaces, modules, projects and runs. |
 | Sortopia.WPF | Windows desktop shell, MVVM page navigation, sorting-network visualization and trace playback. |
 | Sortopia.Core | Arrays, collections, stable IDs, random sources, sampling, combinatorics and computation builders. Core has no project references. |
 | Sortopia.Permutations | Permutations, involutions, orbits, merge lattices, unfolders and their generation and mutation rates. These types refer to one another and share mathematical invariants. |

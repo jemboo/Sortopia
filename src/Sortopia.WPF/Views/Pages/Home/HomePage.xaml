@@ -22,8 +22,8 @@
                             AutomationProperties.Name="Random networks" ToolTip="Generate and test random sorting networks" />
                     <Button Content="S_GD" Command="{Binding OpenSgdCommand}"
                             AutomationProperties.Name="SGD" ToolTip="Improve a network through mutation and selection" />
-                    <Button Content="_Projects" Command="{Binding OpenProjectsCommand}" Margin="0"
-                            AutomationProperties.Name="Projects" ToolTip="Choose your Projects folder" />
+                    <Button Content="_Workspace" Command="{Binding OpenWorkspaceCommand}" Margin="0"
+                            AutomationProperties.Name="Workspace" ToolTip="Choose your Workspace folder" />
                 </StackPanel>
             </Border>
             <Border Grid.Column="1" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}"
