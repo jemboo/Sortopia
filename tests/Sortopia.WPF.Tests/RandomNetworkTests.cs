@@ -2174,8 +2174,10 @@ public sealed class RandomNetworkTests
         try
         {
             string? importSource = null;
+            string? openedFolder = null;
             var vm = new WorkspacePageViewModel(() => { }, _ => temporary.FullName,
-                new Sortopia.WPF.Settings.WorkspaceFolderSettings(System.IO.Path.Combine(temporary.FullName, "setting.txt")), pickExistingFolder: _ => importSource);
+                new Sortopia.WPF.Settings.WorkspaceFolderSettings(System.IO.Path.Combine(temporary.FullName, "setting.txt")),
+                pickExistingFolder: _ => importSource, openFolder: path => openedFolder = path);
             vm.BrowseWorkspaceFolderCommand.Execute(null);
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
             void LayoutWorkspace()
@@ -2239,6 +2241,9 @@ public sealed class RandomNetworkTests
             RenderWorkspaceState("saved");
             var entityName = (TextBox)page.FindName("EntityNameInput");
             var folderName = (TextBox)page.FindName("EntityFolderNameInput");
+            var fullPath = (TextBox)page.FindName("EntityFullPath");
+            var openFolder = (Button)page.FindName("OpenEntityFolderButton");
+            Assert.True(fullPath.IsReadOnly);
             var details = (Border)page.FindName("EntityDetailsPanel");
             Assert.Equal(Visibility.Collapsed, details.Visibility);
             Assert.True(folderName.IsReadOnly);
@@ -2258,13 +2263,25 @@ public sealed class RandomNetworkTests
             vm.AddModuleCommand.Execute(null);
             LayoutWorkspace();
             Assert.Equal(Visibility.Visible, details.Visibility);
+            Assert.False(openFolder.IsEnabled);
             entityName.SetCurrentValue(TextBox.TextProperty, "Sorting");
             Assert.Equal("Sorting", folderName.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting"), fullPath.Text);
+            fullPath.SelectAll();
+            Assert.Equal(fullPath.Text, fullPath.SelectedText);
             entityName.SetCurrentValue(TextBox.TextProperty, "Sorting research");
             Assert.Equal("Sorting research", folderName.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting research"), fullPath.Text);
             entityName.SetCurrentValue(TextBox.TextProperty, "Sorting");
             CompleteRun(vm.SaveWorkspaceAsync);
             Assert.Empty(vm.Error);
+            vm.Selected = vm.Roots.Single().Children.Single();
+            LayoutWorkspace();
+            Assert.True(openFolder.IsEnabled);
+            openFolder.Command.Execute(null);
+            Assert.Equal(fullPath.Text, openedFolder);
+            Assert.False(vm.HasUnsavedChanges);
+            vm.Selected = vm.Roots.Single();
             vm.AddModuleCommand.Execute(null);
             LayoutWorkspace();
             var newModule = vm.Selected!;
@@ -2309,6 +2326,7 @@ public sealed class RandomNetworkTests
             entityName.SetCurrentValue(TextBox.TextProperty, "Trial: renamed");
             Assert.Equal("trial-01", folderName.Text);
             Assert.Equal("Trial: renamed", vm.Selected.Name);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting", "projects", "Search", "runs", "trial-01"), fullPath.Text);
             Assert.Empty(vm.Error);
             Assert.True(save.IsEnabled);
             foreach (var size in new[] { new Size(1000, 800), new Size(640, 480) })
@@ -2356,6 +2374,36 @@ public sealed class RandomNetworkTests
             CompleteRun(vm.SaveWorkspaceAsync);
             Assert.Empty(vm.Error);
             Assert.False(vm.HasMissingComponents);
+            vm.AddModuleCommand.Execute(null);
+            vm.Selected!.Name = "Organized";
+            var newParent = vm.Selected;
+            vm.Selected = vm.Roots.Single().Children.Single(node => node.Name == "Sorting");
+            LayoutWorkspace();
+            var cut = (Button)page.FindName("CutEntityButton");
+            var paste = (Button)page.FindName("PasteEntityButton");
+            Assert.True(cut.IsEnabled);
+            cut.Command.Execute(null);
+            Assert.True(vm.Selected.IsCut);
+            RenderWorkspaceState("cut");
+            vm.Selected = newParent;
+            LayoutWorkspace();
+            Assert.True(paste.IsEnabled);
+            var workspaceTree = (TreeView)page.FindName("WorkspaceTree");
+            Assert.Contains(workspaceTree.InputBindings.OfType<KeyBinding>(), binding => binding.Key == Key.X && binding.Modifiers == ModifierKeys.Control && binding.Command == vm.CutCommand);
+            Assert.Contains(workspaceTree.InputBindings.OfType<KeyBinding>(), binding => binding.Key == Key.V && binding.Modifiers == ModifierKeys.Control && binding.Command == vm.PasteCommand);
+            Assert.Empty(newName.InputBindings);
+            CompleteRun(vm.PasteAsync);
+            Assert.Empty(vm.Error);
+            Assert.Equal("Organized", vm.Selected!.Parent!.Name);
+            LayoutWorkspace();
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Organized", "modules", "Sorting"), fullPath.Text);
+            Assert.False(openFolder.IsEnabled);
+            Assert.False(vm.HasCutItem);
+            RenderWorkspaceState("pending-move");
+            CompleteRun(vm.SaveWorkspaceAsync);
+            Assert.Empty(vm.Error);
+            Assert.False(System.IO.Directory.Exists(moduleFolder));
+            Assert.True(System.IO.Directory.Exists(System.IO.Path.Combine(temporary.FullName, "modules", "Organized", "modules", "Sorting")));
         }
         finally { temporary.Delete(recursive: true); }
     }

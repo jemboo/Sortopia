@@ -1,5 +1,6 @@
 using System.Windows;
 using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.Win32;
 using Sortopia.WPF.ViewModels;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -35,7 +36,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = new MainWindowViewModel(PickWorkspaceFolder, confirmWorkspaceChanges: ConfirmWorkspaceChanges,
-            pickExistingWorkspaceFolder: PickExistingWorkspaceFolder);
+            pickExistingWorkspaceFolder: PickExistingWorkspaceFolder, openWorkspaceFolder: OpenFolderInExplorer);
+    }
+
+    private static void OpenFolderInExplorer(string folder)
+    {
+        var start = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+        start.ArgumentList.Add(folder);
+        using var process = Process.Start(start);
     }
 
     private WorkspaceUnsavedChoice ConfirmWorkspaceChanges()

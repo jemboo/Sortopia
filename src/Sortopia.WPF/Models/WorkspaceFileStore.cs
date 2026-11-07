@@ -7,7 +7,7 @@ using WorkspaceModule = Sortopia.Workspaces.@module;
 
 namespace Sortopia.WPF.Models;
 
-public sealed record WorkspaceSaveResult(workspace Definition, int CopiedFolders, IReadOnlyList<string> RetainedFolders);
+public sealed record WorkspaceSaveResult(workspace Definition, int CopiedFolders, IReadOnlyList<string> RetainedFolders, int MovedFolders = 0);
 
 /// <summary>Transactional workspace saves and explicit entity imports. Unlisted folders and user data are kept.</summary>
 public static class WorkspaceFileStore
@@ -18,7 +18,15 @@ public static class WorkspaceFileStore
     private sealed record DiskState(string Fingerprint, IReadOnlyList<string> Entities);
     private sealed record WorkspaceFileUpdate(string Path, byte[] Content, string? OriginalPath, byte[]? Original);
     private sealed record SavePlan(string RootFolder, workspace Definition, string Fingerprint,
-        IReadOnlyList<WorkspaceFileUpdate> Writes, IReadOnlyList<string> RetainedFolders, IReadOnlyList<WorkspaceFolderCopy> Copies);
+        IReadOnlyList<WorkspaceFileUpdate> Writes, IReadOnlyList<string> RetainedFolders, IReadOnlyList<WorkspaceFolderCopy> Copies,
+        IReadOnlyList<WorkspaceFolderMove> Moves);
+    private sealed record Transfer(string Source, string Destination, WorkspaceFolderCopy? Copy);
+    private sealed class StagedMove(WorkspaceFolderMove move, string staging)
+    {
+        public WorkspaceFolderMove Move { get; } = move;
+        public string Staging { get; } = staging;
+        public bool Published { get; set; }
+    }
 
     public static workspace LoadDefinition(string rootFolder)
     {
@@ -29,7 +37,8 @@ public static class WorkspaceFileStore
         return Rebase(saved, root);
     }
 
-    public static WorkspaceSaveResult CreateWorkspace(string rootFolder, workspace definition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies = null)
+    public static WorkspaceSaveResult CreateWorkspace(string rootFolder, workspace definition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies = null,
+        IReadOnlyList<WorkspaceFolderMove>? moves = null)
     {
         var root = NormalizeRoot(rootFolder);
         void RequireNewWorkspace()
@@ -38,14 +47,15 @@ public static class WorkspaceFileStore
                 throw new IOException("A workspace file already exists at this location. Reopen the workspace to load it.");
         }
         RequireNewWorkspace();
-        var plan = PrepareSave(rootFolder, definition, token, copies);
+        var plan = PrepareSave(rootFolder, definition, token, copies, moves);
         RequireNewWorkspace();
         return Commit(plan, token);
     }
 
-    public static WorkspaceSaveResult SaveWorkspace(string rootFolder, workspace definition, workspace savedDefinition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies = null)
+    public static WorkspaceSaveResult SaveWorkspace(string rootFolder, workspace definition, workspace savedDefinition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies = null,
+        IReadOnlyList<WorkspaceFolderMove>? moves = null)
     {
-        var plan = PrepareSave(rootFolder, definition, token, copies);
+        var plan = PrepareSave(rootFolder, definition, token, copies, moves);
         var current = WorkspaceDefinitionFiles.Find(rootFolder, "workspace") is null ? null : LoadDefinition(rootFolder);
         if (current is not null && !WorkspaceCodec.encodeWorkspace(current).AsSpan().SequenceEqual(WorkspaceCodec.encodeWorkspace(savedDefinition)))
             throw new IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again.");
@@ -61,7 +71,8 @@ public static class WorkspaceFileStore
     private static workspace Rebase(workspace value, string rootFolder) =>
         workspace.create(value.WorkspaceName, GetFolderName(rootFolder), value.Modules);
 
-    private static SavePlan PrepareSave(string rootFolder, workspace definition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies)
+    private static SavePlan PrepareSave(string rootFolder, workspace definition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies,
+        IReadOnlyList<WorkspaceFolderMove>? moves)
     {
         var root = NormalizeRoot(rootFolder);
         var before = Capture(root, token);
@@ -70,18 +81,35 @@ public static class WorkspaceFileStore
         var writes = new List<WorkspaceFileUpdate>();
         var retainedFolders = new List<string>();
         var imports = (copies ?? []).OrderBy(copy => copy.DestinationFolder.Length).ToArray();
-        if (imports.Select(copy => copy.DestinationFolder).Distinct(PathComparer).Count() != imports.Length)
-            throw new IOException("Multiple imports target the same destination folder.");
+        var relocations = (moves ?? []).Where(move => !PathComparer.Equals(move.SourceFolder, move.DestinationFolder)).ToArray();
+        var transfers = imports.Select(copy => new Transfer(copy.SourceFolder, copy.DestinationFolder, copy))
+            .Concat(relocations.Select(move => new Transfer(move.SourceFolder, move.DestinationFolder, null)))
+            .OrderBy(transfer => transfer.Destination.Length).ToArray();
+        if (transfers.Select(transfer => transfer.Destination).Distinct(PathComparer).Count() != transfers.Length)
+            throw new IOException("Multiple entities target the same destination folder.");
+        if (relocations.Select(move => move.SourceFolder).Distinct(PathComparer).Count() != relocations.Length)
+            throw new IOException("A folder cannot be moved to more than one destination.");
+        foreach (var move in relocations)
+        {
+            WorkspaceFolderMove.CheckPath(root, move.SourceFolder);
+            WorkspaceFolderMove.CheckPath(root, move.DestinationFolder);
+            if (!Directory.Exists(move.SourceFolder)) throw new DirectoryNotFoundException($"The folder to move is missing: {move.SourceFolder}");
+        }
         foreach (var copy in imports)
         {
             copy.ValidateDestination(root);
             copy.ValidateSource(token);
-            var enclosing = imports.LastOrDefault(other => other != copy && WorkspaceFolderCopy.Inside(other.DestinationFolder, copy.DestinationFolder));
-            if (enclosing is not null)
+        }
+        foreach (var transfer in transfers)
+        {
+            var enclosing = transfers.LastOrDefault(other => other != transfer && WorkspaceFolderCopy.Inside(other.Destination, transfer.Destination));
+            var existing = enclosing is null ? transfer.Destination
+                : Path.Combine(enclosing.Source, Path.GetRelativePath(enclosing.Destination, transfer.Destination));
+            var vacated = relocations.Any(move => WorkspaceFolderCopy.Inside(move.SourceFolder, existing))
+                || enclosing?.Copy is { } parentCopy && !parentCopy.IncludesSourcePath(existing);
+            if (!vacated && (Directory.Exists(existing) || File.Exists(existing)))
             {
-                var relative = Path.GetRelativePath(enclosing.DestinationFolder, copy.DestinationFolder);
-                var existing = Path.Combine(enclosing.SourceFolder, relative);
-                if (Directory.Exists(existing) || File.Exists(existing)) throw new IOException($"An enclosing import already contains the destination: {copy.DestinationFolder}");
+                throw new IOException($"The destination already exists. Choose a different parent or folder name: {transfer.Destination}");
             }
         }
         void Add(string folder, string kind, byte[] bytes)
@@ -90,13 +118,17 @@ public static class WorkspaceFileStore
             if (bytes.Length > MaxDefinitionBytes) throw new InvalidDataException($"Definition is too large: {folder}");
             expected.Add(folder);
             if (expected.Count > MaxEntities) throw new InvalidDataException("Workspace contains too many entities.");
-            var import = imports.LastOrDefault(copy => WorkspaceFolderCopy.Inside(copy.DestinationFolder, folder));
-            var sourceFolder = import is null ? folder : Path.Combine(import.SourceFolder, Path.GetRelativePath(import.DestinationFolder, folder));
-            var sourcePath = WorkspaceDefinitionFiles.Find(sourceFolder, kind);
+            var transfer = transfers.LastOrDefault(item => WorkspaceFolderCopy.Inside(item.Destination, folder));
+            var sourceFolder = transfer is null ? folder : Path.Combine(transfer.Source, Path.GetRelativePath(transfer.Destination, folder));
+            // A child cut out of a moved parent is no longer part of that parent's physical contents.
+            if (transfer is not null && relocations.Any(move => !PathComparer.Equals(move.SourceFolder, transfer.Source)
+                && WorkspaceFolderCopy.Inside(transfer.Source, move.SourceFolder)
+                && WorkspaceFolderCopy.Inside(move.SourceFolder, sourceFolder))) sourceFolder = folder;
+            var sourcePath = transfer?.Copy is { } sourceCopy && !sourceCopy.IncludesSourcePath(sourceFolder) ? null : WorkspaceDefinitionFiles.Find(sourceFolder, kind);
             var original = sourcePath is null ? null : ReadDefinition(sourcePath);
             var originalPath = sourcePath is null ? null : Path.Combine(folder, Path.GetFileName(sourcePath));
             // Keep saved identities stable; copied entities get their own identities.
-            var path = import is null && sourcePath is not null && WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(sourcePath), kind)
+            var path = transfer?.Copy is null && sourcePath is not null && WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(sourcePath), kind)
                 ? originalPath! : Path.Combine(folder, WorkspaceDefinitionFiles.NewName(kind));
             if (PathComparer.Equals(path, originalPath) && original is not null && original.AsSpan().SequenceEqual(bytes)) return;
             writes.Add(new(path, bytes, originalPath, original));
@@ -117,22 +149,27 @@ public static class WorkspaceFileStore
         }
         foreach (var child in definition.Modules) AddModule(child, Child(root, "modules", child.FolderName), 1);
         Add(root, "workspace", WorkspaceCodec.encodeWorkspace(definition)); // Root snapshot commits last.
-        if (imports.Any(copy => !expected.Contains(copy.DestinationFolder)))
-            throw new ArgumentException("Every imported folder must belong to an entity in the workspace definition.");
+        if (transfers.Any(transfer => !expected.Contains(transfer.Destination)))
+            throw new ArgumentException("Every moved or imported folder must belong to an entity in the workspace definition.");
         foreach (var copy in imports)
         {
             var kind = Path.GetFileName(Path.GetDirectoryName(copy.DestinationFolder)!)[..^1];
             foreach (var sourceEntity in Capture(copy.SourceFolder, token, kind).Entities)
             {
+                if (!copy.IncludesSourcePath(sourceEntity)) continue;
                 var target = Path.GetFullPath(Path.Combine(copy.DestinationFolder, Relative(copy.SourceFolder, sourceEntity)));
                 if (!expected.Contains(target)) retainedFolders.Add(Relative(root, target));
             }
         }
-        foreach (var extra in before.Entities.Where(path => !expected.Contains(path)))
-            retainedFolders.Add(Relative(root, extra));
+        foreach (var existing in before.Entities)
+        {
+            var move = relocations.Where(item => WorkspaceFolderCopy.Inside(item.SourceFolder, existing)).MaxBy(item => item.SourceFolder.Length);
+            var target = move is null ? existing : Path.GetFullPath(Path.Combine(move.DestinationFolder, Relative(move.SourceFolder, existing)));
+            if (!expected.Contains(target)) retainedFolders.Add(Relative(root, target));
+        }
         if (before.Fingerprint != Capture(root, token).Fingerprint)
             throw new IOException("Folders changed while preparing the save. Try saving again.");
-        return new(root, definition, before.Fingerprint, writes.AsReadOnly(), retainedFolders.AsReadOnly(), imports);
+        return new(root, definition, before.Fingerprint, writes.AsReadOnly(), retainedFolders.AsReadOnly(), imports, relocations);
     }
 
     private static WorkspaceSaveResult Commit(SavePlan plan, CancellationToken token)
@@ -144,6 +181,7 @@ public static class WorkspaceFileStore
         var applied = new List<WorkspaceFileUpdate>();
         var stagedCopies = new List<(WorkspaceFolderCopy Copy, string Staging)>();
         var publishedCopies = new List<WorkspaceFolderCopy>();
+        var stagedMoves = new List<StagedMove>();
         var createdFolders = new List<string>();
         var committed = false;
         void EnsureDirectory(string path)
@@ -166,14 +204,32 @@ public static class WorkspaceFileStore
             // Staging is outside the typed containers and must not change the managed workspace.
             if (plan.Copies.Count > 0 && Capture(root, token).Fingerprint != beforeStaging)
                 throw new IOException("The file system changed while staging imports. Try saving again.");
-            foreach (var (copy, staging) in stagedCopies)
+            // Detach nested sources first, so each subtree is moved exactly once.
+            foreach (var move in plan.Moves.OrderByDescending(move => move.SourceFolder.Length))
             {
                 token.ThrowIfCancellationRequested();
-                copy.ValidateDestination(root);
-                EnsureDirectory(Path.GetDirectoryName(copy.DestinationFolder)!);
-                Directory.Move(staging, copy.DestinationFolder);
-                publishedCopies.Add(copy);
-                createdFolders.AddRange(copy.Directories.Select(relative => Path.Combine(copy.DestinationFolder, relative)));
+                WorkspaceFolderMove.CheckPath(root, move.SourceFolder);
+                var staging = Path.Combine(root, ".sortopia-move-" + Guid.NewGuid().ToString("N"));
+                Directory.Move(move.SourceFolder, staging);
+                stagedMoves.Add(new(move, staging));
+            }
+            var publications = stagedCopies.Select(item => (Destination: item.Copy.DestinationFolder, item.Staging, Copy: (WorkspaceFolderCopy?)item.Copy, Move: (StagedMove?)null))
+                .Concat(stagedMoves.Select(item => (Destination: item.Move.DestinationFolder, item.Staging, Copy: (WorkspaceFolderCopy?)null, Move: (StagedMove?)item)))
+                .OrderBy(item => item.Destination.Length);
+            foreach (var publication in publications)
+            {
+                token.ThrowIfCancellationRequested();
+                WorkspaceFolderMove.CheckPath(root, publication.Destination);
+                if (Directory.Exists(publication.Destination) || File.Exists(publication.Destination))
+                    throw new IOException($"The destination already exists: {publication.Destination}");
+                EnsureDirectory(Path.GetDirectoryName(publication.Destination)!);
+                Directory.Move(publication.Staging, publication.Destination);
+                if (publication.Move is { } moved) moved.Published = true;
+                if (publication.Copy is { } copy)
+                {
+                    publishedCopies.Add(copy);
+                    createdFolders.AddRange(copy.Directories.Select(relative => Path.Combine(copy.DestinationFolder, relative)));
+                }
             }
             foreach (var write in plan.Writes)
             {
@@ -194,7 +250,7 @@ public static class WorkspaceFileStore
                 if (!samePath && write.OriginalPath is not null) File.Delete(write.OriginalPath);
             }
             committed = true;
-            return new(plan.Definition, plan.Copies.Count, plan.RetainedFolders);
+            return new(plan.Definition, plan.Copies.Count, plan.RetainedFolders, plan.Moves.Count);
         }
         catch (Exception failure)
         {
@@ -228,8 +284,40 @@ public static class WorkspaceFileStore
                 }
                 catch (Exception rollback) { errors.Add(rollback); }
             }
-            foreach (var copy in publishedCopies.AsEnumerable().Reverse())
+            // Remove temporary metadata before restoring paths; never carry it back into a source folder.
+            foreach (var (_, temporary) in staged)
             {
+                try { if (File.Exists(temporary)) File.Delete(temporary); }
+                catch (Exception rollback) { errors.Add(rollback); }
+            }
+            foreach (var folder in createdFolders.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    CheckContained(root, folder);
+                    if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
+                    { CheckDirectory(folder); Directory.Delete(folder); }
+                }
+                catch (Exception rollback) { errors.Add(rollback); }
+            }
+            var rollbackFolders = stagedMoves.Where(item => item.Published)
+                .Select(item => (Destination: item.Move.DestinationFolder, Move: (StagedMove?)item, Copy: (WorkspaceFolderCopy?)null))
+                .Concat(publishedCopies.Select(copy => (Destination: copy.DestinationFolder, Move: (StagedMove?)null, Copy: (WorkspaceFolderCopy?)copy)))
+                .OrderByDescending(item => item.Destination.Length);
+            foreach (var publication in rollbackFolders)
+            {
+                if (publication.Move is { } item)
+                {
+                    try
+                    {
+                        WorkspaceFolderMove.CheckPath(root, item.Move.DestinationFolder);
+                        Directory.Move(item.Move.DestinationFolder, item.Staging);
+                        item.Published = false;
+                    }
+                    catch (Exception rollback) { errors.Add(new IOException($"Could not recover moved folder at {item.Move.DestinationFolder}.", rollback)); }
+                    continue;
+                }
+                var copy = publication.Copy!;
                 foreach (var file in copy.Files)
                 {
                     try
@@ -242,6 +330,27 @@ public static class WorkspaceFileStore
                     }
                     catch (Exception rollback) { errors.Add(rollback); }
                 }
+                foreach (var relative in copy.Directories.Reverse())
+                {
+                    try
+                    {
+                        var folder = Path.Combine(copy.DestinationFolder, relative);
+                        WorkspaceFolderMove.CheckPath(root, folder);
+                        if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
+                    }
+                    catch (Exception rollback) { errors.Add(rollback); }
+                }
+            }
+            // Restore parents before their separately moved descendants.
+            foreach (var item in stagedMoves.Where(item => !item.Published).OrderBy(item => item.Move.SourceFolder.Length))
+            {
+                try
+                {
+                    WorkspaceFolderMove.CheckPath(root, item.Move.SourceFolder);
+                    EnsureDirectory(Path.GetDirectoryName(item.Move.SourceFolder)!);
+                    Directory.Move(item.Staging, item.Move.SourceFolder);
+                }
+                catch (Exception rollback) { errors.Add(new IOException($"Could not restore {item.Move.SourceFolder}; its contents are retained at {item.Staging}.", rollback)); }
             }
             if (errors.Count > 1) throw new AggregateException("Save failed; some files could not be restored.", errors);
             throw;
@@ -252,7 +361,8 @@ public static class WorkspaceFileStore
             foreach (var (_, staging) in stagedCopies) WorkspaceFolderCopy.DeleteStaging(root, staging);
             if (!committed)
                 foreach (var folder in createdFolders.AsEnumerable().Reverse())
-                    if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
+                    if (!plan.Moves.Any(move => WorkspaceFolderCopy.Inside(move.SourceFolder, folder))
+                        && Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
         }
     }
 

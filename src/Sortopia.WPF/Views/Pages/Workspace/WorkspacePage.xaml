@@ -12,10 +12,12 @@
             <BooleanToVisibilityConverter x:Key="WorkspaceBoolVisibility" />
             <HierarchicalDataTemplate DataType="{x:Type vm:WorkspaceTreeNode}" ItemsSource="{Binding Children}">
                 <Border Padding="3" CornerRadius="3" ToolTip="{Binding DiskStatusDetail}" AutomationProperties.ItemStatus="{Binding DiskStatus}">
-                    <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.Primary}" /></DataTrigger></Style.Triggers></Style></Border.Style>
+                    <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.Primary}" /></DataTrigger><DataTrigger Binding="{Binding IsCut}" Value="True"><Setter Property="Opacity" Value="0.5" /></DataTrigger></Style.Triggers></Style></Border.Style>
                     <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding KindLabel}" Foreground="{StaticResource Workspace.TextSecondary}" FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding Name}" Foreground="{StaticResource Workspace.TextPrimary}" />
+                    <TextBlock Text="Cut" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center" Foreground="{StaticResource Workspace.TextSecondary}"
+                               Visibility="{Binding IsCut, Converter={StaticResource WorkspaceBoolVisibility}}" />
                     <TextBlock Text="{Binding DiskStatus}" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -91,12 +93,30 @@
                     <Button x:Name="AddExistingProjectButton" Content="Add project…" Command="{Binding AddExistingProjectCommand}" Margin="0,0,4,4"
                             ToolTip="Choose a project folder anywhere on disk. Saving copies it and all contents into the selected parent's projects container." />
                   </StackPanel>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                    <Button x:Name="CutEntityButton" Content="Cut" Command="{Binding CutCommand}" Margin="0,0,4,4" ToolTip="Cut the selected entity (Ctrl+X in the tree). Files move when saved." />
+                    <Button x:Name="PasteEntityButton" Content="Paste" Command="{Binding PasteCommand}" Margin="0,0,4,4" ToolTip="Paste under the selected parent (Ctrl+V in the tree)." />
+                    <Button Content="Cancel cut" Command="{Binding CancelCutCommand}" Margin="0,0,4,4"
+                            Visibility="{Binding HasCutItem, Converter={StaticResource WorkspaceBoolVisibility}}" />
+                  </StackPanel>
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
                             ToolTip="Remove the selected entity from the workspace. Existing folders and files are kept." />
                 </WrapPanel>
-                <TreeView x:Name="WorkspaceTree" Grid.Row="1" Margin="0,0,8,0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged"
+                <TreeView x:Name="WorkspaceTree" Grid.Row="1" Margin="0,0,8,0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
                           Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}"
                           BorderBrush="{StaticResource Workspace.StrokeSubtle}" AutomationProperties.Name="Workspace hierarchy">
+                    <TreeView.InputBindings>
+                        <KeyBinding Key="X" Modifiers="Control" Command="{Binding CutCommand}" />
+                        <KeyBinding Key="V" Modifiers="Control" Command="{Binding PasteCommand}" />
+                        <KeyBinding Key="Escape" Command="{Binding CancelCutCommand}" />
+                    </TreeView.InputBindings>
+                    <TreeView.ContextMenu>
+                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="Cut" Command="{Binding CutCommand}" InputGestureText="Ctrl+X" />
+                            <MenuItem Header="Paste" Command="{Binding PasteCommand}" InputGestureText="Ctrl+V" />
+                            <MenuItem Header="Cancel cut" Command="{Binding CancelCutCommand}" InputGestureText="Esc" />
+                        </ContextMenu>
+                    </TreeView.ContextMenu>
                     <TreeView.ItemContainerStyle>
                         <Style TargetType="TreeViewItem">
                             <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
@@ -130,6 +150,18 @@
                         <TextBlock x:Name="EntityFolderNameError" Text="{Binding FolderNameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                         <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}"
                                    Text="{Binding FolderNameHint}" />
+                        <Label Content="Full path" Target="{Binding ElementName=EntityFullPath}" Padding="0,10,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBox x:Name="EntityFullPath" IsReadOnly="True" TextWrapping="Wrap" MinHeight="30" MaxHeight="76" VerticalScrollBarVisibility="Auto"
+                                     Text="{Binding DataContext.SelectedFolderPath, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}, Mode=OneWay}"
+                                     ToolTip="Folder location in the current workspace tree. Pending changes take effect when saved."
+                                     AutomationProperties.Name="Selected entity full folder path" />
+                            <Button x:Name="OpenEntityFolderButton" Grid.Column="1" Content="Open folder" Margin="8,0,0,0" VerticalAlignment="Top" MinHeight="30"
+                                    Command="{Binding DataContext.OpenFolderCommand, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                                    ToolTip="Open this folder in File Explorer. Available when the folder exists on disk."
+                                    AutomationProperties.Name="Open selected folder in File Explorer" />
+                        </Grid>
                         <TextBlock x:Name="PendingCopyNotice" Text="{Binding PendingCopyDescription}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Workspace.TextSecondary}">
                             <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
                         </TextBlock>

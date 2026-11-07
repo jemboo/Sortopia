@@ -16,11 +16,13 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     private readonly Func<string?, string?> pickFolder;
     private readonly Func<WorkspaceUnsavedChoice> confirmUnsavedChanges;
     private readonly Func<WorkspaceFolderRequest, string?> pickExistingFolder;
+    private readonly Action<string>? openFolder;
     private readonly WorkspaceFolderSettings settings;
     private string workspaceFolder = "";
     private string status = "No Workspace folder selected.";
     private string error = "";
     private WorkspaceTreeNode? selected;
+    private WorkspaceTreeNode? cutNode;
     private IReadOnlyList<string> retainedFolders = [];
     private workspace? savedDefinition;
     private bool hasUnsavedChanges;
@@ -32,21 +34,27 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     private int missingComponents;
 
     public WorkspacePageViewModel(Action returnHome, Func<string?, string?> pickFolder, WorkspaceFolderSettings settings,
-        Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null)
+        Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null,
+        Action<string>? openFolder = null)
     {
         this.returnHome = returnHome;
         this.pickFolder = pickFolder;
         this.confirmUnsavedChanges = confirmUnsavedChanges ?? (() => WorkspaceUnsavedChoice.Cancel);
         this.pickExistingFolder = pickExistingFolder ?? (_ => null);
+        this.openFolder = openFolder;
         this.settings = settings;
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
         BrowseWorkspaceFolderCommand = new RelayCommand(async () => await BrowseWorkspaceFolderAsync(), () => !IsBusy && !resolvingNavigation);
+        OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedFolderPath));
         AddModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module), () => CanAdd(WorkspaceEntityKind.Module));
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
         AddExistingModuleCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Module), () => CanAddExisting(WorkspaceEntityKind.Module));
         AddExistingProjectCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Project), () => CanAddExisting(WorkspaceEntityKind.Project));
         RemoveCommand = new RelayCommand(Remove, () => CanEdit && Selected?.Parent is not null);
+        CutCommand = new RelayCommand(Cut, () => CanEdit && !HasEditErrors && Selected?.Parent is not null);
+        PasteCommand = new RelayCommand(async () => await PasteAsync(), () => CanPaste);
+        CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasEditErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
@@ -76,12 +84,17 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     public string Error { get => HasEditErrors ? DraftEditError : error; private set => SetProperty(ref error, value); }
     public RelayCommand ReturnHomeCommand { get; }
     public RelayCommand BrowseWorkspaceFolderCommand { get; }
+    public RelayCommand OpenFolderCommand { get; }
     public RelayCommand AddModuleCommand { get; }
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand AddRunCommand { get; }
     public RelayCommand AddExistingModuleCommand { get; }
     public RelayCommand AddExistingProjectCommand { get; }
     public RelayCommand RemoveCommand { get; }
+    public RelayCommand CutCommand { get; }
+    public RelayCommand PasteCommand { get; }
+    public RelayCommand CancelCutCommand { get; }
+    public bool HasCutItem => cutNode is not null;
     public RelayCommand DiscardChangesCommand { get; }
     public RelayCommand SaveWorkspaceCommand { get; }
     public RelayCommand CancelCommand { get; }
@@ -95,7 +108,32 @@ public sealed class WorkspacePageViewModel : ViewModelBase
             if (selected is not null) selected.IsSelected = false;
             SetProperty(ref selected, value);
             if (selected is not null) selected.IsSelected = true;
+            OnPropertyChanged(nameof(SelectedFolderPath));
             NotifyCommands();
+        }
+    }
+    public string SelectedFolderPath
+    {
+        get
+        {
+            if (Selected is null || WorkspaceFolder.Length == 0) return "";
+            try { return Path.GetFullPath(Selected.GetFolderPath(WorkspaceFolder)); }
+            catch (Exception exception) when (IsFolderError(exception)) { return ""; }
+        }
+    }
+    private void OpenSelectedFolderInExplorer()
+    {
+        var folder = SelectedFolderPath;
+        try
+        {
+            if (!Directory.Exists(folder)) throw new DirectoryNotFoundException("The folder no longer exists.");
+            openFolder!(folder);
+            Error = "";
+            Status = "Opened folder in File Explorer.";
+        }
+        catch (Exception exception) when (IsFolderError(exception) || exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Error = $"Could not open folder '{folder}'. {exception.Message}";
         }
     }
     public bool IsBusy => cancellation is not null;
@@ -152,6 +190,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
 
     private void ReplaceDraft(workspace value)
     {
+        ClearCut();
         if (Roots.Count > 0)
         {
             Roots[0].Changed -= DraftChanged;
@@ -244,7 +283,9 @@ public sealed class WorkspacePageViewModel : ViewModelBase
                 if (copy is not null) await Task.Run(() => copy.ValidateSource(token), token);
                 token.ThrowIfCancellationRequested();
                 child.PendingCopy = copy;
+                if (copy is not null) child.RememberImportLocations(copy.SourceFolder, copy.Id);
                 parent.AddExistingChild(child);
+                if (copy is null) child.RememberSavedLocations(WorkspaceFolder);
                 Selected = child;
                 Status = copy is null ? $"Added existing {kind.ToString().ToLowerInvariant()} '{child.Name}'. Save workspace to keep it in the definition."
                     : $"Added '{child.Name}' to the draft. Save workspace to copy it and all contents into {destination}.";
@@ -254,11 +295,69 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
     private void Remove()
     {
+        if (Selected!.DescendantsAndSelf().Contains(cutNode)) ClearCut();
         var parent = Selected!.Parent!;
         parent.Children.Remove(Selected);
         Selected = parent;
         Status = "Removed from the workspace. Save to keep this change. Existing folders and files will be kept.";
     }
+    private bool CanPaste => CanEdit && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode.Kind) == true
+        && !cutNode.DescendantsAndSelf().Contains(Selected);
+    private void Cut()
+    {
+        ClearCut();
+        cutNode = Selected!;
+        cutNode.IsCut = true;
+        OnPropertyChanged(nameof(HasCutItem));
+        NotifyCommands();
+        Status = $"Cut '{cutNode.Name}'. Select a parent and choose Paste. Press Escape in the tree to cancel.";
+    }
+    private void ClearCut()
+    {
+        if (cutNode is not null) cutNode.IsCut = false;
+        cutNode = null;
+        OnPropertyChanged(nameof(HasCutItem));
+        NotifyCommands();
+    }
+    private void CancelCut()
+    {
+        ClearCut();
+        Status = "Cut cancelled.";
+    }
+    public Task PasteAsync() => !CanPaste ? Task.CompletedTask : RunAsync(async token =>
+    {
+        var node = cutNode!;
+        var parent = Selected!;
+        parent.ValidateChildPlacement(node);
+        var destination = Path.Combine(parent.GetFolderPath(WorkspaceFolder), node.Kind.ToString().ToLowerInvariant() + "s", Sortopia.Runs.FolderName.validate(node.FolderName));
+        if (!ReferenceEquals(parent, node.Parent) && !string.Equals(destination, node.SavedFolderPath, StringComparison.OrdinalIgnoreCase)
+            && (Directory.Exists(destination) || File.Exists(destination)))
+            throw new IOException($"The destination already exists. Choose another parent or folder name: {destination}");
+        // A child of an unsaved import becomes its own copy; exclude it from the parent copy.
+        if (node.PendingCopy is null && node.ImportOriginId is { } originId && node.ImportSourcePath is { } source)
+        {
+            var origin = Roots.Single().DescendantsAndSelf().Select(item => item.PendingCopy).FirstOrDefault(copy => copy?.Id == originId)
+                ?? throw new IOException("Save or discard the pending import before moving this child.");
+            await Task.Run(() => origin.ValidateSource(token), token);
+            var copy = await Task.Run(() => WorkspaceFolderCopy.Prepare(WorkspaceFolder, source, destination, token), token)
+                ?? throw new IOException("A pending import cannot be moved back into its source folder.");
+            token.ThrowIfCancellationRequested();
+            node.PendingCopy = copy;
+            node.CopyOriginId = originId;
+            node.CopyOriginRelativePath = Path.GetRelativePath(origin.SourceFolder, source);
+            node.RememberImportLocations(source, copy.Id);
+        }
+        var oldParent = node.Parent!;
+        oldParent.Children.Remove(node);
+        // Append within the entity's typed collection, keeping modules/projects/runs grouped.
+        var lastOfKind = parent.Children.LastOrDefault(child => child.Kind == node.Kind);
+        var index = lastOfKind is null ? parent.Children.TakeWhile(child => child.Kind < node.Kind).Count() : parent.Children.IndexOf(lastOfKind) + 1;
+        parent.Children.Insert(index, node);
+        node.MarkMoved();
+        ClearCut();
+        Selected = node;
+        Status = $"Moved '{node.Name}' under '{parent.Name}' in the draft. Save workspace to move its folder and contents.";
+    });
     private void DraftChanged()
     {
         HasUnsavedChanges = true;
@@ -266,6 +365,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
     private void NotifyDraftProperties()
     {
+        OnPropertyChanged(nameof(SelectedFolderPath));
         OnPropertyChanged(nameof(WorkspaceName));
         OnPropertyChanged(nameof(WorkspaceNameError));
         OnPropertyChanged(nameof(Error));
@@ -302,8 +402,8 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     private void NotifyCommands()
     {
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
-        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, AddModuleCommand, AddProjectCommand, AddRunCommand, AddExistingModuleCommand, AddExistingProjectCommand,
-            RemoveCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
+        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddProjectCommand, AddRunCommand, AddExistingModuleCommand, AddExistingProjectCommand,
+            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
     public void Cancel() => cancellation?.Cancel();
@@ -312,12 +412,14 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         var definition = Roots.Single().ToWorkspace();
         var original = savedDefinition;
         var copies = Roots.Single().GetPendingCopies(WorkspaceFolder).ToArray();
-        var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateWorkspace(WorkspaceFolder, definition, token, copies)
-            : WorkspaceFileStore.SaveWorkspace(WorkspaceFolder, definition, original, token, copies), token);
+        var moves = Roots.Single().GetPendingMoves(WorkspaceFolder);
+        var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateWorkspace(WorkspaceFolder, definition, token, copies, moves)
+            : WorkspaceFileStore.SaveWorkspace(WorkspaceFolder, definition, original, token, copies, moves), token);
         AcceptSavedDefinition(result.Definition);
         RetainedFolders = result.RetainedFolders;
         Status = $"Workspace '{definition.WorkspaceName}' saved." + (result.CopiedFolders > 0
-            ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "folder" : "folders")}; sources are unchanged." : "");
+            ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "folder" : "folders")}; sources are unchanged." : "")
+            + (result.MovedFolders > 0 ? $" Moved {result.MovedFolders} {(result.MovedFolders == 1 ? "folder" : "folders")} with all contents." : "");
     });
     private async Task RunAsync(Func<CancellationToken, Task> action)
     {
@@ -381,6 +483,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
                 }
             }
             navigate(discard);
+            ClearCut();
             return true;
         }
         finally { resolvingNavigation = false; NotifyCommands(); }

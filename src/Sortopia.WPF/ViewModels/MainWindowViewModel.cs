@@ -19,13 +19,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public MainWindowViewModel(Func<string?, string?> pickWorkspaceFolder,
         WorkspaceFolderSettings? workspaceSettings = null, Func<WorkspaceUnsavedChoice>? confirmWorkspaceChanges = null,
-        Func<WorkspaceFolderRequest, string?>? pickExistingWorkspaceFolder = null)
+        Func<WorkspaceFolderRequest, string?>? pickExistingWorkspaceFolder = null, Action<string>? openWorkspaceFolder = null)
     {
         homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenWorkspace);
         networksPage = new NetworksPageViewModel(ReturnHome);
         randomNetworksPage = new RandomNetworksPageViewModel(ReturnHome);
         sgdPage = new SgdPageViewModel(ReturnHome);
-        workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder);
+        workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder, openWorkspaceFolder);
         currentPage = homePage;
     }
 

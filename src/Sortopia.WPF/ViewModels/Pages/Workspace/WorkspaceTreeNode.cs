@@ -31,6 +31,40 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     private string diskStatusDetail = "This component has not been saved yet.";
     private bool isMissingOnDisk;
     private bool hasDiskWarning;
+    private bool isCut;
+    private bool moveWithContents;
+    public bool IsCut { get => isCut; internal set => SetProperty(ref isCut, value); }
+    internal string? SavedFolderPath => savedFolderPath;
+    internal void MarkMoved() => moveWithContents = true;
+    internal IEnumerable<WorkspaceTreeNode> DescendantsAndSelf()
+    {
+        yield return this;
+        foreach (var child in Children)
+            foreach (var node in child.DescendantsAndSelf()) yield return node;
+    }
+    internal IReadOnlyList<WorkspaceFolderMove> GetPendingMoves(string rootFolder)
+    {
+        var moves = new List<WorkspaceFolderMove>();
+        void Visit(WorkspaceTreeNode node, bool moving, WorkspaceFolderMove? enclosing)
+        {
+            moving |= node.moveWithContents;
+            if (moving && node.savedFolderPath is { } source && Directory.Exists(source))
+            {
+                var destination = node.GetFolderPath(rootFolder);
+                var inherited = enclosing is not null && WorkspaceFolderCopy.Inside(enclosing.SourceFolder, source)
+                    ? Path.Combine(enclosing.DestinationFolder, Path.GetRelativePath(enclosing.SourceFolder, source)) : source;
+                if (!string.Equals(destination, inherited, StringComparison.OrdinalIgnoreCase))
+                {
+                    var move = new WorkspaceFolderMove(source, destination);
+                    moves.Add(move);
+                    enclosing = move;
+                }
+            }
+            foreach (var child in node.Children) Visit(child, moving, enclosing);
+        }
+        Visit(this, false, null);
+        return moves;
+    }
     public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, string? folderName = null)
     {
         Kind = kind; this.name = name; this.folderName = folderName ?? name;
@@ -69,9 +103,10 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         savedFolderPath = GetFolderPath(rootFolder);
         foreach (var child in Children) child.RememberSavedLocations(rootFolder);
     }
-    internal int RefreshDiskStatus(string rootFolder, bool pendingCopy = false)
+    internal int RefreshDiskStatus(string rootFolder, bool pendingCopy = false, bool pendingMove = false)
     {
         pendingCopy |= PendingCopy is not null;
+        pendingMove |= moveWithContents;
         var label = "";
         var detail = "";
         var missing = false;
@@ -80,7 +115,16 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         {
             var path = GetFolderPath(rootFolder);
             var previouslySavedHere = string.Equals(savedFolderPath, path, StringComparison.OrdinalIgnoreCase);
-            if (pendingCopy) { label = "Pending copy"; detail = $"Saving will copy this component into {path}."; }
+            if (pendingCopy && savedFolderPath is null) { label = "Pending copy"; detail = $"Saving will copy this component into {path}."; }
+            else if (pendingMove && savedFolderPath is { } source && !string.Equals(source, path, StringComparison.OrdinalIgnoreCase))
+            {
+                var folderMissing = !Directory.Exists(source);
+                missing = folderMissing || WorkspaceDefinitionFiles.Find(source, Kind.ToString().ToLowerInvariant()) is null;
+                label = folderMissing ? "Missing folder" : missing ? "Missing definition" : "Pending move";
+                detail = folderMissing ? $"The folder to move is missing: {source}"
+                    : missing ? $"The definition for the component to move is missing in {source}."
+                    : $"Saving will move this folder and all contents from {source} to {path}.";
+            }
             else if (!Directory.Exists(path))
             {
                 missing = previouslySavedHere;
@@ -101,15 +145,27 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         SetProperty(ref diskStatusDetail, detail, nameof(DiskStatusDetail));
         SetProperty(ref isMissingOnDisk, missing, nameof(IsMissingOnDisk));
         SetProperty(ref hasDiskWarning, warning || missing, nameof(HasDiskWarning));
-        return (missing ? 1 : 0) + Children.Sum(child => child.RefreshDiskStatus(rootFolder, pendingCopy));
+        return (missing ? 1 : 0) + Children.Sum(child => child.RefreshDiskStatus(rootFolder, pendingCopy, pendingMove));
     }
     internal WorkspaceFolderCopy? PendingCopy { get; set; }
+    internal Guid? ImportOriginId { get; private set; }
+    internal string? ImportSourcePath { get; private set; }
+    internal Guid? CopyOriginId { get; set; }
+    internal string? CopyOriginRelativePath { get; set; }
+    internal void RememberImportLocations(string source, Guid originId)
+    {
+        ImportOriginId = originId;
+        ImportSourcePath = source;
+        foreach (var child in Children) child.RememberImportLocations(Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", child.FolderName), originId);
+    }
     public string PendingCopyDescription => PendingCopy is null ? "" : $"Will copy this folder and all contents when saved: {PendingCopy.SourceFolder}";
     internal IEnumerable<WorkspaceFolderCopy> GetPendingCopies(string rootFolder)
     {
-        if (PendingCopy is not null) yield return PendingCopy.WithDestination(rootFolder, GetFolderPath(rootFolder));
-        foreach (var child in Children)
-            foreach (var copy in child.GetPendingCopies(rootFolder)) yield return copy;
+        var nodes = DescendantsAndSelf().ToArray();
+        foreach (var node in nodes)
+            if (node.PendingCopy is { } copy)
+                yield return copy.WithDestination(rootFolder, node.GetFolderPath(rootFolder))
+                    .WithExclusions(nodes.Where(other => other.CopyOriginId == copy.Id).Select(other => other.CopyOriginRelativePath!));
     }
     public bool CanContain(WorkspaceEntityKind child) => Kind switch
     {
@@ -208,6 +264,13 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     internal void AddExistingChild(WorkspaceTreeNode child)
     {
+        ValidateChildPlacement(child);
+        Children.Add(child);
+    }
+    internal void ValidateChildPlacement(WorkspaceTreeNode child)
+    {
+        for (var ancestor = this; ancestor is not null; ancestor = ancestor.Parent)
+            if (ReferenceEquals(ancestor, child)) throw new ArgumentException("An entity cannot be pasted into itself or one of its descendants.");
         if (!CanContain(child.Kind)) throw new ArgumentException($"A {KindLabel.ToLowerInvariant()} cannot contain a {child.KindLabel.ToLowerInvariant()}.");
         var depth = 1;
         for (var ancestor = this; ancestor.Parent is not null; ancestor = ancestor.Parent) depth++;
@@ -217,10 +280,9 @@ public sealed class WorkspaceTreeNode : ViewModelBase
             foreach (var descendant in node.Children) CheckSubtree(descendant, level + 1);
         }
         CheckSubtree(child, depth);
-        var conflict = ChildCollision(child.Kind, child.Name, folder: false);
-        if (conflict.Length == 0) conflict = ChildCollision(child.Kind, child.FolderName, folder: true);
+        var conflict = ChildCollision(child.Kind, child.Name, folder: false, excluded: child);
+        if (conflict.Length == 0) conflict = ChildCollision(child.Kind, child.FolderName, folder: true, excluded: child);
         if (conflict.Length > 0) throw new ArgumentException(conflict);
-        Children.Add(child);
     }
     internal bool HasChildIdentity(WorkspaceEntityKind kind, string value) =>
         Children.Any(child => child.Kind == kind && (string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)

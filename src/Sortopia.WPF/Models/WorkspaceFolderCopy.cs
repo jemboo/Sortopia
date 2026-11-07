@@ -10,12 +10,24 @@ public sealed class WorkspaceFolderCopy
     internal sealed record Entry(string RelativePath, long Length, string Hash, DateTime LastWriteTimeUtc);
     private sealed record Snapshot(string[] Directories, Entry[] Files);
     private readonly Snapshot snapshot;
-    private WorkspaceFolderCopy(string source, string destination, Snapshot snapshot)
-    { SourceFolder = source; DestinationFolder = destination; this.snapshot = snapshot; }
+    private readonly string[] excludedFolders;
+    private WorkspaceFolderCopy(string source, string destination, Snapshot snapshot, Guid? id = null, string[]? excludedFolders = null)
+    { SourceFolder = source; DestinationFolder = destination; this.snapshot = snapshot; Id = id ?? Guid.NewGuid(); this.excludedFolders = excludedFolders ?? []; }
+    internal Guid Id { get; }
     public string SourceFolder { get; }
     public string DestinationFolder { get; }
-    internal IReadOnlyList<string> Directories => snapshot.Directories;
-    internal IReadOnlyList<Entry> Files => snapshot.Files;
+    internal IReadOnlyList<string> Directories => snapshot.Directories.Where(IncludesRelativePath).ToArray();
+    internal IReadOnlyList<Entry> Files => snapshot.Files.Where(file => IncludesRelativePath(file.RelativePath)).ToArray();
+    private bool IncludesRelativePath(string path) => !excludedFolders.Any(excluded => Inside(excluded, path));
+    internal bool IncludesSourcePath(string path) => IncludesRelativePath(Path.GetRelativePath(SourceFolder, path));
+    internal WorkspaceFolderCopy WithExclusions(IEnumerable<string> folders)
+    {
+        var exclusions = folders.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        foreach (var relative in exclusions)
+            if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative == "." || !Inside(SourceFolder, Path.GetFullPath(Path.Combine(SourceFolder, relative))))
+                throw new IOException("Invalid imported subtree location.");
+        return new(SourceFolder, DestinationFolder, snapshot, Id, exclusions);
+    }
 
     public static WorkspaceFolderCopy? Prepare(string workspaceRoot, string sourceFolder, string destinationFolder, CancellationToken token)
     {
@@ -32,7 +44,7 @@ public sealed class WorkspaceFolderCopy
         var destination = Normalize(destinationFolder);
         if (Same(SourceFolder, destination)) throw new IOException("A pending copy cannot replace its source folder. Choose another folder name.");
         CheckDestination(workspaceRoot, SourceFolder, destination);
-        return new(SourceFolder, destination, snapshot);
+        return new(SourceFolder, destination, snapshot, Id, excludedFolders);
     }
 
     public void ValidateSource(CancellationToken token)
@@ -51,12 +63,12 @@ public sealed class WorkspaceFolderCopy
         Directory.CreateDirectory(staging);
         try
         {
-            foreach (var directory in snapshot.Directories)
+            foreach (var directory in Directories)
             {
                 token.ThrowIfCancellationRequested();
                 Directory.CreateDirectory(Path.Combine(staging, directory));
             }
-            foreach (var file in snapshot.Files)
+            foreach (var file in Files)
             {
                 token.ThrowIfCancellationRequested();
                 var source = Path.Combine(SourceFolder, file.RelativePath);
