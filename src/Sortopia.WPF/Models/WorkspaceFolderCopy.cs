@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Sortopia.WPF.Models;
 
-/// <summary>A read-only source snapshot, copied only when its workspace transaction is applied.</summary>
+/// <summary>A folder or run-file snapshot, copied only when its workspace transaction is applied.</summary>
 public sealed class WorkspaceFolderCopy
 {
     internal sealed record Entry(string RelativePath, long Length, string Hash, DateTime LastWriteTimeUtc);
@@ -60,7 +60,7 @@ public sealed class WorkspaceFolderCopy
         ValidateDestination(workspaceRoot);
         CheckAncestors(SourceFolder);
         var staging = Path.Combine(Normalize(workspaceRoot), ".sortopia-import-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(staging);
+        if (Directories.Count > 0) Directory.CreateDirectory(staging);
         try
         {
             foreach (var directory in Directories)
@@ -95,7 +95,8 @@ public sealed class WorkspaceFolderCopy
         var path = Normalize(staging);
         if (!Same(Path.GetDirectoryName(path)!, root) || !Path.GetFileName(path).StartsWith(".sortopia-import-", StringComparison.Ordinal))
             throw new IOException("Invalid import staging path.");
-        if (Directory.Exists(path))
+        if (File.Exists(path)) { CheckAncestors(path); File.Delete(path); }
+        else if (Directory.Exists(path))
         {
             // Delete only regular files/directories in this transaction's private staging folder.
             CheckAncestors(path);
@@ -124,6 +125,11 @@ public sealed class WorkspaceFolderCopy
     private static Snapshot Capture(string source, CancellationToken token)
     {
         CheckAncestors(source);
+        if (File.Exists(source))
+        {
+            using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return new([], [new("", input.Length, Hash(input, token), File.GetLastWriteTimeUtc(source))]);
+        }
         if (!Directory.Exists(source)) throw new DirectoryNotFoundException($"Import source is unavailable: {source}");
         var directories = new List<string> { "" };
         var files = new List<Entry>();

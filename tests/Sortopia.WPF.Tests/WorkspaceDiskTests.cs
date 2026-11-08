@@ -17,8 +17,8 @@ public sealed class WorkspaceDiskTests : IDisposable
     private string ProjectFolder => Path.Combine(ModuleFolder, "projects", "search");
     private string RunFolder => Path.Combine(ProjectFolder, "runs", "trial");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static workspace Sample() => workspace.create("Research", "Workspace", [WorkspaceModule.create("Sorting", "sorting", [],
-        [project.create("Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial", true, "trial")], [])])]);
+    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(Guid.NewGuid(), "Sorting", "sorting", [],
+        [project.create(Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial", true)], [])])]);
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?>? picker = null)
     {
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -52,10 +52,12 @@ public sealed class WorkspaceDiskTests : IDisposable
         WorkspaceFileStore.CreateWorkspace(Root, original, Token);
         var paths = Markers(Root).Order().ToArray();
         Assert.Equal(4, paths.Length);
-        var ids = paths.Select(path => Guid.Parse(Path.GetFileNameWithoutExtension(path).Split('-', 2)[1])).ToArray();
+        var ids = paths.Select(path => Guid.Parse(Path.GetFileNameWithoutExtension(path))).ToArray();
         Assert.Equal(4, ids.Distinct().Count());
+        Assert.Equal(new[] { original.Id, original.Modules.Single().Id, original.Modules.Single().Projects.Single().Id,
+            original.Modules.Single().Projects.Single().Runs.Single().Id }.Order(), ids.Order());
         Assert.All(paths, path => Assert.True(WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(path), Path.GetFileName(path).Split('-')[0])));
-        WorkspaceFileStore.SaveWorkspace(Root, workspace.create("Renamed research", "Workspace", original.Modules), original, Token);
+        WorkspaceFileStore.SaveWorkspace(Root, workspace.create(original.Id, "Renamed research", "Workspace", original.Modules), original, Token);
         Assert.Equal(paths, Markers(Root).Order());
         Assert.Equal("Renamed research", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
     }
@@ -113,7 +115,7 @@ public sealed class WorkspaceDiskTests : IDisposable
     {
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
         var first = WorkspaceDefinitionFiles.Require(Root, "workspace");
-        var second = Path.Combine(Root, legacy ? "workspace.msgpack" : WorkspaceDefinitionFiles.NewName("workspace"));
+        var second = Path.Combine(Root, legacy ? "workspace.msgpack" : WorkspaceDefinitionFiles.Name(Guid.NewGuid()));
         File.Copy(first, second);
         var before = Files(Root);
         var page = Open();
@@ -138,9 +140,9 @@ public sealed class WorkspaceDiskTests : IDisposable
         page.RefreshDiskStatus();
         Assert.Equal("Missing definition", module.DiskStatus);
         Assert.Equal("Missing folder", project.DiskStatus);
-        Assert.Equal("Missing folder", run.DiskStatus);
+        Assert.Equal("Missing definition", run.DiskStatus);
         Assert.True(run.HasDiskWarning);
-        Assert.Contains(RunFolder, run.DiskStatusDetail);
+        Assert.Contains(run.GetFolderPath(Root), run.DiskStatusDetail);
         Assert.Equal("3 saved components are missing from disk.", page.MissingComponentsMessage);
         Assert.False(page.HasUnsavedChanges);
         Assert.False(page.DiscardChangesCommand.CanExecute(null));
@@ -148,7 +150,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.False(page.HasMissingComponents);
-        Assert.NotNull(WorkspaceDefinitionFiles.Find(RunFolder, "run"));
+        Assert.True(File.Exists(run.GetFolderPath(Root)));
         Assert.True(Directory.Exists(moved));
     }
 
@@ -170,7 +172,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Empty(page.Error);
         Assert.True(page.HasSavedWorkspace);
         Assert.False(page.HasMissingComponents);
-        Assert.NotEqual(originalFile, WorkspaceDefinitionFiles.Require(Root, "workspace"));
+        Assert.Equal(originalFile, WorkspaceDefinitionFiles.Require(Root, "workspace"));
     }
 
     [Fact]

@@ -75,13 +75,13 @@ public sealed class WorkspacePageTests : IDisposable
         page.Selected.FolderName = "search";
         page.AddRunCommand.Execute(null);
         page.Selected!.Name = "Trial";
-        page.Selected.FolderName = "trial-01";
+        var runId = page.Selected.Id;
         page.Selected.RunConfiguration = System.Text.Json.JsonSerializer.Serialize(
             Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial", branch)));
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         var projectFolder = Path.Combine(folder, "modules", "sorters", "projects", "search");
-        var output = Path.Combine(projectFolder, "runs", "trial-01", "results.txt");
+        var output = Path.Combine(projectFolder, "results.txt");
         File.WriteAllText(output, "Keep results");
 
         // Opening a saved root restores its hierarchy before any edits can be saved.
@@ -110,19 +110,21 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Equal("search", project.FolderName);
         Assert.Equal("Search: updated", project.Runs.Single().ProjectName);
         Assert.Equal("Trial: renamed", project.Runs.Single().RunName);
-        Assert.Equal("trial-01", project.Runs.Single().FolderName);
-        var expectedRun = WorkspaceHierarchyTests.MakeRun("Search: updated", "Trial: renamed", branch, "trial-01");
+        Assert.Equal(runId, project.Runs.Single().Id);
+        var expectedDto = Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search: updated", "Trial: renamed", branch));
+        expectedDto.id = runId;
+        var expectedRun = Sortopia.Workspaces.Serialization.RunDto.toDomain(expectedDto);
         Assert.Equal(Sortopia.Workspaces.Serialization.WorkspaceCodec.encodeRun(expectedRun),
-            File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(projectFolder, "runs", "trial-01", "run")));
+            File.ReadAllBytes(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(runId))));
         Assert.Equal("Keep results", File.ReadAllText(output));
         Assert.Single(Directory.GetDirectories(Path.Combine(folder, "modules")));
         Assert.Single(Directory.GetDirectories(Path.Combine(folder, "modules", "sorters", "projects")));
-        Assert.Single(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
         Assert.Equal("Research: updated", new WorkspacePageViewModel(() => { }, _ => null, Settings).WorkspaceName);
     }
 
     [Fact]
-    public async Task Duplicate_run_names_and_folders_are_reported_without_writing_and_can_be_corrected()
+    public async Task Duplicate_run_names_are_reported_without_writing_and_can_be_corrected()
     {
         var folder = temp.CreateSubdirectory("Root").FullName;
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
@@ -150,13 +152,8 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Contains("Duplicate name in runs", page.Error);
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "workspace")));
         second.Name = "Second";
-        second.FolderName = "TRIAL";
-        Assert.Contains("Duplicate folder name in runs", page.Error);
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
-        await page.SaveWorkspaceAsync();
-        Assert.Contains("Duplicate folder name in runs", page.Error);
-        Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "workspace")));
-        second.FolderName = "another-trial";
+        Assert.False(second.HasFolder);
+        Assert.NotEqual(first.Id, second.Id);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.Equal(2, WorkspaceFileStore.LoadDefinition(folder).Modules.Single().Projects.Single().Runs.Length);
@@ -182,7 +179,7 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Empty(page.Error);
         Assert.Equal("Updated", WorkspaceFileStore.LoadDefinition(folder).WorkspaceName);
         page.WorkspaceName = "My edit";
-        var external = workspace.create("External edit", "Root", []);
+        var external = workspace.create(Guid.NewGuid(), "External edit", "Root", []);
         WorkspaceFileStore.SaveWorkspace(folder, external, WorkspaceFileStore.LoadDefinition(folder), CancellationToken.None);
         await page.SaveWorkspaceAsync();
         Assert.Contains("changed since it was loaded", page.Error);
@@ -223,7 +220,7 @@ public sealed class WorkspacePageTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
         page.BrowseWorkspaceFolderCommand.Execute(null);
         page.WorkspaceName = "My draft";
-        WorkspaceFileStore.CreateWorkspace(folder, workspace.create("Already saved", "Root", []), CancellationToken.None);
+        WorkspaceFileStore.CreateWorkspace(folder, workspace.create(Guid.NewGuid(), "Already saved", "Root", []), CancellationToken.None);
         await page.SaveWorkspaceAsync();
         Assert.Contains("already exists", page.Error);
         Assert.True(page.HasSavedWorkspace);

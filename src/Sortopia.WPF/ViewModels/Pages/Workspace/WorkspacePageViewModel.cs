@@ -45,7 +45,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         this.settings = settings;
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
         BrowseWorkspaceFolderCommand = new RelayCommand(async () => await BrowseWorkspaceFolderAsync(), () => !IsBusy && !resolvingNavigation);
-        OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedFolderPath));
+        OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedExplorerFolder));
         AddModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module), () => CanAdd(WorkspaceEntityKind.Module));
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
@@ -112,6 +112,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
             NotifyCommands();
         }
     }
+    private string SelectedExplorerFolder => Selected?.IsRun == true ? Path.GetDirectoryName(SelectedFolderPath) ?? "" : SelectedFolderPath;
     public string SelectedFolderPath
     {
         get
@@ -123,7 +124,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
     private void OpenSelectedFolderInExplorer()
     {
-        var folder = SelectedFolderPath;
+        var folder = SelectedExplorerFolder;
         try
         {
             if (!Directory.Exists(folder)) throw new DirectoryNotFoundException("The folder no longer exists.");
@@ -211,7 +212,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     {
         savedDefinition = null;
         var name = WorkspaceFileStore.GetFolderName(WorkspaceFolder);
-        ReplaceDraft(workspace.create(name, name, []));
+        ReplaceDraft(workspace.create(Guid.NewGuid(), name, name, []));
     }
     private void AcceptSavedDefinition(workspace value)
     {
@@ -329,7 +330,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         var node = cutNode!;
         var parent = Selected!;
         parent.ValidateChildPlacement(node);
-        var destination = Path.Combine(parent.GetFolderPath(WorkspaceFolder), node.Kind.ToString().ToLowerInvariant() + "s", Sortopia.Runs.FolderName.validate(node.FolderName));
+        var destination = Path.Combine(parent.GetFolderPath(WorkspaceFolder), node.Kind.ToString().ToLowerInvariant() + "s", node.PathName);
         if (!ReferenceEquals(parent, node.Parent) && !string.Equals(destination, node.SavedFolderPath, StringComparison.OrdinalIgnoreCase)
             && (Directory.Exists(destination) || File.Exists(destination)))
             throw new IOException($"The destination already exists. Choose another parent or folder name: {destination}");
@@ -356,7 +357,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         node.MarkMoved();
         ClearCut();
         Selected = node;
-        Status = $"Moved '{node.Name}' under '{parent.Name}' in the draft. Save workspace to move its folder and contents.";
+        Status = $"Moved '{node.Name}' under '{parent.Name}' in the draft. Save workspace to move it on disk.";
     });
     private void DraftChanged()
     {
@@ -418,8 +419,8 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         AcceptSavedDefinition(result.Definition);
         RetainedFolders = result.RetainedFolders;
         Status = $"Workspace '{definition.WorkspaceName}' saved." + (result.CopiedFolders > 0
-            ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "folder" : "folders")}; sources are unchanged." : "")
-            + (result.MovedFolders > 0 ? $" Moved {result.MovedFolders} {(result.MovedFolders == 1 ? "folder" : "folders")} with all contents." : "");
+            ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "component" : "components")}; sources are unchanged." : "")
+            + (result.MovedFolders > 0 ? $" Moved {result.MovedFolders} {(result.MovedFolders == 1 ? "component" : "components")} with all contents." : "");
     });
     private async Task RunAsync(Func<CancellationToken, Task> action)
     {

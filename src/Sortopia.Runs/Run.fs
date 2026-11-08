@@ -7,6 +7,11 @@ open Sortopia.Core
 [<Measure>] type workspaceName
 [<Measure>] type moduleName
 [<Measure>] type projectName
+[<Measure>] type runId
+[<Measure>] type projectId
+[<Measure>] type moduleId
+[<Measure>] type workspaceId
+
 [<Measure>] type runName
 
 
@@ -70,7 +75,7 @@ module private RunConfiguration =
 type rootRunConfig = {
     ProjectName: string<projectName>
     RunName: string<runName>
-    FolderName: string
+    Id: Guid<runId>
     Description: string
     ResultsDatabaseName: string<databaseName>
     ExecuteFunctionName: string
@@ -85,7 +90,7 @@ type rootRun =
 
     member this.ProjectName = this.config.ProjectName
     member this.RunName = this.config.RunName
-    member this.FolderName = this.config.FolderName
+    member this.Id = this.config.Id
     member this.Description = this.config.Description
     member this.ResultsDatabaseName = this.config.ResultsDatabaseName
     member this.ExecuteFunctionName = this.config.ExecuteFunctionName
@@ -95,7 +100,7 @@ type rootRun =
 
 module RootRun =
     let create (config: rootRunConfig) : rootRun =
-        FolderName.validate config.FolderName |> ignore
+        if UMX.untag config.Id = System.Guid.Empty then invalidArg "id" "Run ID must not be empty."
         let outputSpanKeys =
             RunConfiguration.validate "resultsDatabaseName" config.ResultsDatabaseName config.ProjectName config.RunName
                 config.OutputParameterSpans "executeFunctionName" config.ExecuteFunctionName
@@ -108,7 +113,7 @@ module RootRun =
 type branchRunConfig = {
     ProjectName: string<projectName>
     RunName: string<runName>
-    FolderName: string
+    Id: Guid<runId>
     Description: string
     ResultsDatabaseName: string<databaseName>
     ExecuteFunctionName: string
@@ -128,7 +133,7 @@ type branchRun =
 
     member this.ProjectName = this.config.ProjectName
     member this.RunName = this.config.RunName
-    member this.FolderName = this.config.FolderName
+    member this.Id = this.config.Id
     member this.Description = this.config.Description
     member this.ResultsDatabaseName = this.config.ResultsDatabaseName
     member this.ExecuteFunctionName = this.config.ExecuteFunctionName
@@ -143,7 +148,7 @@ type branchRun =
 
 module BranchRun =
     let create (config: branchRunConfig) : branchRun =
-        FolderName.validate config.FolderName |> ignore
+        if UMX.untag config.Id = System.Guid.Empty then invalidArg "id" "Run ID must not be empty."
         let outputSpanKeys =
             RunConfiguration.validate "resultsDatabaseName" config.ResultsDatabaseName config.ProjectName config.RunName
                 config.OutputParameterSpans "executeFunctionName" config.ExecuteFunctionName
@@ -190,10 +195,10 @@ type run =
         | RootRun value -> value.RunName
         | BranchRun value -> value.RunName
 
-    member this.FolderName =
+    member this.Id =
         match this with
-        | RootRun value -> value.FolderName
-        | BranchRun value -> value.FolderName
+        | RootRun value -> value.Id
+        | BranchRun value -> value.Id
 
     member this.Description =
         match this with

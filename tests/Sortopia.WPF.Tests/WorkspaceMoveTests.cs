@@ -18,10 +18,10 @@ public sealed class WorkspaceMoveTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open(bool saved = true)
     {
-        var value = workspace.create("Research", "Workspace", [
-            WorkspaceModule.create("A", "A", [WorkspaceModule.create("Nested", "Nested", [], [])],
-                [project.create("P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R", true, "R")], [project.create("Child", "Child", [], [])])]),
-            WorkspaceModule.create("B", "B", [], [project.create("Destination", "Destination", [], [])])]);
+        var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
+            WorkspaceModule.create(Guid.NewGuid(), "A", "A", [WorkspaceModule.create(Guid.NewGuid(), "Nested", "Nested", [], [])],
+                [project.create(Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R", true)], [project.create(Guid.NewGuid(), "Child", "Child", [], [])])]),
+            WorkspaceModule.create(Guid.NewGuid(), "B", "B", [], [project.create(Guid.NewGuid(), "Destination", "Destination", [], [])])]);
         Directory.CreateDirectory(Root);
         if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -61,8 +61,8 @@ public sealed class WorkspaceMoveTests : IDisposable
         var page = Open();
         var node = Find(page, name);
         var source = node.GetFolderPath(Root);
-        Data(source);
-        var filenames = Directory.GetFiles(source, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order().ToArray();
+        if (!node.IsRun) Data(source);
+        var filenames = node.IsRun ? [Path.GetFileName(source)] : Directory.GetFiles(source, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order().ToArray();
         var before = Snapshot(Root);
         await Move(page, name, parent);
         var destination = page.Selected!.GetFolderPath(Root);
@@ -71,15 +71,46 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.True(page.HasUnsavedChanges);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.False(Directory.Exists(source));
-        Assert.True(Directory.Exists(Path.Combine(destination, "output", "empty")));
-        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(destination, "output", "result.txt")));
-        Assert.Equal(filenames, Directory.GetFiles(destination, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order());
+        Assert.False(Directory.Exists(source) || File.Exists(source));
+        if (node.IsRun)
+        {
+            Assert.True(File.Exists(destination));
+            Assert.Equal(filenames.Single(), Path.GetFileName(destination));
+            var savedRun = WorkspaceCodec.decodeRun(File.ReadAllBytes(destination));
+            Assert.Equal(node.Id, savedRun.Id);
+            Assert.Equal("Destination", savedRun.ProjectName);
+        }
+        else
+        {
+            Assert.True(Directory.Exists(Path.Combine(destination, "output", "empty")));
+            Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(destination, "output", "result.txt")));
+            Assert.Equal(filenames, Directory.GetFiles(destination, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order());
+        }
         Assert.Empty(page.RetainedFolders);
         Assert.Empty(Directory.GetDirectories(Root, ".sortopia-*") );
         Assert.False(page.HasMissingComponents);
-        if (name == "R")
-            Assert.Equal("Destination", WorkspaceCodec.decodeRun(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(destination, "run"))).ProjectName);
+    }
+
+    [Fact]
+    public async Task A_failed_run_move_restores_its_file_and_can_be_retried()
+    {
+        var page = Open();
+        var source = Find(page, "R").GetFolderPath(Root);
+        var id = Find(page, "R").Id;
+        var before = Snapshot(Root);
+        await Move(page, "R", "Destination");
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await page.SaveWorkspaceAsync();
+            Assert.NotEmpty(page.Error);
+        }
+        Assert.Equal(before, Snapshot(Root));
+        await page.SaveWorkspaceAsync();
+        Assert.Empty(page.Error);
+        Assert.False(File.Exists(source));
+        var saved = WorkspaceCodec.decodeRun(File.ReadAllBytes(Find(page, "R").GetFolderPath(Root)));
+        Assert.Equal(id, saved.Id);
+        Assert.Equal("Destination", saved.ProjectName);
     }
 
     [Fact]
@@ -253,8 +284,8 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Empty(page.Error);
         Assert.Equal(before, Snapshot(importSource));
         Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Imported", "projects", "child-project")));
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "B", "projects", "child-project", "runs", "trial-folder")));
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "B", "projects", "Destination", "runs", "trial-folder", "results.txt")));
+        Assert.Empty(Directory.GetFiles(Path.Combine(Root, "modules", "B", "projects", "child-project", "runs")));
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "B", "projects", "child-project", "results.txt")));
     }
 
     [Fact]

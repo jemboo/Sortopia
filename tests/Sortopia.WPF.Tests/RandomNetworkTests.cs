@@ -2315,18 +2315,15 @@ public sealed class RandomNetworkTests
             Assert.False(addProject.IsEnabled);
             var runJson = System.Text.Json.JsonSerializer.SerializeToNode(
                 Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial 01", true)))!.AsObject();
-            runJson.Remove("schemaVersion"); runJson.Remove("projectName"); runJson.Remove("runName"); runJson.Remove("folderName");
+            runJson.Remove("schemaVersion"); runJson.Remove("projectName"); runJson.Remove("runName"); runJson.Remove("id");
             vm.Selected.RunConfiguration = runJson.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             LayoutWorkspace();
-            Assert.False(folderName.IsReadOnly);
-            entityName.SetCurrentValue(TextBox.TextProperty, "Trial 02");
-            Assert.Equal("Trial 02", folderName.Text);
-            folderName.SetCurrentValue(TextBox.TextProperty, "trial-01");
-            Assert.Equal("trial-01", vm.Selected.FolderName);
+            Assert.Equal(Visibility.Collapsed, ((StackPanel)page.FindName("EntityFolderNamePanel")).Visibility);
+            var runId = vm.Selected.Id;
             entityName.SetCurrentValue(TextBox.TextProperty, "Trial: renamed");
-            Assert.Equal("trial-01", folderName.Text);
+            Assert.Equal(runId, vm.Selected.Id);
             Assert.Equal("Trial: renamed", vm.Selected.Name);
-            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting", "projects", "Search", "runs", "trial-01"), fullPath.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting", "projects", "Search", "runs", WorkspaceDefinitionFiles.Name(runId)), fullPath.Text);
             Assert.Empty(vm.Error);
             Assert.True(save.IsEnabled);
             foreach (var size in new[] { new Size(1000, 800), new Size(640, 480) })

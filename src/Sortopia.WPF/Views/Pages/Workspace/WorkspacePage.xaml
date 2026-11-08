@@ -144,19 +144,21 @@
                         <TextBlock x:Name="EntityNameError" Text="{Binding NameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
                     <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                        <StackPanel x:Name="EntityFolderNamePanel" Visibility="{Binding HasFolder, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <Label Content="Folder name" Target="{Binding ElementName=EntityFolderNameInput}" Padding="0,0,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
                         <TextBox x:Name="EntityFolderNameInput" Text="{Binding FolderNameInput, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsWorkspace}"
                                  MinHeight="30" AutomationProperties.Name="Entity folder name" />
                         <TextBlock x:Name="EntityFolderNameError" Text="{Binding FolderNameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                         <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}"
                                    Text="{Binding FolderNameHint}" />
+                        </StackPanel>
                         <Label Content="Full path" Target="{Binding ElementName=EntityFullPath}" Padding="0,10,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBox x:Name="EntityFullPath" IsReadOnly="True" TextWrapping="Wrap" MinHeight="30" MaxHeight="76" VerticalScrollBarVisibility="Auto"
                                      Text="{Binding DataContext.SelectedFolderPath, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}, Mode=OneWay}"
-                                     ToolTip="Folder location in the current workspace tree. Pending changes take effect when saved."
-                                     AutomationProperties.Name="Selected entity full folder path" />
+                                     ToolTip="Entity location in the current workspace tree. Pending changes take effect when saved."
+                                     AutomationProperties.Name="Selected entity full path" />
                             <Button x:Name="OpenEntityFolderButton" Grid.Column="1" Content="Open folder" Margin="8,0,0,0" VerticalAlignment="Top" MinHeight="30"
                                     Command="{Binding DataContext.OpenFolderCommand, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
                                     ToolTip="Open this folder in File Explorer. Available when the folder exists on disk."
@@ -180,7 +182,7 @@
             </Border>
         </Grid>
         <StackPanel Grid.Row="3" Margin="0,10,0,0">
-            <Expander x:Name="RetainedFoldersNotice" Header="Folders kept on disk, outside this workspace" Margin="0,0,0,6"
+            <Expander x:Name="RetainedFoldersNotice" Header="Files and folders kept outside this workspace" Margin="0,0,0,6"
                       Foreground="{StaticResource Workspace.TextSecondary}"
                       Visibility="{Binding HasRetainedFolders, Converter={StaticResource WorkspaceBoolVisibility}}">
                 <ListBox ItemsSource="{Binding RetainedFolders}" MaxHeight="100" Margin="0,6,0,0"

@@ -5,6 +5,8 @@ namespace Sortopia.WPF.Tests;
 
 internal static class WorkspaceTestFiles
 {
+    internal static Guid Id(string name) => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(name)));
+
     // Locate saved GUID files; use a legacy filename when a fixture has not been written yet.
     internal static string DefinitionPath(params string[] parts)
     {

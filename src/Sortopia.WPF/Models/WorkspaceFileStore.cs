@@ -69,7 +69,7 @@ public static class WorkspaceFileStore
     }
 
     private static workspace Rebase(workspace value, string rootFolder) =>
-        workspace.create(value.WorkspaceName, GetFolderName(rootFolder), value.Modules);
+        workspace.create(value.Id, value.WorkspaceName, GetFolderName(rootFolder), value.Modules);
 
     private static SavePlan PrepareSave(string rootFolder, workspace definition, CancellationToken token, IReadOnlyList<WorkspaceFolderCopy>? copies,
         IReadOnlyList<WorkspaceFolderMove>? moves)
@@ -93,7 +93,7 @@ public static class WorkspaceFileStore
         {
             WorkspaceFolderMove.CheckPath(root, move.SourceFolder);
             WorkspaceFolderMove.CheckPath(root, move.DestinationFolder);
-            if (!Directory.Exists(move.SourceFolder)) throw new DirectoryNotFoundException($"The folder to move is missing: {move.SourceFolder}");
+            if (!Directory.Exists(move.SourceFolder) && !File.Exists(move.SourceFolder)) throw new DirectoryNotFoundException($"The folder to move is missing: {move.SourceFolder}");
         }
         foreach (var copy in imports)
         {
@@ -112,24 +112,70 @@ public static class WorkspaceFileStore
                 throw new IOException($"The destination already exists. Choose a different parent or folder name: {transfer.Destination}");
             }
         }
-        void Add(string folder, string kind, byte[] bytes)
+        var sourceIds = new Dictionary<Guid, Guid>();
+        Guid CopyId(Guid id, string path)
+        {
+            if (transfers.LastOrDefault(transfer => WorkspaceFolderCopy.Inside(transfer.Destination, path))?.Copy is null) return id;
+            var replacement = Guid.NewGuid();
+            sourceIds.Add(replacement, id);
+            return replacement;
+        }
+        project IdentifyProject(project value, string folder) => project.create(CopyId(value.Id, folder), value.ProjectName, value.FolderName,
+            value.Runs.Select(run =>
+            {
+                var dto = RunDto.fromDomain(run);
+                dto.id = CopyId(run.Id, Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)));
+                return RunDto.toDomain(dto);
+            }).ToArray(), value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
+        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.create(CopyId(value.Id, folder), value.ModuleName, value.FolderName,
+            value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
+            value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
+        definition = workspace.create(definition.Id, definition.WorkspaceName, definition.FolderName,
+            definition.Modules.Select(child => IdentifyModule(child, Child(root, "modules", child.FolderName))).ToArray());
+        var sourceRuns = new Dictionary<string, Dictionary<Guid, string>>(PathComparer);
+        string? FindRun(string projectFolder, Guid id)
+        {
+            if (!sourceRuns.TryGetValue(projectFolder, out var files))
+            {
+                files = new();
+                foreach (var file in RunFiles(projectFolder))
+                {
+                    if (files.Count >= MaxEntities) throw new InvalidDataException("Workspace contains too many runs.");
+                    var runId = WorkspaceCodec.decodeRun(ReadDefinition(file)).Id;
+                    if (!files.TryAdd(runId, file)) throw new InvalidDataException($"Duplicate run ID in {projectFolder}: {runId}");
+                }
+                sourceRuns.Add(projectFolder, files);
+            }
+            return files.GetValueOrDefault(id);
+        }
+        void Add(string folder, string kind, Guid id, byte[] bytes)
         {
             token.ThrowIfCancellationRequested();
             if (bytes.Length > MaxDefinitionBytes) throw new InvalidDataException($"Definition is too large: {folder}");
-            expected.Add(folder);
+            var path = Path.Combine(folder, WorkspaceDefinitionFiles.Name(id));
+            expected.Add(kind == "run" ? path : folder);
             if (expected.Count > MaxEntities) throw new InvalidDataException("Workspace contains too many entities.");
-            var transfer = transfers.LastOrDefault(item => WorkspaceFolderCopy.Inside(item.Destination, folder));
+            var sourceId = sourceIds.GetValueOrDefault(id, id);
+            var oldPath = Path.Combine(folder, WorkspaceDefinitionFiles.Name(sourceId));
+            var transfer = transfers.LastOrDefault(item => WorkspaceFolderCopy.Inside(item.Destination, kind == "run" ? oldPath : folder));
             var sourceFolder = transfer is null ? folder : Path.Combine(transfer.Source, Path.GetRelativePath(transfer.Destination, folder));
             // A child cut out of a moved parent is no longer part of that parent's physical contents.
             if (transfer is not null && relocations.Any(move => !PathComparer.Equals(move.SourceFolder, transfer.Source)
                 && WorkspaceFolderCopy.Inside(transfer.Source, move.SourceFolder)
                 && WorkspaceFolderCopy.Inside(move.SourceFolder, sourceFolder))) sourceFolder = folder;
-            var sourcePath = transfer?.Copy is { } sourceCopy && !sourceCopy.IncludesSourcePath(sourceFolder) ? null : WorkspaceDefinitionFiles.Find(sourceFolder, kind);
+            string? sourcePath;
+            if (kind == "run")
+            {
+                sourcePath = transfer is not null && File.Exists(transfer.Source) ? transfer.Source
+                    : FindRun(Path.GetDirectoryName(sourceFolder)!, sourceId);
+                if (transfer?.Copy is { } copy && sourcePath is not null && !copy.IncludesSourcePath(sourcePath)) sourcePath = null;
+            }
+            else sourcePath = transfer?.Copy is { } sourceCopy && !sourceCopy.IncludesSourcePath(sourceFolder) ? null : WorkspaceDefinitionFiles.Find(sourceFolder, kind);
             var original = sourcePath is null ? null : ReadDefinition(sourcePath);
-            var originalPath = sourcePath is null ? null : Path.Combine(folder, Path.GetFileName(sourcePath));
-            // Keep saved identities stable; copied entities get their own identities.
-            var path = transfer?.Copy is null && sourcePath is not null && WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(sourcePath), kind)
-                ? originalPath! : Path.Combine(folder, WorkspaceDefinitionFiles.NewName(kind));
+            var originalPath = sourcePath is null ? null : transfer is null ? sourcePath
+                : Path.GetFullPath(Path.Combine(transfer.Destination, Path.GetRelativePath(transfer.Source, sourcePath)));
+            // File transfers publish to a path, whereas folder transfers publish a subtree.
+            if (sourcePath is not null && transfer is not null && File.Exists(transfer.Source)) originalPath = transfer.Destination;
             if (PathComparer.Equals(path, originalPath) && original is not null && original.AsSpan().SequenceEqual(bytes)) return;
             writes.Add(new(path, bytes, originalPath, original));
         }
@@ -137,35 +183,36 @@ public static class WorkspaceFileStore
         {
             CheckDepth(depth);
             foreach (var child in value.Projects) AddProject(child, Child(folder, "projects", child.FolderName), depth + 1);
-            foreach (var run in value.Runs) Add(Child(folder, "runs", run.FolderName), "run", WorkspaceCodec.encodeRun(run));
-            Add(folder, "project", WorkspaceCodec.encodeProject(value));
+            foreach (var run in value.Runs) Add(Path.Combine(folder, "runs"), "run", run.Id, WorkspaceCodec.encodeRun(run));
+            Add(folder, "project", value.Id, WorkspaceCodec.encodeProject(value));
         }
         void AddModule(WorkspaceModule value, string folder, int depth)
         {
             CheckDepth(depth);
             foreach (var child in value.Modules) AddModule(child, Child(folder, "modules", child.FolderName), depth + 1);
             foreach (var child in value.Projects) AddProject(child, Child(folder, "projects", child.FolderName), depth + 1);
-            Add(folder, "module", WorkspaceCodec.encodeModule(value));
+            Add(folder, "module", value.Id, WorkspaceCodec.encodeModule(value));
         }
         foreach (var child in definition.Modules) AddModule(child, Child(root, "modules", child.FolderName), 1);
-        Add(root, "workspace", WorkspaceCodec.encodeWorkspace(definition)); // Root snapshot commits last.
-        if (transfers.Any(transfer => !expected.Contains(transfer.Destination)))
+        Add(root, "workspace", definition.Id, WorkspaceCodec.encodeWorkspace(definition)); // Root snapshot commits last.
+        if (transfers.Any(transfer => !expected.Contains(transfer.Destination) && !(File.Exists(transfer.Source) && writes.Any(write => PathComparer.Equals(write.OriginalPath, transfer.Destination)))))
             throw new ArgumentException("Every moved or imported folder must belong to an entity in the workspace definition.");
         foreach (var copy in imports)
         {
+            if (File.Exists(copy.SourceFolder)) continue;
             var kind = Path.GetFileName(Path.GetDirectoryName(copy.DestinationFolder)!)[..^1];
             foreach (var sourceEntity in Capture(copy.SourceFolder, token, kind).Entities)
             {
                 if (!copy.IncludesSourcePath(sourceEntity)) continue;
                 var target = Path.GetFullPath(Path.Combine(copy.DestinationFolder, Relative(copy.SourceFolder, sourceEntity)));
-                if (!expected.Contains(target)) retainedFolders.Add(Relative(root, target));
+                if (!expected.Contains(target) && !writes.Any(write => PathComparer.Equals(write.OriginalPath, target))) retainedFolders.Add(Relative(root, target));
             }
         }
         foreach (var existing in before.Entities)
         {
             var move = relocations.Where(item => WorkspaceFolderCopy.Inside(item.SourceFolder, existing)).MaxBy(item => item.SourceFolder.Length);
             var target = move is null ? existing : Path.GetFullPath(Path.Combine(move.DestinationFolder, Relative(move.SourceFolder, existing)));
-            if (!expected.Contains(target)) retainedFolders.Add(Relative(root, target));
+            if (!expected.Contains(target) && !writes.Any(write => PathComparer.Equals(write.OriginalPath, target))) retainedFolders.Add(Relative(root, target));
         }
         if (before.Fingerprint != Capture(root, token).Fingerprint)
             throw new IOException("Folders changed while preparing the save. Try saving again.");
@@ -210,7 +257,7 @@ public static class WorkspaceFileStore
                 token.ThrowIfCancellationRequested();
                 WorkspaceFolderMove.CheckPath(root, move.SourceFolder);
                 var staging = Path.Combine(root, ".sortopia-move-" + Guid.NewGuid().ToString("N"));
-                Directory.Move(move.SourceFolder, staging);
+                MovePath(move.SourceFolder, staging);
                 stagedMoves.Add(new(move, staging));
             }
             var publications = stagedCopies.Select(item => (Destination: item.Copy.DestinationFolder, item.Staging, Copy: (WorkspaceFolderCopy?)item.Copy, Move: (StagedMove?)null))
@@ -223,7 +270,7 @@ public static class WorkspaceFileStore
                 if (Directory.Exists(publication.Destination) || File.Exists(publication.Destination))
                     throw new IOException($"The destination already exists: {publication.Destination}");
                 EnsureDirectory(Path.GetDirectoryName(publication.Destination)!);
-                Directory.Move(publication.Staging, publication.Destination);
+                MovePath(publication.Staging, publication.Destination);
                 if (publication.Move is { } moved) moved.Published = true;
                 if (publication.Copy is { } copy)
                 {
@@ -311,7 +358,7 @@ public static class WorkspaceFileStore
                     try
                     {
                         WorkspaceFolderMove.CheckPath(root, item.Move.DestinationFolder);
-                        Directory.Move(item.Move.DestinationFolder, item.Staging);
+                        MovePath(item.Move.DestinationFolder, item.Staging);
                         item.Published = false;
                     }
                     catch (Exception rollback) { errors.Add(new IOException($"Could not recover moved folder at {item.Move.DestinationFolder}.", rollback)); }
@@ -348,7 +395,7 @@ public static class WorkspaceFileStore
                 {
                     WorkspaceFolderMove.CheckPath(root, item.Move.SourceFolder);
                     EnsureDirectory(Path.GetDirectoryName(item.Move.SourceFolder)!);
-                    Directory.Move(item.Staging, item.Move.SourceFolder);
+                    MovePath(item.Staging, item.Move.SourceFolder);
                 }
                 catch (Exception rollback) { errors.Add(new IOException($"Could not restore {item.Move.SourceFolder}; its contents are retained at {item.Staging}.", rollback)); }
             }
@@ -389,16 +436,15 @@ public static class WorkspaceFileStore
         ValidateEntityFolder(folder, "project");
         var marker = WorkspaceDefinitionFiles.Find(folder, "project");
         var folderName = Path.GetFileName(folder);
-        var projectName = marker is not null ? WorkspaceCodec.decodeProject(ReadDefinition(marker)).ProjectName : folderName;
-        var runs = Children(folder, "runs").Select(runFolder =>
+        var saved = marker is not null ? WorkspaceCodec.decodeProject(ReadDefinition(marker)) : null;
+        var projectName = saved?.ProjectName ?? folderName;
+        var runs = RunFiles(folder).Select(file =>
         {
             token.ThrowIfCancellationRequested();
-            ValidateEntityFolder(runFolder, "run");
-            var runFile = WorkspaceDefinitionFiles.Find(runFolder, "run");
-            if (runFile is null) throw new InvalidDataException($"Missing run definition in {runFolder}. Create the run in Workspace or restore its definition file.");
-            return WorkspaceRun.withLocation(projectName, Path.GetFileName(runFolder), WorkspaceCodec.decodeRun(ReadDefinition(runFile)));
+            var run = WorkspaceCodec.decodeRun(ReadDefinition(file));
+            return WorkspaceRun.withNames(projectName, run.RunName, run);
         }).ToArray();
-        return project.create(projectName, folderName, runs, Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token)).ToArray());
+        return project.create(saved?.Id ?? Guid.NewGuid(), projectName, folderName, runs, Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token)).ToArray());
     }
 
     private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token)
@@ -407,8 +453,9 @@ public static class WorkspaceFileStore
         ValidateEntityFolder(folder, "module");
         var marker = WorkspaceDefinitionFiles.Find(folder, "module");
         var folderName = Path.GetFileName(folder);
-        var moduleName = marker is not null ? WorkspaceCodec.decodeModule(ReadDefinition(marker)).ModuleName : folderName;
-        return WorkspaceModule.create(moduleName, folderName,
+        var saved = marker is not null ? WorkspaceCodec.decodeModule(ReadDefinition(marker)) : null;
+        var moduleName = saved?.ModuleName ?? folderName;
+        return WorkspaceModule.create(saved?.Id ?? Guid.NewGuid(), moduleName, folderName,
             Children(folder, "modules").Select(path => ReadModuleFolder(path, depth + 1, token)).ToArray(),
             Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token)).ToArray());
     }
@@ -445,6 +492,13 @@ public static class WorkspaceFileStore
                 if (!Directory.Exists(path)) continue;
                 CheckDirectory(path);
                 entries.Add("C:" + Relative(root, path));
+                if (container == "runs")
+                    foreach (var file in WorkspaceDefinitionFiles.All(path, "run"))
+                    {
+                        entries.Add("F:" + Relative(root, file) + ":" + Convert.ToHexString(SHA256.HashData(ReadDefinition(file))));
+                        entities.Add(file);
+                        if (entities.Count > MaxEntities) throw new InvalidDataException("Workspace contains too many entities.");
+                    }
                 foreach (var child in Children(folder, container)) Visit(child, container[..^1], depth + 1);
             }
         }
@@ -453,6 +507,29 @@ public static class WorkspaceFileStore
         return new(Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', entries)))), entities.AsReadOnly());
     }
 
+    private static void MovePath(string source, string destination)
+    {
+        if (Directory.Exists(source)) Directory.Move(source, destination);
+        else File.Move(source, destination);
+    }
+    internal static string? FindRunDefinition(string projectFolder, Guid id)
+    {
+        var path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(id));
+        if (File.Exists(path)) return path;
+        return RunFiles(projectFolder).FirstOrDefault(file => WorkspaceCodec.decodeRun(ReadDefinition(file)).Id == id);
+    }
+
+    private static IEnumerable<string> RunFiles(string projectFolder)
+    {
+        foreach (var file in WorkspaceDefinitionFiles.All(Path.Combine(projectFolder, "runs"), "run")) yield return file;
+        // Keep legacy folders readable; saving migrates their metadata and retains output files.
+        foreach (var folder in Children(projectFolder, "runs"))
+        {
+            ValidateEntityFolder(folder, "run");
+            var file = WorkspaceDefinitionFiles.Find(folder, "run");
+            if (file is not null) yield return file;
+        }
+    }
     private static string[] Containers(string kind) => kind switch
     { "workspace" => ["modules"], "module" => ["modules", "projects"], "project" => ["projects", "runs"], _ => [] };
     private static IEnumerable<string> Children(string folder, string container)
@@ -473,7 +550,7 @@ public static class WorkspaceFileStore
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new IOException($"Linked folders are not supported in the workspace hierarchy: {path}");
     }
-    private static byte[] ReadDefinition(string path)
+    internal static byte[] ReadDefinition(string path)
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw new IOException($"Linked definition files are not supported: {path}");
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);

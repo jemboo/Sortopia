@@ -15,7 +15,7 @@ public sealed class WorkspaceNavigationTests : IDisposable
     private WorkspaceFolderSettings Settings => new(Path.Combine(temporary.FullName, "settings.txt"));
     private void CreateSavedRoot()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create("Original", "Root", []), TestContext.Current.CancellationToken);
+        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Original", "Root", []), TestContext.Current.CancellationToken);
         Directory.CreateDirectory(Other);
         Settings.Save(Root);
     }

@@ -17,7 +17,7 @@ type runDto = {
     runKind: string
     projectName: string
     runName: string
-    folderName: string
+    id: Guid
     description: string
     resultsDatabaseName: string
     executeFunctionName: string
@@ -31,11 +31,11 @@ type runDto = {
     setupQueryParameterKeys: queryKeysDto array
 }
 [<CLIMutable>]
-type projectDto = { schemaVersion: int; projectName: string; folderName: string; runs: runDto array; projects: projectDto array }
+type projectDto = { schemaVersion: int; id: Guid; projectName: string; folderName: string; runs: runDto array; projects: projectDto array }
 [<CLIMutable>]
-type moduleDto = { schemaVersion: int; moduleName: string; folderName: string; modules: moduleDto array; projects: projectDto array }
+type moduleDto = { schemaVersion: int; id: Guid; moduleName: string; folderName: string; modules: moduleDto array; projects: projectDto array }
 [<CLIMutable>]
-type workspaceDto = { schemaVersion: int; workspaceName: string; folderName: string; modules: moduleDto array }
+type workspaceDto = { schemaVersion: int; id: Guid; workspaceName: string; folderName: string; modules: moduleDto array }
 
 /// Read-only migration contract; new snapshots never contain an absolute root path.
 [<CLIMutable>]
@@ -45,7 +45,15 @@ module private Contract =
     let version value =
         if value <> 1 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}"
     let entityVersion value =
-        if value <> 1 && value <> 2 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}"
+        if value <> 1 && value <> 2 && value <> 3 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}"
+    // Legacy payloads receive stable IDs until the next save persists them.
+    let id version (value: Guid) payload =
+        if version < 3 then
+            let hash = Security.Cryptography.SHA256.HashData(MessagePackSetup.serialize payload)
+            Guid(hash[0..15])
+        else
+            EntityId.validate value
+            value
     let folder version name folderName =
         if version = 1 then name else folderName
     let array name (value: 'a array) =
@@ -62,9 +70,9 @@ module private Contract =
 
 module RunDto =
     let fromDomain (value: run) : runDto = {
-        schemaVersion = 2; runKind = if value.HasSetup then "branch" else "root"
+        schemaVersion = 3; runKind = if value.HasSetup then "branch" else "root"
         projectName = UMX.untag value.ProjectName; runName = UMX.untag value.RunName
-        folderName = value.FolderName
+        id = UMX.untag value.Id
         description = value.Description; resultsDatabaseName = UMX.untag value.ResultsDatabaseName
         executeFunctionName = value.ExecuteFunctionName
         outputParameterSpans = value.ParameterSpans |> List.map Contract.spanFrom |> List.toArray
@@ -81,7 +89,7 @@ module RunDto =
         Contract.entityVersion value.schemaVersion
         EntityName.validate value.runName |> ignore
         EntityName.validate value.projectName |> ignore
-        let folderName = Contract.folder value.schemaVersion value.runName value.folderName
+        let id = Contract.id value.schemaVersion value.id value |> UMX.tag<runId>
         let outputSpans = Contract.array "outputParameterSpans" value.outputParameterSpans |> Array.map Contract.spanTo |> Array.toList
         let outputTypes = Contract.array "outputDataTypes" value.outputDataTypes |> Array.map Contract.output |> Array.toList
         let outputKeys = Contract.array "outputQueryParameterKeys" value.outputQueryParameterKeys |> Array.map UMX.tag<paramKeyName> |> Array.toList
@@ -97,13 +105,13 @@ module RunDto =
                 invalidArg "runKind" "A root run cannot have setup settings."
             RootRun.create {
                 ProjectName = UMX.tag value.projectName; RunName = UMX.tag value.runName; Description = value.description
-                FolderName = folderName
+                Id = id
                 ResultsDatabaseName = UMX.tag value.resultsDatabaseName; ExecuteFunctionName = value.executeFunctionName
                 OutputParameterSpans = outputSpans; OutputDataTypes = outputTypes; OutputQueryParameterKeys = outputKeys } |> run.RootRun
         | "branch" ->
             BranchRun.create {
                 ProjectName = UMX.tag value.projectName; RunName = UMX.tag value.runName; Description = value.description
-                FolderName = folderName
+                Id = id
                 ResultsDatabaseName = UMX.tag value.resultsDatabaseName; ExecuteFunctionName = value.executeFunctionName
                 OutputParameterSpans = outputSpans; OutputDataTypes = outputTypes; OutputQueryParameterKeys = outputKeys
                 SetupDatabaseName = UMX.tag value.setupDatabaseName; SetupFunctionName = value.setupFunctionName
@@ -112,42 +120,42 @@ module RunDto =
 
 module ProjectDto =
     let rec fromDomain (value: project) : projectDto = {
-        schemaVersion = 2; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
+        schemaVersion = 3; id = UMX.untag value.Id; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
         runs = value.Runs |> Array.map RunDto.fromDomain; projects = value.Projects |> Array.map fromDomain }
     let rec internal read depth (value: projectDto) =
         Contract.depth depth
         Contract.entityVersion value.schemaVersion
-        project.create (UMX.tag value.projectName) (Contract.folder value.schemaVersion value.projectName value.folderName)
+        project.create (Contract.id value.schemaVersion value.id value |> UMX.tag) (UMX.tag value.projectName) (Contract.folder value.schemaVersion value.projectName value.folderName)
             (Contract.array "runs" value.runs |> Array.map RunDto.toDomain)
             (Contract.array "projects" value.projects |> Array.map (read (depth + 1)))
     let toDomain value = read 0 value
 
 module ModuleDto =
     let rec fromDomain (value: ``module``) : moduleDto = {
-        schemaVersion = 2; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
+        schemaVersion = 3; id = UMX.untag value.Id; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
         modules = value.Modules |> Array.map fromDomain; projects = value.Projects |> Array.map ProjectDto.fromDomain }
     let rec internal read depth (value: moduleDto) =
         Contract.depth depth
         Contract.entityVersion value.schemaVersion
-        ``module``.create (UMX.tag value.moduleName) (Contract.folder value.schemaVersion value.moduleName value.folderName)
+        ``module``.create (Contract.id value.schemaVersion value.id value |> UMX.tag) (UMX.tag value.moduleName) (Contract.folder value.schemaVersion value.moduleName value.folderName)
             (Contract.array "modules" value.modules |> Array.map (read (depth + 1)))
             (Contract.array "projects" value.projects |> Array.map (ProjectDto.read (depth + 1)))
     let toDomain value = read 0 value
 
 module WorkspaceDto =
     let fromDomain (value: workspace) : workspaceDto = {
-        schemaVersion = 2; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
+        schemaVersion = 3; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
         modules = value.Modules |> Array.map ModuleDto.fromDomain }
     let toDomain (value: workspaceDto) =
-        if value.schemaVersion <> 2 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value.schemaVersion}"
-        workspace.create (UMX.tag value.workspaceName) value.folderName
+        if value.schemaVersion <> 2 && value.schemaVersion <> 3 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value.schemaVersion}"
+        workspace.create (Contract.id value.schemaVersion value.id value |> UMX.tag) (UMX.tag value.workspaceName) value.folderName
             (Contract.array "modules" value.modules |> Array.map (ModuleDto.read 1))
     let internal fromVersion1 (value: workspaceDtoV1) =
         Contract.version value.schemaVersion
         if String.IsNullOrWhiteSpace value.rootFolder || not (Path.IsPathFullyQualified value.rootFolder) then
             invalidArg "rootFolder" "Legacy workspace root folder must be absolute."
         let folder = Path.GetFileName(Path.TrimEndingDirectorySeparator value.rootFolder)
-        workspace.create (UMX.tag value.workspaceName) (if String.IsNullOrEmpty folder then "Workspace" else folder)
+        workspace.create (Contract.id 1 Guid.Empty value |> UMX.tag) (UMX.tag value.workspaceName) (if String.IsNullOrEmpty folder then "Workspace" else folder)
             (Contract.array "modules" value.modules |> Array.map (ModuleDto.read 1))
 
 module WorkspaceCodec =

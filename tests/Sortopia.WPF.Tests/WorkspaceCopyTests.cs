@@ -19,8 +19,8 @@ public sealed class WorkspaceCopyTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open()
     {
-        var definition = workspace.create("Research", "Workspace", [WorkspaceModule.create("Parent module", "parent-module", [],
-            [project.create("Parent project", "parent-project", [], [])])]);
+        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(Guid.NewGuid(), "Parent module", "parent-module", [],
+            [project.create(Guid.NewGuid(), "Parent project", "parent-project", [], [])])]);
         WorkspaceFileStore.CreateWorkspace(Root, definition, Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), () => WorkspaceUnsavedChoice.Discard,
@@ -76,7 +76,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         Assert.Equal(File.ReadAllBytes(Path.Combine(Source, "other-data", "payload.bin")), File.ReadAllBytes(Path.Combine(destination, "other-data", "payload.bin")));
         Assert.Equal("Preserve every file", File.ReadAllText(Path.Combine(destination, ".hidden-data")));
         var runParent = childKind == WorkspaceEntityKind.Module ? Path.Combine(destination, "projects", "child-project") : destination;
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(runParent, "runs", "trial-folder", "results.txt")));
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(runParent, "results.txt")));
         AssertNoStaging();
         page = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
         Assert.Empty(page.Error);
@@ -150,8 +150,8 @@ public sealed class WorkspaceCopyTests : IDisposable
         Assert.Empty(page.Error);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Contains("Copied 2 imported folders", page.Status);
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "imported", "projects", "second-project", "runs", "trial-folder", "results.txt")));
+        Assert.Contains("Copied 2 imported components", page.Status);
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "imported", "projects", "second-project", "results.txt")));
         Assert.Equal(firstBefore, Snapshot(Source));
         Assert.Equal(secondBefore, Snapshot(second));
         AssertNoStaging();

@@ -2,7 +2,7 @@ using System.IO;
 
 namespace Sortopia.WPF.Models;
 
-/// <summary>A folder relocation within one workspace, committed with its definitions.</summary>
+/// <summary>A folder or run-file relocation within one workspace, committed with its definitions.</summary>
 public sealed record WorkspaceFolderMove(string SourceFolder, string DestinationFolder)
 {
     internal static void CheckPath(string root, string path)

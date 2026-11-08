@@ -27,6 +27,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     private string runConfiguration = "";
     private bool isSelected;
     private string? savedFolderPath;
+    private string? savedEntityPath;
     private string diskStatus = "Not saved";
     private string diskStatusDetail = "This component has not been saved yet.";
     private bool isMissingOnDisk;
@@ -48,7 +49,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         void Visit(WorkspaceTreeNode node, bool moving, WorkspaceFolderMove? enclosing)
         {
             moving |= node.moveWithContents;
-            if (moving && node.savedFolderPath is { } source && Directory.Exists(source))
+            if (moving && node.savedFolderPath is { } source && (Directory.Exists(source) || File.Exists(source)))
             {
                 var destination = node.GetFolderPath(rootFolder);
                 var inherited = enclosing is not null && WorkspaceFolderCopy.Inside(enclosing.SourceFolder, source)
@@ -65,11 +66,12 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         Visit(this, false, null);
         return moves;
     }
-    public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, string? folderName = null)
+    public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, string? folderName = null, Guid? id = null)
     {
-        Kind = kind; this.name = name; this.folderName = folderName ?? name;
+        Id = id ?? Guid.NewGuid();
+        Kind = kind; this.name = name; this.folderName = kind == WorkspaceEntityKind.Run ? "" : folderName ?? name;
         nameInput = name; folderNameInput = this.folderName;
-        folderFollowsName = kind != WorkspaceEntityKind.Workspace && folderName is null;
+        folderFollowsName = kind is not (WorkspaceEntityKind.Workspace or WorkspaceEntityKind.Run) && folderName is null;
         Children.CollectionChanged += (_, args) =>
         {
             if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
@@ -90,6 +92,9 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal event Action? ValidationChanged;
     private void ChildChanged() => Changed?.Invoke();
     private void ChildValidationChanged() => ValidationChanged?.Invoke();
+    public Guid Id { get; }
+    public bool HasFolder => !IsRun;
+    internal string PathName => IsRun ? WorkspaceDefinitionFiles.Name(Id) : Sortopia.Runs.FolderName.validate(FolderName);
     public WorkspaceEntityKind Kind { get; }
     public string KindLabel => Kind.ToString();
     public bool IsRun => Kind == WorkspaceEntityKind.Run;
@@ -100,7 +105,8 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     public bool HasDiskWarning => hasDiskWarning;
     internal void RememberSavedLocations(string rootFolder)
     {
-        savedFolderPath = GetFolderPath(rootFolder);
+        savedEntityPath = GetFolderPath(rootFolder);
+        savedFolderPath = IsRun ? WorkspaceFileStore.FindRunDefinition(Parent!.GetFolderPath(rootFolder), Id) ?? savedEntityPath : savedEntityPath;
         foreach (var child in Children) child.RememberSavedLocations(rootFolder);
     }
     internal int RefreshDiskStatus(string rootFolder, bool pendingCopy = false, bool pendingMove = false)
@@ -114,8 +120,15 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         try
         {
             var path = GetFolderPath(rootFolder);
-            var previouslySavedHere = string.Equals(savedFolderPath, path, StringComparison.OrdinalIgnoreCase);
+            var previouslySavedHere = string.Equals(savedEntityPath, path, StringComparison.OrdinalIgnoreCase);
             if (pendingCopy && savedFolderPath is null) { label = "Pending copy"; detail = $"Saving will copy this component into {path}."; }
+            else if (IsRun)
+            {
+                var source = pendingMove || previouslySavedHere ? savedFolderPath ?? path : path;
+                missing = (pendingMove && savedFolderPath is not null || previouslySavedHere) && !File.Exists(source);
+                label = missing ? "Missing definition" : pendingMove && !string.Equals(source, path, StringComparison.OrdinalIgnoreCase) ? "Pending move" : File.Exists(path) ? "" : "Not saved";
+                detail = missing ? $"The run definition is missing: {source}" : $"Run definition: {path}";
+            }
             else if (pendingMove && savedFolderPath is { } source && !string.Equals(source, path, StringComparison.OrdinalIgnoreCase))
             {
                 var folderMissing = !Directory.Exists(source);
@@ -156,9 +169,14 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         ImportOriginId = originId;
         ImportSourcePath = source;
-        foreach (var child in Children) child.RememberImportLocations(Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", child.FolderName), originId);
+        foreach (var child in Children)
+        {
+            var childSource = Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", child.PathName);
+            if (child.IsRun) childSource = WorkspaceFileStore.FindRunDefinition(source, child.Id) ?? childSource;
+            child.RememberImportLocations(childSource, originId);
+        }
     }
-    public string PendingCopyDescription => PendingCopy is null ? "" : $"Will copy this folder and all contents when saved: {PendingCopy.SourceFolder}";
+    public string PendingCopyDescription => PendingCopy is null ? "" : $"Will copy this {(IsRun ? "run file" : "folder and all contents")} when saved: {PendingCopy.SourceFolder}";
     internal IEnumerable<WorkspaceFolderCopy> GetPendingCopies(string rootFolder)
     {
         var nodes = DescendantsAndSelf().ToArray();
@@ -175,7 +193,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         _ => false
     };
     internal string GetFolderPath(string rootFolder) => Parent is null ? rootFolder
-        : Path.Combine(Parent.GetFolderPath(rootFolder), Kind.ToString().ToLowerInvariant() + "s", Sortopia.Runs.FolderName.validate(FolderName));
+        : Path.Combine(Parent.GetFolderPath(rootFolder), Kind.ToString().ToLowerInvariant() + "s", PathName);
     public bool IsSelected { get => isSelected; set => SetProperty(ref isSelected, value); }
     public WorkspaceTreeNode? Parent { get; private set; }
     public ObservableCollection<WorkspaceTreeNode> Children { get; } = [];
@@ -221,6 +239,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         get => folderNameInput;
         set
         {
+            if (IsRun) return;
             SetProperty(ref folderNameInput, value);
             var conflict = Collision(value, folder: true);
             SetFolderNameError(conflict);
@@ -254,6 +273,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     private string ChildCollision(WorkspaceEntityKind kind, string value, bool folder, WorkspaceTreeNode? excluded = null)
     {
+        if (folder && kind == WorkspaceEntityKind.Run) return "";
         var saved = savedChildren.FirstOrDefault(child => child.Node != excluded && child.Node.Kind == kind
             && string.Equals(folder ? child.FolderName : child.Name, value, StringComparison.OrdinalIgnoreCase));
         var current = Children.FirstOrDefault(child => child != excluded && child.Kind == kind
@@ -294,14 +314,14 @@ public sealed class WorkspaceTreeNode : ViewModelBase
 
     internal static WorkspaceTreeNode FromWorkspace(workspace value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, value.WorkspaceName, value.FolderName);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, value.WorkspaceName, value.FolderName, value.Id);
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         node.RememberSavedChildren();
         return node;
     }
     internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id);
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
         node.RememberSavedChildren();
@@ -309,13 +329,13 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     internal static WorkspaceTreeNode FromProject(project value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.FolderName);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.FolderName, value.Id);
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
         foreach (var child in value.Runs)
         {
             var dto = JsonSerializer.SerializeToNode(RunDto.fromDomain(child), JsonOptions)!.AsObject();
-            dto.Remove("schemaVersion"); dto.Remove("projectName"); dto.Remove("runName"); dto.Remove("folderName");
-            node.Children.Add(new(WorkspaceEntityKind.Run, child.RunName, child.FolderName) { RunConfiguration = dto.ToJsonString(JsonOptions) });
+            dto.Remove("schemaVersion"); dto.Remove("projectName"); dto.Remove("runName"); dto.Remove("id");
+            node.Children.Add(new(WorkspaceEntityKind.Run, child.RunName, id: child.Id) { RunConfiguration = dto.ToJsonString(JsonOptions) });
         }
         node.RememberSavedChildren();
         return node;
@@ -323,27 +343,28 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal workspace ToWorkspace()
     {
         ValidateChildren();
-        return workspace.create(Name, FolderName, Children.Select(child => child.ToModule(1)).ToArray());
+        return workspace.create(Id, Name, FolderName, Children.Select(child => child.ToModule(1)).ToArray());
     }
     private WorkspaceModule ToModule(int depth)
     {
         CheckDepth(depth);
         ValidateChildren();
-        return WorkspaceModule.create(Name, FolderName, Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
+        return WorkspaceModule.create(Id, Name, FolderName, Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private project ToProject(int depth)
     {
         CheckDepth(depth);
         ValidateChildren();
-        return project.create(Name, FolderName, Children.Where(child => child.IsRun).Select(child => child.ToRun(Name)).ToArray(),
+        return project.create(Id, Name, FolderName, Children.Where(child => child.IsRun).Select(child => child.ToRun(Name)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private run ToRun(string projectName)
     {
         ValidateChildren();
         var json = JsonNode.Parse(RunConfiguration)?.AsObject() ?? throw new ArgumentException("Enter a run configuration object.");
-        json["schemaVersion"] = 2; json["projectName"] = projectName; json["runName"] = Name; json["folderName"] = FolderName;
+        json["schemaVersion"] = 3; json["id"] = Id; json["projectName"] = projectName; json["runName"] = Name;
+        json.Remove("folderName");
         return RunDto.toDomain(json.Deserialize<runDto>(JsonOptions)!);
     }
     private void ValidateChildren()
