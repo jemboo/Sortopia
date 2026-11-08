@@ -120,14 +120,14 @@ public static class WorkspaceFileStore
             sourceIds.Add(replacement, id);
             return replacement;
         }
-        project IdentifyProject(project value, string folder) => project.create(CopyId(value.Id, folder), value.ProjectName, value.FolderName,
+        project IdentifyProject(project value, string folder) => project.create(value.Kind, CopyId(value.Id, folder), value.ProjectName, value.FolderName,
             value.Runs.Select(run =>
             {
                 var dto = RunDto.fromDomain(run);
                 dto.id = CopyId(run.Id, Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)));
                 return RunDto.toDomain(dto);
-            }).ToArray(), value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
-        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.create(CopyId(value.Id, folder), value.ModuleName, value.FolderName,
+            }).ToArray());
+        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.create(value.Kind, CopyId(value.Id, folder), value.ModuleName, value.FolderName,
             value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
             value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
         definition = workspace.create(definition.Id, definition.WorkspaceName, definition.FolderName,
@@ -182,7 +182,6 @@ public static class WorkspaceFileStore
         void AddProject(project value, string folder, int depth)
         {
             CheckDepth(depth);
-            foreach (var child in value.Projects) AddProject(child, Child(folder, "projects", child.FolderName), depth + 1);
             foreach (var run in value.Runs) Add(Path.Combine(folder, "runs"), "run", run.Id, WorkspaceCodec.encodeRun(run));
             Add(folder, "project", value.Id, WorkspaceCodec.encodeProject(value));
         }
@@ -434,28 +433,28 @@ public static class WorkspaceFileStore
     {
         token.ThrowIfCancellationRequested(); CheckDepth(depth);
         ValidateEntityFolder(folder, "project");
-        var marker = WorkspaceDefinitionFiles.Find(folder, "project");
+        var marker = WorkspaceDefinitionFiles.Require(folder, "project");
         var folderName = Path.GetFileName(folder);
-        var saved = marker is not null ? WorkspaceCodec.decodeProject(ReadDefinition(marker)) : null;
-        var projectName = saved?.ProjectName ?? folderName;
+        var saved = WorkspaceCodec.decodeProject(ReadDefinition(marker));
+        var projectName = saved.ProjectName;
         var runs = RunFiles(folder).Select(file =>
         {
             token.ThrowIfCancellationRequested();
             var run = WorkspaceCodec.decodeRun(ReadDefinition(file));
             return WorkspaceRun.withNames(projectName, run.RunName, run);
         }).ToArray();
-        return project.create(saved?.Id ?? Guid.NewGuid(), projectName, folderName, runs, Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token)).ToArray());
+        return project.create(saved.Kind, saved.Id, projectName, folderName, runs);
     }
 
     private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token)
     {
         token.ThrowIfCancellationRequested(); CheckDepth(depth);
         ValidateEntityFolder(folder, "module");
-        var marker = WorkspaceDefinitionFiles.Find(folder, "module");
+        var marker = WorkspaceDefinitionFiles.Require(folder, "module");
         var folderName = Path.GetFileName(folder);
-        var saved = marker is not null ? WorkspaceCodec.decodeModule(ReadDefinition(marker)) : null;
-        var moduleName = saved?.ModuleName ?? folderName;
-        return WorkspaceModule.create(saved?.Id ?? Guid.NewGuid(), moduleName, folderName,
+        var saved = WorkspaceCodec.decodeModule(ReadDefinition(marker));
+        var moduleName = saved.ModuleName;
+        return WorkspaceModule.create(saved.Kind, saved.Id, moduleName, folderName,
             Children(folder, "modules").Select(path => ReadModuleFolder(path, depth + 1, token)).ToArray(),
             Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token)).ToArray());
     }
@@ -499,7 +498,7 @@ public static class WorkspaceFileStore
                         entities.Add(file);
                         if (entities.Count > MaxEntities) throw new InvalidDataException("Workspace contains too many entities.");
                     }
-                foreach (var child in Children(folder, container)) Visit(child, container[..^1], depth + 1);
+                else foreach (var child in Children(folder, container)) Visit(child, container[..^1], depth + 1);
             }
         }
         if (File.Exists(root)) throw new IOException("Workspace root must be a folder.");
@@ -512,26 +511,11 @@ public static class WorkspaceFileStore
         if (Directory.Exists(source)) Directory.Move(source, destination);
         else File.Move(source, destination);
     }
-    internal static string? FindRunDefinition(string projectFolder, Guid id)
-    {
-        var path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(id));
-        if (File.Exists(path)) return path;
-        return RunFiles(projectFolder).FirstOrDefault(file => WorkspaceCodec.decodeRun(ReadDefinition(file)).Id == id);
-    }
+    private static IEnumerable<string> RunFiles(string projectFolder) =>
+        WorkspaceDefinitionFiles.All(Path.Combine(projectFolder, "runs"), "run");
 
-    private static IEnumerable<string> RunFiles(string projectFolder)
-    {
-        foreach (var file in WorkspaceDefinitionFiles.All(Path.Combine(projectFolder, "runs"), "run")) yield return file;
-        // Keep legacy folders readable; saving migrates their metadata and retains output files.
-        foreach (var folder in Children(projectFolder, "runs"))
-        {
-            ValidateEntityFolder(folder, "run");
-            var file = WorkspaceDefinitionFiles.Find(folder, "run");
-            if (file is not null) yield return file;
-        }
-    }
     private static string[] Containers(string kind) => kind switch
-    { "workspace" => ["modules"], "module" => ["modules", "projects"], "project" => ["projects", "runs"], _ => [] };
+    { "workspace" => ["modules"], "module" => ["modules", "projects"], "project" => ["runs"], _ => [] };
     private static IEnumerable<string> Children(string folder, string container)
     {
         var path = Path.Combine(folder, container);

@@ -67,7 +67,7 @@ public sealed class WorkspacePageTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
         page.BrowseWorkspaceFolderCommand.Execute(null);
         page.WorkspaceName = "Research";
-        page.AddModuleCommand.Execute(null);
+        (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         page.Selected!.Name = "Sorting";
         page.Selected.FolderName = "sorters";
         page.AddProjectCommand.Execute(null);
@@ -236,7 +236,7 @@ public sealed class WorkspacePageTests : IDisposable
         File.WriteAllBytes(file, [0xc1]);
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
         page.BrowseWorkspaceFolderCommand.Execute(null);
-        Assert.True(page.HasSavedWorkspace);
+        Assert.False(page.HasSavedWorkspace);
         Assert.Contains("Could not load the saved workspace", page.Error);
         page.WorkspaceName = "My edit";
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));

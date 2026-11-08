@@ -2200,6 +2200,13 @@ public sealed class RandomNetworkTests
             var addProject = (Button)page.FindName("AddExistingProjectButton");
             Assert.True(addModule.IsEnabled);
             Assert.False(addProject.IsEnabled);
+            var newRootModule = (Button)page.FindName("NewRootModuleButton");
+            var newBranchModule = (Button)page.FindName("NewBranchModuleButton");
+            Assert.Equal(Visibility.Visible, newRootModule.Visibility);
+            Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
+            Assert.True(newRootModule.IsEnabled);
+            Assert.True(newBranchModule.IsEnabled);
+            Assert.Contains("without setup", ((TextBlock)page.FindName("SelectionHint")).Text);
             var prompt = new Sortopia.WPF.Views.Pages.Workspace.WorkspaceUnsavedChangesDialog();
             Assert.True(((Button)prompt.FindName("SaveChangesButton")).IsDefault);
             Assert.True(((Button)prompt.FindName("CancelChangesButton")).IsCancel);
@@ -2311,10 +2318,13 @@ public sealed class RandomNetworkTests
             vm.Selected!.Name = "Search";
             vm.AddRunCommand.Execute(null);
             vm.Selected!.Name = "Trial 01";
+            LayoutWorkspace();
+            Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
+            Assert.Equal("Root run", vm.Selected.KindLabel);
             Assert.False(addModule.IsEnabled);
             Assert.False(addProject.IsEnabled);
             var runJson = System.Text.Json.JsonSerializer.SerializeToNode(
-                Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial 01", true)))!.AsObject();
+                Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial 01")))!.AsObject();
             runJson.Remove("schemaVersion"); runJson.Remove("projectName"); runJson.Remove("runName"); runJson.Remove("id");
             vm.Selected.RunConfiguration = runJson.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             LayoutWorkspace();
@@ -2343,6 +2353,29 @@ public sealed class RandomNetworkTests
                 using var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-hierarchy-{size.Width}.png"));
                 encoder.Save(stream);
             }
+            vm.Selected = vm.Roots.Single();
+            vm.AddBranchModuleCommand.Execute(null);
+            vm.Selected!.Name = "Setup and evolution";
+            var branchModule = vm.Selected;
+            LayoutWorkspace();
+            Assert.Equal(Visibility.Collapsed, newRootModule.Visibility);
+            Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
+            Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
+            vm.AddProjectCommand.Execute(null);
+            vm.Selected!.Name = "Evolution";
+            LayoutWorkspace();
+            Assert.Equal("New branch run", ((Button)page.FindName("NewRunButton")).Content);
+            Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
+            vm.AddRunCommand.Execute(null);
+            vm.Selected!.Name = "Evolve candidate";
+            LayoutWorkspace();
+            Assert.Equal("Branch run", vm.Selected.KindLabel);
+            Assert.Contains("setupFunctionName", vm.Selected.RunConfiguration);
+            Assert.DoesNotContain("runKind", vm.Selected.RunConfiguration);
+            Assert.Contains("setup and execution", ((TextBlock)page.FindName("SelectionHint")).Text);
+            RenderWorkspaceState("branch-family");
+            vm.Selected = branchModule;
+            vm.RemoveCommand.Execute(null);
             importSource = System.IO.Path.Combine(temporary.FullName, "library-project");
             WorkspaceImportTests.WriteProject(importSource, "Imported project");
             vm.Selected = vm.Roots.Single().Children.Single();

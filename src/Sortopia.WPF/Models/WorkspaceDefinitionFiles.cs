@@ -3,7 +3,7 @@ using Sortopia.Core.Serialization;
 
 namespace Sortopia.WPF.Models;
 
-/// <summary>Locates one entity definition, including pre-GUID workspace files.</summary>
+/// <summary>Locates GUID-named entity definitions.</summary>
 public static class WorkspaceDefinitionFiles
 {
     public static string Name(Guid id) => $"{id:D}.msgpack";
@@ -15,14 +15,12 @@ public static class WorkspaceDefinitionFiles
         public string? projectName { get; set; }
         public string? runName { get; set; }
     }
-    private static bool BareGuid(string name) => name.EndsWith(".msgpack", StringComparison.OrdinalIgnoreCase)
+    public static bool HasGuid(string name) => name.EndsWith(".msgpack", StringComparison.OrdinalIgnoreCase)
         && Guid.TryParseExact(name[..^8], "D", out _);
     private static bool Matches(string path, string kind)
     {
         var name = Path.GetFileName(path);
-        if (string.Equals(name, kind + ".msgpack", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith(kind + "-", StringComparison.OrdinalIgnoreCase) && HasGuid(name, kind)) return true;
-        if (!BareGuid(name)) return false;
+        if (!HasGuid(name)) return false;
         CheckFile(path);
         Header header;
         try { header = MessagePackSetup.deserialize<Header>(WorkspaceFileStore.ReadDefinition(path)); }
@@ -49,11 +47,6 @@ public static class WorkspaceDefinitionFiles
         foreach (var path in matches) CheckFile(path);
         return matches;
     }
-
-    public static bool HasGuid(string name, string kind) =>
-        BareGuid(name) || name.StartsWith(kind + "-", StringComparison.OrdinalIgnoreCase)
-        && name.EndsWith(".msgpack", StringComparison.OrdinalIgnoreCase)
-        && Guid.TryParseExact(name[(kind.Length + 1)..^8], "D", out _);
 
     public static string? Find(string folder, string kind)
     {

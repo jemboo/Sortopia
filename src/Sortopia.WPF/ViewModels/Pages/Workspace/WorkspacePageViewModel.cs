@@ -46,7 +46,8 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
         BrowseWorkspaceFolderCommand = new RelayCommand(async () => await BrowseWorkspaceFolderAsync(), () => !IsBusy && !resolvingNavigation);
         OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedExplorerFolder));
-        AddModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module), () => CanAdd(WorkspaceEntityKind.Module));
+        AddModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module, hierarchyKind.Root), () => CanAddModule(hierarchyKind.Root));
+        AddBranchModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module, hierarchyKind.Branch), () => CanAddModule(hierarchyKind.Branch));
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
         AddExistingModuleCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Module), () => CanAddExisting(WorkspaceEntityKind.Module));
@@ -86,6 +87,17 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     public RelayCommand BrowseWorkspaceFolderCommand { get; }
     public RelayCommand OpenFolderCommand { get; }
     public RelayCommand AddModuleCommand { get; }
+    public RelayCommand AddBranchModuleCommand { get; }
+    public string AddProjectLabel => $"New {(Selected?.IsBranch == true ? "branch" : "root")} project";
+    public string AddRunLabel => $"New {(Selected?.IsBranch == true ? "branch" : "root")} run";
+    public bool ShowRootModuleAction => Selected?.IsWorkspace == true || Selected is { Kind: WorkspaceEntityKind.Module, IsBranch: false };
+    public bool ShowBranchModuleAction => Selected?.IsWorkspace == true || Selected is { Kind: WorkspaceEntityKind.Module, IsBranch: true };
+    public bool ShowProjectAction => Selected?.Kind == WorkspaceEntityKind.Module;
+    public bool ShowRunAction => Selected?.Kind == WorkspaceEntityKind.Project;
+    public string SelectionHint => Selected?.ContainmentHint ?? "Select an item in the tree.";
+    public string PasteHint => cutNode is not null && Selected is not null && !Selected.CanContain(cutNode)
+        ? $"A {cutNode.KindLabel.ToLowerInvariant()} cannot be placed in a {Selected.KindLabel.ToLowerInvariant()}. Choose a matching parent."
+        : "Paste under the selected parent (Ctrl+V in the tree).";
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand AddRunCommand { get; }
     public RelayCommand AddExistingModuleCommand { get; }
@@ -233,17 +245,19 @@ public sealed class WorkspacePageViewModel : ViewModelBase
             Error = $"Could not load the saved workspace. {exception.GetBaseException().Message}";
         }
     }
-    private void Add(WorkspaceEntityKind kind)
+    private void Add(WorkspaceEntityKind kind, hierarchyKind? family = null)
     {
         var parent = Selected!;
+        var childFamily = family ?? parent.Family;
         var stem = "New " + kind.ToString().ToLowerInvariant();
         var name = stem;
         for (var suffix = 2; parent.HasChildIdentity(kind, name); suffix++) name = stem + " " + suffix;
-        var child = new WorkspaceTreeNode(kind, name);
+        var child = new WorkspaceTreeNode(kind, name, family: childFamily);
         parent.Children.Add(child);
         Selected = child;
         Status = $"Added {kind.ToString().ToLowerInvariant()} to the definition. Choose Save workspace to save it.";
     }
+    private bool CanAddModule(hierarchyKind family) => CanAdd(WorkspaceEntityKind.Module) && (Selected!.IsWorkspace || Selected.Family == family);
     private bool CanAdd(WorkspaceEntityKind kind) => CanEdit && !HasEditErrors && Selected?.CanContain(kind) == true;
     private bool CanAddExisting(WorkspaceEntityKind kind)
     {
@@ -302,7 +316,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         Selected = parent;
         Status = "Removed from the workspace. Save to keep this change. Existing folders and files will be kept.";
     }
-    private bool CanPaste => CanEdit && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode.Kind) == true
+    private bool CanPaste => CanEdit && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
         && !cutNode.DescendantsAndSelf().Contains(Selected);
     private void Cut()
     {
@@ -402,8 +416,9 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
     private void NotifyCommands()
     {
+        foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
-        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddProjectCommand, AddRunCommand, AddExistingModuleCommand, AddExistingProjectCommand,
+        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, AddExistingModuleCommand, AddExistingProjectCommand,
             RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
@@ -517,5 +532,5 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
 
     private static bool IsFolderError(Exception exception) =>
-        exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
+        exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
 }

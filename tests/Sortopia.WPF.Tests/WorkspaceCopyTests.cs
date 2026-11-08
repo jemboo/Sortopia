@@ -19,8 +19,8 @@ public sealed class WorkspaceCopyTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open()
     {
-        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(Guid.NewGuid(), "Parent module", "parent-module", [],
-            [project.create(Guid.NewGuid(), "Parent project", "parent-project", [], [])])]);
+        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Parent module", "parent-module", [],
+            [project.create(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [])])]);
         WorkspaceFileStore.CreateWorkspace(Root, definition, Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), () => WorkspaceUnsavedChoice.Discard,
@@ -44,7 +44,6 @@ public sealed class WorkspaceCopyTests : IDisposable
     [InlineData(WorkspaceEntityKind.Workspace, WorkspaceEntityKind.Module)]
     [InlineData(WorkspaceEntityKind.Module, WorkspaceEntityKind.Module)]
     [InlineData(WorkspaceEntityKind.Module, WorkspaceEntityKind.Project)]
-    [InlineData(WorkspaceEntityKind.Project, WorkspaceEntityKind.Project)]
     public async Task External_imports_copy_every_file_and_empty_folder_on_save_and_leave_source_unchanged(WorkspaceEntityKind parentKind, WorkspaceEntityKind childKind)
     {
         var page = Open();

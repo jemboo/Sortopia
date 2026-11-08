@@ -14,7 +14,16 @@
                 <Border Padding="3" CornerRadius="3" ToolTip="{Binding DiskStatusDetail}" AutomationProperties.ItemStatus="{Binding DiskStatus}">
                     <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.Primary}" /></DataTrigger><DataTrigger Binding="{Binding IsCut}" Value="True"><Setter Property="Opacity" Value="0.5" /></DataTrigger></Style.Triggers></Style></Border.Style>
                     <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding KindLabel}" Foreground="{StaticResource Workspace.TextSecondary}" FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding KindLabel}" FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center">
+                        <TextBlock.Style><Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource Workspace.Accent}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBranch}" Value="True"><Setter Property="Foreground" Value="#D8B4FE" /></DataTrigger>
+                                <DataTrigger Binding="{Binding IsWorkspace}" Value="True"><Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" /></DataTrigger>
+                                <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Foreground" Value="White" /></DataTrigger>
+                            </Style.Triggers>
+                        </Style></TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding Name}" Foreground="{StaticResource Workspace.TextPrimary}" />
                     <TextBlock Text="Cut" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center" Foreground="{StaticResource Workspace.TextSecondary}"
                                Visibility="{Binding IsCut, Converter={StaticResource WorkspaceBoolVisibility}}" />
@@ -79,13 +88,14 @@
             </StackPanel>
         </StackPanel>
         <Grid Grid.Row="2" IsEnabled="{Binding CanEdit}" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="2*" MinWidth="170" /><ColumnDefinition Width="3*" MinWidth="190" /></Grid.ColumnDefinitions>
                 <WrapPanel Grid.ColumnSpan="2" Margin="0,0,0,8">
                   <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <Button Content="New module" Command="{Binding AddModuleCommand}" Margin="0,0,4,4" />
-                    <Button Content="New project" Command="{Binding AddProjectCommand}" Margin="0,0,4,4" />
-                    <Button Content="New run" Command="{Binding AddRunCommand}" Margin="0,0,4,4" />
+                    <Button x:Name="NewRootModuleButton" Content="New root module" Command="{Binding AddModuleCommand}" Margin="0,0,4,4" Visibility="{Binding ShowRootModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains root projects and runs without setup." />
+                    <Button x:Name="NewBranchModuleButton" Content="New branch module" Command="{Binding AddBranchModuleCommand}" Margin="0,0,4,4" Visibility="{Binding ShowBranchModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains branch projects and runs with setup and execution." />
+                    <Button x:Name="NewProjectButton" Content="{Binding AddProjectLabel}" Visibility="{Binding ShowProjectAction, Converter={StaticResource WorkspaceBoolVisibility}}" Command="{Binding AddProjectCommand}" Margin="0,0,4,4" />
+                    <Button x:Name="NewRunButton" Content="{Binding AddRunLabel}" Visibility="{Binding ShowRunAction, Converter={StaticResource WorkspaceBoolVisibility}}" Command="{Binding AddRunCommand}" Margin="0,0,4,4" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
                     <Button x:Name="AddExistingModuleButton" Content="Add module…" Command="{Binding AddExistingModuleCommand}" Margin="0,0,4,4"
@@ -95,14 +105,15 @@
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
                     <Button x:Name="CutEntityButton" Content="Cut" Command="{Binding CutCommand}" Margin="0,0,4,4" ToolTip="Cut the selected entity (Ctrl+X in the tree). Files move when saved." />
-                    <Button x:Name="PasteEntityButton" Content="Paste" Command="{Binding PasteCommand}" Margin="0,0,4,4" ToolTip="Paste under the selected parent (Ctrl+V in the tree)." />
+                    <Button x:Name="PasteEntityButton" Content="Paste" Command="{Binding PasteCommand}" Margin="0,0,4,4" ToolTip="{Binding PasteHint}" ToolTipService.ShowOnDisabled="True" />
                     <Button Content="Cancel cut" Command="{Binding CancelCutCommand}" Margin="0,0,4,4"
                             Visibility="{Binding HasCutItem, Converter={StaticResource WorkspaceBoolVisibility}}" />
                   </StackPanel>
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
                             ToolTip="Remove the selected entity from the workspace. Existing folders and files are kept." />
                 </WrapPanel>
-                <TreeView x:Name="WorkspaceTree" Grid.Row="1" Margin="0,0,8,0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
+                <TextBlock x:Name="SelectionHint" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <TreeView x:Name="WorkspaceTree" Grid.Row="2" Margin="0,0,8,0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
                           Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}"
                           BorderBrush="{StaticResource Workspace.StrokeSubtle}" AutomationProperties.Name="Workspace hierarchy">
                     <TreeView.InputBindings>
@@ -125,7 +136,7 @@
                         </Style>
                     </TreeView.ItemContainerStyle>
                 </TreeView>
-            <Border x:Name="EntityDetailsPanel" Grid.Row="1" Grid.Column="1" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="12">
+            <Border x:Name="EntityDetailsPanel" Grid.Row="2" Grid.Column="1" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="12">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Visibility" Value="Collapsed" />
@@ -173,10 +184,10 @@
                     </StackPanel>
                     <TextBlock Grid.Row="3" Margin="0,8,0,6" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}"
                                Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}"
-                               Text="Run configuration (JSON). Set the execute function and database. Use root or branch for runKind." />
+                               Text="Run configuration (JSON). The containing project determines the run type." />
                     <TextBox x:Name="RunConfigurationEditor" Grid.Row="4" Text="{Binding RunConfiguration, UpdateSourceTrigger=PropertyChanged}"
                              Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}"
-                             AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas" FontSize="12"
+                             AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas" FontSize="12" VerticalContentAlignment="Top"
                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="Run configuration" />
                 </Grid>
             </Border>

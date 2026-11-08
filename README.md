@@ -47,7 +47,7 @@ Choose **Random Networks** for the separate random-generation and testing page. 
 | Project | What belongs here |
 | --- | --- |
 | Sortopia.Runs | Run configurations, output categories, parameter generation and result-query definitions. |
-| Sortopia.Workspaces | Recursive workspace, module and project definitions containing existing run types. |
+| Sortopia.Workspaces | Workspaces with root/branch modules and projects containing matching run types. |
 | Sortopia.Workspaces.Serialization | Versioned MessagePack definitions for workspaces, modules, projects and runs. |
 | Sortopia.WPF | Windows desktop shell, MVVM page navigation, sorting-network visualization and trace playback. |
 | Sortopia.Core | Arrays, collections, stable IDs, random sources, sampling, combinatorics and computation builders. Core has no project references. |

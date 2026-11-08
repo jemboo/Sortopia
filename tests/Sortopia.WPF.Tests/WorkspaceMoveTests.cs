@@ -19,9 +19,9 @@ public sealed class WorkspaceMoveTests : IDisposable
     private WorkspacePageViewModel Open(bool saved = true)
     {
         var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
-            WorkspaceModule.create(Guid.NewGuid(), "A", "A", [WorkspaceModule.create(Guid.NewGuid(), "Nested", "Nested", [], [])],
-                [project.create(Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R", true)], [project.create(Guid.NewGuid(), "Child", "Child", [], [])])]),
-            WorkspaceModule.create(Guid.NewGuid(), "B", "B", [], [project.create(Guid.NewGuid(), "Destination", "Destination", [], [])])]);
+            WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "A", "A", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Nested", "Nested", [], [])],
+                [project.create(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
+            WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "B", "B", [], [project.create(hierarchyKind.Root, Guid.NewGuid(), "Destination", "Destination", [])])]);
         Directory.CreateDirectory(Root);
         if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -54,7 +54,6 @@ public sealed class WorkspaceMoveTests : IDisposable
     [InlineData("A", "B")]
     [InlineData("Nested", "Research")]
     [InlineData("P", "B")]
-    [InlineData("P", "Destination")]
     [InlineData("R", "Destination")]
     public async Task Paste_reparents_the_draft_and_save_moves_all_contents_with_stable_guid_filenames(string name, string parent)
     {

@@ -27,7 +27,6 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     private string runConfiguration = "";
     private bool isSelected;
     private string? savedFolderPath;
-    private string? savedEntityPath;
     private string diskStatus = "Not saved";
     private string diskStatusDetail = "This component has not been saved yet.";
     private bool isMissingOnDisk;
@@ -66,8 +65,10 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         Visit(this, false, null);
         return moves;
     }
-    public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, string? folderName = null, Guid? id = null)
+    public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, string? folderName = null, Guid? id = null, hierarchyKind family = hierarchyKind.Root)
     {
+        if (!Enum.IsDefined(family)) throw new ArgumentException("Choose root or branch.", nameof(family));
+        Family = family;
         Id = id ?? Guid.NewGuid();
         Kind = kind; this.name = name; this.folderName = kind == WorkspaceEntityKind.Run ? "" : folderName ?? name;
         nameInput = name; folderNameInput = this.folderName;
@@ -82,21 +83,37 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         if (kind == WorkspaceEntityKind.Run)
             runConfiguration = JsonSerializer.Serialize(new
             {
-                runKind = "root", description = "", resultsDatabaseName = "Results", executeFunctionName = "",
+                runKind = family == hierarchyKind.Root ? "root" : "branch", description = "", resultsDatabaseName = "Results", executeFunctionName = "",
                 outputParameterSpans = Array.Empty<object>(), outputDataTypes = Array.Empty<int>(), outputQueryParameterKeys = Array.Empty<string>(),
                 setupDatabaseName = "", setupFunctionName = "", setupParameterSpans = Array.Empty<object>(),
                 setupOutputDataTypes = Array.Empty<int>(), setupQueryParameterKeys = Array.Empty<object>()
             }, JsonOptions);
+        if (kind == WorkspaceEntityKind.Run)
+        {
+            var configuration = JsonNode.Parse(runConfiguration)!.AsObject();
+            configuration.Remove("runKind");
+            if (family == hierarchyKind.Root)
+                foreach (var key in configuration.Select(field => field.Key).Where(key => key.StartsWith("setup")).ToArray()) configuration.Remove(key);
+            runConfiguration = configuration.ToJsonString(JsonOptions);
+        }
     }
     internal event Action? Changed;
     internal event Action? ValidationChanged;
     private void ChildChanged() => Changed?.Invoke();
     private void ChildValidationChanged() => ValidationChanged?.Invoke();
+    public hierarchyKind Family { get; }
+    public bool IsBranch => Family == hierarchyKind.Branch;
+    public string FamilyName => IsBranch ? "Branch" : "Root";
     public Guid Id { get; }
     public bool HasFolder => !IsRun;
     internal string PathName => IsRun ? WorkspaceDefinitionFiles.Name(Id) : Sortopia.Runs.FolderName.validate(FolderName);
     public WorkspaceEntityKind Kind { get; }
-    public string KindLabel => Kind.ToString();
+    public string KindLabel => IsWorkspace ? "Workspace" : $"{FamilyName} {Kind.ToString().ToLowerInvariant()}";
+    public string ContainmentHint => IsWorkspace ? "Choose a root module for runs without setup, or a branch module for runs with setup."
+        : Kind == WorkspaceEntityKind.Module ? $"Contains {FamilyName.ToLowerInvariant()} modules and {FamilyName.ToLowerInvariant()} projects. New children inherit this type."
+        : Kind == WorkspaceEntityKind.Project ? $"Contains only {FamilyName.ToLowerInvariant()} runs. Projects do not contain other projects."
+        : IsBranch ? "Branch run: configure setup and execution. Its type follows the containing project."
+        : "Root run: configure execution without setup. Its type follows the containing project.";
     public bool IsRun => Kind == WorkspaceEntityKind.Run;
     public bool IsWorkspace => Kind == WorkspaceEntityKind.Workspace;
     public string DiskStatus => diskStatus;
@@ -105,8 +122,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     public bool HasDiskWarning => hasDiskWarning;
     internal void RememberSavedLocations(string rootFolder)
     {
-        savedEntityPath = GetFolderPath(rootFolder);
-        savedFolderPath = IsRun ? WorkspaceFileStore.FindRunDefinition(Parent!.GetFolderPath(rootFolder), Id) ?? savedEntityPath : savedEntityPath;
+        savedFolderPath = GetFolderPath(rootFolder);
         foreach (var child in Children) child.RememberSavedLocations(rootFolder);
     }
     internal int RefreshDiskStatus(string rootFolder, bool pendingCopy = false, bool pendingMove = false)
@@ -120,7 +136,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         try
         {
             var path = GetFolderPath(rootFolder);
-            var previouslySavedHere = string.Equals(savedEntityPath, path, StringComparison.OrdinalIgnoreCase);
+            var previouslySavedHere = string.Equals(savedFolderPath, path, StringComparison.OrdinalIgnoreCase);
             if (pendingCopy && savedFolderPath is null) { label = "Pending copy"; detail = $"Saving will copy this component into {path}."; }
             else if (IsRun)
             {
@@ -152,7 +168,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
             }
             else detail = $"Saved in {path}";
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         { label = "Disk error"; detail = exception.Message; warning = true; }
         SetProperty(ref diskStatus, label, nameof(DiskStatus));
         SetProperty(ref diskStatusDetail, detail, nameof(DiskStatusDetail));
@@ -172,7 +188,6 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         foreach (var child in Children)
         {
             var childSource = Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", child.PathName);
-            if (child.IsRun) childSource = WorkspaceFileStore.FindRunDefinition(source, child.Id) ?? childSource;
             child.RememberImportLocations(childSource, originId);
         }
     }
@@ -189,9 +204,10 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         WorkspaceEntityKind.Workspace => child == WorkspaceEntityKind.Module,
         WorkspaceEntityKind.Module => child is WorkspaceEntityKind.Module or WorkspaceEntityKind.Project,
-        WorkspaceEntityKind.Project => child is WorkspaceEntityKind.Project or WorkspaceEntityKind.Run,
+        WorkspaceEntityKind.Project => child == WorkspaceEntityKind.Run,
         _ => false
     };
+    public bool CanContain(WorkspaceTreeNode child) => CanContain(child.Kind) && (IsWorkspace || Family == child.Family);
     internal string GetFolderPath(string rootFolder) => Parent is null ? rootFolder
         : Path.Combine(Parent.GetFolderPath(rootFolder), Kind.ToString().ToLowerInvariant() + "s", PathName);
     public bool IsSelected { get => isSelected; set => SetProperty(ref isSelected, value); }
@@ -291,7 +307,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         for (var ancestor = this; ancestor is not null; ancestor = ancestor.Parent)
             if (ReferenceEquals(ancestor, child)) throw new ArgumentException("An entity cannot be pasted into itself or one of its descendants.");
-        if (!CanContain(child.Kind)) throw new ArgumentException($"A {KindLabel.ToLowerInvariant()} cannot contain a {child.KindLabel.ToLowerInvariant()}.");
+        if (!CanContain(child)) throw new ArgumentException($"A {KindLabel.ToLowerInvariant()} cannot contain a {child.KindLabel.ToLowerInvariant()}.");
         var depth = 1;
         for (var ancestor = this; ancestor.Parent is not null; ancestor = ancestor.Parent) depth++;
         void CheckSubtree(WorkspaceTreeNode node, int level)
@@ -321,7 +337,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id, value.Kind);
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
         node.RememberSavedChildren();
@@ -329,13 +345,13 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     internal static WorkspaceTreeNode FromProject(project value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.FolderName, value.Id);
-        foreach (var child in value.Projects) node.Children.Add(FromProject(child));
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.FolderName, value.Id, value.Kind);
         foreach (var child in value.Runs)
         {
             var dto = JsonSerializer.SerializeToNode(RunDto.fromDomain(child), JsonOptions)!.AsObject();
-            dto.Remove("schemaVersion"); dto.Remove("projectName"); dto.Remove("runName"); dto.Remove("id");
-            node.Children.Add(new(WorkspaceEntityKind.Run, child.RunName, id: child.Id) { RunConfiguration = dto.ToJsonString(JsonOptions) });
+            dto.Remove("schemaVersion"); dto.Remove("projectName"); dto.Remove("runName"); dto.Remove("id"); dto.Remove("runKind");
+            if (!child.HasSetup) foreach (var key in dto.Select(field => field.Key).Where(key => key.StartsWith("setup")).ToArray()) dto.Remove(key);
+            node.Children.Add(new(WorkspaceEntityKind.Run, child.RunName, id: child.Id, family: value.Kind) { RunConfiguration = dto.ToJsonString(JsonOptions) });
         }
         node.RememberSavedChildren();
         return node;
@@ -349,21 +365,26 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         CheckDepth(depth);
         ValidateChildren();
-        return WorkspaceModule.create(Id, Name, FolderName, Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
+        return WorkspaceModule.create(Family, Id, Name, FolderName, Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private project ToProject(int depth)
     {
         CheckDepth(depth);
         ValidateChildren();
-        return project.create(Id, Name, FolderName, Children.Where(child => child.IsRun).Select(child => child.ToRun(Name)).ToArray(),
-            Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
+        return project.create(Family, Id, Name, FolderName, Children.Select(child => child.ToRun(Name)).ToArray());
     }
     private run ToRun(string projectName)
     {
         ValidateChildren();
         var json = JsonNode.Parse(RunConfiguration)?.AsObject() ?? throw new ArgumentException("Enter a run configuration object.");
-        json["schemaVersion"] = 3; json["id"] = Id; json["projectName"] = projectName; json["runName"] = Name;
+        var runKind = IsBranch ? "branch" : "root";
+        if (json["runKind"] is { } suppliedKind && suppliedKind.GetValue<string>() != runKind)
+            throw new ArgumentException($"A {FamilyName.ToLowerInvariant()} project can only contain {runKind} runs. Remove runKind from the configuration; the project determines the run type.");
+        json["runKind"] = runKind;
+        foreach (var key in new[] { "setupDatabaseName", "setupFunctionName" }) json.TryAdd(key, "");
+        foreach (var key in new[] { "setupParameterSpans", "setupOutputDataTypes", "setupQueryParameterKeys" }) json.TryAdd(key, new JsonArray());
+        json["schemaVersion"] = 4; json["id"] = Id; json["projectName"] = projectName; json["runName"] = Name;
         json.Remove("folderName");
         return RunDto.toDomain(json.Deserialize<runDto>(JsonOptions)!);
     }
@@ -371,7 +392,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         if (nameError.Length > 0 || folderNameError.Length > 0) throw new ArgumentException(nameError.Length > 0 ? nameError : folderNameError);
         EntityName.validate(Name);
-        if (Children.Any(child => !CanContain(child.Kind))) throw new ArgumentException($"Invalid child type inside {KindLabel} '{Name}'.");
+        if (Children.Any(child => !CanContain(child))) throw new ArgumentException($"Invalid child type inside {KindLabel} '{Name}'.");
     }
     private static void CheckDepth(int depth)
     { if (depth > 64) throw new ArgumentException("Workspace nesting must not exceed 64 levels."); }

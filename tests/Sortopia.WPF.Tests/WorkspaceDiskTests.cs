@@ -15,10 +15,9 @@ public sealed class WorkspaceDiskTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private string ModuleFolder => Path.Combine(Root, "modules", "sorting");
     private string ProjectFolder => Path.Combine(ModuleFolder, "projects", "search");
-    private string RunFolder => Path.Combine(ProjectFolder, "runs", "trial");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(Guid.NewGuid(), "Sorting", "sorting", [],
-        [project.create(Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial", true)], [])])]);
+    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [],
+        [project.create(hierarchyKind.Root, Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?>? picker = null)
     {
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -34,17 +33,6 @@ public sealed class WorkspaceDiskTests : IDisposable
         foreach (var (path, bytes) in expected) Assert.Equal(bytes, actual[path]);
     }
     private static string[] Markers(string folder) => Directory.GetFiles(folder, "*.msgpack", SearchOption.AllDirectories);
-    private void WriteLegacy()
-    {
-        var value = Sample();
-        Directory.CreateDirectory(RunFolder);
-        File.WriteAllBytes(Path.Combine(Root, "workspace.msgpack"), WorkspaceCodec.encodeWorkspace(value));
-        File.WriteAllBytes(Path.Combine(ModuleFolder, "module.msgpack"), WorkspaceCodec.encodeModule(value.Modules.Single()));
-        File.WriteAllBytes(Path.Combine(ProjectFolder, "project.msgpack"), WorkspaceCodec.encodeProject(value.Modules.Single().Projects.Single()));
-        File.WriteAllBytes(Path.Combine(RunFolder, "run.msgpack"), WorkspaceCodec.encodeRun(value.Modules.Single().Projects.Single().Runs.Single()));
-        File.WriteAllText(Path.Combine(RunFolder, "results.txt"), "Keep results");
-    }
-
     [Fact]
     public void Every_entity_has_a_unique_guid_filename_that_is_stable_when_saved_again()
     {
@@ -56,31 +44,13 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Equal(4, ids.Distinct().Count());
         Assert.Equal(new[] { original.Id, original.Modules.Single().Id, original.Modules.Single().Projects.Single().Id,
             original.Modules.Single().Projects.Single().Runs.Single().Id }.Order(), ids.Order());
-        Assert.All(paths, path => Assert.True(WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(path), Path.GetFileName(path).Split('-')[0])));
+        Assert.All(paths, path => Assert.True(WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(path))));
         WorkspaceFileStore.SaveWorkspace(Root, workspace.create(original.Id, "Renamed research", "Workspace", original.Modules), original, Token);
         Assert.Equal(paths, Markers(Root).Order());
         Assert.Equal("Renamed research", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
     }
 
-    [Fact]
-    public void Legacy_definitions_migrate_together_and_failed_migration_restores_the_original_files()
-    {
-        WriteLegacy();
-        var original = WorkspaceFileStore.LoadDefinition(Root);
-        var before = Files(Root);
-        using (var locked = new FileStream(Path.Combine(Root, "workspace.msgpack"), FileMode.Open, FileAccess.Read, FileShare.Read))
-        {
-            Assert.ThrowsAny<IOException>(() => WorkspaceFileStore.SaveWorkspace(Root, original, original, Token));
-        }
-        AssertFilesEqual(before, Root);
-        WorkspaceFileStore.SaveWorkspace(Root, original, original, Token);
-        Assert.Equal(4, Markers(Root).Length);
-        Assert.All(Markers(Root), path => Assert.Contains('-', Path.GetFileNameWithoutExtension(path)));
-        Assert.False(File.Exists(Path.Combine(Root, "workspace.msgpack")));
-        Assert.False(File.Exists(Path.Combine(RunFolder, "run.msgpack")));
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(RunFolder, "results.txt")));
-        Assert.Equal(WorkspaceCodec.encodeWorkspace(original), WorkspaceCodec.encodeWorkspace(WorkspaceFileStore.LoadDefinition(Root)));
-    }
+
 
     [Fact]
     public async Task Copying_guid_definitions_assigns_new_filenames_and_does_not_modify_the_source()
@@ -108,14 +78,12 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Equal("Search", WorkspaceFileStore.LoadProjectFolder(destination, Token).ProjectName);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Ambiguous_definition_files_are_reported_and_never_arbitrarily_selected(bool legacy)
+    [Fact]
+    public void Ambiguous_definition_files_are_reported_and_never_arbitrarily_selected()
     {
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
         var first = WorkspaceDefinitionFiles.Require(Root, "workspace");
-        var second = Path.Combine(Root, legacy ? "workspace.msgpack" : WorkspaceDefinitionFiles.Name(Guid.NewGuid()));
+        var second = Path.Combine(Root, WorkspaceDefinitionFiles.Name(Guid.NewGuid()));
         File.Copy(first, second);
         var before = Files(Root);
         var page = Open();
