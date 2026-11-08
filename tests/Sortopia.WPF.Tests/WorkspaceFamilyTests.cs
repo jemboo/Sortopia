@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json.Nodes;
 using Sortopia.Core.Serialization;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
@@ -17,7 +16,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-workspace-families-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static project Project(hierarchyKind kind) => project.create(kind, Guid.NewGuid(), "P", "p",
+    private static project Project(hierarchyKind kind) => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p",
         [WorkspaceHierarchyTests.MakeRun("P", "R", kind == hierarchyKind.Branch)]);
     private static WorkspaceModule Module(hierarchyKind kind) => WorkspaceModule.create(kind, Guid.NewGuid(), kind.ToString(), kind.ToString(),
         [WorkspaceModule.create(kind, Guid.NewGuid(), "Nested", "nested", [], [Project(kind)])], [Project(kind)]);
@@ -54,7 +53,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
             var run = project.Runs.Single();
             Assert.Equal(module.Kind == hierarchyKind.Branch, run.HasSetup);
             var file = Path.Combine(folder, "projects", project.FolderName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
-            Assert.Equal(run.Id, WorkspaceCodec.decodeRun(File.ReadAllBytes(file)).Id);
+            Assert.Equal(run.Id, WorkspaceCodec.decodeRun(project, File.ReadAllBytes(file)).Id);
         }
     }
 
@@ -64,7 +63,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
     public void Factories_and_wire_contracts_reject_mixed_families(hierarchyKind kind, hierarchyKind other)
     {
         var otherProject = Project(other);
-        Assert.Throws<ArgumentException>(() => project.create(kind, Guid.NewGuid(), "P", "p", otherProject.Runs));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p", otherProject.Runs));
         Assert.Throws<ArgumentException>(() => WorkspaceModule.create(kind, Guid.NewGuid(), "M", "m", [], [otherProject]));
         Assert.Throws<ArgumentException>(() => WorkspaceModule.create(kind, Guid.NewGuid(), "M", "m", [Module(other)], []));
         var projectDto = ProjectDto.fromDomain(otherProject);
@@ -86,7 +85,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Editor_inherits_family_and_run_json_cannot_change_it(bool branch)
+    public async Task Editor_inherits_family_and_rejects_inputs_of_the_wrong_type(bool branch)
     {
         var page = Open();
         Assert.True(page.AddModuleCommand.CanExecute(null));
@@ -97,17 +96,15 @@ public sealed class WorkspaceFamilyTests : IDisposable
         Assert.Equal(branch, page.AddBranchModuleCommand.CanExecute(null));
         Assert.Equal(branch ? "New branch project" : "New root project", page.AddProjectLabel);
         page.AddProjectCommand.Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         Assert.False(page.AddProjectCommand.CanExecute(null));
         Assert.False(page.AddExistingProjectCommand.CanExecute(null));
         page.AddRunCommand.Execute(null);
         var run = page.Selected!;
         Assert.Equal(branch ? "Branch run" : "Root run", run.KindLabel);
-        var json = JsonNode.Parse(run.RunConfiguration)!.AsObject();
-        Assert.False(json.ContainsKey("runKind"));
-        Assert.Equal(branch, json.ContainsKey("setupFunctionName"));
-        json["executeFunctionName"] = "Evaluate";
-        if (branch) { json["setupFunctionName"] = "Generate"; json["setupDatabaseName"] = "Setup"; }
-        run.RunConfiguration = json.ToJsonString();
+        Assert.Equal(branch, run.Editor!.IsBranch);
+        Assert.True(run.Editor.DescriptionOverride.IsInherited);
+        run.Editor.LoadRun(RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch)));
         var id = run.Id;
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
@@ -117,10 +114,8 @@ public sealed class WorkspaceFamilyTests : IDisposable
         var rootFile = WorkspaceDefinitionFiles.Require(Root, "workspace");
         var before = File.ReadAllBytes(rootFile);
         run = page.Roots.Single().Children.Single().Children.Single().Children.Single();
-        json["runKind"] = branch ? "root" : "branch";
-        run.RunConfiguration = json.ToJsonString();
-        await page.SaveWorkspaceAsync();
-        Assert.Contains("can only contain", page.Error);
+        var incompatible = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", !branch));
+        Assert.Throws<ArgumentException>(() => run.Editor!.LoadRun(incompatible));
         Assert.Equal(before, File.ReadAllBytes(rootFile));
     }
 
@@ -136,6 +131,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
         Assert.Contains("cannot contain", page.Error);
         Assert.Empty(rootModule.Children);
         page.AddProjectCommand.Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         var rootProject = page.Selected!;
         page.Selected = page.Roots.Single();
         await page.AddExistingAsync(WorkspaceEntityKind.Module);

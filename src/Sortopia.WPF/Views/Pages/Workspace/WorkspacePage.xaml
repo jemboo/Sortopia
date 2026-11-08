@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Workspace"
+             xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace"
              FontFamily="Segoe UI" UseLayoutRounding="True"
              AutomationProperties.Name="Workspace page" Foreground="{DynamicResource Workspace.TextPrimary}">
     <UserControl.Resources>
@@ -147,14 +148,25 @@
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <Grid DataContext="{Binding Selected}">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <ScrollViewer x:Name="EntityInspectorViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,6,0">
+                <StackPanel DataContext="{Binding Selected}">
                     <TextBlock Text="{Binding KindLabel, TargetNullValue=Select an entity}" FontWeight="SemiBold" Margin="0,0,0,6" />
-                    <StackPanel Grid.Row="1">
+                    <StackPanel>
                         <TextBox x:Name="EntityNameInput" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name" />
                         <TextBlock x:Name="EntityNameError" Text="{Binding NameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
-                    <StackPanel Grid.Row="2" Margin="0,8,0,0">
+
+                    <Button Content="Edit project defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
+                            Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}"
+                            Command="{Binding DataContext.EditProjectDefaultsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
+                    <StackPanel Visibility="{Binding HasConfiguration, Converter={StaticResource WorkspaceBoolVisibility}}">
+                        <local:WorkspaceConfigurationEditor x:Name="ConfigurationFields" DataContext="{Binding Editor}" />
+                    </StackPanel>
+                    <Expander x:Name="EntityLocationExpander" Header="Location" Margin="0,16,0,0" Foreground="{StaticResource Workspace.TextSecondary}">
+                        <Expander.Style><Style TargetType="Expander"><Style.Triggers>
+                            <DataTrigger Binding="{Binding HasConfiguration}" Value="False"><Setter Property="IsExpanded" Value="True" /></DataTrigger>
+                        </Style.Triggers></Style></Expander.Style>
+                    <StackPanel Margin="0,8,0,0">
                         <StackPanel x:Name="EntityFolderNamePanel" Visibility="{Binding HasFolder, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <Label Content="Folder name" Target="{Binding ElementName=EntityFolderNameInput}" Padding="0,0,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
                         <TextBox x:Name="EntityFolderNameInput" Text="{Binding FolderNameInput, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsWorkspace}"
@@ -182,14 +194,10 @@
                                    Foreground="{StaticResource Workspace.Warning}"
                                    Visibility="{Binding HasDiskWarning, Converter={StaticResource WorkspaceBoolVisibility}}" />
                     </StackPanel>
-                    <TextBlock Grid.Row="3" Margin="0,8,0,6" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}"
-                               Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}"
-                               Text="Run configuration (JSON). The containing project determines the run type." />
-                    <TextBox x:Name="RunConfigurationEditor" Grid.Row="4" Text="{Binding RunConfiguration, UpdateSourceTrigger=PropertyChanged}"
-                             Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}"
-                             AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas" FontSize="12" VerticalContentAlignment="Top"
-                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="Run configuration" />
-                </Grid>
+
+                    </Expander>
+                </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
         <StackPanel Grid.Row="3" Margin="0,10,0,0">

@@ -71,13 +71,13 @@ public sealed class WorkspacePageTests : IDisposable
         page.Selected!.Name = "Sorting";
         page.Selected.FolderName = "sorters";
         page.AddProjectCommand.Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         page.Selected!.Name = "Search";
         page.Selected.FolderName = "search";
         page.AddRunCommand.Execute(null);
         page.Selected!.Name = "Trial";
         var runId = page.Selected.Id;
-        page.Selected.RunConfiguration = System.Text.Json.JsonSerializer.Serialize(
-            Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial", branch)));
+        page.Selected.Editor!.LoadRun(Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial", branch)));
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         var projectFolder = Path.Combine(folder, "modules", "sorters", "projects", "search");
@@ -113,7 +113,7 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Equal(runId, project.Runs.Single().Id);
         var expectedDto = Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search: updated", "Trial: renamed", branch));
         expectedDto.id = runId;
-        var expectedRun = Sortopia.Workspaces.Serialization.RunDto.toDomain(expectedDto);
+        var expectedRun = WorkspaceHierarchyTests.FromRunDto(expectedDto);
         Assert.Equal(Sortopia.Workspaces.Serialization.WorkspaceCodec.encodeRun(expectedRun),
             File.ReadAllBytes(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(runId))));
         Assert.Equal("Keep results", File.ReadAllText(output));
@@ -131,13 +131,13 @@ public sealed class WorkspacePageTests : IDisposable
         page.BrowseWorkspaceFolderCommand.Execute(null);
         page.AddModuleCommand.Execute(null);
         page.AddProjectCommand.Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         var parent = page.Selected!;
         page.AddRunCommand.Execute(null);
         var first = page.Selected!;
         first.Name = "First";
         first.FolderName = "trial";
-        first.RunConfiguration = System.Text.Json.JsonSerializer.Serialize(
-            Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun(parent.Name, first.Name)));
+        first.Editor!.LoadRun(Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun(parent.Name, first.Name)));
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         var before = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "workspace"));
@@ -147,7 +147,7 @@ public sealed class WorkspacePageTests : IDisposable
         var second = page.Selected!;
         second.Name = "FIRST";
         second.FolderName = "another-trial";
-        second.RunConfiguration = first.RunConfiguration;
+        second.Editor!.LoadRun(first.Editor!.ToRunInputs(second.Id, second.Name, parent.Name));
         await page.SaveWorkspaceAsync();
         Assert.Contains("Duplicate name in runs", page.Error);
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "workspace")));

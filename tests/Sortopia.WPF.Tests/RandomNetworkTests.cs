@@ -2180,15 +2180,15 @@ public sealed class RandomNetworkTests
                 pickExistingFolder: _ => importSource, openFolder: path => openedFolder = path);
             vm.BrowseWorkspaceFolderCommand.Execute(null);
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
-            void LayoutWorkspace()
+            void LayoutWorkspace(int width = 1000, int height = 800)
             {
                 page.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
-                page.Measure(new Size(1000, 800)); page.Arrange(new Rect(0, 0, 1000, 800)); page.UpdateLayout();
+                page.Measure(new Size(width, height)); page.Arrange(new Rect(0, 0, width, height)); page.UpdateLayout();
             }
-            void RenderWorkspaceState(string state)
+            void RenderWorkspaceState(string state, int width = 1000, int height = 800)
             {
-                LayoutWorkspace();
-                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(1000, 800, 96, 96, PixelFormats.Pbgra32);
+                LayoutWorkspace(width, height);
+                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
                 image.Render(page);
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
                 encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
@@ -2315,6 +2315,7 @@ public sealed class RandomNetworkTests
             vm.RemoveCommand.Execute(null);
             vm.Selected = vm.Roots.Single().Children.Single();
             vm.AddProjectCommand.Execute(null);
+            WorkspaceHierarchyTests.ConfigureProject(vm.Selected!);
             vm.Selected!.Name = "Search";
             vm.AddRunCommand.Execute(null);
             vm.Selected!.Name = "Trial 01";
@@ -2323,10 +2324,7 @@ public sealed class RandomNetworkTests
             Assert.Equal("Root run", vm.Selected.KindLabel);
             Assert.False(addModule.IsEnabled);
             Assert.False(addProject.IsEnabled);
-            var runJson = System.Text.Json.JsonSerializer.SerializeToNode(
-                Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial 01")))!.AsObject();
-            runJson.Remove("schemaVersion"); runJson.Remove("projectName"); runJson.Remove("runName"); runJson.Remove("id");
-            vm.Selected.RunConfiguration = runJson.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            vm.Selected.Editor!.LoadRun(Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial 01")));
             LayoutWorkspace();
             Assert.Equal(Visibility.Collapsed, ((StackPanel)page.FindName("EntityFolderNamePanel")).Visibility);
             var runId = vm.Selected.Id;
@@ -2343,7 +2341,7 @@ public sealed class RandomNetworkTests
                 Assert.Single(tree.Items);
                 Assert.True(tree.ActualHeight > 0);
                 Assert.True(vm.Selected?.IsRun, $"Selected entity: {vm.Selected?.KindLabel ?? "none"}");
-                var editor = (TextBox)page.FindName("RunConfigurationEditor");
+                var editor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
                 Assert.Equal(Visibility.Visible, editor.Visibility);
                 Assert.True(editor.ActualHeight > 50);
                 var image = new System.Windows.Media.Imaging.RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
@@ -2362,18 +2360,73 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
             Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
             vm.AddProjectCommand.Execute(null);
+            WorkspaceHierarchyTests.ConfigureProject(vm.Selected!);
             vm.Selected!.Name = "Evolution";
             LayoutWorkspace();
             Assert.Equal("New branch run", ((Button)page.FindName("NewRunButton")).Content);
             Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
+            var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
+            Assert.Equal("Evaluate", ((TextBox)fields.FindName("ExecuteFunctionInput")).Text);
+            Assert.False(((TextBox)fields.FindName("ExecuteFunctionInput")).IsReadOnly);
+            RenderWorkspaceState("branch-project-defaults");
+            var branchProject = vm.Selected;
             vm.AddRunCommand.Execute(null);
             vm.Selected!.Name = "Evolve candidate";
             LayoutWorkspace();
             Assert.Equal("Branch run", vm.Selected.KindLabel);
-            Assert.Contains("setupFunctionName", vm.Selected.RunConfiguration);
-            Assert.DoesNotContain("runKind", vm.Selected.RunConfiguration);
+            Assert.True(vm.Selected.Editor!.SetupFunctionOverride.IsInherited);
             Assert.Contains("setup and execution", ((TextBlock)page.FindName("SelectionHint")).Text);
+            Assert.True(((TextBox)fields.FindName("ExecuteFunctionInput")).IsReadOnly);
             RenderWorkspaceState("branch-family");
+            var branchRun = vm.Selected;
+            void FillRequiredParameter(string addButtonName, string listName, string value)
+            {
+                ((Button)fields.FindName(addButtonName)).Command.Execute(null);
+                LayoutWorkspace();
+                var list = (ItemsControl)fields.FindName(listName);
+                var row = (ContentPresenter)list.ItemContainerGenerator.ContainerFromIndex(0);
+                ((Button)list.ItemTemplate.FindName("AddParameterValueButton", row)).Command.Execute(null);
+                LayoutWorkspace();
+                var values = (ItemsControl)list.ItemTemplate.FindName("ParameterValues", row);
+                var valueRow = (ContentPresenter)values.ItemContainerGenerator.ContainerFromIndex(0);
+                ((TextBox)values.ItemTemplate.FindName("ParameterValueInput", valueRow)).SetCurrentValue(TextBox.TextProperty, value);
+            }
+            FillRequiredParameter("AddRequiredOutputParametersButton", "OutputParametersList", "7,11");
+            FillRequiredParameter("AddRequiredSetupParametersButton", "SetupParametersList", "8");
+            Assert.Equal("7,11", branchRun.Editor!.OutputParameters.Single().Values.Single().Text);
+            Assert.Equal("8", branchRun.Editor.SetupParameters.Single().Values.Single().Text);
+            Assert.True(save.IsEnabled);
+            Assert.Equal("Evaluate", branchRun.Editor!.ExecuteFunctionName);
+            var overrideEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("DescriptionOverrideEditor");
+            var overrideToggle = (CheckBox)overrideEditor.FindName("OverrideToggle");
+            var overrideInput = (TextBox)overrideEditor.FindName("OverrideValueInput");
+            Assert.True(overrideInput.IsReadOnly);
+            overrideToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+            LayoutWorkspace();
+            overrideInput.SetCurrentValue(TextBox.TextProperty, "Description for this run only");
+            Assert.False(overrideInput.IsReadOnly);
+            Assert.Equal("Description for this run only", branchRun.Editor.DescriptionOverride.EffectiveValue);
+            Assert.Equal("Overridden for this run", branchRun.Editor.DescriptionOverride.SourceLabel);
+            RenderWorkspaceState("run-description-override");
+            overrideToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
+            Assert.Equal(branchProject!.Editor!.Description, overrideInput.Text);
+            var setupOverride = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("SetupFunctionOverrideEditor");
+            ((CheckBox)setupOverride.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+            LayoutWorkspace();
+            ((TextBox)setupOverride.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "GenerateForThisRun");
+            Assert.Equal("GenerateForThisRun", branchRun.Editor.SetupFunctionOverride.EffectiveValue);
+            var inspector = (ScrollViewer)page.FindName("EntityInspectorViewport");
+            var setupFields = (FrameworkElement)fields.FindName("SetupFields");
+            inspector.ScrollToVerticalOffset(inspector.VerticalOffset + setupFields.TranslatePoint(new Point(0, 0), inspector).Y);
+            RenderWorkspaceState("run-setup-fields");
+            inspector.ScrollToBottom();
+            RenderWorkspaceState("run-parameter-fields");
+            LayoutWorkspace(640, 800);
+            inspector.ScrollToVerticalOffset(inspector.VerticalOffset + setupFields.TranslatePoint(new Point(0, 0), inspector).Y);
+            RenderWorkspaceState("run-fields-narrow", 640, 800);
+            Assert.Equal(0, inspector.ScrollableWidth);
+            vm.EditProjectDefaultsCommand.Execute(null);
+            Assert.Same(branchProject, vm.Selected);
             vm.Selected = branchModule;
             vm.RemoveCommand.Execute(null);
             importSource = System.IO.Path.Combine(temporary.FullName, "library-project");

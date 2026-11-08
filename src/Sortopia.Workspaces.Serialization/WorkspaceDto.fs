@@ -9,7 +9,17 @@ open Sortopia.Core.Serialization
 [<CLIMutable>]
 type parameterSpanDto = { keyName: string; values: string array }
 [<CLIMutable>]
-type queryKeysDto = { outputDataType: int; keys: string array }
+type projectSettingsDto = {
+    description: string
+    resultsDatabaseName: string
+    executeFunctionName: string
+    outputDataTypes: int array
+    outputQueryParameterKeys: string array
+    setupDatabaseName: string
+    setupFunctionName: string
+    setupOutputDataTypes: int array
+    setupQueryParameterKeys: string array
+}
 [<CLIMutable>]
 type runDto = {
     schemaVersion: int
@@ -18,19 +28,13 @@ type runDto = {
     runName: string
     id: Guid
     description: string
-    resultsDatabaseName: string
-    executeFunctionName: string
     outputParameterSpans: parameterSpanDto array
-    outputDataTypes: int array
-    outputQueryParameterKeys: string array
     setupDatabaseName: string
     setupFunctionName: string
     setupParameterSpans: parameterSpanDto array
-    setupOutputDataTypes: int array
-    setupQueryParameterKeys: queryKeysDto array
 }
 [<CLIMutable>]
-type projectDto = { schemaVersion: int; id: Guid; projectKind: string; projectName: string; folderName: string; runs: runDto array }
+type projectDto = { schemaVersion: int; id: Guid; projectKind: string; projectName: string; folderName: string; configuration: projectSettingsDto; runs: runDto array }
 [<CLIMutable>]
 type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string; modules: moduleDto array; projects: projectDto array }
 [<CLIMutable>]
@@ -38,7 +42,7 @@ type workspaceDto = { schemaVersion: int; id: Guid; workspaceName: string; folde
 
 module private Contract =
     let version value =
-        if value <> 4 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
+        if value <> 5 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
     let kind value =
         match value with
         | "root" -> hierarchyKind.Root
@@ -58,69 +62,88 @@ module private Contract =
         if value > 64 then invalidArg "hierarchy" "Workspace nesting must not exceed 64 levels."
 
 module RunDto =
-    let fromDomain (value: run) : runDto = {
-        schemaVersion = 4; runKind = if value.HasSetup then "branch" else "root"
-        projectName = UMX.untag value.ProjectName; runName = UMX.untag value.RunName
-        id = UMX.untag value.Id
-        description = value.Description; resultsDatabaseName = UMX.untag value.ResultsDatabaseName
-        executeFunctionName = value.ExecuteFunctionName
-        outputParameterSpans = value.ParameterSpans |> List.map Contract.spanFrom |> List.toArray
-        outputDataTypes = value.OutputDataTypes |> List.map int |> List.toArray
-        outputQueryParameterKeys = value.OutputQueryKeys |> List.map UMX.untag |> List.toArray
-        setupDatabaseName = value.SetupDatabaseName |> Option.map UMX.untag |> Option.defaultValue ""
-        setupFunctionName = value.SetupFunctionName |> Option.defaultValue ""
-        setupParameterSpans = value.SetupParameterSpans |> Option.defaultValue [] |> List.map Contract.spanFrom |> List.toArray
-        setupOutputDataTypes = value.SetupOutputDataTypes |> Option.defaultValue [] |> List.map int |> List.toArray
-        setupQueryParameterKeys = value.SetupQueryParameterKeys |> Option.defaultValue Map.empty |> Map.toArray
-                                 |> Array.map (fun (kind, keys) -> { outputDataType = int kind; keys = keys |> List.map UMX.untag |> List.toArray }) }
-
-    let toDomain (value: runDto) : run =
+    let fromDomain (value: run) : runDto =
+        let description, setupDatabase, setupFunction, setupSpans =
+            match value with
+            | run.RootRun r -> r.Configuration.Description, None, None, []
+            | run.BranchRun r -> r.Configuration.Description, r.Configuration.SetupDatabaseName, r.Configuration.SetupFunctionName, r.SetupParameterSpans
+        { schemaVersion = 5; runKind = if value.HasSetup then "branch" else "root"
+          projectName = UMX.untag value.ProjectName; runName = UMX.untag value.RunName; id = UMX.untag value.Id
+          description = description |> Option.toObj
+          outputParameterSpans = value.ParameterSpans |> List.map Contract.spanFrom |> List.toArray
+          setupDatabaseName = setupDatabase |> Option.map UMX.untag |> Option.toObj
+          setupFunctionName = setupFunction |> Option.map UMX.untag |> Option.toObj
+          setupParameterSpans = setupSpans |> List.map Contract.spanFrom |> List.toArray }
+    let readId (value: runDto) =
         Contract.version value.schemaVersion
+        Contract.kind value.runKind |> ignore
+        EntityId.validate value.id
         EntityName.validate value.runName |> ignore
-        EntityName.validate value.projectName |> ignore
-        let id = UMX.tag<runId> value.id
+        UMX.tag<runId> value.id
+    /// A run file contains overrides and must be resolved against its containing project.
+    let toDomain (parent: project) (value: runDto) : run =
+        let id = readId value
         let outputSpans = Contract.array "outputParameterSpans" value.outputParameterSpans |> Array.map Contract.spanTo |> Array.toList
-        let outputTypes = Contract.array "outputDataTypes" value.outputDataTypes |> Array.map Contract.output |> Array.toList
-        let outputKeys = Contract.array "outputQueryParameterKeys" value.outputQueryParameterKeys |> Array.map UMX.tag<paramKeyName> |> Array.toList
         let setupSpans = Contract.array "setupParameterSpans" value.setupParameterSpans |> Array.map Contract.spanTo |> Array.toList
-        let setupTypes = Contract.array "setupOutputDataTypes" value.setupOutputDataTypes |> Array.map Contract.output |> Array.toList
-        let queryEntries = Contract.array "setupQueryParameterKeys" value.setupQueryParameterKeys |> Array.map (fun entry ->
-            Contract.output entry.outputDataType, Contract.array "keys" entry.keys |> Array.map UMX.tag<paramKeyName> |> Array.toList)
-        let queryKeys = Map.ofArray queryEntries
-        if queryKeys.Count <> queryEntries.Length then invalidArg "setupQueryParameterKeys" "Duplicate output query entries."
-        match value.runKind with
-        | "root" ->
-            if value.setupDatabaseName <> "" || value.setupFunctionName <> "" || not setupSpans.IsEmpty || not setupTypes.IsEmpty || not queryKeys.IsEmpty then
+        let description = Option.ofObj value.description
+        match parent, value.runKind with
+        | project.RootProject p, "root" ->
+            if not (isNull value.setupDatabaseName) || not (isNull value.setupFunctionName) || not setupSpans.IsEmpty then
                 invalidArg "runKind" "A root run cannot have setup settings."
-            RootRun.create {
-                ProjectName = UMX.tag value.projectName; RunName = UMX.tag value.runName; Description = value.description
-                Id = id
-                ResultsDatabaseName = UMX.tag value.resultsDatabaseName; ExecuteFunctionName = value.executeFunctionName
-                OutputParameterSpans = outputSpans; OutputDataTypes = outputTypes; OutputQueryParameterKeys = outputKeys } |> run.RootRun
-        | "branch" ->
-            BranchRun.create {
-                ProjectName = UMX.tag value.projectName; RunName = UMX.tag value.runName; Description = value.description
-                Id = id
-                ResultsDatabaseName = UMX.tag value.resultsDatabaseName; ExecuteFunctionName = value.executeFunctionName
-                OutputParameterSpans = outputSpans; OutputDataTypes = outputTypes; OutputQueryParameterKeys = outputKeys
-                SetupDatabaseName = UMX.tag value.setupDatabaseName; SetupFunctionName = value.setupFunctionName
-                SetupParameterSpans = setupSpans; SetupOutputDataTypes = setupTypes; SetupQueryParameterKeys = queryKeys } |> run.BranchRun
-        | _ -> invalidArg "runKind" "Run kind must be root or branch."
+            RootRun.create p { Id = id; RunName = UMX.tag value.runName; Description = description; OutputParameterSpans = outputSpans } |> run.RootRun
+        | project.BranchProject p, "branch" ->
+            BranchRun.create p { Id = id; RunName = UMX.tag value.runName; Description = description; OutputParameterSpans = outputSpans
+                                 SetupDatabaseName = Option.ofObj value.setupDatabaseName |> Option.map UMX.tag<setupDatabaseName>
+                                 SetupFunctionName = Option.ofObj value.setupFunctionName |> Option.map UMX.tag<setupFunctionName>
+                                 SetupParameterSpans = setupSpans } |> run.BranchRun
+        | _ -> invalidArg "runKind" "A project can only contain runs of its own type."
 
 module ProjectDto =
+    let settingsFromDomain (value: project) : projectSettingsDto =
+        let setupDatabase, setupFunction, setupOutputs, setupKeys =
+            match value with
+            | project.RootProject _ -> "", "", [], []
+            | project.BranchProject p -> UMX.untag p.SetupDatabaseName, UMX.untag p.SetupFunctionName, p.SetupOutputDataTypes, p.SetupQueryParameterKeys
+        { description = value.Description; resultsDatabaseName = UMX.untag value.ResultsDatabaseName
+          executeFunctionName = UMX.untag value.ExecuteFunctionName
+          outputDataTypes = value.OutputDataTypes |> List.map int |> List.toArray
+          outputQueryParameterKeys = value.OutputQueryParameterKeys |> List.map UMX.untag |> List.toArray
+          setupDatabaseName = setupDatabase; setupFunctionName = setupFunction
+          setupOutputDataTypes = setupOutputs |> List.map int |> List.toArray
+          setupQueryParameterKeys = setupKeys |> List.map UMX.untag |> List.toArray }
+    let settingsToDomain kind (value: projectSettingsDto) =
+        if isNull (box value) then nullArg "configuration"
+        let outputs = Contract.array "outputDataTypes" value.outputDataTypes |> Array.map Contract.output |> Array.toList
+        let keys = Contract.array "outputQueryParameterKeys" value.outputQueryParameterKeys |> Array.map UMX.tag<paramKeyName> |> Array.toList
+        let setupOutputs = Contract.array "setupOutputDataTypes" value.setupOutputDataTypes |> Array.map Contract.output |> Array.toList
+        let setupKeys = Contract.array "setupQueryParameterKeys" value.setupQueryParameterKeys |> Array.map UMX.tag<paramKeyName> |> Array.toList
+        match kind with
+        | hierarchyKind.Root ->
+            if value.setupDatabaseName <> "" || value.setupFunctionName <> "" || not setupOutputs.IsEmpty || not setupKeys.IsEmpty then
+                invalidArg "configuration" "A root project cannot have setup settings."
+            RootProjectConfig { Description = value.description; ResultsDatabaseName = UMX.tag value.resultsDatabaseName
+                                ExecuteFunctionName = UMX.tag value.executeFunctionName; OutputDataTypes = outputs; OutputQueryParameterKeys = keys }
+        | hierarchyKind.Branch ->
+            BranchProjectConfig { Description = value.description; ResultsDatabaseName = UMX.tag value.resultsDatabaseName
+                                  ExecuteFunctionName = UMX.tag value.executeFunctionName; OutputDataTypes = outputs; OutputQueryParameterKeys = keys
+                                  SetupDatabaseName = UMX.tag value.setupDatabaseName; SetupFunctionName = UMX.tag value.setupFunctionName
+                                  SetupOutputDataTypes = setupOutputs; SetupQueryParameterKeys = setupKeys }
+        | _ -> invalidArg "kind" "Project kind must be root or branch."
     let fromDomain (value: project) : projectDto = {
-        schemaVersion = 4; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
-        runs = value.Runs |> Array.map RunDto.fromDomain }
+        schemaVersion = 5; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
+        configuration = settingsFromDomain value; runs = value.Runs |> Array.map RunDto.fromDomain }
     let internal read depth (value: projectDto) =
         Contract.depth depth
         Contract.version value.schemaVersion
-        project.create (Contract.kind value.projectKind) (UMX.tag value.id) (UMX.tag value.projectName) value.folderName
-            (Contract.array "runs" value.runs |> Array.map RunDto.toDomain)
+        let configuration = settingsToDomain (Contract.kind value.projectKind) value.configuration
+        let parent = project.create (UMX.tag value.id) (UMX.tag value.projectName) value.folderName configuration [||]
+        let runs = Contract.array "runs" value.runs |> Array.map (RunDto.toDomain parent)
+        project.create parent.Id parent.ProjectName parent.FolderName configuration runs
     let toDomain value = read 0 value
 
 module ModuleDto =
     let rec fromDomain (value: ``module``) : moduleDto = {
-        schemaVersion = 4; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
+        schemaVersion = 5; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
         modules = value.Modules |> Array.map fromDomain; projects = value.Projects |> Array.map ProjectDto.fromDomain }
     let rec internal read depth (value: moduleDto) =
         Contract.depth depth
@@ -132,7 +155,7 @@ module ModuleDto =
 
 module WorkspaceDto =
     let fromDomain (value: workspace) : workspaceDto = {
-        schemaVersion = 4; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
+        schemaVersion = 5; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
         modules = value.Modules |> Array.map ModuleDto.fromDomain }
     let toDomain (value: workspaceDto) =
         Contract.version value.schemaVersion
@@ -147,4 +170,5 @@ module WorkspaceCodec =
     let encodeProject value = value |> ProjectDto.fromDomain |> MessagePackSetup.serialize
     let decodeProject bytes = bytes |> MessagePackSetup.deserialize<projectDto> |> ProjectDto.toDomain
     let encodeRun value = value |> RunDto.fromDomain |> MessagePackSetup.serialize
-    let decodeRun bytes = bytes |> MessagePackSetup.deserialize<runDto> |> RunDto.toDomain
+    let decodeRun parent bytes = bytes |> MessagePackSetup.deserialize<runDto> |> RunDto.toDomain parent
+    let readRunId bytes = bytes |> MessagePackSetup.deserialize<runDto> |> RunDto.readId

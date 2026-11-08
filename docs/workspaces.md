@@ -23,11 +23,19 @@ The inspector edits an entity's display name and, for modules/projects, its fold
 
 Runs have no folder name. A run is stored directly as `runs/<run-id>.msgpack`. The **Full path** field shows the selected folder or run file and supports text selection/copy. **Open folder** opens that folder, or the containing `runs` directory for a run.
 
-## Run configuration
+## Project defaults and run inputs
 
-The inspector edits execution settings as JSON. The project supplies the run type, project name, run name, and ID. These are not editable execution settings. Root run editors show execution fields; branch run editors also show setup fields. Pasting a conflicting `runKind` is rejected rather than changing the run's type.
+Select a project to edit labeled fields for its description, results database, and execution function. Choose output types with checkboxes and use **Add query key** to add named rows. Branch projects also have setup database/function fields, setup output types, and setup query keys. Supply nonblank database and function names before saving a project. The setup query-key list applies to every declared setup output type.
 
-Supply the execution function and results database. Branch runs also require a setup function/database and their setup parameter/query settings. Parameter spans have `keyName` and an array of string `values`. Output type codes are `3` (`SorterModelSet`) and `4` (`SorterSetEval`). Configuration is validated before saving as MessagePack. The Workspace page defines runs; it does not execute them.
+Select a run to edit its description and execution parameters. Branch runs additionally have setup database/function overrides and setup parameters. Each optional field displays its effective value and a source label: **Inherited from [project]** or **Overridden for this run**. Inherited fields are read-only and follow project edits. Check **Override for this run** to edit a local value; uncheck it to restore inheritance. An overridden description may be blank. Explicit setup database/function overrides must be nonblank. The underlying run inputs retain `None` for inheritance and `Some value` for overrides.
+
+The run's execution settings, output types, and query keys are shown as inherited, with **Edit project defaults** available to select the parent. Run type, names, and IDs come from the hierarchy. Output types use readable names in the editor; storage codes remain `3` (`SorterModelSet`) and `4` (`SorterSetEval`). There is no JSON editor.
+
+Use **Add parameter** to add a key and candidate values, or **Add required parameters** to create rows for missing project query keys. Each value has its own text field and remove action. Commas, spaces, Unicode, and explicitly blank values are preserved; values are not parsed as a delimited list. Each parameter needs at least one value. Duplicate keys, missing required parameters, and blank required fields show inline errors and disable Save until corrected. **Discard changes** also clears invalid field edits.
+
+The inspector scrolls through the full form; folder names and paths are available under **Location**. Selecting another tree item returns the inspector to the top. Configuration is validated before saving as MessagePack. The Workspace page defines runs; it does not execute them.
+
+Changing project settings updates every run's inherited values when the hierarchy is rebuilt or saved. Explicit run overrides survive those changes. Runs preserve their original optional inputs through saves, copies, and moves, so inheritance remains active after reopening. Moving a run to a matching project uses the destination's defaults and validates the run's spans against its query keys.
 
 ## Reorganizing and importing
 
@@ -55,11 +63,15 @@ Before changing the root folder, returning Home, or closing, unsaved changes pro
 
 `Sortopia.Workspaces` defines concrete `rootProject`, `branchProject`, `rootModule`, and `branchModule` types. Their child arrays are strongly typed: for example, `rootProject.Runs` is `rootRun[]`, and `branchModule.Projects` is `branchProject[]`. The `project` and `module` discriminated unions provide common views for storage and the editor. Their boundary factories validate type consistency. `workspace.Modules` accepts either module case. Array properties return copies.
 
+Projects expose their shared properties directly and through `Configuration` (`rootProjectConfig` or `branchProjectConfig`). `RootRun.create parent inputs` and `BranchRun.create parent inputs` accept their concrete parent projects through `IRootProject` / `IBranchProject`; the contracts avoid a dependency from runs back to workspaces. Run input records include the existing run ID/name plus the optional overrides and parameter spans. A run's `Configuration` retains those inputs, while properties such as `Description` and `SetupFunctionName` return resolved values. Rebuilding a project rebinds its runs to its current settings.
+
+The four shared names have distinct UMX tags: `resultsDatabaseName`, `executeFunctionName`, `setupDatabaseName`, and `setupFunctionName`. Setup query keys are a `string<paramKeyName> list`, just like output query keys.
+
 Every entity has a UMX-tagged GUID ID: `workspaceId`, `moduleId`, `projectId`, or `runId`. Its definition filename is `<id>.msgpack`. IDs survive edits, moves, and missing-file restoration. Folder names exist only on workspaces, modules, and projects. The absolute workspace location stays in application settings, outside the definitions.
 
 Names must be nonblank, and sibling display names must be distinct ignoring case. Sibling module/project folder names must also be distinct ignoring case. Runs in a project require distinct IDs because their files share one directory. Rejected edits remain visible for correction while the tree keeps the last accepted value; Save is disabled until corrected. Saved names and folder names stay reserved until their removal or rename has been saved.
 
-`Sortopia.Workspaces.Serialization` writes version-4 MessagePack DTOs. Modules and projects explicitly persist `moduleKind` or `projectKind` as `root` or `branch`; runs persist `runKind`. Decode validates IDs, settings, and all type restrictions. Older schema versions are rejected; there is no legacy migration. Each container's definition includes a complete snapshot of its descendants.
+`Sortopia.Workspaces.Serialization` writes version-5 MessagePack DTOs. Modules and projects explicitly persist `moduleKind` or `projectKind` as `root` or `branch`; runs persist `runKind`. Project definitions store the shared `configuration`; run definitions store only identity, optional overrides, and parameter spans. `WorkspaceCodec.decodeRun parent bytes` resolves a run against its parent project. Decode validates IDs, settings, and all type restrictions. Older schema versions are rejected; there is no legacy migration. Each container's definition includes a complete snapshot of its descendants.
 
 ```text
 workspace-folder/

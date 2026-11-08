@@ -17,7 +17,7 @@ public sealed class WorkspaceImportTests : IDisposable
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?> picker, bool empty = false)
     {
         var modules = empty ? Array.Empty<WorkspaceModule>() : [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Existing", "existing", [],
-            [project.create(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [WorkspaceHierarchyTests.MakeRun("Parent project", "Trial")])])];
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [WorkspaceHierarchyTests.MakeRun("Parent project", "Trial")])])];
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Root", modules), Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), pickExistingFolder: picker);
@@ -33,7 +33,7 @@ public sealed class WorkspaceImportTests : IDisposable
     internal static void WriteProject(string folder, string name, hierarchyKind family = hierarchyKind.Root)
     {
         var run = WorkspaceHierarchyTests.MakeRun(name, "Existing trial", family == hierarchyKind.Branch);
-        var value = project.create(family, Guid.NewGuid(), name, Path.GetFileName(folder), [run]);
+        var value = WorkspaceHierarchyTests.MakeProject(family, Guid.NewGuid(), name, Path.GetFileName(folder), [run]);
         Directory.CreateDirectory(Path.Combine(folder, "runs"));
         File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "project"), WorkspaceCodec.encodeProject(value));
         File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)), WorkspaceCodec.encodeRun(run));

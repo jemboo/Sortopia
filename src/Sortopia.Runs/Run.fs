@@ -4,6 +4,8 @@ open FSharp.UMX
 open Sortopia.Core  
 
 [<Measure>] type databaseName
+[<Measure>] type resultsDatabaseName
+[<Measure>] type setupDatabaseName
 [<Measure>] type workspaceName
 [<Measure>] type moduleName
 [<Measure>] type projectName
@@ -13,237 +15,191 @@ open Sortopia.Core
 [<Measure>] type workspaceId
 
 [<Measure>] type runName
+[<Measure>] type executeFunctionName
+[<Measure>] type setupFunctionName
 
+
+/// Shared execution settings, owned by a root project.
+type rootProjectConfig = {
+    Description: string
+    ResultsDatabaseName: string<resultsDatabaseName>
+    ExecuteFunctionName: string<executeFunctionName>
+    OutputDataTypes: outputDataType list
+    OutputQueryParameterKeys: string<paramKeyName> list
+}
+
+/// Shared setup and execution settings, owned by a branch project.
+type branchProjectConfig = {
+    Description: string
+    ResultsDatabaseName: string<resultsDatabaseName>
+    ExecuteFunctionName: string<executeFunctionName>
+    OutputDataTypes: outputDataType list
+    OutputQueryParameterKeys: string<paramKeyName> list
+    SetupDatabaseName: string<setupDatabaseName>
+    SetupFunctionName: string<setupFunctionName>
+    SetupOutputDataTypes: outputDataType list
+    SetupQueryParameterKeys: string<paramKeyName> list
+}
+
+type projectConfiguration =
+    | RootProjectConfig of rootProjectConfig
+    | BranchProjectConfig of branchProjectConfig
+
+/// Project contracts keep run construction independent of the workspace hierarchy.
+type IRootProject =
+    abstract ProjectName: string<projectName>
+    abstract Configuration: rootProjectConfig
+
+type IBranchProject =
+    abstract ProjectName: string<projectName>
+    abstract Configuration: branchProjectConfig
+
+module ProjectConfiguration =
+    let private name argument value =
+        if System.String.IsNullOrWhiteSpace value then invalidArg argument "Name must not be null, empty, or whitespace."
+    let private keys argument (values: string<paramKeyName> list) =
+        if isNull (box values) then nullArg argument
+        for value in values do name argument (UMX.untag value)
+        if (Set.ofList values).Count <> values.Length then invalidArg argument "Query parameter keys must be unique."
+    let private outputs argument (values: outputDataType list) =
+        if isNull (box values) then nullArg argument
+        if values |> List.exists (fun value -> not (System.Enum.IsDefined(typeof<outputDataType>, value))) then
+            invalidArg argument "Unknown output data type."
+        if (Set.ofList values).Count <> values.Length then invalidArg argument "Output data types must be unique."
+    let validateRoot (value: rootProjectConfig) =
+        if isNull value.Description then nullArg "description"
+        name "resultsDatabaseName" (UMX.untag value.ResultsDatabaseName)
+        name "executeFunctionName" (UMX.untag value.ExecuteFunctionName)
+        outputs "outputDataTypes" value.OutputDataTypes
+        keys "outputQueryParameterKeys" value.OutputQueryParameterKeys
+    let validateBranch (value: branchProjectConfig) =
+        validateRoot { Description = value.Description; ResultsDatabaseName = value.ResultsDatabaseName
+                       ExecuteFunctionName = value.ExecuteFunctionName; OutputDataTypes = value.OutputDataTypes
+                       OutputQueryParameterKeys = value.OutputQueryParameterKeys }
+        name "setupDatabaseName" (UMX.untag value.SetupDatabaseName)
+        name "setupFunctionName" (UMX.untag value.SetupFunctionName)
+        outputs "setupOutputDataTypes" value.SetupOutputDataTypes
+        keys "setupQueryParameterKeys" value.SetupQueryParameterKeys
 
 module private RunConfiguration =
-    let validate databaseArgument (databaseName: string<databaseName>) (projectName: string<projectName>)
-                 (runName: string<runName>) (parameterSpans: parameterSpan list)
-                 functionArgument functionName =
-        for argument, value in
-            [ databaseArgument, UMX.untag databaseName
-              "projectName", UMX.untag projectName
-              "runName", UMX.untag runName
-              functionArgument, functionName ] do
-            if System.String.IsNullOrWhiteSpace value then
-                invalidArg argument "Name must not be null, empty, or whitespace."
-
-        let keys = parameterSpans |> List.map (fun span -> span.KeyName)
-        let spanKeys = Set.ofList keys
-        if spanKeys.Count <> keys.Length then
-            invalidArg "parameterSpans" "Parameter spans must have unique key names."
-
-        for span in parameterSpans do
-            if System.String.IsNullOrWhiteSpace (UMX.untag span.KeyName) then
-                invalidArg "parameterSpans" "Parameter key names must not be null, empty, or whitespace."
-            if span.Values.IsEmpty then
-                invalidArg "parameterSpans" $"Parameter '{span.KeyName}' must have at least one value."
-
-        spanKeys
-
-    let validateOutputQueryKeys spanKeys (outputQueryKeys: string<paramKeyName> list) =
-        if outputQueryKeys |> List.exists (fun key -> System.String.IsNullOrWhiteSpace (UMX.untag key)) then
-            invalidArg "outputQueryKeys" "Output query key names must not be blank."
-        if (Set.ofList outputQueryKeys).Count <> outputQueryKeys.Length then
-            invalidArg "outputQueryKeys" "Output query keys must be unique."
-
-        for key in outputQueryKeys do
-            if not (Set.contains key spanKeys) then
-                invalidArg "outputQueryKeys" $"Query key '{key}' has no matching output parameter span."
-
-    let validateQueryKeys spanKeys outputDataTypes (queryParameterKeys: Map<outputDataType, string<paramKeyName> list>) =
-        for outputType in outputDataTypes do
-            if not (Map.containsKey outputType queryParameterKeys) then
-                invalidArg "queryParameterKeys" $"Output '{outputType}' must have a query parameter entry."
-
-        for KeyValue(outputType, queryKeys) in queryParameterKeys do
-            if (Set.ofList queryKeys).Count <> queryKeys.Length then
-                invalidArg "queryParameterKeys" $"Output '{outputType}' must have unique query parameter keys."
-
-            for key in queryKeys do
-                if not (Set.contains key spanKeys) then
-                    invalidArg "queryParameterKeys" $"Setup output '{outputType}' query key '{key}' has no matching setup parameter span."
-
+    let identity (id: Guid<runId>) (projectName: string<projectName>) (runName: string<runName>) =
+        if UMX.untag id = System.Guid.Empty then invalidArg "id" "Run ID must not be empty."
+        for argument, value in ["projectName", UMX.untag projectName; "runName", UMX.untag runName] do
+            if System.String.IsNullOrWhiteSpace value then invalidArg argument "Name must not be null, empty, or whitespace."
+    let spans argument queryKeys (spans: parameterSpan list) =
+        if isNull (box spans) then nullArg argument
+        let keys = spans |> List.map (fun span -> span.KeyName)
+        let unique = Set.ofList keys
+        if unique.Count <> keys.Length then invalidArg argument "Parameter spans must have unique key names."
+        for span in spans do
+            if System.String.IsNullOrWhiteSpace (UMX.untag span.KeyName) || span.Values.IsEmpty then
+                invalidArg argument "Each parameter span needs a key and at least one value."
+        for key in queryKeys do
+            if not (Set.contains key unique) then invalidArg argument $"Query key '{key}' has no matching parameter span."
     let makeParameterSets (spans: parameterSpan list) : parameterSet seq =
         match spans with
         | [] -> Seq.singleton (parameterSet.create Map.empty)
-        | _ ->
-            spans
-            |> List.map (fun span -> span.KeyName, span.Values)
-            |> Combinatorics.cartesianProductMaps
-            |> Seq.map parameterSet.create
+        | _ -> spans |> List.map (fun span -> span.KeyName, span.Values)
+                     |> Combinatorics.cartesianProductMaps |> Seq.map parameterSet.create
 
+/// Only run identity, an optional description, and execution parameters are supplied per root run.
 type rootRunConfig = {
-    ProjectName: string<projectName>
-    RunName: string<runName>
     Id: Guid<runId>
-    Description: string
-    ResultsDatabaseName: string<databaseName>
-    ExecuteFunctionName: string
+    RunName: string<runName>
+    Description: string option
     OutputParameterSpans: parameterSpan list
-    OutputDataTypes: outputDataType list
-    OutputQueryParameterKeys: string<paramKeyName> list
 }
 
-/// A run whose execution has no dependencies on other runs.
 type rootRun =
-    private { config: rootRunConfig }
-
-    member this.ProjectName = this.config.ProjectName
+    private { projectName: string<projectName>; projectConfiguration: rootProjectConfig; config: rootRunConfig }
+    member this.ProjectName = this.projectName
     member this.RunName = this.config.RunName
     member this.Id = this.config.Id
-    member this.Description = this.config.Description
-    member this.ResultsDatabaseName = this.config.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.config.ExecuteFunctionName
+    member this.Configuration = this.config
+    member this.Description = this.config.Description |> Option.defaultValue this.projectConfiguration.Description
+    member this.ResultsDatabaseName = this.projectConfiguration.ResultsDatabaseName
+    member this.ExecuteFunctionName = this.projectConfiguration.ExecuteFunctionName
     member this.OutputParameterSpans = this.config.OutputParameterSpans
-    member this.OutputDataTypes = this.config.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.config.OutputQueryParameterKeys
+    member this.OutputDataTypes = this.projectConfiguration.OutputDataTypes
+    member this.OutputQueryParameterKeys = this.projectConfiguration.OutputQueryParameterKeys
 
 module RootRun =
-    let create (config: rootRunConfig) : rootRun =
-        if UMX.untag config.Id = System.Guid.Empty then invalidArg "id" "Run ID must not be empty."
-        let outputSpanKeys =
-            RunConfiguration.validate "resultsDatabaseName" config.ResultsDatabaseName config.ProjectName config.RunName
-                config.OutputParameterSpans "executeFunctionName" config.ExecuteFunctionName
-        RunConfiguration.validateOutputQueryKeys outputSpanKeys config.OutputQueryParameterKeys
-        { config = config }
-
-    let makeParameterSets (root: rootRun) =
-        RunConfiguration.makeParameterSets root.OutputParameterSpans
+    let create (parent: IRootProject) (config: rootRunConfig) : rootRun =
+        let settings = parent.Configuration
+        ProjectConfiguration.validateRoot settings
+        RunConfiguration.identity config.Id parent.ProjectName config.RunName
+        if config.Description |> Option.exists isNull then nullArg "description"
+        RunConfiguration.spans "outputParameterSpans" settings.OutputQueryParameterKeys config.OutputParameterSpans
+        { projectName = parent.ProjectName; projectConfiguration = settings; config = config }
+    let withNames projectName runName (value: rootRun) =
+        RunConfiguration.identity value.Id projectName runName
+        { value with projectName = projectName; config = { value.config with RunName = runName } }
+    let makeParameterSets (root: rootRun) = RunConfiguration.makeParameterSets root.OutputParameterSpans
 
 type branchRunConfig = {
-    ProjectName: string<projectName>
-    RunName: string<runName>
     Id: Guid<runId>
-    Description: string
-    ResultsDatabaseName: string<databaseName>
-    ExecuteFunctionName: string
+    RunName: string<runName>
+    Description: string option
     OutputParameterSpans: parameterSpan list
-    OutputDataTypes: outputDataType list
-    OutputQueryParameterKeys: string<paramKeyName> list
-    SetupDatabaseName: string<databaseName>
-    SetupFunctionName: string
+    SetupDatabaseName: string<setupDatabaseName> option
+    SetupFunctionName: string<setupFunctionName> option
     SetupParameterSpans: parameterSpan list
-    SetupOutputDataTypes: outputDataType list
-    SetupQueryParameterKeys: Map<outputDataType, string<paramKeyName> list>
 }
 
-/// A run with separate setup and execution steps.
 type branchRun =
-    private { config: branchRunConfig }
-
-    member this.ProjectName = this.config.ProjectName
+    private { projectName: string<projectName>; projectConfiguration: branchProjectConfig; config: branchRunConfig }
+    member this.ProjectName = this.projectName
     member this.RunName = this.config.RunName
     member this.Id = this.config.Id
-    member this.Description = this.config.Description
-    member this.ResultsDatabaseName = this.config.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.config.ExecuteFunctionName
+    member this.Configuration = this.config
+    member this.Description = this.config.Description |> Option.defaultValue this.projectConfiguration.Description
+    member this.ResultsDatabaseName = this.projectConfiguration.ResultsDatabaseName
+    member this.ExecuteFunctionName = this.projectConfiguration.ExecuteFunctionName
     member this.OutputParameterSpans = this.config.OutputParameterSpans
-    member this.OutputDataTypes = this.config.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.config.OutputQueryParameterKeys
-    member this.SetupDatabaseName = this.config.SetupDatabaseName
-    member this.SetupFunctionName = this.config.SetupFunctionName
+    member this.OutputDataTypes = this.projectConfiguration.OutputDataTypes
+    member this.OutputQueryParameterKeys = this.projectConfiguration.OutputQueryParameterKeys
+    member this.SetupDatabaseName = this.config.SetupDatabaseName |> Option.defaultValue this.projectConfiguration.SetupDatabaseName
+    member this.SetupFunctionName = this.config.SetupFunctionName |> Option.defaultValue this.projectConfiguration.SetupFunctionName
     member this.SetupParameterSpans = this.config.SetupParameterSpans
-    member this.SetupOutputDataTypes = this.config.SetupOutputDataTypes
-    member this.SetupQueryParameterKeys = this.config.SetupQueryParameterKeys
+    member this.SetupOutputDataTypes = this.projectConfiguration.SetupOutputDataTypes
+    member this.SetupQueryParameterKeys = this.projectConfiguration.SetupQueryParameterKeys
 
 module BranchRun =
-    let create (config: branchRunConfig) : branchRun =
-        if UMX.untag config.Id = System.Guid.Empty then invalidArg "id" "Run ID must not be empty."
-        let outputSpanKeys =
-            RunConfiguration.validate "resultsDatabaseName" config.ResultsDatabaseName config.ProjectName config.RunName
-                config.OutputParameterSpans "executeFunctionName" config.ExecuteFunctionName
-        RunConfiguration.validateOutputQueryKeys outputSpanKeys config.OutputQueryParameterKeys
-        let setupSpanKeys =
-            RunConfiguration.validate "setupDatabaseName" config.SetupDatabaseName config.ProjectName config.RunName
-                config.SetupParameterSpans "setupFunctionName" config.SetupFunctionName
-        RunConfiguration.validateQueryKeys setupSpanKeys config.SetupOutputDataTypes config.SetupQueryParameterKeys
-        { config = config }
-
-    let makeParameterSets (branch: branchRun) =
-        RunConfiguration.makeParameterSets branch.OutputParameterSpans
-
-    let makeSetupParameterSets (branch: branchRun) =
-        RunConfiguration.makeParameterSets branch.SetupParameterSpans
-
+    let create (parent: IBranchProject) (config: branchRunConfig) : branchRun =
+        let settings = parent.Configuration
+        ProjectConfiguration.validateBranch settings
+        RunConfiguration.identity config.Id parent.ProjectName config.RunName
+        if config.Description |> Option.exists isNull then nullArg "description"
+        for argument, value in ["setupDatabaseName", config.SetupDatabaseName |> Option.map UMX.untag
+                                "setupFunctionName", config.SetupFunctionName |> Option.map UMX.untag] do
+            if value |> Option.exists System.String.IsNullOrWhiteSpace then invalidArg argument "An override must not be blank; omit it to inherit the project setting."
+        RunConfiguration.spans "outputParameterSpans" settings.OutputQueryParameterKeys config.OutputParameterSpans
+        RunConfiguration.spans "setupParameterSpans" settings.SetupQueryParameterKeys config.SetupParameterSpans
+        { projectName = parent.ProjectName; projectConfiguration = settings; config = config }
+    let withNames projectName runName (value: branchRun) =
+        RunConfiguration.identity value.Id projectName runName
+        { value with projectName = projectName; config = { value.config with RunName = runName } }
+    let makeParameterSets (branch: branchRun) = RunConfiguration.makeParameterSets branch.OutputParameterSpans
+    let makeSetupParameterSets (branch: branchRun) = RunConfiguration.makeParameterSets branch.SetupParameterSpans
 
 type run =
     | RootRun of rootRun
     | BranchRun of branchRun
-
-    member this.HasSetup =
-        match this with
-        | RootRun _ -> false
-        | BranchRun _ -> true
-
-    member this.SetupDatabaseName =
-        match this with
-        | RootRun _ -> None
-        | BranchRun value -> Some value.SetupDatabaseName
-
-    member this.ResultsDatabaseName =
-        match this with
-        | RootRun value -> value.ResultsDatabaseName
-        | BranchRun value -> value.ResultsDatabaseName
-
-    member this.ProjectName =
-        match this with
-        | RootRun value -> value.ProjectName
-        | BranchRun value -> value.ProjectName
-
-    member this.RunName =
-        match this with
-        | RootRun value -> value.RunName
-        | BranchRun value -> value.RunName
-
-    member this.Id =
-        match this with
-        | RootRun value -> value.Id
-        | BranchRun value -> value.Id
-
-    member this.Description =
-        match this with
-        | RootRun value -> value.Description
-        | BranchRun value -> value.Description
-
-    member this.ParameterSpans =
-        match this with
-        | RootRun value -> value.OutputParameterSpans
-        | BranchRun value -> value.OutputParameterSpans
-
-    member this.ExecuteFunctionName =
-        match this with
-        | RootRun value -> value.ExecuteFunctionName
-        | BranchRun value -> value.ExecuteFunctionName
-
-    member this.OutputDataTypes =
-        match this with
-        | RootRun value -> value.OutputDataTypes
-        | BranchRun value -> value.OutputDataTypes
-
-    member this.OutputQueryKeys =
-        match this with
-        | RootRun value -> value.OutputQueryParameterKeys
-        | BranchRun value -> value.OutputQueryParameterKeys
-
-    member this.SetupFunctionName =
-        match this with
-        | RootRun _ -> None
-        | BranchRun value -> Some value.SetupFunctionName
-
-    member this.SetupParameterSpans =
-        match this with
-        | RootRun _ -> None
-        | BranchRun value -> Some value.SetupParameterSpans
-
-    member this.SetupOutputDataTypes =
-        match this with
-        | RootRun _ -> None
-        | BranchRun value -> Some value.SetupOutputDataTypes
-
-    member this.SetupQueryParameterKeys =
-        match this with
-        | RootRun _ -> None
-        | BranchRun value -> Some value.SetupQueryParameterKeys
+    member this.HasSetup = match this with RootRun _ -> false | BranchRun _ -> true
+    member this.ProjectName = match this with RootRun r -> r.ProjectName | BranchRun r -> r.ProjectName
+    member this.RunName = match this with RootRun r -> r.RunName | BranchRun r -> r.RunName
+    member this.Id = match this with RootRun r -> r.Id | BranchRun r -> r.Id
+    member this.Description = match this with RootRun r -> r.Description | BranchRun r -> r.Description
+    member this.ResultsDatabaseName = match this with RootRun r -> r.ResultsDatabaseName | BranchRun r -> r.ResultsDatabaseName
+    member this.ExecuteFunctionName = match this with RootRun r -> r.ExecuteFunctionName | BranchRun r -> r.ExecuteFunctionName
+    member this.ParameterSpans = match this with RootRun r -> r.OutputParameterSpans | BranchRun r -> r.OutputParameterSpans
+    member this.OutputDataTypes = match this with RootRun r -> r.OutputDataTypes | BranchRun r -> r.OutputDataTypes
+    member this.OutputQueryKeys = match this with RootRun r -> r.OutputQueryParameterKeys | BranchRun r -> r.OutputQueryParameterKeys
+    member this.SetupDatabaseName = match this with RootRun _ -> None | BranchRun r -> Some r.SetupDatabaseName
+    member this.SetupFunctionName = match this with RootRun _ -> None | BranchRun r -> Some r.SetupFunctionName
+    member this.SetupParameterSpans = match this with RootRun _ -> None | BranchRun r -> Some r.SetupParameterSpans
+    member this.SetupOutputDataTypes = match this with RootRun _ -> None | BranchRun r -> Some r.SetupOutputDataTypes
+    member this.SetupQueryParameterKeys = match this with RootRun _ -> None | BranchRun r -> Some r.SetupQueryParameterKeys
 
 [<Measure>] type queryParamsId
 
@@ -298,10 +254,10 @@ module QueryParams =
     let forResults (run: run) outputType parameters =
         if not (List.contains outputType run.OutputDataTypes) then
             invalidArg "outputType" $"Run '{run.RunName}' does not declare result type '{outputType}'."
-        create run.ResultsDatabaseName run.ProjectName outputType run.OutputQueryKeys parameters
+        create (UMX.cast<resultsDatabaseName, databaseName> run.ResultsDatabaseName) run.ProjectName outputType run.OutputQueryKeys parameters
 
     /// Builds a setup query using the keys configured for the requested output type.
     let forSetup (branch: branchRun) outputType parameters =
         if not (List.contains outputType branch.SetupOutputDataTypes) then
             invalidArg "outputType" $"Run '{branch.RunName}' does not declare setup type '{outputType}'."
-        create branch.SetupDatabaseName branch.ProjectName outputType branch.SetupQueryParameterKeys[outputType] parameters
+        create (UMX.cast<setupDatabaseName, databaseName> branch.SetupDatabaseName) branch.ProjectName outputType branch.SetupQueryParameterKeys parameters

@@ -20,7 +20,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     private WorkspacePageViewModel Open()
     {
         var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Parent module", "parent-module", [],
-            [project.create(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [])])]);
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [])])]);
         WorkspaceFileStore.CreateWorkspace(Root, definition, Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), () => WorkspaceUnsavedChoice.Discard,

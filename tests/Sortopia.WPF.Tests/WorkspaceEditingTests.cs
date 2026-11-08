@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Models;
@@ -37,7 +36,11 @@ public sealed class WorkspaceEditingTests : IDisposable
     {
         var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", []));
         page.AddModuleCommand.Execute(null);
-        if (kind == WorkspaceEntityKind.Project) page.AddProjectCommand.Execute(null);
+        if (kind == WorkspaceEntityKind.Project)
+        {
+            page.AddProjectCommand.Execute(null);
+            WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
+        }
         var node = page.Selected!;
         node.Name = "First name";
         Assert.True(node.FolderFollowsName);
@@ -171,7 +174,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     public void Discard_restores_the_saved_hierarchy_names_folders_and_run_settings_without_writing()
     {
         var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [],
-            [project.create(hierarchyKind.Root, Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
         var page = Open(definition);
         var before = Directory.GetFiles(Root, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
         Assert.False(page.DiscardChangesCommand.CanExecute(null));
@@ -181,9 +184,10 @@ public sealed class WorkspaceEditingTests : IDisposable
         module.FolderName = "another-folder";
         var run = module.Children.Single().Children.Single();
         run.Name = "Changed run";
-        run.RunConfiguration = "invalid JSON";
         page.Selected = module;
         page.AddProjectCommand.Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
+        run.Editor!.OutputParameters.Clear();
         Assert.True(page.DiscardChangesCommand.CanExecute(null));
         page.DiscardChangesCommand.Execute(null);
         Assert.Equal(WorkspaceCodec.encodeWorkspace(definition), WorkspaceCodec.encodeWorkspace(page.Roots.Single().ToWorkspace()));

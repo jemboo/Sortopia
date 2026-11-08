@@ -13,6 +13,7 @@ public partial class WorkspacePage : UserControl
     private void OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> args)
     {
         if (DataContext is WorkspacePageViewModel viewModel) viewModel.Selected = args.NewValue as WorkspaceTreeNode;
+        EntityInspectorViewport.ScrollToTop();
     }
     private void OnTreeRightClick(object sender, MouseButtonEventArgs args)
     {

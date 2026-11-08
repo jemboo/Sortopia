@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json;
 using Sortopia.Core.Serialization;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
@@ -18,20 +17,39 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    internal static run MakeRun(string projectName, string name, bool branch = false) => RunDto.toDomain(new runDto
+    internal static projectSettingsDto ProjectSettings(bool branch = false) => new()
     {
-        schemaVersion = 4, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", projectName = projectName, runName = name,
         description = "Keep every setting: α", resultsDatabaseName = "Results", executeFunctionName = "Evaluate",
-        outputParameterSpans = [new parameterSpanDto { keyName = "Seed", values = ["7", "11"] }],
         outputDataTypes = [4], outputQueryParameterKeys = ["Seed"],
         setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "Generate" : "",
-        setupParameterSpans = branch ? [new parameterSpanDto { keyName = "Width", values = ["8", "12"] }] : [],
-        setupOutputDataTypes = branch ? [3] : [],
-        setupQueryParameterKeys = branch ? [new queryKeysDto { outputDataType = 3, keys = ["Width"] }] : []
+        setupOutputDataTypes = branch ? [3] : [], setupQueryParameterKeys = branch ? ["Width"] : []
+    };
+    internal static project MakeProject(hierarchyKind kind, Guid id, string name, string folder, run[] runs) =>
+        project.create(id, name, folder, ProjectDto.settingsToDomain(kind, ProjectSettings(kind == hierarchyKind.Branch)), runs);
+    internal static run FromRunDto(runDto value) => RunDto.toDomain(
+        MakeProject(value.runKind == "branch" ? hierarchyKind.Branch : hierarchyKind.Root, Guid.NewGuid(), value.projectName, "project", []), value);
+    internal static run DecodeRun(byte[] bytes) => FromRunDto(MessagePackSetup.deserialize<runDto>(bytes));
+    internal static run ReadRun(string file)
+    {
+        var folder = Path.GetDirectoryName(Path.GetDirectoryName(file))!;
+        var parent = WorkspaceCodec.decodeProject(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(folder, "project")));
+        return WorkspaceCodec.decodeRun(parent, File.ReadAllBytes(file));
+    }
+    internal static void ConfigureProject(WorkspaceTreeNode node)
+    {
+        node.Editor!.LoadProject(ProjectSettings(node.IsBranch));
+    }
+    internal static run MakeRun(string projectName, string name, bool branch = false) => FromRunDto(new runDto
+    {
+        schemaVersion = 5, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", projectName = projectName, runName = name,
+        description = null,
+        outputParameterSpans = [new parameterSpanDto { keyName = "Seed", values = ["7", "11"] }],
+        setupDatabaseName = null, setupFunctionName = null,
+        setupParameterSpans = branch ? [new parameterSpanDto { keyName = "Width", values = ["8", "12"] }] : []
     });
     private workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Branch, Guid.NewGuid(), "Sorting", "Sorting",
         [WorkspaceModule.create(hierarchyKind.Branch, Guid.NewGuid(), "Nested module", "Nested module", [], [])],
-        [project.create(hierarchyKind.Branch, Guid.NewGuid(), "Search", "Search", [MakeRun("Search", "First", true), MakeRun("Search", "With setup", true)])])]);
+        [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Branch, Guid.NewGuid(), "Search", "Search", [MakeRun("Search", "First", true), MakeRun("Search", "With setup", true)])])]);
 
     [Theory]
     [InlineData(false)]
@@ -41,13 +59,13 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var original = MakeRun("Search", "Trial", branch);
         var renamed = WorkspaceRun.withNames("Search", "Trial: renamed", original);
         var bytes = WorkspaceCodec.encodeRun(renamed);
-        Assert.Equal(4, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
-        Assert.Equal("Trial: renamed", WorkspaceCodec.decodeRun(bytes).RunName);
-        Assert.Equal(original.Id, WorkspaceCodec.decodeRun(bytes).Id);
+        Assert.Equal(5, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
+        Assert.Equal("Trial: renamed", DecodeRun(bytes).RunName);
+        Assert.Equal(original.Id, DecodeRun(bytes).Id);
         Assert.Null(typeof(run).GetProperty("FolderName"));
         var malformed = RunDto.fromDomain(renamed);
         malformed.id = Guid.Empty;
-        Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeRun(MessagePackSetup.serialize(malformed)));
+        Assert.Throws<ArgumentException>(() => DecodeRun(MessagePackSetup.serialize(malformed)));
     }
 
     [Fact]
@@ -60,7 +78,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         Assert.True(runs[0].HasSetup);
         Assert.True(runs[1].HasSetup);
         Assert.Equal(new[] { "8", "12" }, runs[1].SetupParameterSpans.Value.Single().Values);
-        Assert.Equal("Width", runs[1].SetupQueryParameterKeys.Value.Single().Value.Single());
+        Assert.Equal("Width", runs[1].SetupQueryParameterKeys.Value.Single());
         var exposed = restored.Modules;
         exposed[0] = WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Replaced", "Replaced", [], []);
         Assert.Equal("Sorting", restored.Modules[0].ModuleName);
@@ -93,7 +111,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var secondName = duplicateFolders ? "Second" : "FIRST";
         var secondFolder = duplicateFolders ? "FOLDER" : "another-folder";
         var modules = new[] { WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "First", "folder", [], []), WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), secondName, secondFolder, [], []) };
-        var projects = new[] { project.create(hierarchyKind.Root, Guid.NewGuid(), "First", "folder", []), project.create(hierarchyKind.Root, Guid.NewGuid(), secondName, secondFolder, []) };
+        var projects = new[] { WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "First", "folder", []), WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), secondName, secondFolder, []) };
         var runs = new[] { MakeRun("Parent", "First", false), MakeRun("Parent", secondName, false) };
         var error = Assert.Throws<ArgumentException>(() =>
         {
@@ -102,7 +120,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
                 case "workspace.modules": workspace.create(Guid.NewGuid(), "Parent", "parent", modules); break;
                 case "module.modules": WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", modules, []); break;
                 case "module.projects": WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", [], projects); break;
-                case "project.runs": project.create(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", runs); break;
+                case "project.runs": WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", runs); break;
             }
         });
         Assert.Contains(duplicateFolders ? "Duplicate folder name" : "Duplicate name", error.Message);
@@ -111,7 +129,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     [Fact]
     public void Names_and_folders_can_be_reused_in_separate_typed_collections()
     {
-        var childProject = project.create(hierarchyKind.Root, Guid.NewGuid(), "Shared", "shared", []);
+        var childProject = WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Shared", "shared", []);
         var parentModule = WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Shared", "shared", [], [])], [childProject]);
         Assert.Equal(parentModule.Modules.Single().FolderName, parentModule.Projects.Single().FolderName);
     }
@@ -121,11 +139,11 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     {
         Assert.Throws<ArgumentException>(() => workspace.create(Guid.NewGuid(), "Research", "Workspace",
             [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "Sorting", [], []), WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "sorting", "sorting", [], [])]));
-        Assert.Throws<ArgumentException>(() => project.create(hierarchyKind.Root, Guid.NewGuid(), "Search", "Search", [MakeRun("Different", "First")]));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Search", "Search", [MakeRun("Different", "First")]));
         Assert.Throws<ArgumentException>(() => workspace.create(Guid.NewGuid(), "Research", "Workspace",
             [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "First", "same", [], []), WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Second", "SAME", [], [])]));
         Assert.Throws<ArgumentException>(() => WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "M", "m", [],
-            [project.create(hierarchyKind.Root, Guid.NewGuid(), "First", "same", []), project.create(hierarchyKind.Root, Guid.NewGuid(), "Second", "SAME", [])]));
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "First", "same", []), WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Second", "SAME", [])]));
     }
 
     [Fact]
@@ -133,7 +151,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     {
         var value = workspace.create(Guid.NewGuid(), "Research: 2026", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sorting / networks", "sorters",
             [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Nested: module", "nested-m", [], [])],
-            [project.create(hierarchyKind.Root, Guid.NewGuid(), "Search: prefixes", "prefix-search", [MakeRun("Search: prefixes", "Trial: first", false), MakeRun("Search: prefixes", "Trial: root", false)])])]);
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Search: prefixes", "prefix-search", [MakeRun("Search: prefixes", "Trial: first", false), MakeRun("Search: prefixes", "Trial: root", false)])])]);
         WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var loaded = WorkspaceFileStore.LoadDefinition(Root);
         Assert.Equal(WorkspaceCodec.encodeWorkspace(value), WorkspaceCodec.encodeWorkspace(loaded));
@@ -158,7 +176,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var runs = Path.Combine(Root, "modules", "Sorting", "projects", "Search", "runs");
         var duplicate = RunDto.fromDomain(MakeRun("Search", "First", true));
         duplicate.id = Guid.NewGuid();
-        File.WriteAllBytes(Path.Combine(runs, WorkspaceDefinitionFiles.Name(duplicate.id)), WorkspaceCodec.encodeRun(RunDto.toDomain(duplicate)));
+        File.WriteAllBytes(Path.Combine(runs, WorkspaceDefinitionFiles.Name(duplicate.id)), WorkspaceCodec.encodeRun(WorkspaceHierarchyTests.FromRunDto(duplicate)));
         var before = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace"));
         var error = Assert.Throws<ArgumentException>(() => WorkspaceFileStore.LoadProjectFolder(Path.GetDirectoryName(runs)!, Token));
         Assert.Contains("Duplicate name in runs", error.Message);
@@ -276,10 +294,11 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         viewModel.AddModuleCommand.Execute(null);
         viewModel.Selected!.Name = "Sorting";
         viewModel.AddProjectCommand.Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(viewModel.Selected!);
         viewModel.Selected!.Name = "Search";
         viewModel.AddRunCommand.Execute(null);
         viewModel.Selected!.Name = "First";
-        viewModel.Selected.RunConfiguration = JsonSerializer.Serialize(RunDto.fromDomain(MakeRun("Search", "First")));
+        viewModel.Selected.Editor!.LoadRun(RunDto.fromDomain(MakeRun("Search", "First")));
         Assert.True(viewModel.SaveWorkspaceCommand.CanExecute(null));
         Assert.False(File.Exists(WorkspaceTestFiles.DefinitionPath(Root, "workspace")));
         viewModel.Selected.Name = "Edited";

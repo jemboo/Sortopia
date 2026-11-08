@@ -120,13 +120,17 @@ public static class WorkspaceFileStore
             sourceIds.Add(replacement, id);
             return replacement;
         }
-        project IdentifyProject(project value, string folder) => project.create(value.Kind, CopyId(value.Id, folder), value.ProjectName, value.FolderName,
-            value.Runs.Select(run =>
+        project IdentifyProject(project value, string folder)
+        {
+            var parent = project.create(CopyId(value.Id, folder), value.ProjectName, value.FolderName, value.Configuration, []);
+            var runs = value.Runs.Select(run =>
             {
                 var dto = RunDto.fromDomain(run);
                 dto.id = CopyId(run.Id, Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)));
-                return RunDto.toDomain(dto);
-            }).ToArray());
+                return RunDto.toDomain(parent, dto);
+            }).ToArray();
+            return project.create(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, runs);
+        }
         WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.create(value.Kind, CopyId(value.Id, folder), value.ModuleName, value.FolderName,
             value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
             value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
@@ -141,7 +145,7 @@ public static class WorkspaceFileStore
                 foreach (var file in RunFiles(projectFolder))
                 {
                     if (files.Count >= MaxEntities) throw new InvalidDataException("Workspace contains too many runs.");
-                    var runId = WorkspaceCodec.decodeRun(ReadDefinition(file)).Id;
+                    var runId = WorkspaceCodec.readRunId(ReadDefinition(file));
                     if (!files.TryAdd(runId, file)) throw new InvalidDataException($"Duplicate run ID in {projectFolder}: {runId}");
                 }
                 sourceRuns.Add(projectFolder, files);
@@ -440,10 +444,9 @@ public static class WorkspaceFileStore
         var runs = RunFiles(folder).Select(file =>
         {
             token.ThrowIfCancellationRequested();
-            var run = WorkspaceCodec.decodeRun(ReadDefinition(file));
-            return WorkspaceRun.withNames(projectName, run.RunName, run);
+            return WorkspaceCodec.decodeRun(saved, ReadDefinition(file));
         }).ToArray();
-        return project.create(saved.Kind, saved.Id, projectName, folderName, runs);
+        return project.create(saved.Id, projectName, folderName, saved.Configuration, runs);
     }
 
     private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token)

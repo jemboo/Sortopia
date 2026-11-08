@@ -20,8 +20,8 @@ public sealed class WorkspaceMoveTests : IDisposable
     {
         var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
             WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "A", "A", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Nested", "Nested", [], [])],
-                [project.create(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
-            WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "B", "B", [], [project.create(hierarchyKind.Root, Guid.NewGuid(), "Destination", "Destination", [])])]);
+                [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
+            WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "B", "B", [], [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", "Destination", [])])]);
         Directory.CreateDirectory(Root);
         if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -75,7 +75,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         {
             Assert.True(File.Exists(destination));
             Assert.Equal(filenames.Single(), Path.GetFileName(destination));
-            var savedRun = WorkspaceCodec.decodeRun(File.ReadAllBytes(destination));
+            var savedRun = WorkspaceHierarchyTests.ReadRun(destination);
             Assert.Equal(node.Id, savedRun.Id);
             Assert.Equal("Destination", savedRun.ProjectName);
         }
@@ -107,7 +107,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.False(File.Exists(source));
-        var saved = WorkspaceCodec.decodeRun(File.ReadAllBytes(Find(page, "R").GetFolderPath(Root)));
+        var saved = WorkspaceHierarchyTests.ReadRun(Find(page, "R").GetFolderPath(Root));
         Assert.Equal(id, saved.Id);
         Assert.Equal("Destination", saved.ProjectName);
     }
@@ -143,7 +143,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         foreach (var target in new[] { "A", "Nested", "P", "R" })
         { page.Selected = Find(page, target); Assert.False(page.PasteCommand.CanExecute(null)); }
         page.CancelCutCommand.Execute(null);
-        page.Selected = Find(page, "B"); page.AddProjectCommand.Execute(null);
+        page.Selected = Find(page, "B"); page.AddProjectCommand.Execute(null); WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         page.Selected!.Name = "P";
         page.Selected.FolderName = "Different folder";
         var node = Find(page, "A").Children.Single(child => child.Name == "P");
@@ -184,7 +184,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         var before = Snapshot(Root);
         await Move(page, "P", "B");
         await Move(page, "A", "B");
-        page.Selected = Find(page, "A"); page.AddProjectCommand.Execute(null); page.Selected!.Name = "New after move";
+        page.Selected = Find(page, "A"); page.AddProjectCommand.Execute(null); WorkspaceHierarchyTests.ConfigureProject(page.Selected!); page.Selected!.Name = "New after move";
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();

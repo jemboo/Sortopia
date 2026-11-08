@@ -27,69 +27,75 @@ module EntityId =
             if not (seen.Add id) then invalidArg argument $"Duplicate ID in {argument}: {id}"
 
 module WorkspaceRun =
-    let private rebuild (projectName: string<projectName>) (runName: string<runName>) (value: run) =
-        match value with
-        | run.RootRun root ->
-            RootRun.create {
-                ProjectName = projectName; RunName = runName; Description = root.Description
-                Id = value.Id
-                ResultsDatabaseName = root.ResultsDatabaseName; ExecuteFunctionName = root.ExecuteFunctionName
-                OutputParameterSpans = root.OutputParameterSpans; OutputDataTypes = root.OutputDataTypes
-                OutputQueryParameterKeys = root.OutputQueryParameterKeys } |> run.RootRun
-        | run.BranchRun branch ->
-            BranchRun.create {
-                ProjectName = projectName; RunName = runName; Description = branch.Description
-                Id = value.Id
-                ResultsDatabaseName = branch.ResultsDatabaseName; ExecuteFunctionName = branch.ExecuteFunctionName
-                OutputParameterSpans = branch.OutputParameterSpans; OutputDataTypes = branch.OutputDataTypes
-                OutputQueryParameterKeys = branch.OutputQueryParameterKeys
-                SetupDatabaseName = branch.SetupDatabaseName; SetupFunctionName = branch.SetupFunctionName
-                SetupParameterSpans = branch.SetupParameterSpans; SetupOutputDataTypes = branch.SetupOutputDataTypes
-                SetupQueryParameterKeys = branch.SetupQueryParameterKeys } |> run.BranchRun
-
-    /// Renaming a project or run preserves its ID and complete execution/output configuration.
+    /// Renaming preserves the run's overrides and effective project settings.
     let withNames projectName runName (value: run) =
-        rebuild projectName runName value
+        match value with
+        | run.RootRun root -> RootRun.withNames projectName runName root |> run.RootRun
+        | run.BranchRun branch -> BranchRun.withNames projectName runName branch |> run.BranchRun
 
-
-/// The execution family shared by a module, its projects, and their runs.
 type hierarchyKind =
     | Root = 0
     | Branch = 1
 
 type rootProject =
-    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; runs: rootRun array }
+    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: rootProjectConfig; runs: rootRun array }
     member this.Id = this.id
     member this.ProjectName = this.projectName
     member this.FolderName = this.folderName
+    member this.Configuration = this.configuration
+    member this.Description = this.configuration.Description
+    member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
+    member this.ExecuteFunctionName = this.configuration.ExecuteFunctionName
+    member this.OutputDataTypes = this.configuration.OutputDataTypes
+    member this.OutputQueryParameterKeys = this.configuration.OutputQueryParameterKeys
     member this.Runs = Array.copy this.runs
-    static member create (id: Guid<projectId>) (name: string<projectName>) folderName (runs: rootRun array) =
+    interface IRootProject with
+        member this.ProjectName = this.projectName
+        member this.Configuration = this.configuration
+    static member create (id: Guid<projectId>) (name: string<projectName>) folderName (configuration: rootProjectConfig) (runs: rootRun array) =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
+        ProjectConfiguration.validateRoot configuration
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
         if runs |> Array.exists (fun r -> r.ProjectName <> name) then
             invalidArg "runs" "Each run must name its containing project."
-        { id = id; projectName = name; folderName = folderName; runs = Array.copy runs }
+        let parent = { id = id; projectName = name; folderName = folderName; configuration = configuration; runs = [||] }
+        { parent with runs = runs |> Array.map (fun r -> RootRun.create parent r.Configuration) }
 
 type branchProject =
-    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; runs: branchRun array }
+    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: branchProjectConfig; runs: branchRun array }
     member this.Id = this.id
     member this.ProjectName = this.projectName
     member this.FolderName = this.folderName
+    member this.Configuration = this.configuration
+    member this.Description = this.configuration.Description
+    member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
+    member this.ExecuteFunctionName = this.configuration.ExecuteFunctionName
+    member this.OutputDataTypes = this.configuration.OutputDataTypes
+    member this.OutputQueryParameterKeys = this.configuration.OutputQueryParameterKeys
+    member this.SetupDatabaseName = this.configuration.SetupDatabaseName
+    member this.SetupFunctionName = this.configuration.SetupFunctionName
+    member this.SetupOutputDataTypes = this.configuration.SetupOutputDataTypes
+    member this.SetupQueryParameterKeys = this.configuration.SetupQueryParameterKeys
     member this.Runs = Array.copy this.runs
-    static member create (id: Guid<projectId>) (name: string<projectName>) folderName (runs: branchRun array) =
+    interface IBranchProject with
+        member this.ProjectName = this.projectName
+        member this.Configuration = this.configuration
+    static member create (id: Guid<projectId>) (name: string<projectName>) folderName (configuration: branchProjectConfig) (runs: branchRun array) =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
+        ProjectConfiguration.validateBranch configuration
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
         if runs |> Array.exists (fun r -> r.ProjectName <> name) then
             invalidArg "runs" "Each run must name its containing project."
-        { id = id; projectName = name; folderName = folderName; runs = Array.copy runs }
+        let parent = { id = id; projectName = name; folderName = folderName; configuration = configuration; runs = [||] }
+        { parent with runs = runs |> Array.map (fun r -> BranchRun.create parent r.Configuration) }
 
 type project =
     | RootProject of rootProject
@@ -98,18 +104,23 @@ type project =
     member this.Id = match this with RootProject p -> p.Id | BranchProject p -> p.Id
     member this.ProjectName = match this with RootProject p -> p.ProjectName | BranchProject p -> p.ProjectName
     member this.FolderName = match this with RootProject p -> p.FolderName | BranchProject p -> p.FolderName
+    member this.Configuration = match this with RootProject p -> RootProjectConfig p.Configuration | BranchProject p -> BranchProjectConfig p.Configuration
+    member this.Description = match this with RootProject p -> p.Description | BranchProject p -> p.Description
+    member this.ResultsDatabaseName = match this with RootProject p -> p.ResultsDatabaseName | BranchProject p -> p.ResultsDatabaseName
+    member this.ExecuteFunctionName = match this with RootProject p -> p.ExecuteFunctionName | BranchProject p -> p.ExecuteFunctionName
+    member this.OutputDataTypes = match this with RootProject p -> p.OutputDataTypes | BranchProject p -> p.OutputDataTypes
+    member this.OutputQueryParameterKeys = match this with RootProject p -> p.OutputQueryParameterKeys | BranchProject p -> p.OutputQueryParameterKeys
     member this.Runs = match this with RootProject p -> p.Runs |> Array.map run.RootRun | BranchProject p -> p.Runs |> Array.map run.BranchRun
-    /// Validates untyped input at serialization and UI boundaries.
-    static member create kind id name folderName (runs: run array) =
+    /// Rebuilds child runs using this project's shared settings and their saved overrides.
+    static member create id name folderName configuration (runs: run array) =
         if isNull runs then nullArg "runs"
-        match kind with
-        | hierarchyKind.Root ->
+        match configuration with
+        | RootProjectConfig config ->
             runs |> Array.map (function run.RootRun r -> r | _ -> invalidArg "runs" "A root project can only contain root runs.")
-            |> rootProject.create id name folderName |> RootProject
-        | hierarchyKind.Branch ->
+            |> rootProject.create id name folderName config |> RootProject
+        | BranchProjectConfig config ->
             runs |> Array.map (function run.BranchRun r -> r | _ -> invalidArg "runs" "A branch project can only contain branch runs.")
-            |> branchProject.create id name folderName |> BranchProject
-        | _ -> invalidArg "kind" "Project kind must be root or branch."
+            |> branchProject.create id name folderName config |> BranchProject
 
 type rootModule =
     private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; modules: rootModule array; projects: rootProject array }

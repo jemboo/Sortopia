@@ -19,16 +19,16 @@ public sealed class WorkspaceIdentityTests : IDisposable
     {
         Assert.Throws<ArgumentException>(() => workspace.create(Guid.Empty, "W", "W", []));
         Assert.Throws<ArgumentException>(() => WorkspaceModule.create(hierarchyKind.Root, Guid.Empty, "M", "M", [], []));
-        Assert.Throws<ArgumentException>(() => project.create(hierarchyKind.Root, Guid.Empty, "P", "P", []));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.Empty, "P", "P", []));
         foreach (var branch in new[] { false, true })
         {
             var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
             dto.id = Guid.Empty;
-            Assert.Throws<ArgumentException>(() => RunDto.toDomain(dto));
+            Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.FromRunDto(dto));
         }
         var first = WorkspaceHierarchyTests.MakeRun("P", "A");
         var second = WorkspaceRun.withNames("P", "B", first);
-        Assert.Throws<ArgumentException>(() => project.create(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [first, second]));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [first, second]));
     }
 
 

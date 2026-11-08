@@ -50,6 +50,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         AddBranchModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module, hierarchyKind.Branch), () => CanAddModule(hierarchyKind.Branch));
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
+        EditProjectDefaultsCommand = new RelayCommand(() => Selected = Selected!.Parent, () => CanEdit && Selected?.IsRun == true);
         AddExistingModuleCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Module), () => CanAddExisting(WorkspaceEntityKind.Module));
         AddExistingProjectCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Project), () => CanAddExisting(WorkspaceEntityKind.Project));
         RemoveCommand = new RelayCommand(Remove, () => CanEdit && Selected?.Parent is not null);
@@ -100,6 +101,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         : "Paste under the selected parent (Ctrl+V in the tree).";
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand AddRunCommand { get; }
+    public RelayCommand EditProjectDefaultsCommand { get; }
     public RelayCommand AddExistingModuleCommand { get; }
     public RelayCommand AddExistingProjectCommand { get; }
     public RelayCommand RemoveCommand { get; }
@@ -418,7 +420,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     {
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
-        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, AddExistingModuleCommand, AddExistingProjectCommand,
+        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, EditProjectDefaultsCommand, AddExistingModuleCommand, AddExistingProjectCommand,
             RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
