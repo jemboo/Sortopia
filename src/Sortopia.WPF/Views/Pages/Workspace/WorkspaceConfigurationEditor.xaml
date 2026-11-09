@@ -25,8 +25,26 @@
                 <local:WorkspaceValueSource x:Name="ValueSource" Margin="0,0,0,4" />
             </StackPanel>
         </DataTemplate>
-        <DataTemplate x:Key="OutputChoice">
-            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" MinHeight="28" Foreground="{DynamicResource Workspace.TextPrimary}" />
+        <DataTemplate x:Key="DataTypeEntry">
+            <Border BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,10">
+                <StackPanel>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}" Margin="6,0,0,4" AutomationProperties.Name="Remove output type" />
+                        <Label Content="Data type" Target="{Binding ElementName=DataTypeKindInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,4,0,4" />
+                    </DockPanel>
+                    <ComboBox x:Name="DataTypeKindInput" ItemsSource="{x:Static vm:WorkspaceDataTypeEntry.Kinds}" SelectedItem="{Binding Kind, Mode=TwoWay}" AutomationProperties.Name="Output data type" />
+                    <Label Content="Free-form text" Target="{Binding ElementName=DataTypeTextInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,10,0,4" />
+                    <TextBox x:Name="DataTypeTextInput" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="54" MaxHeight="150" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Output type free-form text" />
+                    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="InheritedDataType">
+            <StackPanel Margin="0,0,0,10">
+                <TextBlock Text="{Binding kind}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Text="Free-form text" Style="{StaticResource Help}" />
+                <TextBox Text="{Binding value, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="30" MaxHeight="150" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Inherited output type free-form text" />
+            </StackPanel>
         </DataTemplate>
         <DataTemplate x:Key="QueryKey">
             <DockPanel Margin="0,0,0,6">
@@ -58,17 +76,17 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
-        <DataTemplate x:Key="ParameterDefault">
+        <DataTemplate x:Key="ParameterBinding">
             <Border BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,10">
                 <StackPanel>
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}" Margin="6,0,0,4" AutomationProperties.Name="Remove parameter default" />
                         <Label Content="Parameter key" Target="{Binding ElementName=DefaultKeyInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,4,0,4" />
                     </DockPanel>
-                    <ComboBox x:Name="DefaultKeyInput" IsEditable="True" IsTextSearchEnabled="False" ItemsSource="{x:Static vm:WorkspaceParameterDefault.KnownKeys}"
+                    <ComboBox x:Name="DefaultKeyInput" IsEditable="True" IsTextSearchEnabled="False" ItemsSource="{x:Static vm:WorkspaceParameterBinding.KnownKeys}"
                               Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Default parameter key" />
                     <Label Content="Value type" Target="{Binding ElementName=DefaultTypeInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,10,0,4" />
-                    <ComboBox x:Name="DefaultTypeInput" ItemsSource="{x:Static vm:WorkspaceParameterDefault.ValueTypes}" DisplayMemberPath="Label" SelectedValuePath="Type"
+                    <ComboBox x:Name="DefaultTypeInput" ItemsSource="{x:Static vm:WorkspaceParameterBinding.ValueTypes}" DisplayMemberPath="Label" SelectedValuePath="Type"
                               SelectedValue="{Binding ValueType, Mode=TwoWay}" IsEnabled="{Binding IsCustomKey}" AutomationProperties.Name="Default parameter type" />
                     <TextBlock Text="{Binding TypeHint}" Style="{StaticResource Help}" />
                     <TextBlock Text="Default value" Margin="0,4,0,4" />
@@ -98,8 +116,16 @@
         <local:WorkspaceOverrideEditor x:Name="ResultsDatabaseOverrideEditor" DataContext="{Binding ResultsDatabaseOverride}" />
         <local:WorkspaceOverrideEditor x:Name="ExecuteFunctionOverrideEditor" DataContext="{Binding ExecuteFunctionOverride}" />
         <ContentControl x:Name="OutputTypesHeader" Content="{Binding OutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
-        <ItemsControl ItemsSource="{Binding OutputTypes}" ItemTemplate="{StaticResource OutputChoice}" Visibility="{Binding OutputTypesOverride.IsOverridden, Converter={StaticResource VisibleWhen}}" />
-        <TextBlock Text="{Binding OutputTypesSummary}" TextWrapping="Wrap" Visibility="{Binding OutputTypesOverride.IsInherited, Converter={StaticResource VisibleWhen}}" />
+        <StackPanel Visibility="{Binding OutputTypesOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
+            <TextBlock Text="Each row pairs a data type with free-form text. Spaces, line breaks, and empty strings are preserved." Style="{StaticResource Help}" />
+            <ItemsControl x:Name="OutputTypesList" ItemsSource="{Binding OutputTypes}" ItemTemplate="{StaticResource DataTypeEntry}" />
+            <Button x:Name="AddOutputTypeButton" Content="Add output type" Command="{Binding AddOutputTypeCommand}" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Visibility="{Binding OutputTypesOverride.IsInherited, Converter={StaticResource VisibleWhen}}">
+            <ItemsControl ItemsSource="{Binding InheritedOutputTypes}" ItemTemplate="{StaticResource InheritedDataType}" />
+            <TextBlock Text="{Binding OutputTypesSummary}" />
+        </StackPanel>
+        <TextBlock Text="{Binding OutputTypesError}" Style="{StaticResource InlineError}" />
         <ContentControl Content="{Binding OutputQueryKeysOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
         <StackPanel Visibility="{Binding OutputQueryKeysOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Each key needs a default value or a matching execution span in every run." Style="{StaticResource Help}" />
@@ -111,7 +137,7 @@
         <ContentControl Content="{Binding OutputParameterDefaultsOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
         <StackPanel Visibility="{Binding OutputParameterDefaultsOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="One typed value per key, used by every run unless a run span replaces it." Style="{StaticResource Help}" />
-            <ItemsControl x:Name="OutputParameterDefaultsList" ItemsSource="{Binding OutputParameterDefaults}" ItemTemplate="{StaticResource ParameterDefault}" />
+            <ItemsControl x:Name="OutputParameterDefaultsList" ItemsSource="{Binding OutputParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
             <Button x:Name="AddOutputParameterDefaultButton" Content="Add default parameter" Command="{Binding AddOutputParameterDefaultCommand}" HorizontalAlignment="Left" />
         </StackPanel>
         <StackPanel Visibility="{Binding OutputParameterDefaultsOverride.IsInherited, Converter={StaticResource VisibleWhen}}">
@@ -136,8 +162,15 @@
             <local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" DataContext="{Binding SetupDatabaseOverride}" />
             <local:WorkspaceOverrideEditor x:Name="SetupFunctionOverrideEditor" DataContext="{Binding SetupFunctionOverride}" />
             <ContentControl Content="{Binding SetupOutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
-            <ItemsControl ItemsSource="{Binding SetupOutputTypes}" ItemTemplate="{StaticResource OutputChoice}" Visibility="{Binding SetupOutputTypesOverride.IsOverridden, Converter={StaticResource VisibleWhen}}" />
-            <TextBlock Text="{Binding SetupOutputTypesSummary}" TextWrapping="Wrap" Visibility="{Binding SetupOutputTypesOverride.IsInherited, Converter={StaticResource VisibleWhen}}" />
+            <StackPanel Visibility="{Binding SetupOutputTypesOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
+                <ItemsControl x:Name="SetupOutputTypesList" ItemsSource="{Binding SetupOutputTypes}" ItemTemplate="{StaticResource DataTypeEntry}" />
+                <Button x:Name="AddSetupOutputTypeButton" Content="Add setup output type" Command="{Binding AddSetupOutputTypeCommand}" HorizontalAlignment="Left" />
+            </StackPanel>
+            <StackPanel Visibility="{Binding SetupOutputTypesOverride.IsInherited, Converter={StaticResource VisibleWhen}}">
+                <ItemsControl ItemsSource="{Binding InheritedSetupOutputTypes}" ItemTemplate="{StaticResource InheritedDataType}" />
+                <TextBlock Text="{Binding SetupOutputTypesSummary}" />
+            </StackPanel>
+            <TextBlock Text="{Binding SetupOutputTypesError}" Style="{StaticResource InlineError}" />
             <ContentControl Content="{Binding SetupQueryKeysOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
             <StackPanel Visibility="{Binding SetupQueryKeysOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="Each key needs a default value or a matching setup span in every run." Style="{StaticResource Help}" />
@@ -149,7 +182,7 @@
             <ContentControl Content="{Binding SetupParameterDefaultsOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
             <StackPanel Visibility="{Binding SetupParameterDefaultsOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="Defaults for the setup function, independent of execution defaults." Style="{StaticResource Help}" />
-                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding SetupParameterDefaults}" ItemTemplate="{StaticResource ParameterDefault}" />
+                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding SetupParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
                 <Button Content="Add default parameter" Command="{Binding AddSetupParameterDefaultCommand}" HorizontalAlignment="Left" />
             </StackPanel>
             <StackPanel Visibility="{Binding SetupParameterDefaultsOverride.IsInherited, Converter={StaticResource VisibleWhen}}">

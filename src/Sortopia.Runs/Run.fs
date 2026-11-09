@@ -24,9 +24,9 @@ type rootProjectConfig = {
     Description: string
     ResultsDatabaseName: string<resultsDatabaseName>
     ExecuteFunctionName: string<executeFunctionName>
-    OutputDataTypes: outputDataType list
+    OutputDataTypes: sortopiaDataType list
     OutputQueryParameterKeys: string<paramKeyName> list
-    OutputParameterDefaults: parameterDefault list
+    OutputParameterDefaults: parameterBinding list
 }
 
 /// Shared setup and execution settings, owned by a branch project.
@@ -34,14 +34,14 @@ type branchProjectConfig = {
     Description: string
     ResultsDatabaseName: string<resultsDatabaseName>
     ExecuteFunctionName: string<executeFunctionName>
-    OutputDataTypes: outputDataType list
+    OutputDataTypes: sortopiaDataType list
     OutputQueryParameterKeys: string<paramKeyName> list
-    OutputParameterDefaults: parameterDefault list
+    OutputParameterDefaults: parameterBinding list
     SetupDatabaseName: string<setupDatabaseName>
     SetupFunctionName: string<setupFunctionName>
-    SetupOutputDataTypes: outputDataType list
+    SetupOutputDataTypes: sortopiaDataType list
     SetupQueryParameterKeys: string<paramKeyName> list
-    SetupParameterDefaults: parameterDefault list
+    SetupParameterDefaults: parameterBinding list
 }
 
 type projectConfiguration =
@@ -64,10 +64,9 @@ module ProjectConfiguration =
         if isNull (box values) then nullArg argument
         for value in values do name argument (UMX.untag value)
         if (Set.ofList values).Count <> values.Length then invalidArg argument "Query parameter keys must be unique."
-    let private outputs argument (values: outputDataType list) =
+    let private outputs argument (values: sortopiaDataType list) =
         if isNull (box values) then nullArg argument
-        if values |> List.exists (fun value -> not (System.Enum.IsDefined(typeof<outputDataType>, value))) then
-            invalidArg argument "Unknown output data type."
+        values |> List.iter SortopiaDataType.validate
         if (Set.ofList values).Count <> values.Length then invalidArg argument "Output data types must be unique."
     let validateRoot (value: rootProjectConfig) =
         if isNull value.Description then nullArg "description"
@@ -75,7 +74,7 @@ module ProjectConfiguration =
         name "executeFunctionName" (UMX.untag value.ExecuteFunctionName)
         outputs "outputDataTypes" value.OutputDataTypes
         keys "outputQueryParameterKeys" value.OutputQueryParameterKeys
-        ParameterDefault.validate value.OutputParameterDefaults
+        ParameterBinding.validateUnique value.OutputParameterDefaults
     let validateBranch (value: branchProjectConfig) =
         validateRoot { Description = value.Description; ResultsDatabaseName = value.ResultsDatabaseName
                        ExecuteFunctionName = value.ExecuteFunctionName; OutputDataTypes = value.OutputDataTypes
@@ -84,7 +83,7 @@ module ProjectConfiguration =
         name "setupFunctionName" (UMX.untag value.SetupFunctionName)
         outputs "setupOutputDataTypes" value.SetupOutputDataTypes
         keys "setupQueryParameterKeys" value.SetupQueryParameterKeys
-        ParameterDefault.validate value.SetupParameterDefaults
+        ParameterBinding.validateUnique value.SetupParameterDefaults
 
 module private RunConfiguration =
     let identity (id: Guid<runId>) (projectName: string<projectName>) (runName: string<runName>) =
@@ -210,7 +209,7 @@ type queryParams =
     private {
         databaseName: string<databaseName>
         projectName: string<projectName>
-        outputDataType: outputDataType
+        outputDataType: sortopiaDataType
         properties: Map<string<paramKeyName>, string>
         id: Guid<queryParamsId>
     }
@@ -224,7 +223,7 @@ type queryParams =
 module QueryParams =
     let private create database project outputType (keys: string<paramKeyName> list) (parameters: parameterSet) =
         let property key =
-            match parameters.TryFind(key: string<paramKeyName>) with
+            match parameters.TryFindText(key: string<paramKeyName>) with
             | Some value -> key, value
             | None -> invalidArg "parameters" $"Query for '{outputType}' requires parameter '{key}'."
 
@@ -236,7 +235,8 @@ module QueryParams =
                 // GeneSort reserves these positions for optional replica and generation.
                 yield box false
                 yield box false
-                yield box (string outputType)
+                yield box (SortopiaDataType.kindName outputType)
+                yield box (SortopiaDataType.text outputType)
                 yield box properties.Count
                 // F# maps enumerate in ascending key order.
                 for KeyValue(key, value) in properties do

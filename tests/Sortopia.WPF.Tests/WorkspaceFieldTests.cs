@@ -28,14 +28,14 @@ public sealed class WorkspaceFieldTests : IDisposable
         fields.Description = "Shared description";
         fields.ResultsDatabaseName = "Results";
         fields.ExecuteFunctionName = "Evaluate";
-        fields.OutputTypes.Single(choice => choice.Value == outputDataType.SorterSetEval).IsSelected = true;
+        fields.AddOutputTypeCommand.Execute(null);
         fields.AddOutputQueryKeyCommand.Execute(null);
         fields.OutputQueryKeys.Single().Text = "Seed";
         if (branch)
         {
             fields.SetupDatabaseName = "Setup";
             fields.SetupFunctionName = "Generate";
-            fields.SetupOutputTypes.Single(choice => choice.Value == outputDataType.SorterModelSet).IsSelected = true;
+            fields.AddSetupOutputTypeCommand.Execute(null);
             fields.AddSetupQueryKeyCommand.Execute(null);
             fields.SetupQueryKeys.Single().Text = "Width";
         }
@@ -84,11 +84,11 @@ public sealed class WorkspaceFieldTests : IDisposable
         Assert.Equal(new[] { "7,11", " padded value ", "", "α", "first line\nsecond line" }, saved.ParameterSpans.Single().Values);
         Assert.Equal("Shared description", saved.Description);
         Assert.Null(RunDto.fromDomain(saved).description);
-        Assert.Equal(new[] { outputDataType.SorterSetEval }, parent.OutputDataTypes);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval("") }, parent.OutputDataTypes);
         var reopened = Open().Roots[0].Children[0].Children[0].Children[0].Editor!;
         Assert.True(reopened.DescriptionOverride.IsInherited);
         Assert.Equal("Inherited from Project defaults", reopened.DescriptionOverride.SourceLabel);
-        Assert.Equal("Sorter set evaluations", reopened.OutputTypesSummary);
+        Assert.Equal("SorterSetEval", Assert.Single(reopened.InheritedOutputTypes).kind);
         if (branch)
         {
             Assert.True(reopened.SetupDatabaseOverride.IsInherited);
@@ -189,14 +189,15 @@ public sealed class WorkspaceFieldTests : IDisposable
     public async Task Output_selections_preserve_order_and_can_be_removed_after_reopening()
     {
         var page = Open(); var parent = CreateProject(page, false);
-        parent.Editor!.OutputTypes.Single(choice => choice.Value == outputDataType.SorterModelSet).IsSelected = true;
+        parent.Editor!.AddOutputTypeCommand.Execute(null);
+        parent.Editor.OutputTypes.Last().Kind = "SorterModelSet";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        Assert.Equal(new[] { outputDataType.SorterSetEval, outputDataType.SorterModelSet }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].OutputDataTypes);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval(""), sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].OutputDataTypes);
         var reopened = Open();
         var fields = reopened.Roots[0].Children[0].Children[0].Editor!;
-        fields.OutputTypes.Single(choice => choice.Value == outputDataType.SorterSetEval).IsSelected = false;
+        fields.OutputTypes.Single(choice => choice.Kind == "SorterSetEval").RemoveCommand.Execute(null);
         await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
-        Assert.Equal(new[] { outputDataType.SorterModelSet }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].OutputDataTypes);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].OutputDataTypes);
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

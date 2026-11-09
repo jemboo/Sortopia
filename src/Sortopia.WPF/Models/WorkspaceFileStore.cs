@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using WorkspaceModule = Sortopia.Workspaces.@module;
+using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.Models;
 

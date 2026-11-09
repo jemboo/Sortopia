@@ -7,7 +7,7 @@ using Sortopia.WPF.Models;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.@module;
+using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.Tests;
 
@@ -41,8 +41,8 @@ public sealed class WorkspaceFamilyTests : IDisposable
         WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var restored = WorkspaceFileStore.LoadDefinition(Root);
         Assert.Equal(WorkspaceCodec.encodeWorkspace(value), WorkspaceCodec.encodeWorkspace(restored));
-        Assert.True(restored.Modules[0].IsRootModule);
-        Assert.True(restored.Modules[1].IsBranchModule);
+        Assert.True(restored.Modules[0].IsRoot);
+        Assert.True(restored.Modules[1].IsBranch);
         foreach (var module in restored.Modules)
         {
             Assert.Equal(module.Kind, module.Modules.Single().Kind);

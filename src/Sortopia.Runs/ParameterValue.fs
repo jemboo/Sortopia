@@ -11,7 +11,7 @@ type parameterValueType =
     | Boolean = 4
     | Guid = 5
 
-/// Typed defaults are formatted only at the parameter-set boundary.
+/// A typed parameter value, independent of its key or role in a run.
 type parameterValue =
     | TextValue of string
     | IntegerValue of int
@@ -53,6 +53,42 @@ module ParameterValue =
         | parameterValueType.Boolean -> "Choose True or False."
         | parameterValueType.Guid -> "GUID, for example 01234567-89ab-cdef-0123-456789abcdef."
         | _ -> "Choose a supported parameter type."
+
+    /// Validate the typed value without formatting or reparsing it.
+    let validate value =
+        if isNull (box value) then nullArg "value"
+        match value with
+        | TextValue text when isNull text -> invalidArg "value" (hint parameterValueType.Text)
+        | FloatingValue number when not (Double.IsFinite number) -> invalidArg "value" (hint parameterValueType.Floating)
+        | _ -> ()
+
+    /// Preserve a supported CLR value directly in the corresponding union case.
+    let fromTyped (value: 'value) =
+        let boxed = box value
+        let result =
+            match typeFor typeof<'value> with
+            | parameterValueType.Text -> TextValue (unbox<string> boxed)
+            | parameterValueType.Integer -> IntegerValue (unbox<int> boxed)
+            | parameterValueType.Unsigned64 -> Unsigned64Value (unbox<uint64> boxed)
+            | parameterValueType.Floating -> FloatingValue (unbox<float> boxed)
+            | parameterValueType.Boolean -> BooleanValue (unbox<bool> boxed)
+            | parameterValueType.Guid -> GuidValue (unbox<Guid> boxed)
+            | _ -> invalidArg "value" "Unsupported parameter type."
+        validate result
+        result
+
+    /// Read the stored CLR value only when its type matches exactly; no conversion is attempted.
+    let tryGet<'value> value : 'value option =
+        let boxed =
+            match value with
+            | TextValue value -> box value
+            | IntegerValue value -> box value
+            | Unsigned64Value value -> box value
+            | FloatingValue value -> box value
+            | BooleanValue value -> box value
+            | GuidValue value -> box value
+        if not (isNull boxed) && boxed.GetType() = typeof<'value> then Some (unbox<'value> boxed) else None
+
     let private parsed wrap (success, value) = if success then Some (wrap value) else None
     let tryParse kind (text: string) =
         if isNull text then None

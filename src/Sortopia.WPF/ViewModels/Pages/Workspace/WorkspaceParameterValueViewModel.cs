@@ -35,14 +35,14 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     internal void RefreshType() => OnPropertyChanged("");
 }
 
-public sealed class WorkspaceParameterDefault : WorkspaceFormItem
+public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 {
     private string key;
     private parameterValueType customType;
     public static string[] KnownKeys { get; } = ParamKeys.all.Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
     public static WorkspaceParameterTypeChoice[] ValueTypes { get; } = Enum.GetValues<parameterValueType>()
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
-    public WorkspaceParameterDefault(string key, parameterValueType type, string value, Action<WorkspaceParameterDefault> remove)
+    public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove)
     {
         this.key = key; customType = type;
         Value = new(value, () => ValueType);
@@ -63,7 +63,7 @@ public sealed class WorkspaceParameterDefault : WorkspaceFormItem
     public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Enter a parameter key." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
     private void RowChanged() { Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
-    internal parameterDefaultDto ToDto() => new() { keyName = Key, valueType = (int)ValueType, value = Value.Text };
+    internal parameterBindingDto ToDto() => new() { keyName = Key, valueType = (int)ValueType, value = Value.Text };
 }
 
-public sealed record WorkspaceParameterDefaultPreview(string Key, string TypeLabel, string Value, string Usage);
+public sealed record WorkspaceParameterBindingPreview(string Key, string TypeLabel, string Value, string Usage);

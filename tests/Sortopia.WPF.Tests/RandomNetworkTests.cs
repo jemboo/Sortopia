@@ -2398,6 +2398,28 @@ public sealed class RandomNetworkTests
             Assert.Equal(branchModule.Editor.Description, vm.Selected.Editor.Description);
             RenderWorkspaceState("branch-project-defaults");
             var branchProject = vm.Selected;
+            var outputTypeList = (ItemsControl)fields.FindName("OutputTypesList");
+            var outputTypeRow = (ContentPresenter)outputTypeList.ItemContainerGenerator.ContainerFromIndex(0);
+            var outputKindInput = (ComboBox)outputTypeList.ItemTemplate.FindName("DataTypeKindInput", outputTypeRow);
+            var outputTextInput = (TextBox)outputTypeList.ItemTemplate.FindName("DataTypeTextInput", outputTypeRow);
+            Assert.Equal(10, outputKindInput.Items.Count);
+            Assert.Equal("SorterSetEval", outputKindInput.SelectedItem);
+            Assert.True(outputTextInput.AcceptsReturn);
+            outputTextInput.SetCurrentValue(TextBox.TextProperty, " α, execution output\nsecond line ");
+            Assert.Equal(" α, execution output\nsecond line ", branchProject!.Editor!.OutputTypes[0].Text);
+            ((Button)fields.FindName("AddOutputTypeButton")).Command.Execute(null);
+            LayoutWorkspace();
+            var reportRow = (ContentPresenter)outputTypeList.ItemContainerGenerator.ContainerFromIndex(1);
+            ((ComboBox)outputTypeList.ItemTemplate.FindName("DataTypeKindInput", reportRow)).SetCurrentValue(ComboBox.SelectedItemProperty, "TextReport");
+            ((TextBox)outputTypeList.ItemTemplate.FindName("DataTypeTextInput", reportRow)).SetCurrentValue(TextBox.TextProperty, "Free-form report notes");
+            Assert.Equal("TextReport", branchProject.Editor.OutputTypes[1].Kind);
+            Assert.True(save.IsEnabled);
+            var outputTypesViewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
+            outputTypesViewport.ScrollToVerticalOffset(outputTypesViewport.VerticalOffset + outputTypeList.TranslatePoint(new Point(0, 0), outputTypesViewport).Y);
+            RenderWorkspaceState("data-type-text");
+            RenderWorkspaceState("data-type-text-narrow", 640, 800);
+            Assert.Equal(0, outputTypesViewport.ScrollableWidth);
+            LayoutWorkspace();
             Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor AddTypedDefault(string key, parameterValueType type)
             {
                 ((Button)fields.FindName("AddOutputParameterDefaultButton")).Command.Execute(null);

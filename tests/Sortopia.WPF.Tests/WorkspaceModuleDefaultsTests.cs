@@ -7,7 +7,7 @@ using Sortopia.WPF.Models;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.@module;
+using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.Tests;
 
@@ -50,7 +50,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         top.localOverrides.description = "Changed at the top";
         top.localOverrides.resultsDatabaseName = "Shared results";
         top.localOverrides.executeFunctionName = "New evaluator";
-        top.localOverrides.outputDataTypes = [3, 4];
+        top.localOverrides.outputDataTypes = [new() { kind = "SorterModelSet", value = "" }, new() { kind = "SorterSetEval", value = "" }];
         var nested = top.modules[0];
         nested.localOverrides.description = "Nested description";
         nested.projects[0].localOverrides.description = "";
@@ -58,7 +58,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         {
             top.localOverrides.setupDatabaseName = "Shared setup";
             top.localOverrides.setupFunctionName = "New generator";
-            top.localOverrides.setupOutputDataTypes = [4, 3];
+            top.localOverrides.setupOutputDataTypes = [new() { kind = "SorterSetEval", value = "" }, new() { kind = "SorterModelSet", value = "" }];
             nested.localOverrides.setupFunctionName = "Nested generator";
             nested.projects[0].runs[0].setupDatabaseName = "Run setup";
         }
@@ -71,17 +71,17 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Equal("", run.Description);
         Assert.Equal("Shared results", run.ResultsDatabaseName);
         Assert.Equal("New evaluator", run.ExecuteFunctionName);
-        Assert.Equal(new[] { (outputDataType)3, (outputDataType)4 }, run.OutputDataTypes);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterModelSet(""), sortopiaDataType.NewSorterSetEval("") }, run.OutputDataTypes);
         Assert.Equal(new[] { "Seed" }, project.OutputQueryParameterKeys);
         Assert.Null(OverridesDto.fromDomain(project.LocalOverrides).executeFunctionName);
         Assert.Null(OverridesDto.fromDomain(savedModule.LocalOverrides).outputDataTypes);
         if (branch)
         {
-            var branchModule = ((WorkspaceModule.BranchModule)savedModule).Item;
+            var branchModule = ((WorkspaceModule.Branch)savedModule).Item;
             Assert.Equal("Shared setup", branchModule.SetupDatabaseName);
             Assert.Equal("Nested generator", run.SetupFunctionName.Value);
             Assert.Equal("Run setup", run.SetupDatabaseName.Value);
-            Assert.Equal(new[] { (outputDataType)4, (outputDataType)3 }, branchModule.SetupOutputDataTypes);
+            Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval(""), sortopiaDataType.NewSorterModelSet("") }, branchModule.SetupOutputDataTypes);
             Assert.Equal(new[] { "Width" }, branchModule.SetupQueryParameterKeys);
         }
         // Clearing local values exposes the current ancestor, never the old cached value.
@@ -144,8 +144,8 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         run.Editor.OutputParameters.Clear();
         Assert.Empty(page.Error);
         nested.Editor.OutputTypesOverride.IsOverridden = true;
-        Assert.True(nested.Editor.OutputTypes.Single(c => c.Value == outputDataType.SorterSetEval).IsSelected);
-        foreach (var choice in nested.Editor.OutputTypes) choice.IsSelected = false;
+        Assert.Equal("SorterSetEval", Assert.Single(nested.Editor.OutputTypes).Kind);
+        nested.Editor.OutputTypes.Clear();
         Assert.Equal("None", run.Editor.OutputTypesSummary);
         if (branch)
         {
@@ -153,7 +153,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
             Assert.Equal("Width", nested.Editor.SetupQueryKeys.Single().Text);
             nested.Editor.SetupQueryKeys.Clear(); run.Editor.SetupParameters.Clear();
             nested.Editor.SetupOutputTypesOverride.IsOverridden = true;
-            foreach (var choice in nested.Editor.SetupOutputTypes) choice.IsSelected = false;
+            nested.Editor.SetupOutputTypes.Clear();
             Assert.Empty(page.Error);
         }
         await page.SaveWorkspaceAsync();
@@ -178,7 +178,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         run.Editor.OutputParameters.Single().AddValueCommand.Execute(null);
         Assert.Empty(reopened.Error);
         nested.Editor.OutputTypesOverride.IsOverridden = false;
-        Assert.Equal("Sorter set evaluations", run.Editor.OutputTypesSummary);
+        Assert.Equal("SorterSetEval", Assert.Single(run.Editor.InheritedOutputTypes).kind);
         if (branch)
         {
             nested.Editor.SetupQueryKeysOverride.IsOverridden = false;
@@ -186,7 +186,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
             run.Editor.AddMissingSetupParametersCommand.Execute(null);
             run.Editor.SetupParameters.Single().AddValueCommand.Execute(null);
             nested.Editor.SetupOutputTypesOverride.IsOverridden = false;
-            Assert.Equal("Sorter model sets", run.Editor.SetupOutputTypesSummary);
+            Assert.Equal("SorterModelSet", Assert.Single(run.Editor.InheritedSetupOutputTypes).kind);
         }
         await reopened.SaveWorkspaceAsync();
         Assert.Empty(reopened.Error);

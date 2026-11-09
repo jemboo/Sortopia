@@ -5,7 +5,7 @@ using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Models;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.@module;
+using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.Tests;
 

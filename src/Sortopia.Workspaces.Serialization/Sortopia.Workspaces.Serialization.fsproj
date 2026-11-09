@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <Compile Include="ParameterBindingDto.fs" />
     <Compile Include="WorkspaceDto.fs" />
   </ItemGroup>
   <ItemGroup>

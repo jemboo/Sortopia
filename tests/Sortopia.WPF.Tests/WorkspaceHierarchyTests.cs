@@ -7,7 +7,7 @@ using Sortopia.WPF.Models;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.@module;
+using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.Tests;
 
@@ -20,9 +20,9 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     internal static projectSettingsDto ProjectSettings(bool branch = false) => new()
     {
         description = "Keep every setting: α", resultsDatabaseName = "Results", executeFunctionName = "Evaluate",
-        outputDataTypes = [4], outputQueryParameterKeys = ["Seed"], outputParameterDefaults = [], setupParameterDefaults = [],
+        outputDataTypes = [new() { kind = "SorterSetEval", value = "" }], outputQueryParameterKeys = ["Seed"], outputParameterDefaults = [], setupParameterDefaults = [],
         setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "Generate" : "",
-        setupOutputDataTypes = branch ? [3] : [], setupQueryParameterKeys = branch ? ["Width"] : []
+        setupOutputDataTypes = branch ? [new() { kind = "SorterModelSet", value = "" }] : [], setupQueryParameterKeys = branch ? ["Width"] : []
     };
     internal static project MakeProject(hierarchyKind kind, Guid id, string name, string folder, run[] runs) =>
         project.create(id, name, folder, ProjectDto.settingsToDomain(kind, ProjectSettings(kind == hierarchyKind.Branch)), runs);
@@ -41,7 +41,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     }
     internal static run MakeRun(string projectName, string name, bool branch = false) => FromRunDto(new runDto
     {
-        schemaVersion = 7, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", projectName = projectName, runName = name,
+        schemaVersion = 8, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", projectName = projectName, runName = name,
         description = null,
         outputParameterSpans = [new parameterSpanDto { keyName = "Seed", values = ["7", "11"] }],
         setupDatabaseName = null, setupFunctionName = null,
@@ -59,7 +59,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var original = MakeRun("Search", "Trial", branch);
         var renamed = WorkspaceRun.withNames("Search", "Trial: renamed", original);
         var bytes = WorkspaceCodec.encodeRun(renamed);
-        Assert.Equal(7, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
+        Assert.Equal(8, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
         Assert.Equal("Trial: renamed", DecodeRun(bytes).RunName);
         Assert.Equal(original.Id, DecodeRun(bytes).Id);
         Assert.Null(typeof(run).GetProperty("FolderName"));

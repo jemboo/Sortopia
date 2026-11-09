@@ -234,60 +234,61 @@ type branchModule =
         else branchModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
 
 /// A workspace can hold either family; each concrete module has homogeneous children.
-type ``module`` =
-    | RootModule of rootModule
-    | BranchModule of branchModule
-    member this.Kind = match this with RootModule _ -> hierarchyKind.Root | BranchModule _ -> hierarchyKind.Branch
-    member this.Id = match this with RootModule m -> m.Id | BranchModule m -> m.Id
-    member this.ModuleName = match this with RootModule m -> m.ModuleName | BranchModule m -> m.ModuleName
-    member this.FolderName = match this with RootModule m -> m.FolderName | BranchModule m -> m.FolderName
-    member this.Configuration = match this with RootModule m -> RootProjectConfig m.Configuration | BranchModule m -> BranchProjectConfig m.Configuration
-    member this.LocalOverrides = match this with RootModule m -> RootOverrides m.LocalOverrides | BranchModule m -> BranchOverrides m.LocalOverrides
-    member this.Description = match this with RootModule m -> m.Description | BranchModule m -> m.Description
-    member this.ResultsDatabaseName = match this with RootModule m -> m.ResultsDatabaseName | BranchModule m -> m.ResultsDatabaseName
-    member this.ExecuteFunctionName = match this with RootModule m -> m.ExecuteFunctionName | BranchModule m -> m.ExecuteFunctionName
-    member this.OutputDataTypes = match this with RootModule m -> m.OutputDataTypes | BranchModule m -> m.OutputDataTypes
-    member this.OutputQueryParameterKeys = match this with RootModule m -> m.OutputQueryParameterKeys | BranchModule m -> m.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = match this with RootModule m -> m.OutputParameterDefaults | BranchModule m -> m.OutputParameterDefaults
-    member this.Modules = match this with RootModule m -> m.Modules |> Array.map RootModule | BranchModule m -> m.Modules |> Array.map BranchModule
-    member this.Projects = match this with RootModule m -> m.Projects |> Array.map project.RootProject | BranchModule m -> m.Projects |> Array.map project.BranchProject
-    static member create kind id name folderName (modules: ``module`` array) (projects: project array) =
+[<RequireQualifiedAccess>]
+type workspaceModule =
+    | Root of rootModule
+    | Branch of branchModule
+    member this.Kind = match this with workspaceModule.Root _ -> hierarchyKind.Root | workspaceModule.Branch _ -> hierarchyKind.Branch
+    member this.Id = match this with workspaceModule.Root m -> m.Id | workspaceModule.Branch m -> m.Id
+    member this.ModuleName = match this with workspaceModule.Root m -> m.ModuleName | workspaceModule.Branch m -> m.ModuleName
+    member this.FolderName = match this with workspaceModule.Root m -> m.FolderName | workspaceModule.Branch m -> m.FolderName
+    member this.Configuration = match this with workspaceModule.Root m -> RootProjectConfig m.Configuration | workspaceModule.Branch m -> BranchProjectConfig m.Configuration
+    member this.LocalOverrides = match this with workspaceModule.Root m -> RootOverrides m.LocalOverrides | workspaceModule.Branch m -> BranchOverrides m.LocalOverrides
+    member this.Description = match this with workspaceModule.Root m -> m.Description | workspaceModule.Branch m -> m.Description
+    member this.ResultsDatabaseName = match this with workspaceModule.Root m -> m.ResultsDatabaseName | workspaceModule.Branch m -> m.ResultsDatabaseName
+    member this.ExecuteFunctionName = match this with workspaceModule.Root m -> m.ExecuteFunctionName | workspaceModule.Branch m -> m.ExecuteFunctionName
+    member this.OutputDataTypes = match this with workspaceModule.Root m -> m.OutputDataTypes | workspaceModule.Branch m -> m.OutputDataTypes
+    member this.OutputQueryParameterKeys = match this with workspaceModule.Root m -> m.OutputQueryParameterKeys | workspaceModule.Branch m -> m.OutputQueryParameterKeys
+    member this.OutputParameterDefaults = match this with workspaceModule.Root m -> m.OutputParameterDefaults | workspaceModule.Branch m -> m.OutputParameterDefaults
+    member this.Modules = match this with workspaceModule.Root m -> m.Modules |> Array.map workspaceModule.Root | workspaceModule.Branch m -> m.Modules |> Array.map workspaceModule.Branch
+    member this.Projects = match this with workspaceModule.Root m -> m.Projects |> Array.map project.RootProject | workspaceModule.Branch m -> m.Projects |> Array.map project.BranchProject
+    static member create kind id name folderName (modules: workspaceModule array) (projects: project array) =
         if isNull modules then nullArg "modules"
         if isNull projects then nullArg "projects"
         match kind with
         | hierarchyKind.Root ->
-            let children = modules |> Array.map (function RootModule m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
+            let children = modules |> Array.map (function workspaceModule.Root m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
             let leaves = projects |> Array.map (function project.RootProject p -> p | _ -> invalidArg "projects" "A root module can only contain root projects.")
-            rootModule.create id name folderName children leaves |> RootModule
+            rootModule.create id name folderName children leaves |> workspaceModule.Root
         | hierarchyKind.Branch ->
-            let children = modules |> Array.map (function BranchModule m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
+            let children = modules |> Array.map (function workspaceModule.Branch m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
             let leaves = projects |> Array.map (function project.BranchProject p -> p | _ -> invalidArg "projects" "A branch module can only contain branch projects.")
-            branchModule.create id name folderName children leaves |> BranchModule
+            branchModule.create id name folderName children leaves |> workspaceModule.Branch
         | _ -> invalidArg "kind" "Module kind must be root or branch."
 
-    static member createInherited id name folderName parent local (modules: ``module`` array) (projects: project array) =
+    static member createInherited id name folderName parent local (modules: workspaceModule array) (projects: project array) =
         if isNull modules then nullArg "modules"
         if isNull projects then nullArg "projects"
         match parent, local with
         | RootProjectConfig p, RootOverrides l ->
-            let children = modules |> Array.map (function RootModule m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
+            let children = modules |> Array.map (function workspaceModule.Root m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
             let leaves = projects |> Array.map (function project.RootProject x -> x | _ -> invalidArg "projects" "A root module can only contain root projects.")
-            rootModule.createInherited id name folderName p l children leaves |> RootModule
+            rootModule.createInherited id name folderName p l children leaves |> workspaceModule.Root
         | BranchProjectConfig p, BranchOverrides l ->
-            let children = modules |> Array.map (function BranchModule m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
+            let children = modules |> Array.map (function workspaceModule.Branch m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
             let leaves = projects |> Array.map (function project.BranchProject x -> x | _ -> invalidArg "projects" "A branch module can only contain branch projects.")
-            branchModule.createInherited id name folderName p l children leaves |> BranchModule
+            branchModule.createInherited id name folderName p l children leaves |> workspaceModule.Branch
         | _ -> invalidArg "local" "Module defaults must match the parent's root/branch type."
-    static member rebind parent (value: ``module``) =
-        ``module``.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
+    static member rebind parent (value: workspaceModule) =
+        workspaceModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
 
 type workspace =
-    private { id: Guid<workspaceId>; workspaceName: string<workspaceName>; folderName: string; modules: ``module`` array }
+    private { id: Guid<workspaceId>; workspaceName: string<workspaceName>; folderName: string; modules: workspaceModule array }
     member this.Id = this.id
     member this.WorkspaceName = this.workspaceName
     member this.FolderName = this.folderName
     member this.Modules = Array.copy this.modules
-    static member create (id: Guid<workspaceId>) (name: string<workspaceName>) (folderName: string) (modules: ``module`` array) =
+    static member create (id: Guid<workspaceId>) (name: string<workspaceName>) (folderName: string) (modules: workspaceModule array) =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
@@ -295,4 +296,4 @@ type workspace =
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         FolderName.unique "modules" (modules |> Seq.map (fun m -> m.FolderName))
         { id = id; workspaceName = name; folderName = folderName
-          modules = modules |> Array.map (fun m -> ``module``.rebind (Defaults.configuration (m.Kind = hierarchyKind.Branch)) m) }
+          modules = modules |> Array.map (fun m -> workspaceModule.rebind (Defaults.configuration (m.Kind = hierarchyKind.Branch)) m) }

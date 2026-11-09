@@ -8,9 +8,9 @@ type rootDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
     ExecuteFunctionName: string<executeFunctionName> option
-    OutputDataTypes: outputDataType list option
+    OutputDataTypes: sortopiaDataType list option
     OutputQueryParameterKeys: string<paramKeyName> list option
-    OutputParameterDefaults: parameterDefault list option
+    OutputParameterDefaults: parameterBinding list option
 }
 
 /// None inherits; Some (including an empty list or description) is a local value.
@@ -18,14 +18,14 @@ type branchDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
     ExecuteFunctionName: string<executeFunctionName> option
-    OutputDataTypes: outputDataType list option
+    OutputDataTypes: sortopiaDataType list option
     OutputQueryParameterKeys: string<paramKeyName> list option
-    OutputParameterDefaults: parameterDefault list option
+    OutputParameterDefaults: parameterBinding list option
     SetupDatabaseName: string<setupDatabaseName> option
     SetupFunctionName: string<setupFunctionName> option
-    SetupOutputDataTypes: outputDataType list option
+    SetupOutputDataTypes: sortopiaDataType list option
     SetupQueryParameterKeys: string<paramKeyName> list option
-    SetupParameterDefaults: parameterDefault list option
+    SetupParameterDefaults: parameterBinding list option
 }
 
 type configurationOverrides =

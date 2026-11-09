@@ -9,7 +9,7 @@ using Sortopia.WPF.Models;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.@module;
+using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.Tests;
 
@@ -119,20 +119,20 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     public void Shared_setup_query_keys_apply_to_each_setup_output_type()
     {
         var dto = ProjectDto.fromDomain(Parent(true));
-        dto.localOverrides.setupOutputDataTypes = [3, 4];
+        dto.localOverrides.setupOutputDataTypes = [new() { kind = "SorterModelSet", value = "" }, new() { kind = "SorterSetEval", value = "" }];
         var parent = ProjectDto.toDomain(dto);
         var inputs = Inputs(parent);
         inputs.setupDatabaseName = "Run setup";
         var run = ((run.BranchRun)RunDto.toDomain(parent, inputs)).Item;
         var parameters = BranchRun.makeSetupParameterSets(run).First();
-        var first = QueryParams.forSetup(run, (outputDataType)3, parameters);
-        var second = QueryParams.forSetup(run, (outputDataType)4, parameters);
+        var first = QueryParams.forSetup(run, sortopiaDataType.NewSorterModelSet(""), parameters);
+        var second = QueryParams.forSetup(run, sortopiaDataType.NewSorterSetEval(""), parameters);
         Assert.Equal("Run setup", first.DatabaseName);
         Assert.Equal("Width", first.Properties.Single().Key);
         Assert.Equal("8", first.Properties.Single().Value);
         Assert.Equal(first.Properties, second.Properties);
         Assert.NotEqual(first.Id, second.Id);
-        var result = QueryParams.forResults(Sortopia.Runs.run.NewBranchRun(run), (outputDataType)4, BranchRun.makeParameterSets(run).First());
+        var result = QueryParams.forResults(Sortopia.Runs.run.NewBranchRun(run), sortopiaDataType.NewSorterSetEval(""), BranchRun.makeParameterSets(run).First());
         Assert.Equal("Results", result.DatabaseName);
         Assert.Equal("Seed", result.Properties.Single().Key);
     }
