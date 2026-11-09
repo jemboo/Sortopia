@@ -37,14 +37,16 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
 
 public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 {
+    private readonly Func<string, WorkspaceParameterValueSource>? source;
     private string key;
     private parameterValueType customType;
     public static string[] KnownKeys { get; } = ParamKeys.all.Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
     public static WorkspaceParameterTypeChoice[] ValueTypes { get; } = Enum.GetValues<parameterValueType>()
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
-    public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove)
+    public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
+        Func<string, WorkspaceParameterValueSource>? source = null)
     {
-        this.key = key; customType = type;
+        this.key = key; customType = type; this.source = source;
         Value = new(value, () => ValueType);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => remove(this));
@@ -59,11 +61,22 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     }
     public string TypeHint => IsCustomKey ? "Choose the type for this custom key." : "Type defined by this parameter key.";
     public WorkspaceTypedValue Value { get; }
+    public WorkspaceParameterValueSource? Source => source?.Invoke(Key);
     public RelayCommand RemoveCommand { get; }
     public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Enter a parameter key." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
     private void RowChanged() { Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
+    internal void RefreshSource() => OnPropertyChanged(nameof(Source));
     internal parameterBindingDto ToDto() => new() { keyName = Key, valueType = (int)ValueType, value = Value.Text };
 }
 
-public sealed record WorkspaceParameterBindingPreview(string Key, string TypeLabel, string Value, string Usage);
+public sealed record WorkspaceParameterValueSource(string SourceLabel, WorkspaceConfigurationViewModel? InheritedSource, bool IsOverridden = false)
+{
+    public bool HasInheritedSource => InheritedSource is not null;
+}
+
+public sealed record WorkspaceParameterBindingPreview(string Key, string TypeLabel, string Value, string Usage,
+    WorkspaceParameterValueSource Source, RelayCommand? OverrideCommand)
+{
+    public bool CanOverride => OverrideCommand is not null;
+}

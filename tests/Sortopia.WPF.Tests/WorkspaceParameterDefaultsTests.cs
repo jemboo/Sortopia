@@ -21,21 +21,16 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     private static project Parent(bool branch, parameterBindingDto[] defaults, parameterBindingDto[]? setup = null)
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
-        settings.outputParameterDefaults = defaults;
+        settings.resultsParameterDefaults = defaults;
         settings.setupParameterDefaults = setup ?? [];
-        return project.create(Guid.NewGuid(), "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        return project.create(WorkspaceTestFiles.Id("parameter-defaults-project"), "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
     private static runDto Inputs(bool branch, parameterSpanDto[]? spans = null, parameterSpanDto[]? setup = null) => new()
     {
-        schemaVersion = 8, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", projectName = "Project", runName = "Run",
-        outputParameterSpans = spans ?? [], setupParameterSpans = setup ?? []
+        schemaVersion = 9, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
+        resultsParameterSpans = spans ?? [], setupParameterSpans = setup ?? []
     };
-    private static parameterSet[] Sets(run value) => value switch
-    {
-        run.RootRun root => RootRun.makeParameterSets(root.Item),
-        run.BranchRun branch => BranchRun.makeParameterSets(branch.Item),
-        _ => throw new InvalidOperationException()
-    };
+    private static parameterSet[] Sets(run value) => RunParameterSets.create(value).Results;
     private WorkspacePageViewModel Open()
     {
         Directory.CreateDirectory(Root);
@@ -51,8 +46,10 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var parent = Parent(branch, [Default("Seed", parameterValueType.Integer, "7"), Default("ChannelCount", parameterValueType.Integer, "8"),
             Default("Message", parameterValueType.Text, " α, fixed\nvalue ")], branch ? [Default("Width", parameterValueType.Integer, "12")] : []);
         var run = RunDto.toDomain(parent, Inputs(branch, [Span("Seed", "11", "13"), Span("ChannelCount", "4", "6", "8")]));
-        Assert.Equal("7", run.OutputParameterDefaults.Single(value => value.KeyName == "Seed").FormattedValue);
-        var sets = Sets(run);
+        Assert.Equal("7", run.ResultsParameterDefaults.Single(value => value.KeyName == "Seed").FormattedValue);
+        var expanded = RunParameterSets.create(run);
+        Assert.Equal(branch, expanded.Setup is not null);
+        var sets = expanded.Results;
         Assert.Equal(6, sets.Length);
         Assert.Equal(new[] { "11:4", "11:6", "11:8", "13:4", "13:6", "13:8" }, sets.Select(set => $"{set.TryFindText("Seed").Value}:{set.TryFindText("ChannelCount").Value}"));
         Assert.All(sets, set => Assert.Equal(" α, fixed\nvalue ", set.TryFindText("Message").Value));
@@ -61,11 +58,30 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal("7", Assert.Single(Sets(defaultsOnly)).TryFindText("Seed").Value);
         if (branch)
         {
-            var setup = Assert.Single(BranchRun.makeSetupParameterSets(((run.BranchRun)defaultsOnly).Item));
+            var setup = Assert.Single(RunParameterSets.create(defaultsOnly).Setup.Value);
             Assert.Equal("12", setup.TryFindText("Width").Value);
             Assert.Null(setup.TryFindText("Seed"));
             Assert.Null(sets[0].TryFindText("Width"));
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Runs_without_defaults_or_spans_have_one_empty_set_per_function(bool branch)
+    {
+        var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
+        settings.resultsQueryParameterKeys = [];
+        var parent = project.create(WorkspaceTestFiles.Id("parameter-defaults-project"), "Project", "Project",
+            SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        var expanded = RunParameterSets.create(RunDto.toDomain(parent, Inputs(branch)));
+        Assert.Empty(Assert.Single(expanded.Results).ParamMap);
+        if (branch)
+        {
+            Assert.Empty(Assert.Single(expanded.Setup.Value).ParamMap);
+            Assert.NotSame(expanded.Results, expanded.Setup.Value);
+        }
+        else Assert.Null(expanded.Setup);
     }
 
     [Fact]
@@ -143,11 +159,14 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         parent = project.create(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, [value]);
         var restored = WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent));
         var saved = ((run.BranchRun)restored.Runs[0]).Item;
-        Assert.Equal(2, BranchRun.makeParameterSets(saved).Length);
-        Assert.Equal(3, BranchRun.makeSetupParameterSets(saved).Length);
-        Assert.All(BranchRun.makeParameterSets(saved), set => Assert.Equal(8, set.TryFind(ParamKeys.channelCountKey).Value));
-        Assert.All(BranchRun.makeSetupParameterSets(saved), set => Assert.Equal(16, set.TryFind(ParamKeys.channelCountKey).Value));
-        Assert.Equal(parent.OutputParameterDefaults, restored.OutputParameterDefaults);
+        var expanded = RunParameterSets.create(restored.Runs[0]);
+        Assert.Equal(2, expanded.Results.Length);
+        Assert.Equal(3, expanded.Setup.Value.Length);
+        Assert.Equal(new[] { 5, 7 }, expanded.Results.Select(set => Assert.IsType<parameterValue.IntegerValue>(set.TryFind("Seed").Value.Value).Item));
+        Assert.Equal(new[] { 10, 12, 14 }, expanded.Setup.Value.Select(set => Assert.IsType<parameterValue.IntegerValue>(set.TryFind("Width").Value.Value).Item));
+        Assert.All(expanded.Results, set => { Assert.Equal(8, set.TryFind(ParamKeys.channelCountKey).Value); Assert.Null(set.TryFind("Width")); });
+        Assert.All(expanded.Setup.Value, set => { Assert.Equal(16, set.TryFind(ParamKeys.channelCountKey).Value); Assert.Null(set.TryFind("Seed")); });
+        Assert.Equal(parent.ResultsParameterDefaults, restored.ResultsParameterDefaults);
         Assert.Equal("4", saved.SetupParameterDefaults.Single(defaultValue => defaultValue.KeyName == "Width").FormattedValue);
         var dto = ProjectDto.fromDomain(restored);
         dto.localOverrides.setupParameterDefaults[0].value = "invalid integer";
@@ -162,7 +181,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var page = Open(); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var module = page.Selected!;
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
-        settings.outputParameterDefaults = [Default("Seed", parameterValueType.Integer, "7"), Default("ChannelCount", parameterValueType.Integer, "8")];
+        settings.resultsParameterDefaults = [Default("Seed", parameterValueType.Integer, "7"), Default("ChannelCount", parameterValueType.Integer, "8")];
         settings.setupParameterDefaults = branch ? [Default("Width", parameterValueType.Integer, "12")] : [];
         module.Editor!.LoadProject(settings);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
@@ -170,38 +189,39 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         page.AddRunCommand.Execute(null); var run = page.Selected!;
         Assert.Empty(page.Error);
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
-        Assert.False(run.Editor!.HasMissingOutputParameters);
-        Assert.Same(module.Editor, run.Editor.OutputParameterDefaultsOverride.InheritedSource);
-        run.Editor.AddOutputParameterCommand.Execute(null);
-        var span = run.Editor.OutputParameters.Single(); span.Key = "Seed"; span.Values.Single().Text = "wrong";
+        Assert.False(run.Editor!.HasMissingResultsParameters);
+        Assert.Same(module.Editor, run.Editor.ResultsParameterDefaultsOverride.InheritedSource);
+        run.Editor.AddResultsParameterCommand.Execute(null);
+        var span = run.Editor.ResultsParameters.Single(); span.Key = "Seed"; span.Values.Single().Text = "wrong";
         Assert.Equal(parameterValueType.Integer, span.ValueType);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         span.Values.Single().Text = "11";
         Assert.Equal("Overridden by run span", run.Editor.InheritedOutputDefaults.Single(value => value.Key == "Seed").Usage);
-        parent.Editor!.OutputParameterDefaultsOverride.IsOverridden = true;
-        parent.Editor.OutputParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "4";
-        module.Editor.OutputParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "16";
+        parent.Editor!.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").OverrideCommand!.Execute(null);
+        Assert.Single(parent.Editor.ResultsParameterDefaults);
+        parent.Editor.ResultsParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "4";
+        module.Editor.ResultsParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "16";
         Assert.Equal("4", run.Editor.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Value);
-        parent.Editor.OutputParameterDefaultsOverride.IsOverridden = false;
+        parent.Editor.ResultsParameterDefaults.Single().RemoveCommand.Execute(null);
         Assert.Equal("16", run.Editor.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Value);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var savedProject = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Projects[0];
-        Assert.Null(OverridesDto.fromDomain(savedProject.LocalOverrides).outputParameterDefaults);
+        Assert.Equal(2, OverridesDto.fromDomain(savedProject.LocalOverrides).resultsParameterDefaults.Length);
         var set = Assert.Single(Sets(savedProject.Runs[0]));
         Assert.Equal("11", set.TryFindText("Seed").Value);
         Assert.Equal(16, set.TryFind(ParamKeys.channelCountKey).Value);
         var reopened = Open();
         run = reopened.Roots[0].Children[0].Children[0].Children[0].Children[0];
-        Assert.Equal(parameterValueType.Integer, run.Editor!.OutputParameters[0].ValueType);
+        Assert.Equal(parameterValueType.Integer, run.Editor!.ResultsParameters[0].ValueType);
         Assert.Equal("16", run.Editor.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Value);
-        run.Editor.OutputParameters.Clear();
+        run.Editor.ResultsParameters.Clear();
         Assert.Empty(reopened.Error);
         parent = run.Parent!;
-        parent.Editor!.OutputParameterDefaultsOverride.IsOverridden = true;
-        parent.Editor.OutputParameterDefaults.Clear();
-        Assert.True(run.Editor.HasMissingOutputParameters);
-        Assert.False(reopened.SaveWorkspaceCommand.CanExecute(null));
-        parent.Editor.OutputParameterDefaultsOverride.IsOverridden = false;
+        parent.Editor!.ResultsParameterDefaultsOverride.IsOverridden = true;
+        parent.Editor.ResultsParameterDefaults.Clear();
+        Assert.False(run.Editor.HasMissingResultsParameters);
+        Assert.True(parent.IsSealed);
+        parent.Editor.ResultsParameterDefaultsOverride.IsOverridden = false;
         Assert.Empty(reopened.Error);
     }
 

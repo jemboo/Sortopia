@@ -61,7 +61,7 @@ public sealed class WorkspacePageTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Saved_workspace_and_descendant_names_can_be_edited_without_changing_folders_or_run_settings(bool branch)
+    public async Task Saved_workspace_module_and_run_names_can_change_but_sealed_project_identity_is_fixed(bool branch)
     {
         var folder = temp.CreateSubdirectory("Root").FullName;
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
@@ -106,13 +106,14 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Equal("Sorting: updated", saved.Modules.Single().ModuleName);
         Assert.Equal("sorters", saved.Modules.Single().FolderName);
         var project = saved.Modules.Single().Projects.Single();
-        Assert.Equal("Search: updated", project.ProjectName);
+        Assert.Equal("Search", project.ProjectName);
         Assert.Equal("search", project.FolderName);
-        Assert.Equal("Search: updated", project.Runs.Single().ProjectName);
+        Assert.Equal("Search", project.Runs.Single().ProjectName);
         Assert.Equal("Trial: renamed", project.Runs.Single().RunName);
         Assert.Equal(runId, project.Runs.Single().Id);
-        var expectedDto = Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search: updated", "Trial: renamed", branch));
+        var expectedDto = Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial: renamed", branch));
         expectedDto.id = runId;
+        expectedDto.parentProjectId = project.Id;
         var expectedRun = WorkspaceHierarchyTests.FromRunDto(expectedDto);
         Assert.Equal(Sortopia.Workspaces.Serialization.WorkspaceCodec.encodeRun(expectedRun),
             File.ReadAllBytes(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(runId))));
@@ -147,7 +148,7 @@ public sealed class WorkspacePageTests : IDisposable
         var second = page.Selected!;
         second.Name = "FIRST";
         second.FolderName = "another-trial";
-        second.Editor!.LoadRun(first.Editor!.ToRunInputs(second.Id, second.Name, parent.Name));
+        second.Editor!.LoadRun(first.Editor!.ToRunInputs(second.Id, second.Name, parent.Id));
         await page.SaveWorkspaceAsync();
         Assert.Contains("Duplicate name in runs", page.Error);
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "workspace")));

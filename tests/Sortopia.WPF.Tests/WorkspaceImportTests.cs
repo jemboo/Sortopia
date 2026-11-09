@@ -36,7 +36,7 @@ public sealed class WorkspaceImportTests : IDisposable
         var value = WorkspaceHierarchyTests.MakeProject(family, Guid.NewGuid(), name, Path.GetFileName(folder), [run]);
         Directory.CreateDirectory(Path.Combine(folder, "runs"));
         File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "project"), WorkspaceCodec.encodeProject(value));
-        File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)), WorkspaceCodec.encodeRun(run));
+        File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)), WorkspaceCodec.encodeRun(value.Runs[0]));
         File.WriteAllText(Path.Combine(folder, "results.txt"), "Keep results");
     }
     internal static void WriteModule(string folder, string name, hierarchyKind family = hierarchyKind.Root)

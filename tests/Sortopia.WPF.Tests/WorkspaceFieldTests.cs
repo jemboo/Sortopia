@@ -27,17 +27,15 @@ public sealed class WorkspaceFieldTests : IDisposable
         var fields = node.Editor!;
         fields.Description = "Shared description";
         fields.ResultsDatabaseName = "Results";
-        fields.ExecuteFunctionName = "Evaluate";
+        fields.ResultsFunctionName = "Evaluate";
         fields.AddOutputTypeCommand.Execute(null);
-        fields.AddOutputQueryKeyCommand.Execute(null);
-        fields.OutputQueryKeys.Single().Text = "Seed";
+        fields.AddResultsQueryKeyCommand.Execute(null);
+        fields.ResultsQueryKeys.Single().Text = "Seed";
         if (branch)
         {
             fields.SetupDatabaseName = "Setup";
             fields.SetupFunctionName = "Generate";
-            fields.AddSetupOutputTypeCommand.Execute(null);
-            fields.AddSetupQueryKeyCommand.Execute(null);
-            fields.SetupQueryKeys.Single().Text = "Width";
+            WorkspaceHierarchyTests.AddSetupSource(node);
         }
         Assert.Empty(page.Error);
         return node;
@@ -48,8 +46,8 @@ public sealed class WorkspaceFieldTests : IDisposable
         var node = page.Selected!;
         var fields = node.Editor!;
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
-        fields.AddMissingOutputParametersCommand.Execute(null);
-        var output = fields.OutputParameters.Single();
+        fields.AddMissingResultsParametersCommand.Execute(null);
+        var output = fields.ResultsParameters.Single();
         Assert.Equal("Seed", output.Key);
         Assert.Empty(output.Values);
         output.AddValueCommand.Execute(null);
@@ -73,7 +71,7 @@ public sealed class WorkspaceFieldTests : IDisposable
     {
         var page = Open(); CreateProject(page, branch);
         var run = CreateRun(page, branch);
-        var values = run.Editor!.OutputParameters.Single();
+        var values = run.Editor!.ResultsParameters.Single();
         values.Values[0].Text = "7,11";
         foreach (var value in new[] { " padded value ", "", "α", "first line\nsecond line" })
         { values.AddValueCommand.Execute(null); values.Values.Last().Text = value; }
@@ -81,10 +79,10 @@ public sealed class WorkspaceFieldTests : IDisposable
         Assert.Empty(page.Error);
         var parent = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0];
         var saved = parent.Runs.Single();
-        Assert.Equal(new[] { "7,11", " padded value ", "", "α", "first line\nsecond line" }, saved.ParameterSpans.Single().Values);
+        Assert.Equal(new[] { "7,11", " padded value ", "", "α", "first line\nsecond line" }, saved.ResultsParameterSpans.Single().Values);
         Assert.Equal("Shared description", saved.Description);
-        Assert.Null(RunDto.fromDomain(saved).description);
-        Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval("") }, parent.OutputDataTypes);
+        Assert.Null(RunDto.fromDomain(saved).descriptionOverride);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval("") }, parent.ResultsSortopiaDataTypes);
         var reopened = Open().Roots[0].Children[0].Children[0].Children[0].Editor!;
         Assert.True(reopened.DescriptionOverride.IsInherited);
         Assert.Equal("Inherited from Project defaults", reopened.DescriptionOverride.SourceLabel);
@@ -126,9 +124,9 @@ public sealed class WorkspaceFieldTests : IDisposable
         Assert.Equal("Updated setup", runFields.SetupDatabaseOverride.EffectiveValue);
         await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
         var savedInputs = RunDto.fromDomain(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0]);
-        Assert.Null(savedInputs.description);
-        Assert.Null(savedInputs.setupDatabaseName);
-        Assert.Null(savedInputs.setupFunctionName);
+        Assert.Null(savedInputs.descriptionOverride);
+        Assert.Null(savedInputs.setupDatabaseNameOverride);
+        Assert.Null(savedInputs.setupFunctionNameOverride);
     }
 
     [Fact]
@@ -159,30 +157,29 @@ public sealed class WorkspaceFieldTests : IDisposable
     public async Task Invalid_key_rows_and_missing_values_block_save_and_removal_restores_validity()
     {
         var page = Open(); var parent = CreateProject(page, false); var run = CreateRun(page, false);
-        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var file = WorkspaceDefinitionFiles.Require(Root, "workspace"); var before = File.ReadAllBytes(file);
-        parent = page.Roots[0].Children[0].Children[0]; run = parent.Children[0];
-        parent.Editor!.AddOutputQueryKeyCommand.Execute(null);
-        Assert.NotEmpty(parent.Editor.OutputQueryKeysError);
-        parent.Editor.OutputQueryKeys.Last().Text = "Seed";
-        Assert.Contains("unique", parent.Editor.OutputQueryKeysError);
+        parent.Editor!.AddResultsQueryKeyCommand.Execute(null);
+        Assert.NotEmpty(parent.Editor.ResultsQueryKeysError);
+        parent.Editor.ResultsQueryKeys.Last().Text = "Seed";
+        Assert.Contains("unique", parent.Editor.ResultsQueryKeysError);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
-        await page.SaveWorkspaceAsync(); Assert.Equal(before, File.ReadAllBytes(file));
-        parent.Editor.OutputQueryKeys.Last().RemoveCommand.Execute(null);
+        await page.SaveWorkspaceAsync(); Assert.Null(WorkspaceDefinitionFiles.Find(Root, "workspace"));
+        parent.Editor.ResultsQueryKeys.Last().RemoveCommand.Execute(null);
         Assert.Empty(page.Error);
-        run.Editor!.OutputParameters[0].Values[0].RemoveCommand.Execute(null);
-        Assert.Contains("at least one value", run.Editor.OutputParameters[0].Error);
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        parent = page.Roots[0].Children[0].Children[0]; run = parent.Children[0];
+        run.Editor!.ResultsParameters[0].Values[0].RemoveCommand.Execute(null);
+        Assert.Contains("at least one value", run.Editor.ResultsParameters[0].Error);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
-        run.Editor.OutputParameters[0].AddValueCommand.Execute(null);
+        run.Editor.ResultsParameters[0].AddValueCommand.Execute(null);
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null)); // An explicitly blank parameter value is valid.
-        run.Editor.AddOutputParameterCommand.Execute(null);
-        run.Editor.OutputParameters.Last().Key = "Seed";
-        Assert.Contains("unique", run.Editor.OutputParametersError);
-        run.Editor.OutputParameters.Last().RemoveCommand.Execute(null);
+        run.Editor.AddResultsParameterCommand.Execute(null);
+        run.Editor.ResultsParameters.Last().Key = "Seed";
+        Assert.Contains("unique", run.Editor.ResultsParametersError);
+        run.Editor.ResultsParameters.Last().RemoveCommand.Execute(null);
         Assert.Empty(page.Error);
         page.DiscardChangesCommand.Execute(null);
         Assert.False(page.HasUnsavedChanges);
-        Assert.Equal("7", page.Roots[0].Children[0].Children[0].Children[0].Editor!.OutputParameters[0].Values[0].Text);
+        Assert.Equal("7", page.Roots[0].Children[0].Children[0].Children[0].Editor!.ResultsParameters[0].Values[0].Text);
     }
 
     [Fact]
@@ -192,12 +189,12 @@ public sealed class WorkspaceFieldTests : IDisposable
         parent.Editor!.AddOutputTypeCommand.Execute(null);
         parent.Editor.OutputTypes.Last().Kind = "SorterModelSet";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval(""), sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].OutputDataTypes);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval(""), sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].ResultsSortopiaDataTypes);
         var reopened = Open();
         var fields = reopened.Roots[0].Children[0].Children[0].Editor!;
         fields.OutputTypes.Single(choice => choice.Kind == "SorterSetEval").RemoveCommand.Execute(null);
         await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
-        Assert.Equal(new[] { sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].OutputDataTypes);
+        Assert.Equal(new[] { sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].ResultsSortopiaDataTypes);
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

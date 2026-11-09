@@ -1,0 +1,153 @@
+using System.Diagnostics;
+using Microsoft.FSharp.Collections;
+using Sortopia.Functions;
+using Sortopia.Runs;
+using Sortopia.Sorting.Inputs;
+using Sortopia.WPF.Commands;
+
+namespace Sortopia.WPF.ViewModels.Pages.Workspace;
+
+public sealed partial class WorkspacePageViewModel
+{
+    private readonly Dictionary<Guid, WorkspaceRunExecution> executions = [];
+    public RelayCommand ExecuteRunCommand { get; }
+    public WorkspaceRunExecution? SelectedExecution
+    {
+        get
+        {
+            if (Selected?.IsRun != true) return null;
+            if (!executions.TryGetValue(Selected.Id, out var state))
+                executions[Selected.Id] = state = new WorkspaceRunExecution();
+            return state;
+        }
+    }
+
+    private run? SelectedSavedRun => Selected is { IsRun: true, Parent: not null }
+        && savedDefinition is not null && savedDefinition.ProjectIndex.TryGetValue(Selected.Parent.Id, out var project)
+        ? project.Runs.FirstOrDefault(value => value.Id == Selected.Id) : null;
+
+    public string ExecuteHint
+    {
+        get
+        {
+            if (Selected?.IsRun != true) return "Select a run to execute.";
+            if (IsBusy) return "Wait for the current operation, or cancel it below.";
+            if (HasEditErrors) return "Correct the input errors and save the workspace before executing.";
+            if (HasUnsavedChanges || SelectedSavedRun is null || !HasSavedWorkspace || HasMissingComponents)
+                return "Save the workspace before executing this run.";
+            var value = SelectedSavedRun!;
+            if (!FunctionCatalogs.resultsFunctionCatalog.ContainsKey(value.ResultsFunctionName))
+                return $"Results function '{value.ResultsFunctionName}' is not in the catalog.";
+            if (value.SetupFunctionName is { } setup && !FunctionCatalogs.setupFunctionCatalog.ContainsKey(setup.Value))
+                return $"Setup function '{setup.Value}' is not in the catalog.";
+            return "";
+        }
+    }
+    private bool CanExecuteRun => CanEdit && ExecuteHint.Length == 0;
+    public string ExecutionInstructions => (Selected?.IsBranch == true
+        ? "Finish all setup sets, then run every results set for each setup output. "
+        : "Run the results function once for every generated parameter set. ")
+        + "Cancel operation stops between function calls.";
+
+    public Task ExecuteRunAsync()
+    {
+        if (!CanExecuteRun) return Task.CompletedTask;
+        var value = SelectedSavedRun!;
+        var state = SelectedExecution!;
+        return RunAsync(async token =>
+        {
+            state.Begin();
+            Status = $"Executing '{value.RunName}'…";
+            var acceptingProgress = true;
+            // Progress<T> captures the WPF synchronization context. Throttle before
+            // posting to it so a large product cannot flood the dispatcher queue.
+            var progress = new ThrottledExecutionProgress(new Progress<runExecutionProgress>(update =>
+            {
+                if (acceptingProgress && state.IsRunning) state.Update(update);
+            }));
+            try
+            {
+                var report = await Task.Run(() => RunExecution.execute(value, ListModule.Empty<functionData>(), progress, token));
+                acceptingProgress = false;
+                state.Finish(report);
+                Status = $"Run '{value.RunName}': {state.Summary}";
+                Error = report.Error;
+            }
+            catch (Exception exception)
+            {
+                acceptingProgress = false;
+                state.Finish(new runExecutionReport(runExecutionStatus.Failed, [], [], exception.GetBaseException().Message));
+                Error = state.Error;
+                Status = $"Run '{value.RunName}' failed.";
+            }
+        });
+    }
+
+    private sealed class ThrottledExecutionProgress(IProgress<runExecutionProgress> target) : IProgress<runExecutionProgress>
+    {
+        private readonly Stopwatch timer = Stopwatch.StartNew();
+        private bool first = true;
+        public void Report(runExecutionProgress value)
+        {
+            if (!first && timer.ElapsedMilliseconds < 100) return;
+            first = false;
+            timer.Restart();
+            target.Report(value);
+        }
+    }
+}
+
+public sealed record WorkspaceExecutionRow(string Heading, string Parameters, string Outputs);
+
+/// The last attempt for one run, retained only while this workspace is open.
+public sealed class WorkspaceRunExecution : ViewModelBase
+{
+    public bool IsRunning { get; private set; }
+    public bool HasAttempt { get; private set; }
+    public bool HasReport => Report is not null;
+    public runExecutionReport? Report { get; private set; }
+    public string Summary { get; private set; } = "Not executed yet.";
+    public string Detail { get; private set; } = "";
+    public string Error => Report?.Error ?? "";
+    public double Percent { get; private set; }
+    public bool IsIndeterminate => IsRunning && total == 0;
+    private long total;
+    public IReadOnlyList<WorkspaceExecutionRow> Rows { get; private set; } = [];
+    public string RowsHint { get; private set; } = "";
+
+    internal void Begin()
+    {
+        HasAttempt = IsRunning = true;
+        Report = null; Rows = []; RowsHint = ""; Percent = 0; total = 0;
+        Summary = "Executing…"; Detail = "Generating parameter sets…";
+        OnPropertyChanged("");
+    }
+    internal void Update(runExecutionProgress progress)
+    {
+        total = progress.Total;
+        Percent = total == 0 ? 0 : 100d * progress.Completed / total;
+        Detail = $"{progress.Message} · {progress.Completed:N0} / {total:N0} calls complete";
+        OnPropertyChanged("");
+    }
+    internal void Finish(runExecutionReport report)
+    {
+        IsRunning = false; Report = report;
+        Summary = $"{report.Status} · {report.Setup.Length:N0} setup, {report.Results.Length:N0} results calls completed";
+        Detail = $"Last attempt: {DateTime.Now:g}";
+        if (report.Status == runExecutionStatus.Completed) Percent = 100;
+        var count = (long)report.Setup.Length + report.Results.Length;
+        Rows = report.Setup.Concat(report.Results).Take(100).Select(call => new WorkspaceExecutionRow(
+            $"{call.Phase} set {call.SetNumber}" + (call.SetupSetNumber is { } setup ? $" · setup set {setup.Value}" : "") + $" · {call.FunctionName}",
+            string.Join("; ", call.Parameters.ParamMap.Values.Select(binding => $"{binding.KeyName} = {binding.FormattedValue}")),
+            call.Outputs.IsEmpty ? "No output data" : string.Join("; ", call.Outputs.Select(Summarize)))).ToArray();
+        RowsHint = count > 100 ? $"Showing the first 100 of {count:N0} completed calls." : $"{count:N0} completed calls.";
+        OnPropertyChanged("");
+    }
+    private static string Summarize(functionData value) => value switch
+    {
+        functionData.SortableTests tests => $"SortableTests: {SortableTests.getSortableCount(tests.Item1):N0} tests, {SortableTests.getChannelCount(tests.Item1)} channels, {tests.Item2.Length:N0} prefix CEs",
+        functionData.SorterModelSet models => $"SorterModelSet: {models.Item.Count:N0} models",
+        functionData.SorterSetEval evaluation => $"SorterSetEval: {evaluation.Item.SorterEvals.Length:N0} evaluations",
+        _ => value.ToString()
+    };
+}

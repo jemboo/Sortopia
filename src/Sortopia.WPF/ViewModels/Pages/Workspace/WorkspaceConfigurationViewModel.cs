@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Numerics;
+using Sortopia.Functions;
 using Sortopia.Runs;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Commands;
@@ -83,9 +84,11 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     private readonly string ownerKind;
     private bool isOverridden, hasDraft;
     protected WorkspaceOverrideState(string title, string ownerKind, Func<WorkspaceConfigurationViewModel?> inheritedSource, bool canOverride = true)
-    { Title = title; this.ownerKind = ownerKind; this.inheritedSource = inheritedSource; CanOverride = canOverride; }
+    { Title = title; this.ownerKind = ownerKind; this.inheritedSource = inheritedSource; this.canOverride = canOverride; }
     public string Title { get; }
-    public bool CanOverride { get; }
+    private readonly bool canOverride;
+    public bool IsReadOnly { get; internal set; }
+    public bool CanOverride => canOverride && !IsReadOnly;
     public string OverrideCaption => ownerKind == "run" ? "Override for this run" : $"Override on this {ownerKind}";
     public bool IsOverridden
     {
@@ -99,9 +102,11 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
         }
     }
     public bool IsInherited => !IsOverridden;
+    public bool CanEditValue => IsOverridden && !IsReadOnly;
+    public bool ShowPreview => !CanEditValue;
     public WorkspaceConfigurationViewModel? InheritedSource => IsInherited ? inheritedSource() : null;
     public bool HasInheritedSource => InheritedSource is not null;
-    public string SourceLabel => IsOverridden ? ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
+    public string SourceLabel => IsReadOnly ? "Fixed when this project was sealed" : IsOverridden ? ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
         : InheritedSource is { } source ? $"Inherited from {source.Name}" : "Default value · no ancestor override";
     protected abstract void SeedOverride();
     internal void MarkLocal() { isOverridden = hasDraft = true; RefreshInherited(); }
@@ -115,8 +120,10 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
     private readonly bool required, requireInherited;
     private string value = "";
     public WorkspaceOverrideField(string title, bool required, Func<string> inherited, Func<WorkspaceConfigurationViewModel?> source,
-        string ownerKind, bool canOverride = true, bool requireInherited = true) : base(title, ownerKind, source, canOverride)
-    { this.required = required; this.requireInherited = requireInherited; this.inherited = inherited; }
+        string ownerKind, bool canOverride = true, bool requireInherited = true, string[]? choices = null) : base(title, ownerKind, source, canOverride)
+    { this.required = required; this.requireInherited = requireInherited; this.inherited = inherited; Choices = choices ?? []; }
+    public string[] Choices { get; }
+    public bool HasChoices => Choices.Length > 0;
     public bool IsMultiline => !required;
     protected override void SeedOverride() => value = inherited();
     public string EffectiveValue
@@ -124,7 +131,7 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
         get => IsOverridden ? value : inherited();
         set
         {
-            if (!IsOverridden || this.value == value) return;
+            if (IsReadOnly || !IsOverridden || this.value == value) return;
             this.value = value; RefreshInherited(); NotifyChanged();
         }
     }
@@ -133,7 +140,7 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
             : CanOverride ? "Set this value here or on an ancestor module." : "Set this value on the parent project or an ancestor module." : "";
     public string? OverrideValue => IsOverridden ? value : null;
     internal void Load(string? input) { value = input ?? ""; LoadState(input is not null); }
-    internal void SetLocal(string input) { value = input; MarkLocal(); NotifyChanged(); }
+    internal void SetLocal(string input) { if (IsReadOnly) return; value = input; MarkLocal(); NotifyChanged(); }
 }
 
 public sealed class WorkspaceListOverride : WorkspaceOverrideState
@@ -151,49 +158,56 @@ public sealed class WorkspaceConfigurationViewModel : ViewModelBase
     private readonly Func<WorkspaceConfigurationViewModel?> parent;
     private readonly Func<string> name;
     private bool loading;
+    private projectSettingsDto? frozenSettings;
+    private WorkspaceParameterSetsPreview? resultsPreview, setupPreview;
+    public WorkspaceEditorSections Sections { get; } = new();
+    private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
+    public bool IsReadOnly { get; private set; }
+    public bool IsEditable => !IsReadOnly;
+    internal void Freeze() { frozenSettings = ToProjectSettings(); IsReadOnly = true; foreach (var state in properties.Values) state.IsReadOnly = true; RefreshInherited(); }
     private readonly Dictionary<string, WorkspaceOverrideState> properties = [];
-    public WorkspaceConfigurationViewModel(WorkspaceEntityKind kind, bool isBranch, Func<WorkspaceConfigurationViewModel?> parent, Func<string> name)
+    public WorkspaceConfigurationViewModel(WorkspaceEntityKind kind, bool isBranch, Func<WorkspaceConfigurationViewModel?> parent, Func<string> name, Func<IEnumerable<WorkspaceSourceProject>>? sources = null)
     {
+        this.sources = sources ?? (() => []);
         IsProject = kind == WorkspaceEntityKind.Project; IsModule = kind == WorkspaceEntityKind.Module;
         IsBranch = isBranch; this.parent = parent; this.name = name;
         var owner = kind.ToString().ToLowerInvariant();
-        WorkspaceOverrideField Field(string key, string title, bool required, Func<string> inherited, bool canOverride = true)
+        WorkspaceOverrideField Field(string key, string title, bool required, Func<string> inherited, bool canOverride = true, string[]? choices = null)
         {
-            var field = new WorkspaceOverrideField(title, required, inherited, () => Parent?.ValueSource(key), owner, canOverride, !IsModule);
+            var field = new WorkspaceOverrideField(title, required, inherited, () => Parent?.ValueSource(key), owner, canOverride, !IsModule, choices);
             properties.Add(key, field); field.Changed += NotifyChanged; return field;
         }
         DescriptionOverride = Field(nameof(Description), "Description", false, () => Parent?.Description ?? "");
         ResultsDatabaseOverride = Field(nameof(ResultsDatabaseName), "Results database", true, () => Parent?.ResultsDatabaseName ?? "Results", IsDefaults);
-        ExecuteFunctionOverride = Field(nameof(ExecuteFunctionName), "Execution function", true, () => Parent?.ExecuteFunctionName ?? "", IsDefaults);
+        ResultsFunctionOverride = Field(nameof(ResultsFunctionName), "Results function", true, () => Parent?.ResultsFunctionName ?? "", IsDefaults,
+            FunctionCatalogs.resultsFunctionCatalog.Keys.ToArray());
         SetupDatabaseOverride = Field(nameof(SetupDatabaseName), "Setup database", true, () => Parent?.SetupDatabaseName ?? "Setup");
-        SetupFunctionOverride = Field(nameof(SetupFunctionName), "Setup function", true, () => Parent?.SetupFunctionName ?? "");
+        SetupFunctionOverride = Field(nameof(SetupFunctionName), "Setup function", true, () => Parent?.SetupFunctionName ?? "", choices:
+            FunctionCatalogs.setupFunctionCatalog.Keys.ToArray());
         WorkspaceListOverride List(string key, string title, Action seed)
         {
             var field = new WorkspaceListOverride(title, owner, () => Parent?.ValueSource(key), () => Quietly(seed), IsDefaults);
             properties.Add(key, field); field.Changed += NotifyChanged; return field;
         }
-        OutputTypesOverride = List(nameof(OutputTypes), "Output types", () => LoadDataTypes(OutputTypes, Parent?.EffectiveOutputs ?? []));
-        SetupOutputTypesOverride = List(nameof(SetupOutputTypes), "Setup output types", () => LoadDataTypes(SetupOutputTypes, Parent?.EffectiveSetupOutputs ?? []));
-        OutputQueryKeysOverride = List(nameof(OutputQueryKeys), "Output query keys", () => LoadKeys(OutputQueryKeys, Parent?.EffectiveOutputKeys ?? []));
-        SetupQueryKeysOverride = List(nameof(SetupQueryKeys), "Setup query keys", () => LoadKeys(SetupQueryKeys, Parent?.EffectiveSetupKeys ?? []));
-        OutputParameterDefaultsOverride = List(nameof(OutputParameterDefaults), "Execution parameter defaults", () => LoadDefaults(OutputParameterDefaults, Parent?.EffectiveOutputDefaults ?? []));
-        SetupParameterDefaultsOverride = List(nameof(SetupParameterDefaults), "Setup parameter defaults", () => LoadDefaults(SetupParameterDefaults, Parent?.EffectiveSetupDefaults ?? []));
-        WorkspaceFormItem.Watch(OutputParameterDefaults, () => ListChanged(OutputParameterDefaultsOverride));
+        OutputTypesOverride = List(nameof(OutputTypes), "Results data types", () => LoadDataTypes(OutputTypes, Parent?.EffectiveOutputs ?? []));
+        SetupDataTypesOverride = List(nameof(SetupDataTypes), "Setup outputs and source projects", () => LoadSetupDataTypes(Parent?.EffectiveSetupDataTypes ?? []));
+        ResultsQueryKeysOverride = List(nameof(ResultsQueryKeys), "Results query keys", () => LoadKeys(ResultsQueryKeys, Parent?.EffectiveOutputKeys ?? []));
+        ResultsParameterDefaultsOverride = List(nameof(ResultsParameterDefaults), "Results parameter defaults", () => { });
+        SetupParameterDefaultsOverride = List(nameof(SetupParameterDefaults), "Setup parameter defaults", () => { });
+        WorkspaceFormItem.Watch(ResultsParameterDefaults, () => ListChanged(ResultsParameterDefaultsOverride));
         WorkspaceFormItem.Watch(SetupParameterDefaults, () => ListChanged(SetupParameterDefaultsOverride));
-        AddOutputParameterDefaultCommand = new RelayCommand(() => { OutputParameterDefaultsOverride.IsOverridden = true; AddDefault(OutputParameterDefaults, new() { keyName = "", valueType = 0, value = "" }); });
-        AddSetupParameterDefaultCommand = new RelayCommand(() => { SetupParameterDefaultsOverride.IsOverridden = true; AddDefault(SetupParameterDefaults, new() { keyName = "", valueType = 0, value = "" }); });
+        AddResultsParameterDefaultCommand = new RelayCommand(() => { ResultsParameterDefaultsOverride.IsOverridden = true; AddDefault(ResultsParameterDefaults, new() { keyName = "", valueType = 0, value = "" }); }, () => CanEditDefaults);
+        AddSetupParameterDefaultCommand = new RelayCommand(() => { SetupParameterDefaultsOverride.IsOverridden = true; AddDefault(SetupParameterDefaults, new() { keyName = "", valueType = 0, value = "" }); }, () => CanEditDefaults && IsBranch);
         WorkspaceFormItem.Watch(OutputTypes, () => ListChanged(OutputTypesOverride));
-        WorkspaceFormItem.Watch(SetupOutputTypes, () => ListChanged(SetupOutputTypesOverride));
+        WorkspaceFormItem.Watch(SetupDataTypes, () => ListChanged(SetupDataTypesOverride));
         AddOutputTypeCommand = new RelayCommand(() => { OutputTypesOverride.IsOverridden = true; AddDataType(OutputTypes, new() { kind = "SorterSetEval", value = "" }); });
-        AddSetupOutputTypeCommand = new RelayCommand(() => { SetupOutputTypesOverride.IsOverridden = true; AddDataType(SetupOutputTypes, new() { kind = "SorterModelSet", value = "" }); });
-        WorkspaceFormItem.Watch(OutputQueryKeys, () => ListChanged(OutputQueryKeysOverride));
-        WorkspaceFormItem.Watch(SetupQueryKeys, () => ListChanged(SetupQueryKeysOverride));
-        WorkspaceFormItem.Watch(OutputParameters, NotifyChanged); WorkspaceFormItem.Watch(SetupParameters, NotifyChanged);
-        AddOutputQueryKeyCommand = new RelayCommand(() => { OutputQueryKeysOverride.IsOverridden = true; AddKey(OutputQueryKeys, ""); });
-        AddSetupQueryKeyCommand = new RelayCommand(() => { SetupQueryKeysOverride.IsOverridden = true; AddKey(SetupQueryKeys, ""); });
-        AddOutputParameterCommand = new RelayCommand(() => AddSpan(OutputParameters, "", [""]));
+        AddSetupDataTypeCommand = new RelayCommand(() => { SetupDataTypesOverride.IsOverridden = true; AddSetupDataType(new() { dataType = new() { kind = "SorterModelSet", value = "" }, sourceProjectId = Guid.Empty, queryParameterKeys = [] }); }, () => IsEditable);
+        WorkspaceFormItem.Watch(ResultsQueryKeys, () => ListChanged(ResultsQueryKeysOverride));
+        WorkspaceFormItem.Watch(ResultsParameters, NotifyChanged); WorkspaceFormItem.Watch(SetupParameters, NotifyChanged);
+        AddResultsQueryKeyCommand = new RelayCommand(() => { ResultsQueryKeysOverride.IsOverridden = true; AddKey(ResultsQueryKeys, ""); });
+        AddResultsParameterCommand = new RelayCommand(() => AddSpan(ResultsParameters, "", [""]));
         AddSetupParameterCommand = new RelayCommand(() => AddSpan(SetupParameters, "", [""]));
-        AddMissingOutputParametersCommand = new RelayCommand(() => AddMissing(OutputParameters, MissingOutputKeys), () => MissingOutputKeys.Length > 0);
+        AddMissingResultsParametersCommand = new RelayCommand(() => AddMissing(ResultsParameters, MissingOutputKeys), () => MissingOutputKeys.Length > 0);
         AddMissingSetupParametersCommand = new RelayCommand(() => AddMissing(SetupParameters, MissingSetupKeys), () => MissingSetupKeys.Length > 0);
     }
     private WorkspaceConfigurationViewModel? Parent => parent();
@@ -202,87 +216,148 @@ public sealed class WorkspaceConfigurationViewModel : ViewModelBase
     public bool IsProject { get; }
     public bool IsModule { get; }
     public bool IsDefaults => IsModule || IsProject;
+    public bool CanEditDefaults => IsDefaults && IsEditable;
     public bool IsRun => !IsDefaults;
     public bool IsBranch { get; }
     public string Title => IsModule ? "Module defaults" : IsProject ? "Project defaults" : "Run inputs";
-    public string Hint => IsDefaults
-        ? "Values follow the nearest ancestor override. Turn on an override to set a local value; turn it off to inherit again. List overrides replace the whole list, including an empty list."
-        : "Inherited values follow the project and its modules. Description and setup values can be overridden for this run.";
+    public string Hint => IsReadOnly ? "Sealed project: settings were fixed when its first run was saved. Create a new version to change them." : IsDefaults
+        ? "Parameter defaults inherit by key: local values replace matching keys and add new ones. Other properties follow their nearest ancestor override; other list overrides replace the whole list."
+        : "Inherited values come from the sealed parent project. Description and setup values can be overridden for this run.";
     public string Description { get => DescriptionOverride.EffectiveValue; set => DescriptionOverride.SetLocal(value); }
     public string ResultsDatabaseName { get => ResultsDatabaseOverride.EffectiveValue; set { if (IsDefaults) ResultsDatabaseOverride.SetLocal(value); } }
-    public string ExecuteFunctionName { get => ExecuteFunctionOverride.EffectiveValue; set { if (IsDefaults) ExecuteFunctionOverride.SetLocal(value); } }
+    public string ResultsFunctionName { get => ResultsFunctionOverride.EffectiveValue; set { if (IsDefaults) ResultsFunctionOverride.SetLocal(value); } }
     public string SetupDatabaseName { get => SetupDatabaseOverride.EffectiveValue; set => SetupDatabaseOverride.SetLocal(value); }
     public string SetupFunctionName { get => SetupFunctionOverride.EffectiveValue; set => SetupFunctionOverride.SetLocal(value); }
     public WorkspaceOverrideField DescriptionOverride { get; }
     public WorkspaceOverrideField ResultsDatabaseOverride { get; }
-    public WorkspaceOverrideField ExecuteFunctionOverride { get; }
+    public WorkspaceOverrideField ResultsFunctionOverride { get; }
     public WorkspaceOverrideField SetupDatabaseOverride { get; }
     public WorkspaceOverrideField SetupFunctionOverride { get; }
     public WorkspaceListOverride OutputTypesOverride { get; }
-    public WorkspaceListOverride SetupOutputTypesOverride { get; }
-    public WorkspaceListOverride OutputQueryKeysOverride { get; }
-    public WorkspaceListOverride SetupQueryKeysOverride { get; }
-    public WorkspaceListOverride OutputParameterDefaultsOverride { get; }
+    public WorkspaceListOverride SetupDataTypesOverride { get; }
+    public WorkspaceListOverride ResultsQueryKeysOverride { get; }
+    public WorkspaceListOverride ResultsParameterDefaultsOverride { get; }
     public WorkspaceListOverride SetupParameterDefaultsOverride { get; }
-    public ObservableCollection<WorkspaceParameterBinding> OutputParameterDefaults { get; } = [];
+    public ObservableCollection<WorkspaceParameterBinding> ResultsParameterDefaults { get; } = [];
     public ObservableCollection<WorkspaceParameterBinding> SetupParameterDefaults { get; } = [];
-    public RelayCommand AddOutputParameterDefaultCommand { get; }
+    public RelayCommand AddResultsParameterDefaultCommand { get; }
     public RelayCommand AddSetupParameterDefaultCommand { get; }
-    private parameterBindingDto[] EffectiveOutputDefaults => OutputParameterDefaultsOverride.IsOverridden ? OutputParameterDefaults.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveOutputDefaults ?? [];
-    private parameterBindingDto[] EffectiveSetupDefaults => SetupParameterDefaultsOverride.IsOverridden ? SetupParameterDefaults.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveSetupDefaults ?? [];
+    public IEnumerable<WorkspaceParameterBinding> LocalResultsParameterDefaults => ResultsParameterDefaultsOverride.IsOverridden ? ResultsParameterDefaults : [];
+    public IEnumerable<WorkspaceParameterBinding> LocalSetupParameterDefaults => SetupParameterDefaultsOverride.IsOverridden ? SetupParameterDefaults : [];
+    private static parameterBindingDto[] MergeDefaults(parameterBindingDto[] inherited, IEnumerable<WorkspaceParameterBinding> rows)
+    {
+        var local = rows.Select(row => row.ToDto()).ToArray();
+        var inheritedKeys = inherited.Select(value => value.keyName).ToHashSet(StringComparer.Ordinal);
+        return inherited.Select(value => local.FirstOrDefault(binding => binding.keyName == value.keyName) ?? value)
+            .Concat(local.Where(value => !inheritedKeys.Contains(value.keyName))).ToArray();
+    }
+    private parameterBindingDto[] EffectiveOutputDefaults => frozenSettings?.resultsParameterDefaults ?? MergeDefaults(Parent?.EffectiveOutputDefaults ?? [], LocalResultsParameterDefaults);
+    private parameterBindingDto[] EffectiveSetupDefaults => frozenSettings?.setupParameterDefaults ?? MergeDefaults(Parent?.EffectiveSetupDefaults ?? [], LocalSetupParameterDefaults);
     private static string DefaultsError(parameterBindingDto[] values)
     {
         if (values.Any(value => string.IsNullOrWhiteSpace(value.keyName))) return "Enter a key for each default parameter.";
         if (values.Select(value => value.keyName).Distinct(StringComparer.Ordinal).Count() != values.Length) return "Default parameter keys must be unique.";
         return values.Select(value => ParameterValue.validationError((parameterValueType)value.valueType, value.value)).FirstOrDefault(error => error.Length > 0) ?? "";
     }
-    public string OutputParameterDefaultsError => DefaultsError(EffectiveOutputDefaults);
-    public string SetupParameterDefaultsError => DefaultsError(EffectiveSetupDefaults);
-    public string OutputParameterDefaultsSummary => EffectiveOutputDefaults.Length == 0 ? "No parameter defaults." : "";
+    private string ParameterDefaultsError(bool setup)
+    {
+        var local = setup ? LocalSetupParameterDefaults : LocalResultsParameterDefaults;
+        var localError = IsReadOnly ? "" : DefaultsError(local.Select(row => row.ToDto()).ToArray());
+        return localError.Length > 0 ? localError : DefaultsError(setup ? EffectiveSetupDefaults : EffectiveOutputDefaults);
+    }
+    public string ResultsParameterDefaultsError => ParameterDefaultsError(false);
+    public string SetupParameterDefaultsError => ParameterDefaultsError(true);
+    public string ResultsParameterDefaultsSummary => EffectiveOutputDefaults.Length == 0 ? "No parameter defaults." : "";
     public string SetupParameterDefaultsSummary => EffectiveSetupDefaults.Length == 0 ? "No parameter defaults." : "";
-    private IEnumerable<WorkspaceParameterBindingPreview> Preview(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans) =>
-        defaults.Select(value => new WorkspaceParameterBindingPreview(value.keyName, ParameterValue.label((parameterValueType)value.valueType), value.value,
-            IsRun ? spans.Any(span => span.Key == value.keyName) ? "Overridden by run span" : "Used in every parameter set" : "Inherited default"));
-    public IEnumerable<WorkspaceParameterBindingPreview> InheritedOutputDefaults => Preview(EffectiveOutputDefaults, OutputParameters);
-    public IEnumerable<WorkspaceParameterBindingPreview> InheritedSetupDefaults => Preview(EffectiveSetupDefaults, SetupParameters);
+    private WorkspaceConfigurationViewModel? ParameterSource(string key, bool setup)
+    {
+        if (frozenSettings is not null)
+            return (setup ? frozenSettings.setupParameterDefaults : frozenSettings.resultsParameterDefaults).Any(value => value.keyName == key) ? this : null;
+        if ((setup ? LocalSetupParameterDefaults : LocalResultsParameterDefaults).Any(value => value.Key == key)) return this;
+        return Parent?.ParameterSource(key, setup);
+    }
+    private WorkspaceParameterValueSource LocalParameterSource(string key, bool setup) => Parent?.ParameterSource(key, setup) is { } source
+        ? new($"Overrides value from {source.Name} · remove this row to inherit again", source, true)
+        : new($"Defined on {Name}", null, true);
+    private void OverrideParameter(string key, bool setup)
+    {
+        if (!CanEditDefaults) return;
+        var state = setup ? SetupParameterDefaultsOverride : ResultsParameterDefaultsOverride;
+        var rows = setup ? SetupParameterDefaults : ResultsParameterDefaults;
+        var inherited = setup ? Parent?.EffectiveSetupDefaults : Parent?.EffectiveOutputDefaults;
+        if (inherited?.FirstOrDefault(value => value.keyName == key) is not { } value) return;
+        state.IsOverridden = true;
+        if (!rows.Any(row => row.Key == key)) AddDefault(rows, value);
+    }
+    private IEnumerable<WorkspaceParameterBindingPreview> Preview(bool setup)
+    {
+        var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
+        var spans = setup ? SetupParameters : ResultsParameters;
+        foreach (var value in defaults)
+        {
+            var source = ParameterSource(value.keyName, setup);
+            if (CanEditDefaults && ReferenceEquals(source, this)) continue;
+            var origin = ReferenceEquals(source, this) ? new WorkspaceParameterValueSource("Fixed when this project was sealed", null)
+                : new WorkspaceParameterValueSource(source is null ? "Default value" : $"Inherited from {source.Name}", source);
+            yield return new(value.keyName, ParameterValue.label((parameterValueType)value.valueType), value.value,
+                IsRun ? spans.Any(span => span.Key == value.keyName) ? "Overridden by run span" : "Used in every parameter set" : "",
+                origin, CanEditDefaults ? new RelayCommand(() => OverrideParameter(value.keyName, setup)) : null);
+        }
+    }
+    public IEnumerable<WorkspaceParameterBindingPreview> InheritedOutputDefaults => Preview(false);
+    public IEnumerable<WorkspaceParameterBindingPreview> InheritedSetupDefaults => Preview(true);
+    public bool HasInheritedOutputDefaults => InheritedOutputDefaults.Any();
+    public bool HasInheritedSetupDefaults => InheritedSetupDefaults.Any();
+    public string ParameterDefaultsPreviewTitle => IsReadOnly ? "Fixed parameter defaults" : IsRun ? "Inherited project defaults" : "Inherited defaults";
     private static string SetCount(IEnumerable<WorkspaceParameterSpan> spans) => spans.Aggregate(BigInteger.One, (count, span) => count * span.Values.Count).ToString("N0", CultureInfo.InvariantCulture);
-    public string OutputParameterSetsSummary => $"{SetCount(OutputParameters)} execution parameter set(s). Spans replace matching defaults; other defaults stay fixed.";
+    public string ResultsParameterSetsSummary => $"{SetCount(ResultsParameters)} execution parameter set(s). Spans replace matching defaults; other defaults stay fixed.";
     public string SetupParameterSetsSummary => $"{SetCount(SetupParameters)} setup parameter set(s). Spans replace matching defaults; other defaults stay fixed.";
+    public WorkspaceParameterSetsPreview ResultsParameterSetsPreview => !IsRun ? WorkspaceParameterSetsPreview.Empty
+        : resultsPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveOutputDefaults, ResultsParameters,
+            FirstError(ResultsParameterDefaultsError, ResultsParametersError));
+    public WorkspaceParameterSetsPreview SetupParameterSetsPreview => !IsRun || !IsBranch ? WorkspaceParameterSetsPreview.Empty
+        : setupPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveSetupDefaults, SetupParameters,
+            FirstError(SetupParameterDefaultsError, SetupParametersError));
+    private static string FirstError(params string[] errors) => errors.FirstOrDefault(error => error.Length > 0) ?? "";
+    public string ResultsSettingsError => FirstError(ResultsDatabaseError, ResultsFunctionError, OutputTypesError, ResultsQueryKeysError);
+    public string SetupSettingsError => FirstError(SetupDatabaseError, SetupFunctionError, SetupDataTypesError, SetupQueryKeysError);
     public ObservableCollection<WorkspaceDataTypeEntry> OutputTypes { get; } = [];
-    public ObservableCollection<WorkspaceDataTypeEntry> SetupOutputTypes { get; } = [];
+    public ObservableCollection<WorkspaceSetupDataTypeEntry> SetupDataTypes { get; } = [];
     public RelayCommand AddOutputTypeCommand { get; }
-    public RelayCommand AddSetupOutputTypeCommand { get; }
-    public ObservableCollection<WorkspaceTextEntry> OutputQueryKeys { get; } = [];
-    public ObservableCollection<WorkspaceTextEntry> SetupQueryKeys { get; } = [];
-    public ObservableCollection<WorkspaceParameterSpan> OutputParameters { get; } = [];
+    public RelayCommand AddSetupDataTypeCommand { get; }
+    public ObservableCollection<WorkspaceTextEntry> ResultsQueryKeys { get; } = [];
+    public ObservableCollection<WorkspaceParameterSpan> ResultsParameters { get; } = [];
     public ObservableCollection<WorkspaceParameterSpan> SetupParameters { get; } = [];
-    public RelayCommand AddOutputQueryKeyCommand { get; }
-    public RelayCommand AddSetupQueryKeyCommand { get; }
-    public RelayCommand AddOutputParameterCommand { get; }
+    public RelayCommand AddResultsQueryKeyCommand { get; }
+    public RelayCommand AddResultsParameterCommand { get; }
     public RelayCommand AddSetupParameterCommand { get; }
-    public RelayCommand AddMissingOutputParametersCommand { get; }
+    public RelayCommand AddMissingResultsParametersCommand { get; }
     public RelayCommand AddMissingSetupParametersCommand { get; }
-    private sortopiaDataTypeDto[] EffectiveOutputs => OutputTypesOverride.IsOverridden ? OutputTypes.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveOutputs ?? [];
-    private sortopiaDataTypeDto[] EffectiveSetupOutputs => SetupOutputTypesOverride.IsOverridden ? SetupOutputTypes.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveSetupOutputs ?? [];
+    private sortopiaDataTypeDto[] EffectiveOutputs => frozenSettings?.resultsSortopiaDataTypes ?? (OutputTypesOverride.IsOverridden ? OutputTypes.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveOutputs ?? []);
+    private setupDataTypeConfigDto[] EffectiveSetupDataTypes => frozenSettings?.setupDataTypes ?? (SetupDataTypesOverride.IsOverridden ? SetupDataTypes.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveSetupDataTypes ?? []);
+    public IEnumerable<WorkspaceSetupDataTypeEntry> InheritedSetupDataTypes => EffectiveSetupDataTypes.Select(value => new WorkspaceSetupDataTypeEntry(value, sources, _ => { }));
+    private sortopiaDataTypeDto[] EffectiveSetupOutputs => EffectiveSetupDataTypes.Select(value => value.dataType).ToArray();
     public sortopiaDataTypeDto[] InheritedOutputTypes => EffectiveOutputs;
     public sortopiaDataTypeDto[] InheritedSetupOutputTypes => EffectiveSetupOutputs;
     private static string DataTypesError(sortopiaDataTypeDto[] values) => values.Any(value => !WorkspaceDataTypeEntry.Kinds.Contains(value.kind, StringComparer.Ordinal))
         ? "Choose a data type for each row." : values.Any(value => value.value is null) ? "Data type text cannot be null; an empty string is allowed."
         : values.Select(value => (value.kind, value.value)).Distinct().Count() != values.Length ? "Each data type and text pair must be unique." : "";
     public string OutputTypesError => DataTypesError(EffectiveOutputs);
-    public string SetupOutputTypesError => DataTypesError(EffectiveSetupOutputs);
-    private string[] EffectiveOutputKeys => OutputQueryKeysOverride.IsOverridden ? OutputQueryKeys.Select(key => key.Text).ToArray() : Parent?.EffectiveOutputKeys ?? [];
-    private string[] EffectiveSetupKeys => SetupQueryKeysOverride.IsOverridden ? SetupQueryKeys.Select(key => key.Text).ToArray() : Parent?.EffectiveSetupKeys ?? [];
+    public string SetupDataTypesError => DataTypesError(EffectiveSetupOutputs) is { Length: > 0 } error ? error
+        : InheritedSetupDataTypes.Select(row => row.Error).FirstOrDefault(e => e.Length > 0) ?? "";
+    private string[] EffectiveOutputKeys => frozenSettings?.resultsQueryParameterKeys ?? (ResultsQueryKeysOverride.IsOverridden ? ResultsQueryKeys.Select(key => key.Text).ToArray() : Parent?.EffectiveOutputKeys ?? []);
+    private string[] EffectiveSetupKeys => EffectiveSetupDataTypes.SelectMany(row => row.queryParameterKeys).Distinct(StringComparer.Ordinal).ToArray();
+    private string[] RequiredSetupKeys => EffectiveSetupKeys.Concat(EffectiveSetupDataTypes.SelectMany(row => sources().FirstOrDefault(p => p.Id == row.sourceProjectId)?.Settings.resultsQueryParameterKeys ?? [])).Distinct(StringComparer.Ordinal).ToArray();
     public string ResultsDatabaseError => ResultsDatabaseOverride.Error;
-    public string ExecuteFunctionError => ExecuteFunctionOverride.Error;
+    public string ResultsFunctionError => ResultsFunctionOverride.Error;
     public string SetupDatabaseError => SetupDatabaseOverride.Error;
     public string SetupFunctionError => SetupFunctionOverride.Error;
     private static string KeysError(string[] values) => values.Any(string.IsNullOrWhiteSpace) ? "Enter a name for each query key, or remove its row."
         : values.Distinct(StringComparer.Ordinal).Count() != values.Length ? "Query keys must be unique." : "";
     private static string[] MissingKeys(IEnumerable<WorkspaceParameterSpan> spans, IEnumerable<string>? keys) =>
         keys?.Where(key => !string.IsNullOrWhiteSpace(key) && !spans.Any(span => span.Key == key)).Distinct(StringComparer.Ordinal).ToArray() ?? [];
-    private string[] MissingOutputKeys => MissingKeys(OutputParameters, Parent?.EffectiveOutputKeys).Except(EffectiveOutputDefaults.Select(value => value.keyName), StringComparer.Ordinal).ToArray();
-    private string[] MissingSetupKeys => MissingKeys(SetupParameters, Parent?.EffectiveSetupKeys).Except(EffectiveSetupDefaults.Select(value => value.keyName), StringComparer.Ordinal).ToArray();
+    private string[] MissingOutputKeys => MissingKeys(ResultsParameters, Parent?.EffectiveOutputKeys).Except(EffectiveOutputDefaults.Select(value => value.keyName), StringComparer.Ordinal).ToArray();
+    private string[] MissingSetupKeys => MissingKeys(SetupParameters, Parent?.RequiredSetupKeys).Except(EffectiveSetupDefaults.Select(value => value.keyName), StringComparer.Ordinal).ToArray();
     private static string ParametersError(IEnumerable<WorkspaceParameterSpan> spans, string[] missing)
     {
         var rows = spans.ToArray();
@@ -290,24 +365,24 @@ public sealed class WorkspaceConfigurationViewModel : ViewModelBase
             ?? (rows.Select(row => row.Key).Distinct(StringComparer.Ordinal).Count() != rows.Length ? "Parameter keys must be unique."
             : missing.Length > 0 ? $"Add parameters required by the project: {string.Join(", ", missing)}." : "");
     }
-    public string OutputQueryKeysError => KeysError(EffectiveOutputKeys);
+    public string ResultsQueryKeysError => KeysError(EffectiveOutputKeys);
     public string SetupQueryKeysError => KeysError(EffectiveSetupKeys);
-    public string OutputParametersError => ParametersError(OutputParameters, MissingOutputKeys);
+    public string ResultsParametersError => ParametersError(ResultsParameters, MissingOutputKeys);
     public string SetupParametersError => ParametersError(SetupParameters, MissingSetupKeys);
-    public bool HasMissingOutputParameters => MissingOutputKeys.Length > 0;
+    public bool HasMissingResultsParameters => MissingOutputKeys.Length > 0;
     public bool HasMissingSetupParameters => MissingSetupKeys.Length > 0;
     public string OutputTypesSummary => EffectiveOutputs.Length == 0 ? "None" : "";
     public string SetupOutputTypesSummary => EffectiveSetupOutputs.Length == 0 ? "None" : "";
-    public string OutputQueryKeysSummary => Summary(EffectiveOutputKeys);
+    public string ResultsQueryKeysSummary => Summary(EffectiveOutputKeys);
     public string SetupQueryKeysSummary => Summary(EffectiveSetupKeys);
     private static string Summary(IEnumerable<string> values) { var items = values.ToArray(); return items.Length == 0 ? "None" : string.Join(", ", items); }
     public string ValidationError
     {
         get
         {
-            var errors = new[] { ResultsDatabaseError, ExecuteFunctionError, OutputTypesError, IsBranch ? SetupOutputTypesError : "", OutputQueryKeysError, OutputParameterDefaultsError, IsBranch ? SetupParameterDefaultsError : "",
+            var errors = new[] { ResultsDatabaseError, ResultsFunctionError, OutputTypesError, IsBranch ? SetupDataTypesError : "", ResultsQueryKeysError, ResultsParameterDefaultsError, IsBranch ? SetupParameterDefaultsError : "",
                 IsBranch ? SetupDatabaseError : "", IsBranch ? SetupFunctionError : "", IsBranch ? SetupQueryKeysError : "",
-                IsRun ? OutputParametersError : "", IsRun && IsBranch ? SetupParametersError : "" };
+                IsRun ? ResultsParametersError : "", IsRun && IsBranch ? SetupParametersError : "" };
             return errors.FirstOrDefault(error => error.Length > 0) ?? "";
         }
     }
@@ -316,10 +391,13 @@ public sealed class WorkspaceConfigurationViewModel : ViewModelBase
     private void NotifyChanged() { if (!loading) { RefreshInherited(); Changed?.Invoke(); } }
     internal void RefreshInherited()
     {
+        resultsPreview = setupPreview = null;
         foreach (var field in properties.Values) field.RefreshInherited();
-        foreach (var span in OutputParameters.Concat(SetupParameters)) span.RefreshInherited();
+        foreach (var span in ResultsParameters.Concat(SetupParameters)) span.RefreshInherited();
+        foreach (var row in SetupDataTypes) row.RefreshSources();
+        foreach (var row in ResultsParameterDefaults.Concat(SetupParameterDefaults)) row.RefreshSource();
         OnPropertyChanged("");
-        AddMissingOutputParametersCommand?.RaiseCanExecuteChanged(); AddMissingSetupParametersCommand?.RaiseCanExecuteChanged();
+        AddMissingResultsParametersCommand?.RaiseCanExecuteChanged(); AddMissingSetupParametersCommand?.RaiseCanExecuteChanged();
     }
     private void Quietly(Action action) { var wasLoading = loading; loading = true; try { action(); } finally { loading = wasLoading; } }
     private static void AddKey(ObservableCollection<WorkspaceTextEntry> rows, string value) => rows.Add(new(value, item => rows.Remove(item)));
@@ -329,27 +407,30 @@ public sealed class WorkspaceConfigurationViewModel : ViewModelBase
     { foreach (var key in MissingKeys(rows, keys)) AddSpan(rows, key, []); }
     private static void LoadKeys(ObservableCollection<WorkspaceTextEntry> rows, string[] values)
     { rows.Clear(); foreach (var key in values) AddKey(rows, key); }
-    private static void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value) =>
-        rows.Add(new(value.keyName, (parameterValueType)value.valueType, value.value, item => rows.Remove(item)));
-    private static void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
+    private void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value) =>
+        rows.Add(new(value.keyName, (parameterValueType)value.valueType, value.value, item => rows.Remove(item), key => LocalParameterSource(key, ReferenceEquals(rows, SetupParameterDefaults))));
+    private void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }
     public void LoadProject(projectSettingsDto value) => LoadOverrides(value);
     public void LoadOverrides(projectSettingsDto value)
     {
+        if (IsReadOnly) throw new InvalidOperationException("Create a new project version to change sealed settings.");
         if (!IsDefaults) throw new InvalidOperationException("Defaults belong to a module or project.");
         Quietly(() =>
         {
-            DescriptionOverride.Load(value.description); ResultsDatabaseOverride.Load(value.resultsDatabaseName); ExecuteFunctionOverride.Load(value.executeFunctionName);
+            DescriptionOverride.Load(value.description); ResultsDatabaseOverride.Load(value.resultsDatabaseName); ResultsFunctionOverride.Load(value.resultsFunctionName);
             SetupDatabaseOverride.Load(IsBranch ? value.setupDatabaseName : null); SetupFunctionOverride.Load(IsBranch ? value.setupFunctionName : null);
-            LoadDataTypes(OutputTypes, value.outputDataTypes ?? []); LoadDataTypes(SetupOutputTypes, value.setupOutputDataTypes ?? []);
-            LoadKeys(OutputQueryKeys, value.outputQueryParameterKeys ?? []); LoadKeys(SetupQueryKeys, value.setupQueryParameterKeys ?? []);
-            LoadDefaults(OutputParameterDefaults, value.outputParameterDefaults ?? []); LoadDefaults(SetupParameterDefaults, value.setupParameterDefaults ?? []);
-            OutputParameterDefaultsOverride.Load(value.outputParameterDefaults is not null); SetupParameterDefaultsOverride.Load(IsBranch && value.setupParameterDefaults is not null);
-            OutputTypesOverride.Load(value.outputDataTypes is not null); OutputQueryKeysOverride.Load(value.outputQueryParameterKeys is not null);
-            SetupOutputTypesOverride.Load(IsBranch && value.setupOutputDataTypes is not null); SetupQueryKeysOverride.Load(IsBranch && value.setupQueryParameterKeys is not null);
+            LoadDataTypes(OutputTypes, value.resultsSortopiaDataTypes ?? []); LoadSetupDataTypes(value.setupDataTypes ?? []);
+            LoadKeys(ResultsQueryKeys, value.resultsQueryParameterKeys ?? []);
+            LoadDefaults(ResultsParameterDefaults, value.resultsParameterDefaults ?? []); LoadDefaults(SetupParameterDefaults, value.setupParameterDefaults ?? []);
+            ResultsParameterDefaultsOverride.Load(value.resultsParameterDefaults is not null); SetupParameterDefaultsOverride.Load(IsBranch && value.setupParameterDefaults is not null);
+            OutputTypesOverride.Load(value.resultsSortopiaDataTypes is not null); ResultsQueryKeysOverride.Load(value.resultsQueryParameterKeys is not null);
+            SetupDataTypesOverride.Load(IsBranch && value.setupDataTypes is not null);
         });
         NotifyChanged();
     }
+    private void AddSetupDataType(setupDataTypeConfigDto value) => SetupDataTypes.Add(new(value, sources, row => SetupDataTypes.Remove(row)));
+    private void LoadSetupDataTypes(setupDataTypeConfigDto[] values) { SetupDataTypes.Clear(); foreach (var value in values) AddSetupDataType(value); }
     private static void AddDataType(ObservableCollection<WorkspaceDataTypeEntry> rows, sortopiaDataTypeDto value)
     { SortopiaDataTypeDto.toDomain(value); rows.Add(new(value.kind, value.value, row => rows.Remove(row))); }
     private static void LoadDataTypes(ObservableCollection<WorkspaceDataTypeEntry> rows, sortopiaDataTypeDto[] values)
@@ -360,35 +441,34 @@ public sealed class WorkspaceConfigurationViewModel : ViewModelBase
         if (value.runKind != (IsBranch ? "branch" : "root")) throw new ArgumentException("A project can only contain runs of its own type.");
         Quietly(() =>
         {
-            DescriptionOverride.Load(value.description); SetupDatabaseOverride.Load(value.setupDatabaseName); SetupFunctionOverride.Load(value.setupFunctionName);
-            OutputParameters.Clear(); foreach (var span in value.outputParameterSpans) AddSpan(OutputParameters, span.keyName, span.values);
+            DescriptionOverride.Load(value.descriptionOverride); SetupDatabaseOverride.Load(value.setupDatabaseNameOverride); SetupFunctionOverride.Load(value.setupFunctionNameOverride);
+            ResultsParameters.Clear(); foreach (var span in value.resultsParameterSpans) AddSpan(ResultsParameters, span.keyName, span.values);
             SetupParameters.Clear(); foreach (var span in value.setupParameterSpans) AddSpan(SetupParameters, span.keyName, span.values);
         });
         NotifyChanged();
     }
     internal projectSettingsDto ToProjectSettings() => new()
     {
-        description = Description, resultsDatabaseName = ResultsDatabaseName, executeFunctionName = ExecuteFunctionName,
-        outputDataTypes = EffectiveOutputs, outputQueryParameterKeys = EffectiveOutputKeys, outputParameterDefaults = EffectiveOutputDefaults, setupParameterDefaults = IsBranch ? EffectiveSetupDefaults : [],
+        description = Description, resultsDatabaseName = ResultsDatabaseName, resultsFunctionName = ResultsFunctionName,
+        resultsSortopiaDataTypes = EffectiveOutputs, resultsQueryParameterKeys = EffectiveOutputKeys, resultsParameterDefaults = EffectiveOutputDefaults, setupParameterDefaults = IsBranch ? EffectiveSetupDefaults : [],
         setupDatabaseName = IsBranch ? SetupDatabaseName : "", setupFunctionName = IsBranch ? SetupFunctionName : "",
-        setupOutputDataTypes = IsBranch ? EffectiveSetupOutputs : [], setupQueryParameterKeys = IsBranch ? EffectiveSetupKeys : []
+        setupDataTypes = IsBranch ? EffectiveSetupDataTypes : []
     };
     internal projectSettingsDto ToLocalOverrides() => new()
     {
-        description = DescriptionOverride.OverrideValue, resultsDatabaseName = ResultsDatabaseOverride.OverrideValue, executeFunctionName = ExecuteFunctionOverride.OverrideValue,
-        outputParameterDefaults = OutputParameterDefaultsOverride.IsOverridden ? EffectiveOutputDefaults : null,
-        setupParameterDefaults = IsBranch && SetupParameterDefaultsOverride.IsOverridden ? EffectiveSetupDefaults : null,
-        outputDataTypes = OutputTypesOverride.IsOverridden ? EffectiveOutputs : null,
-        outputQueryParameterKeys = OutputQueryKeysOverride.IsOverridden ? OutputQueryKeys.Select(key => key.Text).ToArray() : null,
+        description = DescriptionOverride.OverrideValue, resultsDatabaseName = ResultsDatabaseOverride.OverrideValue, resultsFunctionName = ResultsFunctionOverride.OverrideValue,
+        resultsParameterDefaults = ResultsParameterDefaultsOverride.IsOverridden ? ResultsParameterDefaults.Select(row => row.ToDto()).ToArray() : null,
+        setupParameterDefaults = IsBranch && SetupParameterDefaultsOverride.IsOverridden ? SetupParameterDefaults.Select(row => row.ToDto()).ToArray() : null,
+        resultsSortopiaDataTypes = OutputTypesOverride.IsOverridden ? EffectiveOutputs : null,
+        resultsQueryParameterKeys = ResultsQueryKeysOverride.IsOverridden ? ResultsQueryKeys.Select(key => key.Text).ToArray() : null,
         setupDatabaseName = IsBranch ? SetupDatabaseOverride.OverrideValue : null, setupFunctionName = IsBranch ? SetupFunctionOverride.OverrideValue : null,
-        setupOutputDataTypes = IsBranch && SetupOutputTypesOverride.IsOverridden ? EffectiveSetupOutputs : null,
-        setupQueryParameterKeys = IsBranch && SetupQueryKeysOverride.IsOverridden ? SetupQueryKeys.Select(key => key.Text).ToArray() : null
+        setupDataTypes = IsBranch && SetupDataTypesOverride.IsOverridden ? EffectiveSetupDataTypes : null
     };
-    internal runDto ToRunInputs(Guid id, string name, string projectName) => new()
+    internal runDto ToRunInputs(Guid id, string name, Guid parentProjectId) => new()
     {
-        schemaVersion = 8, id = id, projectName = projectName, runName = name, runKind = IsBranch ? "branch" : "root",
-        description = DescriptionOverride.OverrideValue, outputParameterSpans = OutputParameters.Select(span => span.ToDto()).ToArray(),
-        setupDatabaseName = IsBranch ? SetupDatabaseOverride.OverrideValue : null, setupFunctionName = IsBranch ? SetupFunctionOverride.OverrideValue : null,
+        schemaVersion = 9, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
+        descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ResultsParameters.Select(span => span.ToDto()).ToArray(),
+        setupDatabaseNameOverride = IsBranch ? SetupDatabaseOverride.OverrideValue : null, setupFunctionNameOverride = IsBranch ? SetupFunctionOverride.OverrideValue : null,
         setupParameterSpans = IsBranch ? SetupParameters.Select(span => span.ToDto()).ToArray() : []
     };
 }

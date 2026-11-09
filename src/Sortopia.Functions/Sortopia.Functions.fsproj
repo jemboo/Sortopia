@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="FunctionTypes.fs" />
+    <Compile Include="FunctionNames.fs" />
+    <Compile Include="SetupFunctions.fs" />
+    <Compile Include="ResultsFunctions.fs" />
+    <Compile Include="FunctionCatalogs.fs" />
+    <Compile Include="RunExecution.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Runs/Sortopia.Runs.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Inputs/Sortopia.Models.Inputs.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
+    <ProjectReference Include="../Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
+  </ItemGroup>
+</Project>

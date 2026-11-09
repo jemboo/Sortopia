@@ -59,7 +59,23 @@ public static class WorkspaceFileStore
         var current = WorkspaceDefinitionFiles.Find(rootFolder, "workspace") is null ? null : LoadDefinition(rootFolder);
         if (current is not null && !WorkspaceCodec.encodeWorkspace(current).AsSpan().SequenceEqual(WorkspaceCodec.encodeWorkspace(savedDefinition)))
             throw new IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again.");
+        ValidateSealedProjects(savedDefinition, plan.Definition);
         return Commit(plan, token);
+    }
+
+    private static void ValidateSealedProjects(workspace previous, workspace next)
+    {
+        var oldProjects = previous.ProjectIndex;
+        var oldRuns = oldProjects.Values.SelectMany(p => p.Runs).ToDictionary(r => r.Id, r => r.ParentProjectId);
+        foreach (var p in next.ProjectIndex.Values)
+        {
+            if (oldProjects.TryGetValue(p.Id, out var original) && original.IsSealed
+                && (!p.IsSealed || p.ProjectName != original.ProjectName || p.FolderName != original.FolderName || !p.Configuration.Equals(original.Configuration)))
+                throw new InvalidOperationException($"Project '{original.ProjectName}' is sealed. Create a new project version to change its settings, name, or folder.");
+            foreach (var run in p.Runs)
+                if (oldRuns.TryGetValue(run.Id, out var parent) && run.ParentProjectId != parent)
+                    throw new InvalidOperationException("An existing run cannot change its parent project. Create a new run instead.");
+        }
     }
 
     public static string GetFolderName(string rootFolder)
@@ -113,27 +129,54 @@ public static class WorkspaceFileStore
             }
         }
         var sourceIds = new Dictionary<Guid, Guid>();
+        var copiedIds = new Dictionary<(Guid Copy, Guid Original), Guid>();
         Guid CopyId(Guid id, string path)
         {
-            if (transfers.LastOrDefault(transfer => WorkspaceFolderCopy.Inside(transfer.Destination, path))?.Copy is null) return id;
-            var replacement = Guid.NewGuid();
-            sourceIds.Add(replacement, id);
+            if (transfers.LastOrDefault(transfer => WorkspaceFolderCopy.Inside(transfer.Destination, path))?.Copy is not { } copy) return id;
+            if (copy.OriginalIds.TryGetValue(id, out var original)) { sourceIds[id] = original; return id; }
+            if (copiedIds.TryGetValue((copy.Id, id), out var replacement)) return replacement;
+            replacement = Guid.NewGuid();
+            copiedIds.Add((copy.Id, id), replacement);
+            sourceIds[replacement] = id;
             return replacement;
+        }
+        void AllocateModule(WorkspaceModule value, string folder)
+        {
+            CopyId(value.Id, folder);
+            foreach (var child in value.Modules) AllocateModule(child, Child(folder, "modules", child.FolderName));
+            foreach (var child in value.Projects) CopyId(child.Id, Child(folder, "projects", child.FolderName));
+        }
+        foreach (var child in definition.Modules) AllocateModule(child, Child(root, "modules", child.FolderName));
+        void RemapSources(projectSettingsDto settings, string folder)
+        {
+            if (settings.setupDataTypes is null || transfers.LastOrDefault(t => WorkspaceFolderCopy.Inside(t.Destination, folder))?.Copy is not { } copy) return;
+            foreach (var entry in settings.setupDataTypes)
+                if (copiedIds.TryGetValue((copy.Id, entry.sourceProjectId), out var replacement)) entry.sourceProjectId = replacement;
         }
         project IdentifyProject(project value, string folder)
         {
-            var parent = project.createInherited(CopyId(value.Id, folder), value.ProjectName, value.FolderName, value.Configuration, value.LocalOverrides, []);
+            var settings = SettingsDto.fromDomain(value.Configuration);
+            var local = OverridesDto.fromDomain(value.LocalOverrides);
+            RemapSources(settings, folder); RemapSources(local, folder);
+            var parent = project.restore(CopyId(value.Id, folder), value.ProjectName, value.FolderName, SettingsDto.toDomain(value.Kind, settings), OverridesDto.toDomain(value.Kind, local), value.IsSealed, []);
             var runs = value.Runs.Select(run =>
             {
                 var dto = RunDto.fromDomain(run);
                 dto.id = CopyId(run.Id, Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)));
+                dto.parentProjectId = parent.Id;
                 return RunDto.toDomain(parent, dto);
             }).ToArray();
-            return project.createInherited(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, parent.LocalOverrides, runs);
+            return project.withRuns(parent, runs);
         }
-        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.createInherited(CopyId(value.Id, folder), value.ModuleName, value.FolderName, value.Configuration, value.LocalOverrides,
-            value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
-            value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
+        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder)
+        {
+            var settings = SettingsDto.fromDomain(value.Configuration);
+            var local = OverridesDto.fromDomain(value.LocalOverrides);
+            RemapSources(settings, folder); RemapSources(local, folder);
+            return WorkspaceModule.createInherited(CopyId(value.Id, folder), value.ModuleName, value.FolderName, SettingsDto.toDomain(value.Kind, settings), OverridesDto.toDomain(value.Kind, local),
+                value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
+                value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
+        }
         definition = workspace.create(definition.Id, definition.WorkspaceName, definition.FolderName,
             definition.Modules.Select(child => IdentifyModule(child, Child(root, "modules", child.FolderName))).ToArray());
         var sourceRuns = new Dictionary<string, Dictionary<Guid, string>>(PathComparer);
@@ -447,7 +490,7 @@ public static class WorkspaceFileStore
             token.ThrowIfCancellationRequested();
             return WorkspaceCodec.decodeRun(saved, ReadDefinition(file));
         }).ToArray();
-        return project.createInherited(saved.Id, projectName, folderName, saved.Configuration, saved.LocalOverrides, runs);
+        return project.restore(saved.Id, projectName, folderName, saved.Configuration, saved.LocalOverrides, saved.IsSealed, runs);
     }
 
     private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token, projectConfiguration? parent = null)

@@ -187,7 +187,7 @@ public sealed class WorkspaceEditingTests : IDisposable
         page.Selected = module;
         page.AddProjectCommand.Execute(null);
         WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
-        run.Editor!.OutputParameters.Clear();
+        run.Editor!.ResultsParameters.Clear();
         Assert.True(page.DiscardChangesCommand.CanExecute(null));
         page.DiscardChangesCommand.Execute(null);
         Assert.Equal(WorkspaceCodec.encodeWorkspace(definition), WorkspaceCodec.encodeWorkspace(page.Roots.Single().ToWorkspace()));

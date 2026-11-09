@@ -20,18 +20,25 @@ module ParameterSets =
             for value in span.Values do
                 let error = ParameterValue.validationError kind value
                 if error <> "" then invalidArg "spans" $"Parameter '{span.KeyName}': {error}"
-    /// Spans replace bindings of the same name. Other bindings occur in every combination.
-    let create (bindings: parameterBinding list) (spans: parameterSpan list) : parameterSet array =
+    let private combinations (bindings: parameterBinding list) (spans: parameterSpan list) =
         validateSpans bindings spans
         let initial = parameterSet.fromBindings bindings
         let count = spans |> List.fold (fun count span -> count * bigint span.Values.Length) 1I
         if count > bigint Array.MaxLength then invalidArg "spans" "The parameter spans produce too many combinations for an array."
         match spans with
-        | [] -> [| initial |]
+        | [] -> Seq.singleton initial
         | _ ->
             spans |> List.map (fun span ->
                 let kind = valueType bindings span.KeyName
                 span.KeyName, span.Values |> List.map (ParameterBinding.fromText span.KeyName kind))
             |> Combinatorics.cartesianProductMaps
             |> Seq.map (fun values -> values |> Map.fold (fun (combined: parameterSet) _ binding -> combined.WithBinding(binding)) initial)
-            |> Seq.toArray
+
+    /// Spans replace bindings of the same name. Other bindings occur in every combination.
+    let create (bindings: parameterBinding list) (spans: parameterSpan list) : parameterSet array =
+        combinations bindings spans |> Seq.toArray
+
+    /// Validate every input, then materialize only the first maxCount combinations, in execution order.
+    let preview maxCount (bindings: parameterBinding list) (spans: parameterSpan list) : parameterSet array =
+        if maxCount <= 0 then invalidArg "maxCount" "The preview limit must be positive."
+        combinations bindings spans |> Seq.truncate maxCount |> Seq.toArray

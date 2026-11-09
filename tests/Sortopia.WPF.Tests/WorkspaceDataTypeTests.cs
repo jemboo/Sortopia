@@ -25,8 +25,8 @@ public sealed class WorkspaceDataTypeTests : IDisposable
     private static project Parent(bool branch, sortopiaDataType[] values)
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
-        settings.outputDataTypes = values.Select(SortopiaDataTypeDto.fromDomain).ToArray();
-        settings.setupOutputDataTypes = branch ? values.Reverse().Select(SortopiaDataTypeDto.fromDomain).ToArray() : [];
+        settings.resultsSortopiaDataTypes = values.Select(SortopiaDataTypeDto.fromDomain).ToArray();
+        settings.setupDataTypes = branch ? values.Reverse().Select(value => WorkspaceHierarchyTests.SetupType(SortopiaDataType.kindName(value), SortopiaDataType.text(value), "Width")).ToArray() : [];
         return project.create(Guid.NewGuid(), "P", "P", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
 
@@ -47,16 +47,22 @@ public sealed class WorkspaceDataTypeTests : IDisposable
             return value;
         })).ToArray();
         var parent = Parent(branch, values);
-        var run = RunDto.toDomain(parent, RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch)));
+        var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
+        inputs.parentProjectId = parent.Id;
+        if (branch) inputs.setupParameterSpans = inputs.setupParameterSpans.Concat(inputs.resultsParameterSpans).ToArray();
+        var run = RunDto.toDomain(parent, inputs);
         parent = project.create(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, [run]);
         var module = workspaceModule.create(parent.Kind, Guid.NewGuid(), "M", "M", [], [parent]);
-        var workspace = Sortopia.Workspaces.workspace.create(Guid.NewGuid(), "W", "W", [module]);
+        var source = Parent(false, values);
+        source = project.restore(WorkspaceTestFiles.Id("source"), "Source", "Source", source.Configuration, source.LocalOverrides, true, []);
+        var sources = workspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sources", "Sources", [], [source]);
+        var workspace = Sortopia.Workspaces.workspace.create(Guid.NewGuid(), "W", "W", [module, sources]);
         var restored = WorkspaceCodec.decodeWorkspace(WorkspaceCodec.encodeWorkspace(workspace)).Modules[0].Projects[0];
-        Assert.Equal(values, restored.OutputDataTypes);
-        Assert.Equal(values, restored.Runs[0].OutputDataTypes);
-        Assert.Equal(values, WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)).OutputDataTypes);
-        if (branch) Assert.Equal(values.Reverse(), restored.Runs[0].SetupOutputDataTypes.Value);
-        Assert.Equal(8, MessagePackSetup.deserialize<workspaceDto>(WorkspaceCodec.encodeWorkspace(workspace)).schemaVersion);
+        Assert.Equal(values, restored.ResultsSortopiaDataTypes);
+        Assert.Equal(values, restored.Runs[0].ResultsSortopiaDataTypes);
+        Assert.Equal(values, WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)).ResultsSortopiaDataTypes);
+        if (branch) Assert.Equal(values.Reverse(), restored.Runs[0].SetupSortopiaDataTypes.Value);
+        Assert.Equal(9, MessagePackSetup.deserialize<workspaceDto>(WorkspaceCodec.encodeWorkspace(workspace)).schemaVersion);
     }
 
     [Fact]
@@ -64,9 +70,11 @@ public sealed class WorkspaceDataTypeTests : IDisposable
     {
         sortopiaDataType[] values = [sortopiaDataType.NewTextReport("notes"), sortopiaDataType.NewTextReport("notes\n"), sortopiaDataType.NewSortableTests("notes")];
         var parent = Parent(true, values);
-        var run = RunDto.toDomain(parent, RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", true)));
+        var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", true));
+        inputs.parentProjectId = parent.Id;
+        var run = RunDto.toDomain(parent, inputs);
         var branch = ((Sortopia.Runs.run.BranchRun)run).Item;
-        var parameters = BranchRun.makeParameterSets(branch)[0];
+        var parameters = BranchRun.makeResultsParameterSets(branch)[0];
         var queries = values.Select(value => QueryParams.forResults(run, value, parameters)).ToArray();
         Assert.Equal(values.Length, queries.Select(q => q.Id).Distinct().Count());
         Assert.Equal(values, queries.Select(q => q.OutputDataType));
@@ -89,7 +97,7 @@ public sealed class WorkspaceDataTypeTests : IDisposable
         Assert.Throws<ArgumentException>(() => Parent(false, [sortopiaDataType.NewRun(""), sortopiaDataType.NewRun("")]));
         var parent = Parent(true, [sortopiaDataType.NewRun("")]);
         var malformed = ProjectDto.fromDomain(parent);
-        malformed.localOverrides.setupOutputDataTypes = [new() { kind = "invalid", value = "" }];
+        malformed.localOverrides.setupDataTypes = [WorkspaceHierarchyTests.SetupType("invalid")];
         Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeProject(MessagePackSetup.serialize(malformed)));
         malformed = ProjectDto.fromDomain(parent);
         malformed.schemaVersion = 7;
@@ -113,11 +121,11 @@ public sealed class WorkspaceDataTypeTests : IDisposable
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var module = page.Selected!;
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
-        settings.outputQueryParameterKeys = settings.setupQueryParameterKeys = [];
+        settings.resultsQueryParameterKeys = [];
         module.Editor!.LoadProject(settings);
         module.Editor.OutputTypes[0].Kind = "WorkspaceModule";
         module.Editor.OutputTypes[0].Text = " α, inherited\ntext ";
-        if (branch) module.Editor.SetupOutputTypes[0].Text = " setup only ";
+        if (branch) { WorkspaceHierarchyTests.AddSetupSource(module, " setup only "); module.Editor.SetupDataTypes[0].QueryKeys.Clear(); }
         page.AddProjectCommand.Execute(null);
         var project = page.Selected!;
         page.AddRunCommand.Execute(null);
@@ -137,18 +145,18 @@ public sealed class WorkspaceDataTypeTests : IDisposable
         Assert.Equal(new[] { "local", "" }, run.Editor.InheritedOutputTypes.Select(v => v.value));
         Assert.Same(project.Editor, run.Editor.OutputTypesOverride.InheritedSource);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var stored = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0];
-        Assert.Equal(new[] { sortopiaDataType.NewWorkspaceModule("local"), sortopiaDataType.NewWorkspaceModule("") }, stored.OutputDataTypes);
-        if (branch) Assert.Equal(" setup only ", SortopiaDataType.text(Assert.Single(stored.SetupOutputDataTypes.Value)));
+        var stored = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects.Last().Runs[0];
+        Assert.Equal(new[] { sortopiaDataType.NewWorkspaceModule("local"), sortopiaDataType.NewWorkspaceModule("") }, stored.ResultsSortopiaDataTypes);
+        if (branch) Assert.Equal(" setup only ", SortopiaDataType.text(Assert.Single(stored.SetupSortopiaDataTypes.Value)));
         var reopened = Open();
         var reopenedModule = reopened.Roots[0].Children[0];
-        var reopenedProject = reopenedModule.Children[0];
+        var reopenedProject = reopenedModule.Children.Last();
         var reopenedRun = reopenedProject.Children[0];
         Assert.Equal(new[] { "local", "" }, reopenedProject.Editor!.OutputTypes.Select(v => v.Text));
         reopenedProject.Editor.OutputTypesOverride.IsOverridden = false;
-        Assert.Equal(" α, inherited\ntext ", Assert.Single(reopenedRun.Editor!.InheritedOutputTypes).value);
+        Assert.Equal(new[] { "local", "" }, reopenedRun.Editor!.InheritedOutputTypes.Select(value => value.value));
         reopenedModule.Editor!.OutputTypes[0].Text = "updated ancestor";
-        Assert.Equal("updated ancestor", Assert.Single(reopenedRun.Editor.InheritedOutputTypes).value);
+        Assert.Equal(new[] { "local", "" }, reopenedRun.Editor.InheritedOutputTypes.Select(value => value.value));
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

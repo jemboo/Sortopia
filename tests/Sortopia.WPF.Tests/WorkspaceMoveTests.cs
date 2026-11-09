@@ -63,6 +63,14 @@ public sealed class WorkspaceMoveTests : IDisposable
         if (!node.IsRun) Data(source);
         var filenames = node.IsRun ? [Path.GetFileName(source)] : Directory.GetFiles(source, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order().ToArray();
         var before = Snapshot(Root);
+        if (node.IsRun)
+        {
+            page.Selected = node; page.CutCommand.Execute(null);
+            page.Selected = Find(page, parent); await page.PasteAsync();
+            Assert.Contains("parent project", page.Error);
+            Assert.Equal(before, Snapshot(Root));
+            return;
+        }
         await Move(page, name, parent);
         var destination = page.Selected!.GetFolderPath(Root);
         Assert.Equal(before, Snapshot(Root));
@@ -91,13 +99,13 @@ public sealed class WorkspaceMoveTests : IDisposable
     }
 
     [Fact]
-    public async Task A_failed_run_move_restores_its_file_and_can_be_retried()
+    public async Task A_failed_parent_move_restores_run_files_and_can_be_retried()
     {
         var page = Open();
         var source = Find(page, "R").GetFolderPath(Root);
         var id = Find(page, "R").Id;
         var before = Snapshot(Root);
-        await Move(page, "R", "Destination");
+        await Move(page, "P", "B");
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
@@ -109,7 +117,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.False(File.Exists(source));
         var saved = WorkspaceHierarchyTests.ReadRun(Find(page, "R").GetFolderPath(Root));
         Assert.Equal(id, saved.Id);
-        Assert.Equal("Destination", saved.ProjectName);
+        Assert.Equal("P", saved.ProjectName);
     }
 
     [Fact]
@@ -272,7 +280,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         var before = Snapshot(importSource);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         await Move(page, "Child project", "B");
-        await Move(page, "Existing trial", "Destination");
+        var importedProjectId = page.Selected!.Id;
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
@@ -283,7 +291,8 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Empty(page.Error);
         Assert.Equal(before, Snapshot(importSource));
         Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Imported", "projects", "child-project")));
-        Assert.Empty(Directory.GetFiles(Path.Combine(Root, "modules", "B", "projects", "child-project", "runs")));
+        var importedRun = WorkspaceHierarchyTests.ReadRun(Assert.Single(Directory.GetFiles(Path.Combine(Root, "modules", "B", "projects", "child-project", "runs"))));
+        Assert.Equal(importedProjectId, importedRun.ParentProjectId);
         Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "B", "projects", "child-project", "results.txt")));
     }
 

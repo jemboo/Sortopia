@@ -3,28 +3,27 @@ namespace Sortopia.Workspaces
 open FSharp.UMX
 open Sortopia.Runs
 
-/// None inherits; Some (including an empty list or description) is a local value.
+/// None inherits. Parameter defaults merge by key; other lists and descriptions replace inherited values.
 type rootDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
-    ExecuteFunctionName: string<executeFunctionName> option
-    OutputDataTypes: sortopiaDataType list option
-    OutputQueryParameterKeys: string<paramKeyName> list option
-    OutputParameterDefaults: parameterBinding list option
+    ResultsFunctionName: string<resultsFunctionName> option
+    ResultsSortopiaDataTypes: sortopiaDataType list option
+    ResultsQueryParameterKeys: string<paramKeyName> list option
+    ResultsParameterDefaults: parameterBinding list option
 }
 
-/// None inherits; Some (including an empty list or description) is a local value.
+/// None inherits. Parameter defaults merge by key; other lists and descriptions replace inherited values.
 type branchDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
-    ExecuteFunctionName: string<executeFunctionName> option
-    OutputDataTypes: sortopiaDataType list option
-    OutputQueryParameterKeys: string<paramKeyName> list option
-    OutputParameterDefaults: parameterBinding list option
+    ResultsFunctionName: string<resultsFunctionName> option
+    ResultsSortopiaDataTypes: sortopiaDataType list option
+    ResultsQueryParameterKeys: string<paramKeyName> list option
+    ResultsParameterDefaults: parameterBinding list option
     SetupDatabaseName: string<setupDatabaseName> option
     SetupFunctionName: string<setupFunctionName> option
-    SetupOutputDataTypes: sortopiaDataType list option
-    SetupQueryParameterKeys: string<paramKeyName> list option
+    SetupDataTypes: setupDataTypeConfig list option
     SetupParameterDefaults: parameterBinding list option
 }
 
@@ -33,97 +32,107 @@ type configurationOverrides =
     | BranchOverrides of branchDefaultOverrides
 
 module Defaults =
+    /// Local bindings replace matching keys; unrelated inherited bindings remain in order.
+    let mergeParameterDefaults (inherited: parameterBinding list) (local: parameterBinding list) =
+        ParameterBinding.validateUnique inherited
+        ParameterBinding.validateUnique local
+        let replacements = local |> List.map (fun binding -> binding.KeyName, binding) |> Map.ofList
+        let inheritedKeys = inherited |> List.map (fun binding -> binding.KeyName) |> Set.ofList
+        let merged = inherited |> List.map (fun binding -> Map.tryFind binding.KeyName replacements |> Option.defaultValue binding)
+        merged @ (local |> List.filter (fun binding -> not (Set.contains binding.KeyName inheritedKeys)))
+
     // Metadata defaults apply when no module or project supplies a local value.
     let root : rootProjectConfig = {
         Description = ""
-        ResultsDatabaseName = UMX.tag "Results"
-        ExecuteFunctionName = UMX.tag ""
-        OutputDataTypes = []
-        OutputQueryParameterKeys = []
-        OutputParameterDefaults = [] }
+        Results = {
+            DatabaseName = UMX.tag "Results"
+            FunctionName = UMX.tag ""
+            SortopiaDataTypes = []
+            QueryParameterKeys = []
+            ParameterDefaults = [] } }
     let inheritRoot : rootDefaultOverrides = {
         Description = None
         ResultsDatabaseName = None
-        ExecuteFunctionName = None
-        OutputDataTypes = None
-        OutputQueryParameterKeys = None
-        OutputParameterDefaults = None }
+        ResultsFunctionName = None
+        ResultsSortopiaDataTypes = None
+        ResultsQueryParameterKeys = None
+        ResultsParameterDefaults = None }
     let localRoot (value: rootProjectConfig) : rootDefaultOverrides = {
         Description = Some value.Description
         ResultsDatabaseName = Some value.ResultsDatabaseName
-        ExecuteFunctionName = Some value.ExecuteFunctionName
-        OutputDataTypes = Some value.OutputDataTypes
-        OutputQueryParameterKeys = Some value.OutputQueryParameterKeys
-        OutputParameterDefaults = Some value.OutputParameterDefaults }
+        ResultsFunctionName = Some value.ResultsFunctionName
+        ResultsSortopiaDataTypes = Some value.ResultsSortopiaDataTypes
+        ResultsQueryParameterKeys = Some value.ResultsQueryParameterKeys
+        ResultsParameterDefaults = Some value.ResultsParameterDefaults }
     let resolveRoot (parent: rootProjectConfig) (local: rootDefaultOverrides) : rootProjectConfig = {
         Description = local.Description |> Option.defaultValue parent.Description
-        ResultsDatabaseName = local.ResultsDatabaseName |> Option.defaultValue parent.ResultsDatabaseName
-        ExecuteFunctionName = local.ExecuteFunctionName |> Option.defaultValue parent.ExecuteFunctionName
-        OutputDataTypes = local.OutputDataTypes |> Option.defaultValue parent.OutputDataTypes
-        OutputQueryParameterKeys = local.OutputQueryParameterKeys |> Option.defaultValue parent.OutputQueryParameterKeys
-        OutputParameterDefaults = local.OutputParameterDefaults |> Option.defaultValue parent.OutputParameterDefaults }
+        Results = {
+            DatabaseName = local.ResultsDatabaseName |> Option.defaultValue parent.ResultsDatabaseName
+            FunctionName = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
+            SortopiaDataTypes = local.ResultsSortopiaDataTypes |> Option.defaultValue parent.ResultsSortopiaDataTypes
+            QueryParameterKeys = local.ResultsQueryParameterKeys |> Option.defaultValue parent.ResultsQueryParameterKeys
+            ParameterDefaults = mergeParameterDefaults parent.ResultsParameterDefaults (local.ResultsParameterDefaults |> Option.defaultValue []) } }
     let validateRoot local =
         // Validate supplied values without requiring an organizational module to supply functions.
-        let baseline = { root with ExecuteFunctionName = UMX.tag "unspecified" }
+        let baseline = { root with Results = { root.Results with FunctionName = UMX.tag "unspecified" } }
         resolveRoot baseline local |> ProjectConfiguration.validateRoot
     let internal validateRootModule (value: rootProjectConfig) =
-        { value with ExecuteFunctionName = if value.ExecuteFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.ExecuteFunctionName }
+        { value with Results = { value.Results with FunctionName = if value.ResultsFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.ResultsFunctionName } }
         |> ProjectConfiguration.validateRoot
     let branch : branchProjectConfig = {
         Description = ""
-        ResultsDatabaseName = UMX.tag "Results"
-        ExecuteFunctionName = UMX.tag ""
-        OutputDataTypes = []
-        OutputQueryParameterKeys = []
-        OutputParameterDefaults = []
-        SetupDatabaseName = UMX.tag "Setup"
-        SetupFunctionName = UMX.tag ""
-        SetupOutputDataTypes = []
-        SetupQueryParameterKeys = []
-        SetupParameterDefaults = [] }
+        Results = {
+            DatabaseName = UMX.tag "Results"
+            FunctionName = UMX.tag ""
+            SortopiaDataTypes = []
+            QueryParameterKeys = []
+            ParameterDefaults = [] }
+        Setup = {
+            DatabaseName = UMX.tag "Setup"
+            FunctionName = UMX.tag ""
+            DataTypes = []
+            ParameterDefaults = [] } }
     let inheritBranch : branchDefaultOverrides = {
         Description = None
         ResultsDatabaseName = None
-        ExecuteFunctionName = None
-        OutputDataTypes = None
-        OutputQueryParameterKeys = None
-        OutputParameterDefaults = None
+        ResultsFunctionName = None
+        ResultsSortopiaDataTypes = None
+        ResultsQueryParameterKeys = None
+        ResultsParameterDefaults = None
         SetupDatabaseName = None
         SetupFunctionName = None
-        SetupOutputDataTypes = None
-        SetupQueryParameterKeys = None
+        SetupDataTypes = None
         SetupParameterDefaults = None }
     let localBranch (value: branchProjectConfig) : branchDefaultOverrides = {
         Description = Some value.Description
         ResultsDatabaseName = Some value.ResultsDatabaseName
-        ExecuteFunctionName = Some value.ExecuteFunctionName
-        OutputDataTypes = Some value.OutputDataTypes
-        OutputQueryParameterKeys = Some value.OutputQueryParameterKeys
-        OutputParameterDefaults = Some value.OutputParameterDefaults
+        ResultsFunctionName = Some value.ResultsFunctionName
+        ResultsSortopiaDataTypes = Some value.ResultsSortopiaDataTypes
+        ResultsQueryParameterKeys = Some value.ResultsQueryParameterKeys
+        ResultsParameterDefaults = Some value.ResultsParameterDefaults
         SetupDatabaseName = Some value.SetupDatabaseName
         SetupFunctionName = Some value.SetupFunctionName
-        SetupOutputDataTypes = Some value.SetupOutputDataTypes
-        SetupQueryParameterKeys = Some value.SetupQueryParameterKeys
+        SetupDataTypes = Some value.SetupDataTypes
         SetupParameterDefaults = Some value.SetupParameterDefaults }
     let resolveBranch (parent: branchProjectConfig) (local: branchDefaultOverrides) : branchProjectConfig = {
         Description = local.Description |> Option.defaultValue parent.Description
-        ResultsDatabaseName = local.ResultsDatabaseName |> Option.defaultValue parent.ResultsDatabaseName
-        ExecuteFunctionName = local.ExecuteFunctionName |> Option.defaultValue parent.ExecuteFunctionName
-        OutputDataTypes = local.OutputDataTypes |> Option.defaultValue parent.OutputDataTypes
-        OutputQueryParameterKeys = local.OutputQueryParameterKeys |> Option.defaultValue parent.OutputQueryParameterKeys
-        OutputParameterDefaults = local.OutputParameterDefaults |> Option.defaultValue parent.OutputParameterDefaults
-        SetupDatabaseName = local.SetupDatabaseName |> Option.defaultValue parent.SetupDatabaseName
-        SetupFunctionName = local.SetupFunctionName |> Option.defaultValue parent.SetupFunctionName
-        SetupOutputDataTypes = local.SetupOutputDataTypes |> Option.defaultValue parent.SetupOutputDataTypes
-        SetupQueryParameterKeys = local.SetupQueryParameterKeys |> Option.defaultValue parent.SetupQueryParameterKeys
-        SetupParameterDefaults = local.SetupParameterDefaults |> Option.defaultValue parent.SetupParameterDefaults }
+        Results = {
+            DatabaseName = local.ResultsDatabaseName |> Option.defaultValue parent.ResultsDatabaseName
+            FunctionName = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
+            SortopiaDataTypes = local.ResultsSortopiaDataTypes |> Option.defaultValue parent.ResultsSortopiaDataTypes
+            QueryParameterKeys = local.ResultsQueryParameterKeys |> Option.defaultValue parent.ResultsQueryParameterKeys
+            ParameterDefaults = mergeParameterDefaults parent.ResultsParameterDefaults (local.ResultsParameterDefaults |> Option.defaultValue []) }
+        Setup = {
+            DatabaseName = local.SetupDatabaseName |> Option.defaultValue parent.SetupDatabaseName
+            FunctionName = local.SetupFunctionName |> Option.defaultValue parent.SetupFunctionName
+            DataTypes = local.SetupDataTypes |> Option.defaultValue parent.SetupDataTypes
+            ParameterDefaults = mergeParameterDefaults parent.SetupParameterDefaults (local.SetupParameterDefaults |> Option.defaultValue []) } }
     let validateBranch local =
         // Validate supplied values without requiring an organizational module to supply functions.
-        let baseline = { branch with ExecuteFunctionName = UMX.tag "unspecified"; SetupFunctionName = UMX.tag "unspecified" }
+        let baseline = { branch with Results = { branch.Results with FunctionName = UMX.tag "unspecified" }; Setup = { branch.Setup with FunctionName = UMX.tag "unspecified" } }
         resolveBranch baseline local |> ProjectConfiguration.validateBranch
     let internal validateBranchModule (value: branchProjectConfig) =
-        { value with ExecuteFunctionName = if value.ExecuteFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.ExecuteFunctionName
-                     SetupFunctionName = if value.SetupFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.SetupFunctionName }
+        { value with Results = { value.Results with FunctionName = if value.ResultsFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.ResultsFunctionName }; Setup = { value.Setup with FunctionName = if value.SetupFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.SetupFunctionName } }
         |> ProjectConfiguration.validateBranch
     let configuration kindIsBranch = if kindIsBranch then BranchProjectConfig branch else RootProjectConfig root
     let inherited kindIsBranch = if kindIsBranch then BranchOverrides inheritBranch else RootOverrides inheritRoot

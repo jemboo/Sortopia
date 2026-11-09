@@ -11,8 +11,10 @@ public sealed class WorkspaceFolderCopy
     private sealed record Snapshot(string[] Directories, Entry[] Files);
     private readonly Snapshot snapshot;
     private readonly string[] excludedFolders;
-    private WorkspaceFolderCopy(string source, string destination, Snapshot snapshot, Guid? id = null, string[]? excludedFolders = null)
-    { SourceFolder = source; DestinationFolder = destination; this.snapshot = snapshot; Id = id ?? Guid.NewGuid(); this.excludedFolders = excludedFolders ?? []; }
+    private WorkspaceFolderCopy(string source, string destination, Snapshot snapshot, Guid? id = null, string[]? excludedFolders = null, IReadOnlyDictionary<Guid, Guid>? originalIds = null)
+    { SourceFolder = source; DestinationFolder = destination; this.snapshot = snapshot; Id = id ?? Guid.NewGuid(); this.excludedFolders = excludedFolders ?? []; OriginalIds = originalIds ?? new Dictionary<Guid, Guid>(); }
+    internal IReadOnlyDictionary<Guid, Guid> OriginalIds { get; }
+    internal WorkspaceFolderCopy WithOriginalIds(IReadOnlyDictionary<Guid, Guid> ids) => new(SourceFolder, DestinationFolder, snapshot, Id, excludedFolders, ids);
     internal Guid Id { get; }
     public string SourceFolder { get; }
     public string DestinationFolder { get; }
@@ -26,7 +28,7 @@ public sealed class WorkspaceFolderCopy
         foreach (var relative in exclusions)
             if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative == "." || !Inside(SourceFolder, Path.GetFullPath(Path.Combine(SourceFolder, relative))))
                 throw new IOException("Invalid imported subtree location.");
-        return new(SourceFolder, DestinationFolder, snapshot, Id, exclusions);
+        return new(SourceFolder, DestinationFolder, snapshot, Id, exclusions, OriginalIds);
     }
 
     public static WorkspaceFolderCopy? Prepare(string workspaceRoot, string sourceFolder, string destinationFolder, CancellationToken token)
@@ -44,7 +46,7 @@ public sealed class WorkspaceFolderCopy
         var destination = Normalize(destinationFolder);
         if (Same(SourceFolder, destination)) throw new IOException("A pending copy cannot replace its source folder. Choose another folder name.");
         CheckDestination(workspaceRoot, SourceFolder, destination);
-        return new(SourceFolder, destination, snapshot, Id, excludedFolders);
+        return new(SourceFolder, destination, snapshot, Id, excludedFolders, OriginalIds);
     }
 
     public void ValidateSource(CancellationToken token)

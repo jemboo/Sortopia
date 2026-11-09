@@ -4,13 +4,14 @@ using Sortopia.WPF.Commands;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.Settings;
 using Sortopia.Workspaces;
+using Sortopia.Workspaces.Serialization;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public enum WorkspaceUnsavedChoice { Save, Discard, Cancel }
 public sealed record WorkspaceFolderRequest(WorkspaceEntityKind Kind, string InitialDirectory, string ContainerFolder);
 
-public sealed class WorkspacePageViewModel : ViewModelBase
+public sealed partial class WorkspacePageViewModel : ViewModelBase
 {
     private readonly Action returnHome;
     private readonly Func<string?, string?> pickFolder;
@@ -50,6 +51,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         AddBranchModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module, hierarchyKind.Branch), () => CanAddModule(hierarchyKind.Branch));
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
+        CreateProjectVersionCommand = new RelayCommand(CreateProjectVersion, () => CanEdit && Selected is { IsProject: true, IsSealed: true, Parent: not null });
         EditProjectDefaultsCommand = new RelayCommand(() => Selected = Selected!.Parent, () => CanEdit && Selected?.HasParentDefaults == true);
         SelectValueSourceCommand = new RelayCommand(source =>
         {
@@ -64,6 +66,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         PasteCommand = new RelayCommand(async () => await PasteAsync(), () => CanPaste);
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
+        ExecuteRunCommand = new RelayCommand(async () => await ExecuteRunAsync(), () => CanExecuteRun);
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasEditErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         try
@@ -107,6 +110,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         : "Paste under the selected parent (Ctrl+V in the tree).";
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand AddRunCommand { get; }
+    public RelayCommand CreateProjectVersionCommand { get; }
     public RelayCommand EditProjectDefaultsCommand { get; }
     public RelayCommand SelectValueSourceCommand { get; }
     public RelayCommand AddExistingModuleCommand { get; }
@@ -242,6 +246,7 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
     private void OpenSelectedFolder()
     {
+        executions.Clear();
         ResetDraft();
         try
         {
@@ -265,6 +270,19 @@ public sealed class WorkspacePageViewModel : ViewModelBase
         parent.Children.Add(child);
         Selected = child;
         Status = $"Added {kind.ToString().ToLowerInvariant()} to the definition. Choose Save workspace to save it.";
+    }
+    private void CreateProjectVersion()
+    {
+        var source = Selected!;
+        var parent = source.Parent!;
+        var stem = source.Name + " v2";
+        var name = stem;
+        for (var suffix = 2; parent.HasChildIdentity(WorkspaceEntityKind.Project, name); suffix++) name = stem + " " + suffix;
+        var version = new WorkspaceTreeNode(WorkspaceEntityKind.Project, name, family: source.Family);
+        version.Editor!.LoadProject(source.Editor!.ToProjectSettings());
+        parent.Children.Add(version);
+        Selected = version;
+        Status = "Created an editable project version with a new ID and no runs.";
     }
     private bool CanAddModule(hierarchyKind family) => CanAdd(WorkspaceEntityKind.Module) && (Selected!.IsWorkspace || Selected.Family == family);
     private bool CanAdd(WorkspaceEntityKind kind) => CanEdit && !HasEditErrors && Selected?.CanContain(kind) == true;
@@ -294,20 +312,24 @@ public sealed class WorkspacePageViewModel : ViewModelBase
                 var destination = Path.Combine(container, folderName);
                 var copy = await Task.Run(() => WorkspaceFolderCopy.Prepare(WorkspaceFolder, folder, destination, token), token);
                 WorkspaceTreeNode child;
+                var identities = new WorkspaceImportIdentity();
                 if (kind == WorkspaceEntityKind.Module)
                 {
                     var value = await Task.Run(() => WorkspaceFileStore.LoadModuleFolder(folder, token), token);
+                    if (copy is not null) { var dto = ModuleDto.fromDomain(value); identities.Reidentify(dto); value = ModuleDto.toDomain(dto); }
                     child = WorkspaceTreeNode.FromModule(value);
                 }
                 else
                 {
                     var value = await Task.Run(() => WorkspaceFileStore.LoadProjectFolder(folder, token), token);
+                    if (copy is not null) { var dto = ProjectDto.fromDomain(value); identities.Reidentify(dto); value = ProjectDto.toDomain(dto); }
                     child = WorkspaceTreeNode.FromProject(value);
                 }
+                if (copy is not null) copy = copy.WithOriginalIds(identities.OriginalIds);
                 if (copy is not null) await Task.Run(() => copy.ValidateSource(token), token);
                 token.ThrowIfCancellationRequested();
                 child.PendingCopy = copy;
-                if (copy is not null) child.RememberImportLocations(copy.SourceFolder, copy.Id);
+                if (copy is not null) child.RememberImportLocations(copy.SourceFolder, copy.Id, copy.OriginalIds);
                 parent.AddExistingChild(child);
                 if (copy is null) child.RememberSavedLocations(WorkspaceFolder);
                 Selected = child;
@@ -365,11 +387,12 @@ public sealed class WorkspacePageViewModel : ViewModelBase
             await Task.Run(() => origin.ValidateSource(token), token);
             var copy = await Task.Run(() => WorkspaceFolderCopy.Prepare(WorkspaceFolder, source, destination, token), token)
                 ?? throw new IOException("A pending import cannot be moved back into its source folder.");
+            copy = copy.WithOriginalIds(origin.OriginalIds);
             token.ThrowIfCancellationRequested();
             node.PendingCopy = copy;
             node.CopyOriginId = originId;
             node.CopyOriginRelativePath = Path.GetRelativePath(origin.SourceFolder, source);
-            node.RememberImportLocations(source, copy.Id);
+            node.RememberImportLocations(source, copy.Id, copy.OriginalIds);
         }
         var oldParent = node.Parent!;
         oldParent.Children.Remove(node);
@@ -425,9 +448,13 @@ public sealed class WorkspacePageViewModel : ViewModelBase
     }
     private void NotifyCommands()
     {
+        OnPropertyChanged(nameof(SelectedExecution));
+        OnPropertyChanged(nameof(ExecuteHint));
+        OnPropertyChanged(nameof(ExecutionInstructions));
+        ExecuteRunCommand.RaiseCanExecuteChanged();
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
-        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
+        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
             RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }

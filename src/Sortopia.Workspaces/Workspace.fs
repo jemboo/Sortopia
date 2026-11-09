@@ -38,7 +38,8 @@ type hierarchyKind =
     | Branch = 1
 
 type rootProject =
-    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: rootProjectConfig; localOverrides: rootDefaultOverrides; runs: rootRun array }
+    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: rootProjectConfig; localOverrides: rootDefaultOverrides; isSealed: bool; runs: rootRun array }
+    member this.IsSealed = this.isSealed
     member this.Id = this.id
     member this.ProjectName = this.projectName
     member this.FolderName = this.folderName
@@ -46,15 +47,17 @@ type rootProject =
     member this.LocalOverrides = this.localOverrides
     member this.Description = this.configuration.Description
     member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.configuration.ExecuteFunctionName
-    member this.OutputDataTypes = this.configuration.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.configuration.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = this.configuration.OutputParameterDefaults
+    member this.ResultsFunctionName = this.configuration.ResultsFunctionName
+    member this.ResultsSortopiaDataTypes = this.configuration.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.configuration.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
     member this.Runs = Array.copy this.runs
     interface IRootProject with
+        member this.Id = this.id
+        member this.IsSealed = this.isSealed
         member this.ProjectName = this.projectName
         member this.Configuration = this.configuration
-    static member createInherited (id: Guid<projectId>) (name: string<projectName>) folderName parent (local: rootDefaultOverrides) (runs: rootRun array) : rootProject =
+    static member private createState isSealed (id: Guid<projectId>) (name: string<projectName>) folderName parent (local: rootDefaultOverrides) (runs: rootRun array) : rootProject =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
@@ -64,17 +67,30 @@ type rootProject =
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
-        if runs |> Array.exists (fun r -> r.ProjectName <> name) then invalidArg "runs" "Each run must name its containing project."
-        let value = { id = id; projectName = name; folderName = folderName; configuration = configuration; localOverrides = local; runs = [||] }
+        if runs |> Array.exists (fun r -> r.ParentProjectId <> id) then invalidArg "runs" "Each run must reference its containing project ID."
+        if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration || r.ProjectName <> name) then
+            invalidArg "configuration" "Existing runs require their original sealed project settings and name."
+        let isSealed = isSealed || runs.Length > 0
+        let local = if isSealed then Defaults.localRoot configuration else local
+        let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; localOverrides = local; runs = [||] }
         { value with runs = runs |> Array.map (fun r -> RootRun.create value r.Configuration) }
+    static member createInherited id name folderName parent local runs =
+        rootProject.createState false id name folderName parent local runs
+    static member restore id name folderName configuration local isSealed runs =
+        rootProject.createState isSealed id name folderName configuration (if isSealed then Defaults.localRoot configuration else local) runs
+    static member seal (value: rootProject) =
+        { value with isSealed = true; localOverrides = Defaults.localRoot value.Configuration }
+    static member withRuns (value: rootProject) runs =
+        rootProject.restore value.Id value.ProjectName value.FolderName value.Configuration value.LocalOverrides value.IsSealed runs
     static member create id name folderName configuration runs =
         rootProject.createInherited id name folderName Defaults.root (Defaults.localRoot configuration) runs
     static member rebind parent (value: rootProject) =
-        if Defaults.resolveRoot parent value.LocalOverrides = value.Configuration then value
+        if value.IsSealed || Defaults.resolveRoot parent value.LocalOverrides = value.Configuration then value
         else rootProject.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
 
 type branchProject =
-    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: branchProjectConfig; localOverrides: branchDefaultOverrides; runs: branchRun array }
+    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: branchProjectConfig; localOverrides: branchDefaultOverrides; isSealed: bool; runs: branchRun array }
+    member this.IsSealed = this.isSealed
     member this.Id = this.id
     member this.ProjectName = this.projectName
     member this.FolderName = this.folderName
@@ -82,20 +98,24 @@ type branchProject =
     member this.LocalOverrides = this.localOverrides
     member this.Description = this.configuration.Description
     member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.configuration.ExecuteFunctionName
-    member this.OutputDataTypes = this.configuration.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.configuration.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = this.configuration.OutputParameterDefaults
+    member this.ResultsFunctionName = this.configuration.ResultsFunctionName
+    member this.ResultsSortopiaDataTypes = this.configuration.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.configuration.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
     member this.SetupDatabaseName = this.configuration.SetupDatabaseName
     member this.SetupFunctionName = this.configuration.SetupFunctionName
-    member this.SetupOutputDataTypes = this.configuration.SetupOutputDataTypes
+    member this.SetupDataTypes = this.configuration.SetupDataTypes
+    member this.SourceProjectIds = this.configuration.SourceProjectIds
+    member this.SetupSortopiaDataTypes = this.configuration.SetupSortopiaDataTypes
     member this.SetupQueryParameterKeys = this.configuration.SetupQueryParameterKeys
     member this.SetupParameterDefaults = this.configuration.SetupParameterDefaults
     member this.Runs = Array.copy this.runs
     interface IBranchProject with
+        member this.Id = this.id
+        member this.IsSealed = this.isSealed
         member this.ProjectName = this.projectName
         member this.Configuration = this.configuration
-    static member createInherited (id: Guid<projectId>) (name: string<projectName>) folderName parent (local: branchDefaultOverrides) (runs: branchRun array) : branchProject =
+    static member private createState isSealed (id: Guid<projectId>) (name: string<projectName>) folderName parent (local: branchDefaultOverrides) (runs: branchRun array) : branchProject =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
@@ -105,18 +125,31 @@ type branchProject =
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
-        if runs |> Array.exists (fun r -> r.ProjectName <> name) then invalidArg "runs" "Each run must name its containing project."
-        let value = { id = id; projectName = name; folderName = folderName; configuration = configuration; localOverrides = local; runs = [||] }
+        if runs |> Array.exists (fun r -> r.ParentProjectId <> id) then invalidArg "runs" "Each run must reference its containing project ID."
+        if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration || r.ProjectName <> name) then
+            invalidArg "configuration" "Existing runs require their original sealed project settings and name."
+        let isSealed = isSealed || runs.Length > 0
+        let local = if isSealed then Defaults.localBranch configuration else local
+        let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; localOverrides = local; runs = [||] }
         { value with runs = runs |> Array.map (fun r -> BranchRun.create value r.Configuration) }
+    static member createInherited id name folderName parent local runs =
+        branchProject.createState false id name folderName parent local runs
+    static member restore id name folderName configuration local isSealed runs =
+        branchProject.createState isSealed id name folderName configuration (if isSealed then Defaults.localBranch configuration else local) runs
+    static member seal (value: branchProject) =
+        { value with isSealed = true; localOverrides = Defaults.localBranch value.Configuration }
+    static member withRuns (value: branchProject) runs =
+        branchProject.restore value.Id value.ProjectName value.FolderName value.Configuration value.LocalOverrides value.IsSealed runs
     static member create id name folderName configuration runs =
         branchProject.createInherited id name folderName Defaults.branch (Defaults.localBranch configuration) runs
     static member rebind parent (value: branchProject) =
-        if Defaults.resolveBranch parent value.LocalOverrides = value.Configuration then value
+        if value.IsSealed || Defaults.resolveBranch parent value.LocalOverrides = value.Configuration then value
         else branchProject.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
 
 type project =
     | RootProject of rootProject
     | BranchProject of branchProject
+    member this.IsSealed = match this with RootProject p -> p.IsSealed | BranchProject p -> p.IsSealed
     member this.Kind = match this with RootProject _ -> hierarchyKind.Root | BranchProject _ -> hierarchyKind.Branch
     member this.Id = match this with RootProject p -> p.Id | BranchProject p -> p.Id
     member this.ProjectName = match this with RootProject p -> p.ProjectName | BranchProject p -> p.ProjectName
@@ -125,10 +158,10 @@ type project =
     member this.LocalOverrides = match this with RootProject p -> RootOverrides p.LocalOverrides | BranchProject p -> BranchOverrides p.LocalOverrides
     member this.Description = match this with RootProject p -> p.Description | BranchProject p -> p.Description
     member this.ResultsDatabaseName = match this with RootProject p -> p.ResultsDatabaseName | BranchProject p -> p.ResultsDatabaseName
-    member this.ExecuteFunctionName = match this with RootProject p -> p.ExecuteFunctionName | BranchProject p -> p.ExecuteFunctionName
-    member this.OutputDataTypes = match this with RootProject p -> p.OutputDataTypes | BranchProject p -> p.OutputDataTypes
-    member this.OutputQueryParameterKeys = match this with RootProject p -> p.OutputQueryParameterKeys | BranchProject p -> p.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = match this with RootProject p -> p.OutputParameterDefaults | BranchProject p -> p.OutputParameterDefaults
+    member this.ResultsFunctionName = match this with RootProject p -> p.ResultsFunctionName | BranchProject p -> p.ResultsFunctionName
+    member this.ResultsSortopiaDataTypes = match this with RootProject p -> p.ResultsSortopiaDataTypes | BranchProject p -> p.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = match this with RootProject p -> p.ResultsQueryParameterKeys | BranchProject p -> p.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = match this with RootProject p -> p.ResultsParameterDefaults | BranchProject p -> p.ResultsParameterDefaults
     member this.Runs = match this with RootProject p -> p.Runs |> Array.map run.RootRun | BranchProject p -> p.Runs |> Array.map run.BranchRun
     /// Rebuilds child runs using this project's shared settings and their saved overrides.
     static member create id name folderName configuration (runs: run array) =
@@ -151,8 +184,23 @@ type project =
             runs |> Array.map (function run.BranchRun r -> r | _ -> invalidArg "runs" "A branch project can only contain branch runs.")
             |> branchProject.createInherited id name folderName p l |> BranchProject
         | _ -> invalidArg "local" "Project defaults must match the parent's root/branch type."
+    static member seal = function RootProject p -> rootProject.seal p |> RootProject | BranchProject p -> branchProject.seal p |> BranchProject
+    static member restore id name folderName configuration local isSealed (runs: run array) =
+        match configuration, local with
+        | RootProjectConfig config, RootOverrides overrides ->
+            runs |> Array.map (function run.RootRun r -> r | _ -> invalidArg "runs" "Root projects require root runs.")
+            |> rootProject.restore id name folderName config overrides isSealed |> RootProject
+        | BranchProjectConfig config, BranchOverrides overrides ->
+            runs |> Array.map (function run.BranchRun r -> r | _ -> invalidArg "runs" "Branch projects require branch runs.")
+            |> branchProject.restore id name folderName config overrides isSealed |> BranchProject
+        | _ -> invalidArg "configuration" "Project configuration and overrides must have the same family."
+    static member withRuns (value: project) runs =
+        project.restore value.Id value.ProjectName value.FolderName value.Configuration value.LocalOverrides value.IsSealed runs
     static member rebind parent (value: project) =
-        project.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
+        if value.IsSealed then value else project.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
+    member this.Snapshot =
+        let results = match this.Configuration with RootProjectConfig c -> c.Results | BranchProjectConfig c -> c.Results
+        { ProjectId = this.Id; ProjectName = this.ProjectName; Results = results; IsSealed = this.IsSealed }
 
 type rootModule =
     private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: rootProjectConfig; localOverrides: rootDefaultOverrides; modules: rootModule array; projects: rootProject array }
@@ -163,10 +211,10 @@ type rootModule =
     member this.LocalOverrides = this.localOverrides
     member this.Description = this.configuration.Description
     member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.configuration.ExecuteFunctionName
-    member this.OutputDataTypes = this.configuration.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.configuration.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = this.configuration.OutputParameterDefaults
+    member this.ResultsFunctionName = this.configuration.ResultsFunctionName
+    member this.ResultsSortopiaDataTypes = this.configuration.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.configuration.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
     member this.Modules = Array.copy this.modules
     member this.Projects = Array.copy this.projects
     static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: rootDefaultOverrides) (modules: rootModule array) (projects: rootProject array) : rootModule =
@@ -200,13 +248,15 @@ type branchModule =
     member this.LocalOverrides = this.localOverrides
     member this.Description = this.configuration.Description
     member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.configuration.ExecuteFunctionName
-    member this.OutputDataTypes = this.configuration.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.configuration.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = this.configuration.OutputParameterDefaults
+    member this.ResultsFunctionName = this.configuration.ResultsFunctionName
+    member this.ResultsSortopiaDataTypes = this.configuration.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.configuration.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
     member this.SetupDatabaseName = this.configuration.SetupDatabaseName
     member this.SetupFunctionName = this.configuration.SetupFunctionName
-    member this.SetupOutputDataTypes = this.configuration.SetupOutputDataTypes
+    member this.SetupDataTypes = this.configuration.SetupDataTypes
+    member this.SourceProjectIds = this.configuration.SourceProjectIds
+    member this.SetupSortopiaDataTypes = this.configuration.SetupSortopiaDataTypes
     member this.SetupQueryParameterKeys = this.configuration.SetupQueryParameterKeys
     member this.SetupParameterDefaults = this.configuration.SetupParameterDefaults
     member this.Modules = Array.copy this.modules
@@ -246,10 +296,10 @@ type workspaceModule =
     member this.LocalOverrides = match this with workspaceModule.Root m -> RootOverrides m.LocalOverrides | workspaceModule.Branch m -> BranchOverrides m.LocalOverrides
     member this.Description = match this with workspaceModule.Root m -> m.Description | workspaceModule.Branch m -> m.Description
     member this.ResultsDatabaseName = match this with workspaceModule.Root m -> m.ResultsDatabaseName | workspaceModule.Branch m -> m.ResultsDatabaseName
-    member this.ExecuteFunctionName = match this with workspaceModule.Root m -> m.ExecuteFunctionName | workspaceModule.Branch m -> m.ExecuteFunctionName
-    member this.OutputDataTypes = match this with workspaceModule.Root m -> m.OutputDataTypes | workspaceModule.Branch m -> m.OutputDataTypes
-    member this.OutputQueryParameterKeys = match this with workspaceModule.Root m -> m.OutputQueryParameterKeys | workspaceModule.Branch m -> m.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = match this with workspaceModule.Root m -> m.OutputParameterDefaults | workspaceModule.Branch m -> m.OutputParameterDefaults
+    member this.ResultsFunctionName = match this with workspaceModule.Root m -> m.ResultsFunctionName | workspaceModule.Branch m -> m.ResultsFunctionName
+    member this.ResultsSortopiaDataTypes = match this with workspaceModule.Root m -> m.ResultsSortopiaDataTypes | workspaceModule.Branch m -> m.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = match this with workspaceModule.Root m -> m.ResultsQueryParameterKeys | workspaceModule.Branch m -> m.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = match this with workspaceModule.Root m -> m.ResultsParameterDefaults | workspaceModule.Branch m -> m.ResultsParameterDefaults
     member this.Modules = match this with workspaceModule.Root m -> m.Modules |> Array.map workspaceModule.Root | workspaceModule.Branch m -> m.Modules |> Array.map workspaceModule.Branch
     member this.Projects = match this with workspaceModule.Root m -> m.Projects |> Array.map project.RootProject | workspaceModule.Branch m -> m.Projects |> Array.map project.BranchProject
     static member create kind id name folderName (modules: workspaceModule array) (projects: project array) =
@@ -282,6 +332,53 @@ type workspaceModule =
     static member rebind parent (value: workspaceModule) =
         workspaceModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
 
+module WorkspaceProjects =
+    let rec inModule (value: workspaceModule) = seq {
+        yield! value.Projects
+        for child in value.Modules do yield! inModule child }
+    let index (modules: workspaceModule array) =
+        let projects = modules |> Seq.collect inModule |> Seq.toArray
+        EntityId.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.Id))
+        projects |> Seq.map (fun p -> p.Id, p) |> Map.ofSeq
+    let resolve (modules: workspaceModule array) =
+        let projects = index modules
+        let find id = projects |> Map.tryFind id |> Option.map (fun p -> p.Snapshot)
+        let validateSource isSealed (entry: setupDataTypeConfig) =
+            let source = Map.tryFind entry.SourceProjectId projects |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" $"Source project '{entry.SourceProjectId}' was not found.")
+            if not (List.contains entry.DataType source.ResultsSortopiaDataTypes) then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' does not provide '{entry.DataType}'."
+            if isSealed && not source.IsSealed then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' must be sealed before this project can create runs."
+            source
+        let rec validateModule (m: workspaceModule) =
+            match m.Configuration with
+            | BranchProjectConfig config -> config.SetupDataTypes |> List.iter (validateSource false >> ignore)
+            | RootProjectConfig _ -> ()
+            m.Modules |> Array.iter validateModule
+        modules |> Array.iter validateModule
+        let dependencies = projects |> Map.map (fun _ p ->
+            match p.Configuration with
+            | RootProjectConfig _ -> []
+            | BranchProjectConfig config ->
+                config.SetupDataTypes |> List.map (fun entry -> (validateSource p.IsSealed entry).Id) |> List.distinct)
+        // Topological validation avoids recursive stack growth for long source chains.
+        let incoming = Collections.Generic.Dictionary<Guid<projectId>, int>()
+        projects |> Map.iter (fun id _ -> incoming[id] <- 0)
+        dependencies |> Map.iter (fun _ sources -> sources |> List.iter (fun id -> incoming[id] <- incoming[id] + 1))
+        let ready = Collections.Generic.Queue<Guid<projectId>>()
+        for KeyValue(id, count) in incoming do if count = 0 then ready.Enqueue id
+        let mutable processed = 0
+        while ready.Count > 0 do
+            let id = ready.Dequeue()
+            processed <- processed + 1
+            for source in dependencies[id] do
+                incoming[source] <- incoming[source] - 1
+                if incoming[source] = 0 then ready.Enqueue source
+        if processed <> projects.Count then invalidArg "sourceProjectId" "Source-project dependencies must not contain cycles."
+        let rec root (m: rootModule) = { m with modules = m.Modules |> Array.map root }
+        let rec branch (m: branchModule) =
+            { m with modules = m.Modules |> Array.map branch
+                     projects = m.Projects |> Array.map (fun p -> { p with runs = p.Runs |> Array.map (BranchRunSources.resolve find) }) }
+        modules |> Array.map (function workspaceModule.Root m -> root m |> workspaceModule.Root | workspaceModule.Branch m -> branch m |> workspaceModule.Branch)
+
 type workspace =
     private { id: Guid<workspaceId>; workspaceName: string<workspaceName>; folderName: string; modules: workspaceModule array }
     member this.Id = this.id
@@ -296,4 +393,6 @@ type workspace =
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         FolderName.unique "modules" (modules |> Seq.map (fun m -> m.FolderName))
         { id = id; workspaceName = name; folderName = folderName
-          modules = modules |> Array.map (fun m -> workspaceModule.rebind (Defaults.configuration (m.Kind = hierarchyKind.Branch)) m) }
+          modules = modules |> Array.map (fun m -> workspaceModule.rebind (Defaults.configuration (m.Kind = hierarchyKind.Branch)) m) |> WorkspaceProjects.resolve }
+    member this.ProjectIndex = WorkspaceProjects.index this.modules
+    member this.FindProject id = Map.tryFind id this.ProjectIndex

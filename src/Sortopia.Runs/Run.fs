@@ -15,33 +15,63 @@ open Sortopia.Core
 [<Measure>] type workspaceId
 
 [<Measure>] type runName
-[<Measure>] type executeFunctionName
+[<Measure>] type resultsFunctionName
 [<Measure>] type setupFunctionName
 
 
-/// Shared execution settings, owned by a root project.
-type rootProjectConfig = {
-    Description: string
-    ResultsDatabaseName: string<resultsDatabaseName>
-    ExecuteFunctionName: string<executeFunctionName>
-    OutputDataTypes: sortopiaDataType list
-    OutputQueryParameterKeys: string<paramKeyName> list
-    OutputParameterDefaults: parameterBinding list
+type resultsConfig = {
+    DatabaseName: string<resultsDatabaseName>
+    FunctionName: string<resultsFunctionName>
+    SortopiaDataTypes: sortopiaDataType list
+    QueryParameterKeys: string<paramKeyName> list
+    ParameterDefaults: parameterBinding list
 }
 
-/// Shared setup and execution settings, owned by a branch project.
-type branchProjectConfig = {
-    Description: string
-    ResultsDatabaseName: string<resultsDatabaseName>
-    ExecuteFunctionName: string<executeFunctionName>
-    OutputDataTypes: sortopiaDataType list
-    OutputQueryParameterKeys: string<paramKeyName> list
-    OutputParameterDefaults: parameterBinding list
-    SetupDatabaseName: string<setupDatabaseName>
-    SetupFunctionName: string<setupFunctionName>
-    SetupOutputDataTypes: sortopiaDataType list
-    SetupQueryParameterKeys: string<paramKeyName> list
-    SetupParameterDefaults: parameterBinding list
+type setupDataTypeConfig = {
+    DataType: sortopiaDataType
+    SourceProjectId: Guid<projectId>
+    QueryParameterKeys: string<paramKeyName> list
+}
+
+type setupConfig =
+    {
+        DatabaseName: string<setupDatabaseName>
+        FunctionName: string<setupFunctionName>
+        DataTypes: setupDataTypeConfig list
+        ParameterDefaults: parameterBinding list
+    }
+    member this.SortopiaDataTypes = this.DataTypes |> List.map (fun entry -> entry.DataType)
+    member this.SourceProjectIds = this.DataTypes |> List.map (fun entry -> entry.DataType, entry.SourceProjectId) |> Map.ofList
+    member this.QueryParameterKeys = this.DataTypes |> List.map (fun entry -> entry.DataType, entry.QueryParameterKeys) |> Map.ofList
+
+type rootProjectConfig =
+    { Description: string; Results: resultsConfig }
+    member this.ResultsDatabaseName = this.Results.DatabaseName
+    member this.ResultsFunctionName = this.Results.FunctionName
+    member this.ResultsSortopiaDataTypes = this.Results.SortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.Results.QueryParameterKeys
+    member this.ResultsParameterDefaults = this.Results.ParameterDefaults
+
+type branchProjectConfig =
+    { Description: string; Results: resultsConfig; Setup: setupConfig }
+    member this.ResultsDatabaseName = this.Results.DatabaseName
+    member this.ResultsFunctionName = this.Results.FunctionName
+    member this.ResultsSortopiaDataTypes = this.Results.SortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.Results.QueryParameterKeys
+    member this.ResultsParameterDefaults = this.Results.ParameterDefaults
+    member this.SetupDatabaseName = this.Setup.DatabaseName
+    member this.SetupFunctionName = this.Setup.FunctionName
+    member this.SetupDataTypes = this.Setup.DataTypes
+    member this.SetupSortopiaDataTypes = this.Setup.SortopiaDataTypes
+    member this.SourceProjectIds = this.Setup.SourceProjectIds
+    member this.SetupQueryParameterKeys = this.Setup.QueryParameterKeys
+    member this.SetupParameterDefaults = this.Setup.ParameterDefaults
+
+type sourceProjectSnapshot = {
+    ProjectId: Guid<projectId>
+    ProjectName: string<projectName>
+    Results: resultsConfig
+    IsSealed: bool
 }
 
 type projectConfiguration =
@@ -50,10 +80,14 @@ type projectConfiguration =
 
 /// Project contracts keep run construction independent of the workspace hierarchy.
 type IRootProject =
+    abstract Id: Guid<projectId>
+    abstract IsSealed: bool
     abstract ProjectName: string<projectName>
     abstract Configuration: rootProjectConfig
 
 type IBranchProject =
+    abstract Id: Guid<projectId>
+    abstract IsSealed: bool
     abstract ProjectName: string<projectName>
     abstract Configuration: branchProjectConfig
 
@@ -69,20 +103,27 @@ module ProjectConfiguration =
         values |> List.iter SortopiaDataType.validate
         if (Set.ofList values).Count <> values.Length then invalidArg argument "Output data types must be unique."
     let validateRoot (value: rootProjectConfig) =
+        if isNull (box value) then nullArg "configuration"
+        if isNull (box value.Results) then nullArg "results"
         if isNull value.Description then nullArg "description"
         name "resultsDatabaseName" (UMX.untag value.ResultsDatabaseName)
-        name "executeFunctionName" (UMX.untag value.ExecuteFunctionName)
-        outputs "outputDataTypes" value.OutputDataTypes
-        keys "outputQueryParameterKeys" value.OutputQueryParameterKeys
-        ParameterBinding.validateUnique value.OutputParameterDefaults
+        name "resultsFunctionName" (UMX.untag value.ResultsFunctionName)
+        outputs "resultsSortopiaDataTypes" value.ResultsSortopiaDataTypes
+        keys "resultsQueryParameterKeys" value.ResultsQueryParameterKeys
+        ParameterBinding.validateUnique value.ResultsParameterDefaults
     let validateBranch (value: branchProjectConfig) =
-        validateRoot { Description = value.Description; ResultsDatabaseName = value.ResultsDatabaseName
-                       ExecuteFunctionName = value.ExecuteFunctionName; OutputDataTypes = value.OutputDataTypes
-                       OutputQueryParameterKeys = value.OutputQueryParameterKeys; OutputParameterDefaults = value.OutputParameterDefaults }
+        if isNull (box value) then nullArg "configuration"
+        if isNull (box value.Setup) then nullArg "setup"
+        if isNull (box value.Setup.DataTypes) then nullArg "setupDataTypes"
+        for entry in value.Setup.DataTypes do
+            if isNull (box entry) then nullArg "setupDataType"
+        validateRoot { Description = value.Description; Results = value.Results }
         name "setupDatabaseName" (UMX.untag value.SetupDatabaseName)
         name "setupFunctionName" (UMX.untag value.SetupFunctionName)
-        outputs "setupOutputDataTypes" value.SetupOutputDataTypes
-        keys "setupQueryParameterKeys" value.SetupQueryParameterKeys
+        outputs "setupSortopiaDataTypes" value.SetupSortopiaDataTypes
+        for entry in value.SetupDataTypes do
+            if UMX.untag entry.SourceProjectId = System.Guid.Empty then invalidArg "sourceProjectId" "Choose a source project for every setup data type."
+            keys "setupQueryParameterKeys" entry.QueryParameterKeys
         ParameterBinding.validateUnique value.SetupParameterDefaults
 
 module private RunConfiguration =
@@ -102,8 +143,9 @@ module private RunConfiguration =
 type rootRunConfig = {
     Id: Guid<runId>
     RunName: string<runName>
-    Description: string option
-    OutputParameterSpans: parameterSpan list
+    ParentProjectId: Guid<projectId>
+    DescriptionOverride: string option
+    ResultsParameterSpans: parameterSpan list
 }
 
 type rootRun =
@@ -111,94 +153,121 @@ type rootRun =
     member this.ProjectName = this.projectName
     member this.RunName = this.config.RunName
     member this.Id = this.config.Id
+    member this.ParentProjectId = this.config.ParentProjectId
+    member this.DescriptionOverride = this.config.DescriptionOverride
+    member this.ProjectConfiguration = this.projectConfiguration
     member this.Configuration = this.config
-    member this.Description = this.config.Description |> Option.defaultValue this.projectConfiguration.Description
+    member this.Description = this.config.DescriptionOverride |> Option.defaultValue this.projectConfiguration.Description
     member this.ResultsDatabaseName = this.projectConfiguration.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.projectConfiguration.ExecuteFunctionName
-    member this.OutputParameterSpans = this.config.OutputParameterSpans
-    member this.OutputDataTypes = this.projectConfiguration.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.projectConfiguration.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = this.projectConfiguration.OutputParameterDefaults
+    member this.ResultsFunctionName = this.projectConfiguration.ResultsFunctionName
+    member this.ResultsParameterSpans = this.config.ResultsParameterSpans
+    member this.ResultsSortopiaDataTypes = this.projectConfiguration.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.projectConfiguration.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = this.projectConfiguration.ResultsParameterDefaults
 
 module RootRun =
     let create (parent: IRootProject) (config: rootRunConfig) : rootRun =
+        if config.ParentProjectId <> parent.Id then invalidArg "parentProjectId" "The run must reference its containing project by ID."
+        if not parent.IsSealed then invalidArg "parent" "Seal the project before creating a run."
         let settings = parent.Configuration
         ProjectConfiguration.validateRoot settings
         RunConfiguration.identity config.Id parent.ProjectName config.RunName
-        if config.Description |> Option.exists isNull then nullArg "description"
-        RunConfiguration.spans "outputParameterSpans" settings.OutputQueryParameterKeys settings.OutputParameterDefaults config.OutputParameterSpans
+        if config.DescriptionOverride |> Option.exists isNull then nullArg "description"
+        RunConfiguration.spans "resultsParameterSpans" settings.ResultsQueryParameterKeys settings.ResultsParameterDefaults config.ResultsParameterSpans
         { projectName = parent.ProjectName; projectConfiguration = settings; config = config }
     let withNames projectName runName (value: rootRun) =
+        if projectName <> value.ProjectName then invalidArg "projectName" "A run's parent project name is fixed."
         RunConfiguration.identity value.Id projectName runName
         { value with projectName = projectName; config = { value.config with RunName = runName } }
-    let makeParameterSets (root: rootRun) = ParameterSets.create root.OutputParameterDefaults root.OutputParameterSpans
+    let makeResultsParameterSets (root: rootRun) = ParameterSets.create root.ResultsParameterDefaults root.ResultsParameterSpans
 
 type branchRunConfig = {
     Id: Guid<runId>
     RunName: string<runName>
-    Description: string option
-    OutputParameterSpans: parameterSpan list
-    SetupDatabaseName: string<setupDatabaseName> option
-    SetupFunctionName: string<setupFunctionName> option
+    ParentProjectId: Guid<projectId>
+    DescriptionOverride: string option
+    ResultsParameterSpans: parameterSpan list
+    SetupDatabaseNameOverride: string<setupDatabaseName> option
+    SetupFunctionNameOverride: string<setupFunctionName> option
     SetupParameterSpans: parameterSpan list
 }
 
 type branchRun =
-    private { projectName: string<projectName>; projectConfiguration: branchProjectConfig; config: branchRunConfig }
+    private { projectName: string<projectName>; projectConfiguration: branchProjectConfig; config: branchRunConfig; sources: Map<sortopiaDataType, sourceProjectSnapshot> }
+    member this.ResolvedSources = this.sources
+    member this.SetupDataTypes = this.projectConfiguration.SetupDataTypes
+    member this.SourceProjectIds = this.projectConfiguration.SourceProjectIds
     member this.ProjectName = this.projectName
     member this.RunName = this.config.RunName
     member this.Id = this.config.Id
+    member this.ParentProjectId = this.config.ParentProjectId
+    member this.DescriptionOverride = this.config.DescriptionOverride
+    member this.ProjectConfiguration = this.projectConfiguration
     member this.Configuration = this.config
-    member this.Description = this.config.Description |> Option.defaultValue this.projectConfiguration.Description
+    member this.Description = this.config.DescriptionOverride |> Option.defaultValue this.projectConfiguration.Description
     member this.ResultsDatabaseName = this.projectConfiguration.ResultsDatabaseName
-    member this.ExecuteFunctionName = this.projectConfiguration.ExecuteFunctionName
-    member this.OutputParameterSpans = this.config.OutputParameterSpans
-    member this.OutputDataTypes = this.projectConfiguration.OutputDataTypes
-    member this.OutputQueryParameterKeys = this.projectConfiguration.OutputQueryParameterKeys
-    member this.OutputParameterDefaults = this.projectConfiguration.OutputParameterDefaults
-    member this.SetupDatabaseName = this.config.SetupDatabaseName |> Option.defaultValue this.projectConfiguration.SetupDatabaseName
-    member this.SetupFunctionName = this.config.SetupFunctionName |> Option.defaultValue this.projectConfiguration.SetupFunctionName
+    member this.ResultsFunctionName = this.projectConfiguration.ResultsFunctionName
+    member this.ResultsParameterSpans = this.config.ResultsParameterSpans
+    member this.ResultsSortopiaDataTypes = this.projectConfiguration.ResultsSortopiaDataTypes
+    member this.ResultsQueryParameterKeys = this.projectConfiguration.ResultsQueryParameterKeys
+    member this.ResultsParameterDefaults = this.projectConfiguration.ResultsParameterDefaults
+    member this.SetupDatabaseName = this.config.SetupDatabaseNameOverride |> Option.defaultValue this.projectConfiguration.SetupDatabaseName
+    member this.SetupFunctionName = this.config.SetupFunctionNameOverride |> Option.defaultValue this.projectConfiguration.SetupFunctionName
     member this.SetupParameterSpans = this.config.SetupParameterSpans
-    member this.SetupOutputDataTypes = this.projectConfiguration.SetupOutputDataTypes
+    member this.SetupSortopiaDataTypes = this.projectConfiguration.SetupSortopiaDataTypes
     member this.SetupQueryParameterKeys = this.projectConfiguration.SetupQueryParameterKeys
     member this.SetupParameterDefaults = this.projectConfiguration.SetupParameterDefaults
 
 module BranchRun =
     let create (parent: IBranchProject) (config: branchRunConfig) : branchRun =
+        if config.ParentProjectId <> parent.Id then invalidArg "parentProjectId" "The run must reference its containing project by ID."
+        if not parent.IsSealed then invalidArg "parent" "Seal the project before creating a run."
         let settings = parent.Configuration
         ProjectConfiguration.validateBranch settings
         RunConfiguration.identity config.Id parent.ProjectName config.RunName
-        if config.Description |> Option.exists isNull then nullArg "description"
-        for argument, value in ["setupDatabaseName", config.SetupDatabaseName |> Option.map UMX.untag
-                                "setupFunctionName", config.SetupFunctionName |> Option.map UMX.untag] do
+        if config.DescriptionOverride |> Option.exists isNull then nullArg "description"
+        for argument, value in ["setupDatabaseName", config.SetupDatabaseNameOverride |> Option.map UMX.untag
+                                "setupFunctionName", config.SetupFunctionNameOverride |> Option.map UMX.untag] do
             if value |> Option.exists System.String.IsNullOrWhiteSpace then invalidArg argument "An override must not be blank; omit it to inherit the project setting."
-        RunConfiguration.spans "outputParameterSpans" settings.OutputQueryParameterKeys settings.OutputParameterDefaults config.OutputParameterSpans
-        RunConfiguration.spans "setupParameterSpans" settings.SetupQueryParameterKeys settings.SetupParameterDefaults config.SetupParameterSpans
-        { projectName = parent.ProjectName; projectConfiguration = settings; config = config }
+        RunConfiguration.spans "resultsParameterSpans" settings.ResultsQueryParameterKeys settings.ResultsParameterDefaults config.ResultsParameterSpans
+        RunConfiguration.spans "setupParameterSpans" (settings.SetupDataTypes |> List.collect (fun entry -> entry.QueryParameterKeys)) settings.SetupParameterDefaults config.SetupParameterSpans
+        { projectName = parent.ProjectName; projectConfiguration = settings; config = config; sources = Map.empty }
     let withNames projectName runName (value: branchRun) =
+        if projectName <> value.ProjectName then invalidArg "projectName" "A run's parent project name is fixed."
         RunConfiguration.identity value.Id projectName runName
         { value with projectName = projectName; config = { value.config with RunName = runName } }
-    let makeParameterSets (branch: branchRun) = ParameterSets.create branch.OutputParameterDefaults branch.OutputParameterSpans
+    let makeResultsParameterSets (branch: branchRun) = ParameterSets.create branch.ResultsParameterDefaults branch.ResultsParameterSpans
     let makeSetupParameterSets (branch: branchRun) = ParameterSets.create branch.SetupParameterDefaults branch.SetupParameterSpans
+
+module BranchRunSources =
+    let resolve (find: Guid<projectId> -> sourceProjectSnapshot option) (value: branchRun) =
+        let sources = value.SetupDataTypes |> List.map (fun entry ->
+            let source = find entry.SourceProjectId |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" $"Source project '{entry.SourceProjectId}' was not found.")
+            if not source.IsSealed then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' must be sealed."
+            if not (List.contains entry.DataType source.Results.SortopiaDataTypes) then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' does not provide '{entry.DataType}'."
+            RunConfiguration.spans "setupParameterSpans" source.Results.QueryParameterKeys value.SetupParameterDefaults value.SetupParameterSpans
+            entry.DataType, source) |> Map.ofList
+        { value with sources = sources }
 
 type run =
     | RootRun of rootRun
     | BranchRun of branchRun
+    member this.ParentProjectId = match this with RootRun r -> r.ParentProjectId | BranchRun r -> r.ParentProjectId
     member this.HasSetup = match this with RootRun _ -> false | BranchRun _ -> true
     member this.ProjectName = match this with RootRun r -> r.ProjectName | BranchRun r -> r.ProjectName
     member this.RunName = match this with RootRun r -> r.RunName | BranchRun r -> r.RunName
     member this.Id = match this with RootRun r -> r.Id | BranchRun r -> r.Id
     member this.Description = match this with RootRun r -> r.Description | BranchRun r -> r.Description
     member this.ResultsDatabaseName = match this with RootRun r -> r.ResultsDatabaseName | BranchRun r -> r.ResultsDatabaseName
-    member this.ExecuteFunctionName = match this with RootRun r -> r.ExecuteFunctionName | BranchRun r -> r.ExecuteFunctionName
-    member this.ParameterSpans = match this with RootRun r -> r.OutputParameterSpans | BranchRun r -> r.OutputParameterSpans
-    member this.OutputDataTypes = match this with RootRun r -> r.OutputDataTypes | BranchRun r -> r.OutputDataTypes
-    member this.OutputParameterDefaults = match this with RootRun r -> r.OutputParameterDefaults | BranchRun r -> r.OutputParameterDefaults
-    member this.OutputQueryKeys = match this with RootRun r -> r.OutputQueryParameterKeys | BranchRun r -> r.OutputQueryParameterKeys
+    member this.ResultsFunctionName = match this with RootRun r -> r.ResultsFunctionName | BranchRun r -> r.ResultsFunctionName
+    member this.ResultsParameterSpans = match this with RootRun r -> r.ResultsParameterSpans | BranchRun r -> r.ResultsParameterSpans
+    member this.ResultsSortopiaDataTypes = match this with RootRun r -> r.ResultsSortopiaDataTypes | BranchRun r -> r.ResultsSortopiaDataTypes
+    member this.ResultsParameterDefaults = match this with RootRun r -> r.ResultsParameterDefaults | BranchRun r -> r.ResultsParameterDefaults
+    member this.ResultsQueryParameterKeys = match this with RootRun r -> r.ResultsQueryParameterKeys | BranchRun r -> r.ResultsQueryParameterKeys
     member this.SetupDatabaseName = match this with RootRun _ -> None | BranchRun r -> Some r.SetupDatabaseName
     member this.SetupFunctionName = match this with RootRun _ -> None | BranchRun r -> Some r.SetupFunctionName
     member this.SetupParameterSpans = match this with RootRun _ -> None | BranchRun r -> Some r.SetupParameterSpans
-    member this.SetupOutputDataTypes = match this with RootRun _ -> None | BranchRun r -> Some r.SetupOutputDataTypes
+    member this.SetupSortopiaDataTypes = match this with RootRun _ -> None | BranchRun r -> Some r.SetupSortopiaDataTypes
     member this.SetupParameterDefaults = match this with RootRun _ -> None | BranchRun r -> Some r.SetupParameterDefaults
     member this.SetupQueryParameterKeys = match this with RootRun _ -> None | BranchRun r -> Some r.SetupQueryParameterKeys
 
@@ -209,11 +278,13 @@ type queryParams =
     private {
         databaseName: string<databaseName>
         projectName: string<projectName>
+        projectId: Guid<projectId>
         outputDataType: sortopiaDataType
         properties: Map<string<paramKeyName>, string>
         id: Guid<queryParamsId>
     }
 
+    member this.ProjectId = this.projectId
     member this.DatabaseName = this.databaseName
     member this.ProjectName = this.projectName
     member this.OutputDataType = this.outputDataType
@@ -221,7 +292,7 @@ type queryParams =
     member this.Id = this.id
 
 module QueryParams =
-    let private create database project outputType (keys: string<paramKeyName> list) (parameters: parameterSet) =
+    let private create database (projectId: Guid<projectId>) project outputType (keys: string<paramKeyName> list) (parameters: parameterSet) =
         let property key =
             match parameters.TryFindText(key: string<paramKeyName>) with
             | Some value -> key, value
@@ -231,7 +302,7 @@ module QueryParams =
         let id =
             seq {
                 yield box database
-                yield box project
+                yield box (UMX.untag projectId)
                 // GeneSort reserves these positions for optional replica and generation.
                 yield box false
                 yield box false
@@ -248,18 +319,24 @@ module QueryParams =
 
         { databaseName = database
           projectName = project
+          projectId = projectId
           outputDataType = outputType
           properties = properties
           id = id }
 
     /// Builds a result query for either run type.
     let forResults (run: run) outputType parameters =
-        if not (List.contains outputType run.OutputDataTypes) then
+        if not (List.contains outputType run.ResultsSortopiaDataTypes) then
             invalidArg "outputType" $"Run '{run.RunName}' does not declare result type '{outputType}'."
-        create (UMX.cast<resultsDatabaseName, databaseName> run.ResultsDatabaseName) run.ProjectName outputType run.OutputQueryKeys parameters
+        create (UMX.cast<resultsDatabaseName, databaseName> run.ResultsDatabaseName) run.ParentProjectId run.ProjectName outputType run.ResultsQueryParameterKeys parameters
 
     /// Builds a setup query using the keys configured for the requested output type.
     let forSetup (branch: branchRun) outputType parameters =
-        if not (List.contains outputType branch.SetupOutputDataTypes) then
+        if not (List.contains outputType branch.SetupSortopiaDataTypes) then
             invalidArg "outputType" $"Run '{branch.RunName}' does not declare setup type '{outputType}'."
-        create (UMX.cast<setupDatabaseName, databaseName> branch.SetupDatabaseName) branch.ProjectName outputType branch.SetupQueryParameterKeys parameters
+        create (UMX.cast<setupDatabaseName, databaseName> branch.SetupDatabaseName) branch.ParentProjectId branch.ProjectName outputType branch.SetupQueryParameterKeys[outputType] parameters
+
+    /// Look up upstream results for the same data type, using the source project's query metadata.
+    let forSource (branch: branchRun) dataType parameters =
+        let source = Map.tryFind dataType branch.ResolvedSources |> Option.defaultWith (fun () -> invalidArg "dataType" "Resolve the run's source projects before querying upstream results.")
+        create (UMX.cast<resultsDatabaseName, databaseName> source.Results.DatabaseName) source.ProjectId source.ProjectName dataType source.Results.QueryParameterKeys parameters

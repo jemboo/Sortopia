@@ -9,6 +9,7 @@
     <Compile Include="SortopiaDataType.fs" />
     <Compile Include="FolderName.fs" />
     <Compile Include="Run.fs" />
+    <Compile Include="RunParameterSets.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />

@@ -78,11 +78,30 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         };
         if (kind != WorkspaceEntityKind.Workspace)
         {
-            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name);
+            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name, SourceProjects);
             Editor.Changed += ConfigurationChanged;
         }
     }
     public WorkspaceConfigurationViewModel? Editor { get; }
+    private project? sealedProject;
+    private Guid? savedParentProjectId;
+    public bool IsSealed => sealedProject is not null;
+    public bool CanEditIdentity => !IsSealed;
+    public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed" : "Draft · first saved run fixes these settings" : "";
+    private IEnumerable<WorkspaceSourceProject> SourceProjects()
+    {
+        var root = this;
+        while (root.Parent is not null) root = root.Parent;
+        static string Location(WorkspaceTreeNode node)
+        {
+            var names = new Stack<string>();
+            for (var ancestor = node.Parent; ancestor is { IsWorkspace: false }; ancestor = ancestor.Parent) names.Push(ancestor.Name);
+            return string.Join(" / ", names);
+        }
+        return root.DescendantsAndSelf().Where(node => node.IsProject && node != this && node != Parent)
+            .Select(node => new WorkspaceSourceProject(node.Id, node.Name, node.IsSealed, node.Editor!.ToProjectSettings(), node.Editor,
+                node.Children.Count > 0, Location(node)));
+    }
     private void ConfigurationChanged()
     {
         foreach (var child in Children) child.RefreshInheritedSubtree();
@@ -182,14 +201,15 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal string? ImportSourcePath { get; private set; }
     internal Guid? CopyOriginId { get; set; }
     internal string? CopyOriginRelativePath { get; set; }
-    internal void RememberImportLocations(string source, Guid originId)
+    internal void RememberImportLocations(string source, Guid originId, IReadOnlyDictionary<Guid, Guid>? originalIds = null)
     {
         ImportOriginId = originId;
         ImportSourcePath = source;
         foreach (var child in Children)
         {
-            var childSource = Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", child.PathName);
-            child.RememberImportLocations(childSource, originId);
+            var pathName = child.IsRun && originalIds?.TryGetValue(child.Id, out var original) == true ? WorkspaceDefinitionFiles.Name(original) : child.PathName;
+            var childSource = Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", pathName);
+            child.RememberImportLocations(childSource, originId, originalIds);
         }
     }
     public string PendingCopyDescription => PendingCopy is null ? "" : $"Will copy this {(IsRun ? "run file" : "folder and all contents")} when saved: {PendingCopy.SourceFolder}";
@@ -225,6 +245,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         get => nameInput;
         set
         {
+            if (IsSealed) return;
             SetProperty(ref nameInput, value);
             var conflict = Collision(value, folder: false);
             if (conflict.Length == 0 && folderFollowsName)
@@ -252,7 +273,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         get => folderNameInput;
         set
         {
-            if (IsRun) return;
+            if (IsRun || IsSealed) return;
             SetProperty(ref folderNameInput, value);
             var conflict = Collision(value, folder: true);
             SetFolderNameError(conflict);
@@ -303,6 +324,8 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     internal void ValidateChildPlacement(WorkspaceTreeNode child)
     {
+        if (child.IsRun && child.savedParentProjectId is { } parentId && parentId != Id)
+            throw new ArgumentException("A saved run keeps its parent project. Create a new run in the target project instead.");
         for (var ancestor = this; ancestor is not null; ancestor = ancestor.Parent)
             if (ReferenceEquals(ancestor, child)) throw new ArgumentException("An entity cannot be pasted into itself or one of its descendants.");
         if (!CanContain(child)) throw new ArgumentException($"A {KindLabel.ToLowerInvariant()} cannot contain a {child.KindLabel.ToLowerInvariant()}.");
@@ -350,8 +373,10 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         {
             var runNode = new WorkspaceTreeNode(WorkspaceEntityKind.Run, child.RunName, id: child.Id, family: value.Kind);
             runNode.Editor!.LoadRun(RunDto.fromDomain(child));
+            runNode.savedParentProjectId = child.ParentProjectId;
             node.Children.Add(runNode);
         }
+        if (value.IsSealed) { node.sealedProject = project.withRuns(value, []); node.Editor.Freeze(); }
         node.RememberSavedChildren();
         return node;
     }
@@ -369,6 +394,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     private project ReadProject()
     {
+        if (sealedProject is not null) return sealedProject;
         return project.createInherited(Id, Name, FolderName, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), []);
     }
     private projectConfiguration ParentConfiguration() => Parent?.Editor is { } editor
@@ -378,12 +404,13 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         CheckDepth(depth);
         ValidateChildren();
         var parent = ReadProject();
-        return project.createInherited(Id, Name, FolderName, ParentConfiguration(), parent.LocalOverrides, Children.Select(child => child.ToRun(parent)).ToArray());
+        return project.withRuns(parent, Children.Select(child => child.ToRun(parent)).ToArray());
     }
     private run ToRun(project parent)
     {
         ValidateChildren();
-        return RunDto.toDomain(parent, Editor!.ToRunInputs(Id, Name, parent.ProjectName));
+        if (savedParentProjectId is { } parentId && parentId != parent.Id) throw new ArgumentException("A saved run cannot change its parent project.");
+        return RunDto.toDomain(parent, Editor!.ToRunInputs(Id, Name, parent.Id));
     }
     private void ValidateChildren()
     {

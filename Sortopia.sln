@@ -61,6 +61,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Sortopia.Workspaces", "src\
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Sortopia.Workspaces.Serialization", "src\Sortopia.Workspaces.Serialization\Sortopia.Workspaces.Serialization.fsproj", "{77125796-16EF-4542-8AB3-12D87E8FE155}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Sortopia.Functions", "src\Sortopia.Functions\Sortopia.Functions.fsproj", "{9D859704-018B-4731-83B8-2AA3FA3D05DF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -395,6 +397,18 @@ Global
 		{77125796-16EF-4542-8AB3-12D87E8FE155}.Release|x64.Build.0 = Release|Any CPU
 		{77125796-16EF-4542-8AB3-12D87E8FE155}.Release|x86.ActiveCfg = Release|Any CPU
 		{77125796-16EF-4542-8AB3-12D87E8FE155}.Release|x86.Build.0 = Release|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Debug|x64.Build.0 = Debug|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Debug|x86.Build.0 = Debug|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Release|x64.ActiveCfg = Release|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Release|x64.Build.0 = Release|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Release|x86.ActiveCfg = Release|Any CPU
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -427,5 +441,6 @@ Global
 		{BC23A7A5-C308-44E4-9293-748B0105ED79} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{688D17EF-519F-4B3A-ADAD-2D8B0DB2A804} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{77125796-16EF-4542-8AB3-12D87E8FE155} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{9D859704-018B-4731-83B8-2AA3FA3D05DF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
