@@ -1,0 +1,28 @@
+<UserControl x:Class="Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace">
+    <Grid Margin="0,4,0,0">
+        <TextBlock x:Name="SourceText" Text="{Binding SourceLabel}" TextWrapping="Wrap" FontSize="12" AutomationProperties.LiveSetting="Polite">
+            <TextBlock.Style><Style TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource Workspace.Accent}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsOverridden}" Value="True"><Setter Property="Foreground" Value="#D8B4FE" /></DataTrigger>
+                    <DataTrigger Binding="{Binding HasInheritedSource}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                </Style.Triggers>
+            </Style></TextBlock.Style>
+        </TextBlock>
+        <TextBlock x:Name="SourceLinkText" TextWrapping="Wrap" FontSize="12" AutomationProperties.LiveSetting="Polite">
+            <TextBlock.Style><Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers><DataTrigger Binding="{Binding HasInheritedSource}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+            </Style></TextBlock.Style>
+            <Hyperlink x:Name="SourceLink" Foreground="{DynamicResource Workspace.Accent}"
+                       Command="{Binding DataContext.SelectValueSourceCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                       CommandParameter="{Binding InheritedSource}" ToolTip="Select the module or project defining this value"
+                       AutomationProperties.Name="{Binding SourceLabel}">
+                <Run Text="{Binding SourceLabel, Mode=OneWay}" />
+            </Hyperlink>
+        </TextBlock>
+    </Grid>
+</UserControl>

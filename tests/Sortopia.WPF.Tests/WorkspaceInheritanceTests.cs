@@ -90,10 +90,10 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         Assert.Null(dto.runs[0].description);
         Assert.Equal("", dto.runs[1].description);
         Assert.Null(dto.runs[0].setupDatabaseName);
-        dto.configuration.description = "New project description";
-        dto.configuration.resultsDatabaseName = "New results";
-        dto.configuration.executeFunctionName = "New executor";
-        if (branch) { dto.configuration.setupDatabaseName = "New setup"; dto.configuration.setupFunctionName = "New generator"; }
+        dto.localOverrides.description = "New project description";
+        dto.localOverrides.resultsDatabaseName = "New results";
+        dto.localOverrides.executeFunctionName = "New executor";
+        if (branch) { dto.localOverrides.setupDatabaseName = "New setup"; dto.localOverrides.setupFunctionName = "New generator"; }
         var updated = ProjectDto.toDomain(dto);
         Assert.Equal("New project description", updated.Runs[0].Description);
         Assert.Equal("", updated.Runs[1].Description);
@@ -119,7 +119,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     public void Shared_setup_query_keys_apply_to_each_setup_output_type()
     {
         var dto = ProjectDto.fromDomain(Parent(true));
-        dto.configuration.setupOutputDataTypes = [3, 4];
+        dto.localOverrides.setupOutputDataTypes = [3, 4];
         var parent = ProjectDto.toDomain(dto);
         var inputs = Inputs(parent);
         inputs.setupDatabaseName = "Run setup";
@@ -154,7 +154,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         inputs.setupDatabaseName = " ";
         Assert.Contains("override", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
         var projectDto = ProjectDto.fromDomain(parent);
-        projectDto.configuration.setupQueryParameterKeys = ["Width", "Width"];
+        projectDto.localOverrides.setupQueryParameterKeys = ["Width", "Width"];
         Assert.Throws<ArgumentException>(() => ProjectDto.toDomain(projectDto));
     }
 
@@ -170,8 +170,8 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         if (branch) overridden.setupDatabaseName = "Explicit database";
         source = WithRuns(source, inherited, overridden);
         var destinationDto = ProjectDto.fromDomain(Parent(branch, "Destination", "Destination description"));
-        destinationDto.configuration.resultsDatabaseName = "Destination results";
-        if (branch) destinationDto.configuration.setupDatabaseName = "Destination setup";
+        destinationDto.localOverrides.resultsDatabaseName = "Destination results";
+        if (branch) destinationDto.localOverrides.setupDatabaseName = "Destination setup";
         var destination = ProjectDto.toDomain(destinationDto);
         var module = WorkspaceModule.create(source.Kind, Guid.NewGuid(), "M", "M", [], [source, destination]);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "W", "Workspace", [module]), Token);

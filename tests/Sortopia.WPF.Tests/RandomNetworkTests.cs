@@ -19,6 +19,7 @@ using Sortopia.WPF.ViewModels.Shared.Controls;
 using Sortopia.WPF.Views;
 using Sortopia.WPF.Views.Shared.Controls;
 using Xunit;
+using parameterValueType = Sortopia.Runs.parameterValueType;
 
 namespace Sortopia.WPF.Tests;
 
@@ -2359,26 +2360,109 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Collapsed, newRootModule.Visibility);
             Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
             Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
+            var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
+            var moduleDescriptionEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("DescriptionOverrideEditor");
+            var moduleDescriptionToggle = (CheckBox)moduleDescriptionEditor.FindName("OverrideToggle");
+            Assert.Equal("Override on this module", moduleDescriptionToggle.Content);
+            moduleDescriptionToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+            LayoutWorkspace();
+            ((TextBox)moduleDescriptionEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "Shared description from the branch module");
+            var moduleExecuteEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ExecuteFunctionOverrideEditor");
+            ((CheckBox)moduleExecuteEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+            LayoutWorkspace();
+            ((TextBox)moduleExecuteEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "Evaluate");
+            Assert.Equal("Evaluate", branchModule.Editor!.ExecuteFunctionName);
+            var defaultSource = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)
+                ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsDatabaseOverrideEditor")).FindName("ValueSource");
+            Assert.Equal(Visibility.Collapsed, ((TextBlock)defaultSource.FindName("SourceLinkText")).Visibility);
+            RenderWorkspaceState("branch-module-defaults");
+            RenderWorkspaceState("module-defaults-narrow", 640, 800);
+            Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
+            LayoutWorkspace();
             vm.AddProjectCommand.Execute(null);
             WorkspaceHierarchyTests.ConfigureProject(vm.Selected!);
             vm.Selected!.Name = "Evolution";
             LayoutWorkspace();
             Assert.Equal("New branch run", ((Button)page.FindName("NewRunButton")).Content);
             Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
-            var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
-            Assert.Equal("Evaluate", ((TextBox)fields.FindName("ExecuteFunctionInput")).Text);
-            Assert.False(((TextBox)fields.FindName("ExecuteFunctionInput")).IsReadOnly);
+            var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ExecuteFunctionOverrideEditor");
+            var executeInput = (TextBox)executeEditor.FindName("OverrideValueInput");
+            Assert.Equal("Evaluate", executeInput.Text);
+            Assert.False(executeInput.IsReadOnly);
+            // Clear local project values through the actual controls and show the supplying module.
+            ((CheckBox)moduleDescriptionEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
+            ((CheckBox)executeEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
+            LayoutWorkspace();
+            Assert.True(executeInput.IsReadOnly);
+            Assert.Equal("Inherited from Setup and evolution", vm.Selected.Editor!.ExecuteFunctionOverride.SourceLabel);
+            Assert.Equal(branchModule.Editor.Description, vm.Selected.Editor.Description);
             RenderWorkspaceState("branch-project-defaults");
             var branchProject = vm.Selected;
+            Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor AddTypedDefault(string key, parameterValueType type)
+            {
+                ((Button)fields.FindName("AddOutputParameterDefaultButton")).Command.Execute(null);
+                LayoutWorkspace();
+                var defaults = (ItemsControl)fields.FindName("OutputParameterDefaultsList");
+                var row = (ContentPresenter)defaults.ItemContainerGenerator.ContainerFromIndex(defaults.Items.Count - 1);
+                var keyInput = (ComboBox)defaults.ItemTemplate.FindName("DefaultKeyInput", row);
+                var keyText = Assert.IsType<TextBox>(keyInput.Template.FindName("PART_EditableTextBox", keyInput));
+                Assert.Equal(Visibility.Visible, keyText.Visibility);
+                keyText.SetCurrentValue(TextBox.TextProperty, key);
+                LayoutWorkspace();
+                Assert.Equal(key, keyText.Text);
+                Assert.Equal(key, branchProject!.Editor!.OutputParameterDefaults.Last().Key);
+                var typeInput = (ComboBox)defaults.ItemTemplate.FindName("DefaultTypeInput", row);
+                Assert.Equal(type, typeInput.SelectedValue);
+                Assert.False(typeInput.IsEnabled); // Known parameter keys own their types.
+                return (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)defaults.ItemTemplate.FindName("DefaultValueEditor", row);
+            }
+            var integerDefaultEditor = AddTypedDefault("ChannelCount", parameterValueType.Integer);
+            var integerDefaultInput = (TextBox)integerDefaultEditor.FindName("TypedValueInput");
+            integerDefaultInput.SetCurrentValue(TextBox.TextProperty, "eight");
+            Assert.False(save.IsEnabled);
+            integerDefaultInput.SetCurrentValue(TextBox.TextProperty, "8");
+            Assert.True(save.IsEnabled);
+            var booleanDefaultEditor = AddTypedDefault("SetupCompleted", parameterValueType.Boolean);
+            var booleanDefaultInput = (ComboBox)booleanDefaultEditor.FindName("BooleanValueInput");
+            Assert.Equal(Visibility.Visible, booleanDefaultInput.Visibility);
+            Assert.Equal(Visibility.Collapsed, ((TextBox)booleanDefaultEditor.FindName("TypedValueInput")).Visibility);
+            booleanDefaultInput.SetCurrentValue(ComboBox.SelectedItemProperty, true);
+            Assert.True(branchProject!.Editor!.OutputParameterDefaults.Last().Value.BooleanValue);
+            var defaultsViewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
+            var defaultsList = (FrameworkElement)fields.FindName("OutputParameterDefaultsList");
+            defaultsViewport.ScrollToVerticalOffset(defaultsViewport.VerticalOffset + defaultsList.TranslatePoint(new Point(0, 0), defaultsViewport).Y);
+            RenderWorkspaceState("typed-parameter-defaults");
+            RenderWorkspaceState("typed-parameter-defaults-narrow", 640, 800);
+            Assert.Equal(0, defaultsViewport.ScrollableWidth);
+            LayoutWorkspace();
             vm.AddRunCommand.Execute(null);
             vm.Selected!.Name = "Evolve candidate";
             LayoutWorkspace();
             Assert.Equal("Branch run", vm.Selected.KindLabel);
             Assert.True(vm.Selected.Editor!.SetupFunctionOverride.IsInherited);
             Assert.Contains("setup and execution", ((TextBlock)page.FindName("SelectionHint")).Text);
-            Assert.True(((TextBox)fields.FindName("ExecuteFunctionInput")).IsReadOnly);
+            Assert.True(executeInput.IsReadOnly);
             RenderWorkspaceState("branch-family");
             var branchRun = vm.Selected;
+            void FollowSource(Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource source, WorkspaceTreeNode expected)
+            {
+                Assert.Equal(Visibility.Visible, ((TextBlock)source.FindName("SourceLinkText")).Visibility);
+                var link = (System.Windows.Documents.Hyperlink)source.FindName("SourceLink");
+                Assert.Same(expected.Editor, link.CommandParameter);
+                Assert.True(link.Focusable);
+                ((IInvokeProvider)new HyperlinkAutomationPeer(link).GetPattern(PatternInterface.Invoke)!).Invoke();
+                LayoutWorkspace();
+                Assert.Same(expected, vm.Selected);
+                Assert.Same(expected, ((TreeView)page.FindName("WorkspaceTree")).SelectedItem);
+                vm.Selected = branchRun;
+                LayoutWorkspace();
+            }
+            // Scalar and list links navigate by defining entity even while this run needs parameters.
+            Assert.True(vm.HasEditErrors);
+            FollowSource((Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)executeEditor.FindName("ValueSource"), branchModule);
+            var outputHeader = (ContentControl)fields.FindName("OutputTypesHeader");
+            var outputPresenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(outputHeader, 0));
+            FollowSource((Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)outputHeader.ContentTemplate.FindName("ValueSource", outputPresenter), branchProject!);
             void FillRequiredParameter(string addButtonName, string listName, string value)
             {
                 ((Button)fields.FindName(addButtonName)).Command.Execute(null);
@@ -2389,12 +2473,26 @@ public sealed class RandomNetworkTests
                 LayoutWorkspace();
                 var values = (ItemsControl)list.ItemTemplate.FindName("ParameterValues", row);
                 var valueRow = (ContentPresenter)values.ItemContainerGenerator.ContainerFromIndex(0);
-                ((TextBox)values.ItemTemplate.FindName("ParameterValueInput", valueRow)).SetCurrentValue(TextBox.TextProperty, value);
+                var valueEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)values.ItemTemplate.FindName("ParameterValueEditor", valueRow);
+                ((TextBox)valueEditor.FindName("TypedValueInput")).SetCurrentValue(TextBox.TextProperty, value);
             }
             FillRequiredParameter("AddRequiredOutputParametersButton", "OutputParametersList", "7,11");
             FillRequiredParameter("AddRequiredSetupParametersButton", "SetupParametersList", "8");
             Assert.Equal("7,11", branchRun.Editor!.OutputParameters.Single().Values.Single().Text);
             Assert.Equal("8", branchRun.Editor.SetupParameters.Single().Values.Single().Text);
+            branchRun.Editor.AddOutputParameterCommand.Execute(null);
+            branchRun.Editor.OutputParameters.Last().Key = "SetupCompleted";
+            LayoutWorkspace();
+            var typedSpans = (ItemsControl)fields.FindName("OutputParametersList");
+            var typedSpanRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromIndex(1);
+            var typedValues = (ItemsControl)typedSpans.ItemTemplate.FindName("ParameterValues", typedSpanRow);
+            var typedValueRow = (ContentPresenter)typedValues.ItemContainerGenerator.ContainerFromIndex(0);
+            var typedSpanEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)typedValues.ItemTemplate.FindName("ParameterValueEditor", typedValueRow);
+            var booleanSpanInput = (ComboBox)typedSpanEditor.FindName("BooleanValueInput");
+            Assert.Equal(Visibility.Visible, booleanSpanInput.Visibility);
+            booleanSpanInput.SetCurrentValue(ComboBox.SelectedItemProperty, false);
+            Assert.Equal("False", branchRun.Editor.OutputParameters.Last().Values.Single().Text);
+            Assert.Equal("Overridden by run span", branchRun.Editor.InheritedOutputDefaults.Single(value => value.Key == "SetupCompleted").Usage);
             Assert.True(save.IsEnabled);
             Assert.Equal("Evaluate", branchRun.Editor!.ExecuteFunctionName);
             var overrideEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("DescriptionOverrideEditor");
@@ -2407,6 +2505,8 @@ public sealed class RandomNetworkTests
             Assert.False(overrideInput.IsReadOnly);
             Assert.Equal("Description for this run only", branchRun.Editor.DescriptionOverride.EffectiveValue);
             Assert.Equal("Overridden for this run", branchRun.Editor.DescriptionOverride.SourceLabel);
+            var localSource = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)overrideEditor.FindName("ValueSource");
+            Assert.Equal(Visibility.Collapsed, ((TextBlock)localSource.FindName("SourceLinkText")).Visibility);
             RenderWorkspaceState("run-description-override");
             overrideToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
             Assert.Equal(branchProject!.Editor!.Description, overrideInput.Text);

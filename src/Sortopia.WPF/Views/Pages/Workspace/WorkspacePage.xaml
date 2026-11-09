@@ -156,8 +156,8 @@
                         <TextBlock x:Name="EntityNameError" Text="{Binding NameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
 
-                    <Button Content="Edit project defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
-                            Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}"
+                    <Button Content="Edit parent defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
+                            Visibility="{Binding HasParentDefaults, Converter={StaticResource WorkspaceBoolVisibility}}"
                             Command="{Binding DataContext.EditProjectDefaultsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
                     <StackPanel Visibility="{Binding HasConfiguration, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <local:WorkspaceConfigurationEditor x:Name="ConfigurationFields" DataContext="{Binding Editor}" />

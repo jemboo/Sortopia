@@ -122,16 +122,16 @@ public static class WorkspaceFileStore
         }
         project IdentifyProject(project value, string folder)
         {
-            var parent = project.create(CopyId(value.Id, folder), value.ProjectName, value.FolderName, value.Configuration, []);
+            var parent = project.createInherited(CopyId(value.Id, folder), value.ProjectName, value.FolderName, value.Configuration, value.LocalOverrides, []);
             var runs = value.Runs.Select(run =>
             {
                 var dto = RunDto.fromDomain(run);
                 dto.id = CopyId(run.Id, Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)));
                 return RunDto.toDomain(parent, dto);
             }).ToArray();
-            return project.create(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, runs);
+            return project.createInherited(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, parent.LocalOverrides, runs);
         }
-        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.create(value.Kind, CopyId(value.Id, folder), value.ModuleName, value.FolderName,
+        WorkspaceModule IdentifyModule(WorkspaceModule value, string folder) => WorkspaceModule.createInherited(CopyId(value.Id, folder), value.ModuleName, value.FolderName, value.Configuration, value.LocalOverrides,
             value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
             value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
         definition = workspace.create(definition.Id, definition.WorkspaceName, definition.FolderName,
@@ -433,33 +433,35 @@ public static class WorkspaceFileStore
         return result;
     }
 
-    private static project ReadProjectFolder(string folder, int depth, CancellationToken token)
+    private static project ReadProjectFolder(string folder, int depth, CancellationToken token, projectConfiguration? parent = null)
     {
         token.ThrowIfCancellationRequested(); CheckDepth(depth);
         ValidateEntityFolder(folder, "project");
         var marker = WorkspaceDefinitionFiles.Require(folder, "project");
         var folderName = Path.GetFileName(folder);
-        var saved = WorkspaceCodec.decodeProject(ReadDefinition(marker));
+        var bytes = ReadDefinition(marker);
+        var saved = parent is null ? WorkspaceCodec.decodeProject(bytes) : WorkspaceCodec.decodeProjectInherited(parent, bytes);
         var projectName = saved.ProjectName;
         var runs = RunFiles(folder).Select(file =>
         {
             token.ThrowIfCancellationRequested();
             return WorkspaceCodec.decodeRun(saved, ReadDefinition(file));
         }).ToArray();
-        return project.create(saved.Id, projectName, folderName, saved.Configuration, runs);
+        return project.createInherited(saved.Id, projectName, folderName, saved.Configuration, saved.LocalOverrides, runs);
     }
 
-    private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token)
+    private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token, projectConfiguration? parent = null)
     {
         token.ThrowIfCancellationRequested(); CheckDepth(depth);
         ValidateEntityFolder(folder, "module");
         var marker = WorkspaceDefinitionFiles.Require(folder, "module");
         var folderName = Path.GetFileName(folder);
-        var saved = WorkspaceCodec.decodeModule(ReadDefinition(marker));
+        var bytes = ReadDefinition(marker);
+        var saved = parent is null ? WorkspaceCodec.decodeModule(bytes) : WorkspaceCodec.decodeModuleInherited(parent, bytes);
         var moduleName = saved.ModuleName;
-        return WorkspaceModule.create(saved.Kind, saved.Id, moduleName, folderName,
-            Children(folder, "modules").Select(path => ReadModuleFolder(path, depth + 1, token)).ToArray(),
-            Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token)).ToArray());
+        return WorkspaceModule.createInherited(saved.Id, moduleName, folderName, saved.Configuration, saved.LocalOverrides,
+            Children(folder, "modules").Select(path => ReadModuleFolder(path, depth + 1, token, saved.Configuration)).ToArray(),
+            Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token, saved.Configuration)).ToArray());
     }
 
     private static void ValidateEntityFolder(string folder, string kind)

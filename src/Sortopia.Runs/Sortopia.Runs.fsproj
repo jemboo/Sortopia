@@ -1,8 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <Compile Include="ParameterValue.fs" />
     <Compile Include="ParamKeys.fs" />
     <Compile Include="ParameterSet.fs" />
     <Compile Include="ParameterSpan.fs" />
+    <Compile Include="ParameterDefaults.fs" />
     <Compile Include="OutputDataType.fs" />
     <Compile Include="FolderName.fs" />
     <Compile Include="Run.fs" />

@@ -12,7 +12,11 @@ type paramKey<'value> =
       TryParse: string -> 'value option
       Format: 'value -> string }
 
+type paramKeyDescriptor = { Name: string<paramKeyName>; ValueType: parameterValueType }
+
 module ParamKey =
+
+    let describe (key: paramKey<'value>) = { Name = key.Name; ValueType = ParameterValue.typeFor typeof<'value> }
 
     let create (name: string) tryParse format =
         { Name = UMX.tag<paramKeyName> name; TryParse = tryParse; Format = format }
@@ -137,6 +141,101 @@ module ParamKeys =
     let stageLengthKey = ParamKey.integer "StageLength"
     let startingReplKey = ParamKey.integer "StartingRepl"
     let textReportNameKey = ParamKey.text "TextReportName"
+
+    /// Metadata comes from the same typed keys used by execution code.
+    let all = [
+        ParamKey.describe setupCompletedKey
+        ParamKey.describe sortableTestsModuleKey
+        ParamKey.describe sorterEvalModuleKey
+        ParamKey.describe adjustCeLengthFrequencyKey
+        ParamKey.describe activationProbabilityKey
+        ParamKey.describe controlledSeedAMaxKey
+        ParamKey.describe aMaxKey
+        ParamKey.describe activatorMutationRateKey
+        ParamKey.describe ceLengthKey
+        ParamKey.describe codeModKey
+        ParamKey.describe collectSortableTestsKey
+        ParamKey.describe databaseNameKey
+        ParamKey.describe deletionRateKey
+        ParamKey.describe distinctSorterHashesKey
+        ParamKey.describe elapsedTimeKey
+        ParamKey.describe excludeSelfCeKey
+        ParamKey.describe generationCurrentKey
+        ParamKey.describe generationFirstKey
+        ParamKey.describe generationIntervalCountKey
+        ParamKey.describe generationIntervalLastKey
+        ParamKey.describe generationsPerMergedSetKey
+        ParamKey.describe generationsPerSubsetKey
+        ParamKey.describe idKey
+        ParamKey.describe insertionRateKey
+        ParamKey.describe latticeDistanceKey
+        ParamKey.describe maxOrbitKey
+        ParamKey.describe mergeDimensionKey
+        ParamKey.describe mergeLibIdKey
+        ParamKey.describe mergeSuffixTypeKey
+        ParamKey.describe messageKey
+        ParamKey.describe modificationRateKey
+        ParamKey.describe mutationModKey
+        ParamKey.describe mutationRateKey
+        ParamKey.describe mutatorParamsKey
+        ParamKey.describe mutatorVariantKey
+        ParamKey.describe orthoRateKey
+        ParamKey.describe paraRateKey
+        ParamKey.describe partitionCountKey
+        ParamKey.describe prefixLibIdKey
+        ParamKey.describe prioritizeNewMutantsKey
+        ParamKey.describe projectNameKey
+        ParamKey.describe queryNameKey
+        ParamKey.describe replKey
+        ParamKey.describe replSpanKey
+        ParamKey.describe rngTypeKey
+        ParamKey.describe runFinishedKey
+        ParamKey.describe runNameKey
+        ParamKey.describe seedModificationRateKey
+        ParamKey.describe seedSorterPoolSelectionTypeKey
+        ParamKey.describe seedSossKey
+        ParamKey.describe selectedSorterCountPerPoolKey
+        ParamKey.describe selectedSorterPoolCountKey
+        ParamKey.describe selfSymRateKey
+        ParamKey.describe setupParametersIdKey
+        ParamKey.describe setupSorterModelSetIdKey
+        ParamKey.describe setupSorterPoolBinsSetSeriesIdKey
+        ParamKey.describe setupSorterPoolSetHistoryIdKey
+        ParamKey.describe setupSorterPoolSetIdKey
+        ParamKey.describe setupSorterPoolSetSummarySetIdKey
+        ParamKey.describe setupSorterSetEvalIdKey
+        ParamKey.describe setupSorterSetIdKey
+        ParamKey.describe simpleSorterModelTypeKey
+        ParamKey.describe sortableCountKey
+        ParamKey.describe sortableDataFormatKey
+        ParamKey.describe sortedFractionKey
+        ParamKey.describe sorterChildCountKey
+        ParamKey.describe sorterCountCycleKey
+        ParamKey.describe sorterCountCycleMultiplierKey
+        ParamKey.describe sorterCountKey
+        ParamKey.describe sorterCountPerPoolKey
+        ParamKey.describe sorterEvalMeasureInitialKey
+        ParamKey.describe sorterEvalMeasureKey
+        ParamKey.describe sorterEvalTypeKey
+        ParamKey.describe sorterLibIdKey
+        ParamKey.describe sorterLibVariantKey
+        ParamKey.describe sorterParentCountKey
+        ParamKey.describe sorterPoolCountKey
+        ParamKey.describe sorterPoolExpansionRateKey
+        ParamKey.describe sorterPoolMeasureKey
+        ParamKey.describe sorterPoolSelectionIntervalsKey
+        ParamKey.describe channelCountKey
+        ParamKey.describe sourceDbNameKey
+        ParamKey.describe sourceExecutionIdKey
+        ParamKey.describe sourceGenerationIntervalKey
+        ParamKey.describe sourceMutationModKey
+        ParamKey.describe sourceProjectNameKey
+        ParamKey.describe sourceRunNameKey
+        ParamKey.describe stageLengthKey
+        ParamKey.describe startingReplKey
+        ParamKey.describe textReportNameKey ]
+    let tryFind name = all |> List.tryFind (fun key -> key.Name = name)
+    let valueType name = tryFind name |> Option.map (fun key -> key.ValueType) |> Option.defaultValue parameterValueType.Text
 
     /// Resolve a persisted source-filter name to the corresponding source parameter name.
     let sourceParameterKey = function

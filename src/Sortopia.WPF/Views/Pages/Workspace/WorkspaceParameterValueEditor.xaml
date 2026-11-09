@@ -1,0 +1,23 @@
+<UserControl x:Class="Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="VisibleWhen" />
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBox x:Name="TypedValueInput" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                 AcceptsReturn="{Binding IsMultiline}" TextWrapping="Wrap" MaxHeight="100"
+                 VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" ToolTip="{Binding Hint}"
+                 Visibility="{Binding IsTextEditor, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Parameter value">
+            <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}">
+                <Style.Triggers><DataTrigger Binding="{Binding IsNumeric}" Value="True"><Setter Property="InputScope" Value="Number" /></DataTrigger></Style.Triggers>
+            </Style></TextBox.Style>
+        </TextBox>
+        <ComboBox x:Name="BooleanValueInput" ItemsSource="{Binding BooleanChoices}" SelectedItem="{Binding BooleanValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                  Visibility="{Binding IsBoolean, Converter={StaticResource VisibleWhen}}" ToolTip="Choose True or False" AutomationProperties.Name="Boolean parameter value" />
+        <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

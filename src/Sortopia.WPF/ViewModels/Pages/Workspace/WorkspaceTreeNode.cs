@@ -71,22 +71,28 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         folderFollowsName = kind is not (WorkspaceEntityKind.Workspace or WorkspaceEntityKind.Run) && folderName is null;
         Children.CollectionChanged += (_, args) =>
         {
-            if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.Editor?.RefreshInherited(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
-            if (args.NewItems is not null) foreach (WorkspaceTreeNode child in args.NewItems) { child.Parent = this; child.Editor?.RefreshInherited(); child.Changed += ChildChanged; child.ValidationChanged += ChildValidationChanged; }
+            if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.RefreshInheritedSubtree(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
+            if (args.NewItems is not null) foreach (WorkspaceTreeNode child in args.NewItems) { child.Parent = this; child.RefreshInheritedSubtree(); child.Changed += ChildChanged; child.ValidationChanged += ChildValidationChanged; }
             Changed?.Invoke();
             ValidationChanged?.Invoke();
         };
-        if (kind is WorkspaceEntityKind.Project or WorkspaceEntityKind.Run)
+        if (kind != WorkspaceEntityKind.Workspace)
         {
-            Editor = new(kind == WorkspaceEntityKind.Project, IsBranch, () => Parent?.Editor, () => Parent?.Name ?? "the project");
+            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name);
             Editor.Changed += ConfigurationChanged;
         }
     }
     public WorkspaceConfigurationViewModel? Editor { get; }
     private void ConfigurationChanged()
     {
-        foreach (var child in Children) child.Editor?.RefreshInherited();
+        foreach (var child in Children) child.RefreshInheritedSubtree();
         Changed?.Invoke();
+    }
+    private void RefreshInheritedSubtree()
+    {
+        OnPropertyChanged(nameof(HasParentDefaults));
+        Editor?.RefreshInherited();
+        foreach (var child in Children) child.RefreshInheritedSubtree();
     }
 
     internal event Action? Changed;
@@ -107,7 +113,8 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         : IsBranch ? "Branch run: supply setup and execution parameters. Description and setup values can inherit or be overridden."
         : "Root run: supply execution parameters and choose whether to inherit the project description.";
     public bool IsProject => Kind == WorkspaceEntityKind.Project;
-    public bool HasConfiguration => IsProject || IsRun;
+    public bool HasConfiguration => !IsWorkspace;
+    public bool HasParentDefaults => Parent?.HasConfiguration == true;
     public bool IsRun => Kind == WorkspaceEntityKind.Run;
     public bool IsWorkspace => Kind == WorkspaceEntityKind.Workspace;
     public string DiskStatus => diskStatus;
@@ -231,7 +238,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
                 SetProperty(ref folderNameInput, value, nameof(FolderNameInput));
                 SetFolderNameError("");
             }
-            foreach (var child in Children) child.Editor?.RefreshInherited();
+            foreach (var child in Children) child.RefreshInheritedSubtree();
             Changed?.Invoke();
         }
     }
@@ -329,6 +336,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
     {
         var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id, value.Kind);
+        node.Editor!.LoadOverrides(OverridesDto.fromDomain(value.LocalOverrides));
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
         node.RememberSavedChildren();
@@ -337,7 +345,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal static WorkspaceTreeNode FromProject(project value)
     {
         var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.FolderName, value.Id, value.Kind);
-        node.Editor!.LoadProject(ProjectDto.settingsFromDomain(value));
+        node.Editor!.LoadOverrides(OverridesDto.fromDomain(value.LocalOverrides));
         foreach (var child in value.Runs)
         {
             var runNode = new WorkspaceTreeNode(WorkspaceEntityKind.Run, child.RunName, id: child.Id, family: value.Kind);
@@ -356,20 +364,21 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         CheckDepth(depth);
         ValidateChildren();
-        return WorkspaceModule.create(Family, Id, Name, FolderName, Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
+        return WorkspaceModule.createInherited(Id, Name, FolderName, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private project ReadProject()
     {
-        var configuration = ProjectDto.settingsToDomain(Family, Editor!.ToProjectSettings());
-        return project.create(Id, Name, FolderName, configuration, []);
+        return project.createInherited(Id, Name, FolderName, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), []);
     }
+    private projectConfiguration ParentConfiguration() => Parent?.Editor is { } editor
+        ? SettingsDto.toDomain(Family, editor.ToProjectSettings()) : Defaults.configuration(IsBranch);
     private project ToProject(int depth)
     {
         CheckDepth(depth);
         ValidateChildren();
         var parent = ReadProject();
-        return project.create(Id, Name, FolderName, parent.Configuration, Children.Select(child => child.ToRun(parent)).ToArray());
+        return project.createInherited(Id, Name, FolderName, ParentConfiguration(), parent.LocalOverrides, Children.Select(child => child.ToRun(parent)).ToArray());
     }
     private run ToRun(project parent)
     {

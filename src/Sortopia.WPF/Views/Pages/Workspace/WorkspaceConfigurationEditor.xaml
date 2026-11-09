@@ -2,16 +2,12 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace"
+             xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Workspace"
              Foreground="{DynamicResource Workspace.TextPrimary}">
     <UserControl.Resources>
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
         <BooleanToVisibilityConverter x:Key="VisibleWhen" />
-        <Style x:Key="FieldLabel" TargetType="Label">
-            <Setter Property="Foreground" Value="{DynamicResource Workspace.TextPrimary}" />
-            <Setter Property="Padding" Value="0,0,0,4" />
-            <Setter Property="Margin" Value="0,10,0,0" />
-        </Style>
         <Style x:Key="SectionHeading" TargetType="TextBlock">
             <Setter Property="FontSize" Value="16" /><Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,16,0,8" />
@@ -20,9 +16,15 @@
             <Setter Property="Foreground" Value="{DynamicResource Workspace.TextSecondary}" />
             <Setter Property="TextWrapping" Value="Wrap" /><Setter Property="FontSize" Value="12" /><Setter Property="Margin" Value="0,4,0,6" />
         </Style>
-        <Style x:Key="Inherited" TargetType="TextBlock" BasedOn="{StaticResource Help}">
-            <Setter Property="Foreground" Value="{DynamicResource Workspace.Accent}" />
-        </Style>
+        <DataTemplate x:Key="ListOverrideHeader">
+            <StackPanel Margin="0,10,0,4">
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                <CheckBox Content="{Binding OverrideCaption}" IsChecked="{Binding IsOverridden}" MinHeight="28"
+                          Visibility="{Binding CanOverride, Converter={StaticResource VisibleWhen}}"
+                          Foreground="{DynamicResource Workspace.TextPrimary}" AutomationProperties.Name="{Binding Title, StringFormat=Override {0}}" />
+                <local:WorkspaceValueSource x:Name="ValueSource" Margin="0,0,0,4" />
+            </StackPanel>
+        </DataTemplate>
         <DataTemplate x:Key="OutputChoice">
             <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" MinHeight="28" Foreground="{DynamicResource Workspace.TextPrimary}" />
         </DataTemplate>
@@ -40,13 +42,14 @@
                         <Label Content="Parameter key" Target="{Binding ElementName=ParameterKeyInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,4,0,4" />
                     </DockPanel>
                     <TextBox x:Name="ParameterKeyInput" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Parameter key" />
+                    <TextBlock Text="{Binding TypeLabel}" Style="{StaticResource Help}" />
+                    <TextBlock Text="{Binding DefaultHint}" Style="{StaticResource Help}" />
                     <TextBlock Text="Values" Margin="0,10,0,4" />
                     <ItemsControl x:Name="ParameterValues" ItemsSource="{Binding Values}">
                         <ItemsControl.ItemTemplate><DataTemplate>
                             <DockPanel Margin="0,0,0,6">
                                 <Button DockPanel.Dock="Right" Content="×" Command="{Binding RemoveCommand}" Margin="6,0,0,0" MinWidth="32" ToolTip="Remove value" AutomationProperties.Name="Remove parameter value" />
-                                <TextBox x:Name="ParameterValueInput" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
-                                         MaxHeight="100" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Parameter value" />
+                                <local:WorkspaceParameterValueEditor x:Name="ParameterValueEditor" />
                             </DockPanel>
                         </DataTemplate></ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -55,74 +58,105 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
+        <DataTemplate x:Key="ParameterDefault">
+            <Border BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,10">
+                <StackPanel>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}" Margin="6,0,0,4" AutomationProperties.Name="Remove parameter default" />
+                        <Label Content="Parameter key" Target="{Binding ElementName=DefaultKeyInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,4,0,4" />
+                    </DockPanel>
+                    <ComboBox x:Name="DefaultKeyInput" IsEditable="True" IsTextSearchEnabled="False" ItemsSource="{x:Static vm:WorkspaceParameterDefault.KnownKeys}"
+                              Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Default parameter key" />
+                    <Label Content="Value type" Target="{Binding ElementName=DefaultTypeInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,10,0,4" />
+                    <ComboBox x:Name="DefaultTypeInput" ItemsSource="{x:Static vm:WorkspaceParameterDefault.ValueTypes}" DisplayMemberPath="Label" SelectedValuePath="Type"
+                              SelectedValue="{Binding ValueType, Mode=TwoWay}" IsEnabled="{Binding IsCustomKey}" AutomationProperties.Name="Default parameter type" />
+                    <TextBlock Text="{Binding TypeHint}" Style="{StaticResource Help}" />
+                    <TextBlock Text="Default value" Margin="0,4,0,4" />
+                    <local:WorkspaceParameterValueEditor x:Name="DefaultValueEditor" DataContext="{Binding Value}" />
+                    <TextBlock Text="{Binding Value.Hint}" Style="{StaticResource Help}" />
+                    <TextBlock Text="{Binding KeyError}" Style="{StaticResource InlineError}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="InheritedParameterDefault">
+            <Border BorderBrush="{DynamicResource Workspace.StrokeSubtle}" BorderThickness="0,0,0,1" Padding="0,6,0,10" Margin="0,0,0,4">
+                <StackPanel>
+                    <TextBlock Text="{Binding Key}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding TypeLabel}" Style="{StaticResource Help}" />
+                    <TextBox Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="100" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Inherited parameter default" />
+                    <TextBlock Text="{Binding Usage}" Style="{StaticResource Help}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
     <StackPanel>
         <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
         <TextBlock Text="{Binding Hint}" Style="{StaticResource Help}" />
-        <StackPanel Visibility="{Binding IsProject, Converter={StaticResource VisibleWhen}}">
-            <Label Content="Description" Style="{StaticResource FieldLabel}" Target="{Binding ElementName=ProjectDescriptionInput}" />
-            <TextBox x:Name="ProjectDescriptionInput" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" MaxHeight="140" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" AutomationProperties.Name="Project description" />
-        </StackPanel>
-        <local:WorkspaceOverrideEditor x:Name="DescriptionOverrideEditor" DataContext="{Binding DescriptionOverride}"
-            Visibility="{Binding DataContext.IsRun, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" />
-
+        <local:WorkspaceOverrideEditor x:Name="DescriptionOverrideEditor" DataContext="{Binding DescriptionOverride}" />
         <TextBlock Text="Execution" Style="{StaticResource SectionHeading}" />
-        <TextBlock Text="{Binding InheritedLabel}" Style="{StaticResource Inherited}" Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}" />
-        <Label Content="Results database" Style="{StaticResource FieldLabel}" Target="{Binding ElementName=ResultsDatabaseInput}" />
-        <TextBox x:Name="ResultsDatabaseInput" Text="{Binding ResultsDatabaseName, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsRun}" AutomationProperties.Name="Results database" />
-        <TextBlock Text="{Binding ResultsDatabaseError}" Style="{StaticResource InlineError}" />
-        <Label Content="Execution function" Style="{StaticResource FieldLabel}" Target="{Binding ElementName=ExecuteFunctionInput}" />
-        <TextBox x:Name="ExecuteFunctionInput" Text="{Binding ExecuteFunctionName, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsRun}" AutomationProperties.Name="Execution function" />
-        <TextBlock Text="{Binding ExecuteFunctionError}" Style="{StaticResource InlineError}" />
-        <TextBlock Text="Output types" Margin="0,10,0,4" />
-        <ItemsControl ItemsSource="{Binding OutputTypes}" ItemTemplate="{StaticResource OutputChoice}" Visibility="{Binding IsProject, Converter={StaticResource VisibleWhen}}" />
-        <TextBlock Text="{Binding OutputTypesSummary}" TextWrapping="Wrap" Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}" />
-        <TextBlock Text="Output query keys" Margin="0,10,0,4" />
-        <StackPanel Visibility="{Binding IsProject, Converter={StaticResource VisibleWhen}}">
-            <TextBlock Text="Each key must have a matching execution parameter in every run." Style="{StaticResource Help}" />
+        <local:WorkspaceOverrideEditor x:Name="ResultsDatabaseOverrideEditor" DataContext="{Binding ResultsDatabaseOverride}" />
+        <local:WorkspaceOverrideEditor x:Name="ExecuteFunctionOverrideEditor" DataContext="{Binding ExecuteFunctionOverride}" />
+        <ContentControl x:Name="OutputTypesHeader" Content="{Binding OutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
+        <ItemsControl ItemsSource="{Binding OutputTypes}" ItemTemplate="{StaticResource OutputChoice}" Visibility="{Binding OutputTypesOverride.IsOverridden, Converter={StaticResource VisibleWhen}}" />
+        <TextBlock Text="{Binding OutputTypesSummary}" TextWrapping="Wrap" Visibility="{Binding OutputTypesOverride.IsInherited, Converter={StaticResource VisibleWhen}}" />
+        <ContentControl Content="{Binding OutputQueryKeysOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
+        <StackPanel Visibility="{Binding OutputQueryKeysOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
+            <TextBlock Text="Each key needs a default value or a matching execution span in every run." Style="{StaticResource Help}" />
             <ItemsControl ItemsSource="{Binding OutputQueryKeys}" ItemTemplate="{StaticResource QueryKey}" />
             <Button Content="Add query key" Command="{Binding AddOutputQueryKeyCommand}" HorizontalAlignment="Left" />
-            <TextBlock Text="{Binding OutputQueryKeysError}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
         </StackPanel>
-        <TextBlock Text="{Binding OutputQueryKeysSummary}" TextWrapping="Wrap" Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}" />
+        <TextBlock Text="{Binding OutputQueryKeysSummary}" TextWrapping="Wrap" Visibility="{Binding OutputQueryKeysOverride.IsInherited, Converter={StaticResource VisibleWhen}}" />
+        <TextBlock Text="{Binding OutputQueryKeysError}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
+        <ContentControl Content="{Binding OutputParameterDefaultsOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
+        <StackPanel Visibility="{Binding OutputParameterDefaultsOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
+            <TextBlock Text="One typed value per key, used by every run unless a run span replaces it." Style="{StaticResource Help}" />
+            <ItemsControl x:Name="OutputParameterDefaultsList" ItemsSource="{Binding OutputParameterDefaults}" ItemTemplate="{StaticResource ParameterDefault}" />
+            <Button x:Name="AddOutputParameterDefaultButton" Content="Add default parameter" Command="{Binding AddOutputParameterDefaultCommand}" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Visibility="{Binding OutputParameterDefaultsOverride.IsInherited, Converter={StaticResource VisibleWhen}}">
+            <ItemsControl ItemsSource="{Binding InheritedOutputDefaults}" ItemTemplate="{StaticResource InheritedParameterDefault}" />
+            <TextBlock Text="{Binding OutputParameterDefaultsSummary}" Style="{StaticResource Help}" />
+        </StackPanel>
+        <TextBlock Text="{Binding OutputParameterDefaultsError}" Style="{StaticResource InlineError}" />
         <StackPanel Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Execution parameters" Style="{StaticResource SectionHeading}" />
-            <TextBlock Text="Add a parameter key and its candidate values. Each value has its own field; commas and spaces are kept as entered." Style="{StaticResource Help}" />
+            <TextBlock Text="Add spans for values to vary. Each span replaces the default for its key; all combinations are generated. Text values keep their commas and spaces." Style="{StaticResource Help}" />
             <ItemsControl x:Name="OutputParametersList" ItemsSource="{Binding OutputParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
             <WrapPanel>
                 <Button Content="Add parameter" Command="{Binding AddOutputParameterCommand}" Margin="0,0,8,6" />
                 <Button x:Name="AddRequiredOutputParametersButton" Content="Add required parameters" Command="{Binding AddMissingOutputParametersCommand}" Margin="0,0,0,6" Visibility="{Binding HasMissingOutputParameters, Converter={StaticResource VisibleWhen}}" />
             </WrapPanel>
             <TextBlock Text="{Binding OutputParametersError}" Style="{StaticResource InlineError}" />
+            <TextBlock Text="{Binding OutputParameterSetsSummary}" Style="{StaticResource Help}" />
         </StackPanel>
 
         <StackPanel x:Name="SetupFields" Visibility="{Binding IsBranch, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Setup" Style="{StaticResource SectionHeading}" />
-            <StackPanel Visibility="{Binding IsProject, Converter={StaticResource VisibleWhen}}">
-                <Label Content="Setup database" Style="{StaticResource FieldLabel}" Target="{Binding ElementName=SetupDatabaseInput}" />
-                <TextBox x:Name="SetupDatabaseInput" Text="{Binding SetupDatabaseName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Setup database" />
-                <TextBlock Text="{Binding SetupDatabaseError}" Style="{StaticResource InlineError}" />
-                <Label Content="Setup function" Style="{StaticResource FieldLabel}" Target="{Binding ElementName=SetupFunctionInput}" />
-                <TextBox x:Name="SetupFunctionInput" Text="{Binding SetupFunctionName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Setup function" />
-                <TextBlock Text="{Binding SetupFunctionError}" Style="{StaticResource InlineError}" />
-            </StackPanel>
-            <StackPanel Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}">
-                <local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" DataContext="{Binding SetupDatabaseOverride}" />
-                <local:WorkspaceOverrideEditor x:Name="SetupFunctionOverrideEditor" DataContext="{Binding SetupFunctionOverride}" />
-                <TextBlock Text="{Binding InheritedLabel}" Style="{StaticResource Inherited}" />
-            </StackPanel>
-            <TextBlock Text="Setup output types" Margin="0,10,0,4" />
-            <ItemsControl ItemsSource="{Binding SetupOutputTypes}" ItemTemplate="{StaticResource OutputChoice}" Visibility="{Binding IsProject, Converter={StaticResource VisibleWhen}}" />
-            <TextBlock Text="{Binding SetupOutputTypesSummary}" TextWrapping="Wrap" Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}" />
-            <TextBlock Text="Setup query keys" Margin="0,10,0,4" />
-            <StackPanel Visibility="{Binding IsProject, Converter={StaticResource VisibleWhen}}">
-                <TextBlock Text="Used for every setup output type. Each key must have a matching setup parameter in every run." Style="{StaticResource Help}" />
+            <local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" DataContext="{Binding SetupDatabaseOverride}" />
+            <local:WorkspaceOverrideEditor x:Name="SetupFunctionOverrideEditor" DataContext="{Binding SetupFunctionOverride}" />
+            <ContentControl Content="{Binding SetupOutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
+            <ItemsControl ItemsSource="{Binding SetupOutputTypes}" ItemTemplate="{StaticResource OutputChoice}" Visibility="{Binding SetupOutputTypesOverride.IsOverridden, Converter={StaticResource VisibleWhen}}" />
+            <TextBlock Text="{Binding SetupOutputTypesSummary}" TextWrapping="Wrap" Visibility="{Binding SetupOutputTypesOverride.IsInherited, Converter={StaticResource VisibleWhen}}" />
+            <ContentControl Content="{Binding SetupQueryKeysOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
+            <StackPanel Visibility="{Binding SetupQueryKeysOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
+                <TextBlock Text="Each key needs a default value or a matching setup span in every run." Style="{StaticResource Help}" />
                 <ItemsControl ItemsSource="{Binding SetupQueryKeys}" ItemTemplate="{StaticResource QueryKey}" />
                 <Button Content="Add query key" Command="{Binding AddSetupQueryKeyCommand}" HorizontalAlignment="Left" />
-                <TextBlock Text="{Binding SetupQueryKeysError}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
             </StackPanel>
-            <TextBlock Text="{Binding SetupQueryKeysSummary}" TextWrapping="Wrap" Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}" />
+            <TextBlock Text="{Binding SetupQueryKeysSummary}" TextWrapping="Wrap" Visibility="{Binding SetupQueryKeysOverride.IsInherited, Converter={StaticResource VisibleWhen}}" />
+            <TextBlock Text="{Binding SetupQueryKeysError}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
+            <ContentControl Content="{Binding SetupParameterDefaultsOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
+            <StackPanel Visibility="{Binding SetupParameterDefaultsOverride.IsOverridden, Converter={StaticResource VisibleWhen}}">
+                <TextBlock Text="Defaults for the setup function, independent of execution defaults." Style="{StaticResource Help}" />
+                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding SetupParameterDefaults}" ItemTemplate="{StaticResource ParameterDefault}" />
+                <Button Content="Add default parameter" Command="{Binding AddSetupParameterDefaultCommand}" HorizontalAlignment="Left" />
+            </StackPanel>
+            <StackPanel Visibility="{Binding SetupParameterDefaultsOverride.IsInherited, Converter={StaticResource VisibleWhen}}">
+                <ItemsControl ItemsSource="{Binding InheritedSetupDefaults}" ItemTemplate="{StaticResource InheritedParameterDefault}" />
+                <TextBlock Text="{Binding SetupParameterDefaultsSummary}" Style="{StaticResource Help}" />
+            </StackPanel>
+            <TextBlock Text="{Binding SetupParameterDefaultsError}" Style="{StaticResource InlineError}" />
             <StackPanel Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="Setup parameters" Style="{StaticResource SectionHeading}" />
                 <ItemsControl x:Name="SetupParametersList" ItemsSource="{Binding SetupParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
@@ -131,6 +165,7 @@
                     <Button x:Name="AddRequiredSetupParametersButton" Content="Add required parameters" Command="{Binding AddMissingSetupParametersCommand}" Margin="0,0,0,6" Visibility="{Binding HasMissingSetupParameters, Converter={StaticResource VisibleWhen}}" />
                 </WrapPanel>
                 <TextBlock Text="{Binding SetupParametersError}" Style="{StaticResource InlineError}" />
+                <TextBlock Text="{Binding SetupParameterSetsSummary}" Style="{StaticResource Help}" />
             </StackPanel>
         </StackPanel>
     </StackPanel>

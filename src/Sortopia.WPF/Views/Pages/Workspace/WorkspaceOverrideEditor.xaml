@@ -1,13 +1,15 @@
 <UserControl x:Class="Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace">
     <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
-    </ResourceDictionary.MergedDictionaries></ResourceDictionary></UserControl.Resources>
+    </ResourceDictionary.MergedDictionaries><BooleanToVisibilityConverter x:Key="VisibleWhen" /></ResourceDictionary></UserControl.Resources>
     <StackPanel Margin="0,0,0,14">
         <Label Content="{Binding Title}" Target="{Binding ElementName=OverrideValueInput}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" />
-        <CheckBox x:Name="OverrideToggle" Content="Override for this run" IsChecked="{Binding IsOverridden}" MinHeight="28"
-                  Foreground="{DynamicResource Workspace.TextPrimary}" AutomationProperties.Name="{Binding Title, StringFormat=Override {0} for this run}" />
+        <CheckBox x:Name="OverrideToggle" Content="{Binding OverrideCaption}" IsChecked="{Binding IsOverridden}" MinHeight="28"
+                  Visibility="{Binding CanOverride, Converter={StaticResource VisibleWhen}}"
+                  Foreground="{DynamicResource Workspace.TextPrimary}" AutomationProperties.Name="{Binding Title, StringFormat=Override {0}}" />
         <TextBox x:Name="OverrideValueInput" Text="{Binding EffectiveValue, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsInherited}"
                  AcceptsReturn="{Binding IsMultiline}" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MaxHeight="140"
                  AutomationProperties.Name="{Binding Title}">
@@ -20,12 +22,7 @@
                 </Style>
             </TextBox.Style>
         </TextBox>
-        <TextBlock Text="{Binding SourceLabel}" TextWrapping="Wrap" Margin="0,4,0,0" FontSize="12" AutomationProperties.LiveSetting="Polite">
-            <TextBlock.Style><Style TargetType="TextBlock">
-                <Setter Property="Foreground" Value="{DynamicResource Workspace.Accent}" />
-                <Style.Triggers><DataTrigger Binding="{Binding IsOverridden}" Value="True"><Setter Property="Foreground" Value="#D8B4FE" /></DataTrigger></Style.Triggers>
-            </Style></TextBlock.Style>
-        </TextBlock>
+        <local:WorkspaceValueSource x:Name="ValueSource" />
         <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
     </StackPanel>
 </UserControl>
