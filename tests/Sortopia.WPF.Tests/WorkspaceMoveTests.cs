@@ -19,9 +19,9 @@ public sealed class WorkspaceMoveTests : IDisposable
     private WorkspacePageViewModel Open(bool saved = true)
     {
         var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
-            WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "A", "A", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Nested", "Nested", [], [])],
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "A", "A", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Nested", "Nested", [], [])],
                 [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
-            WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "B", "B", [], [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", "Destination", [])])]);
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "B", "B", [], [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", "Destination", [])])]);
         Directory.CreateDirectory(Root);
         if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));

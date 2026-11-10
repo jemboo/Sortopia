@@ -128,7 +128,7 @@ public sealed class LibraryParameterTests
             var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
             var ancestor = page.Selected!;
-            ancestor.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+            ancestor.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(branch));
             var inherited = WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "CustomSorter", SorterLibId.toString(SorterLib.ids()[0]));
             inherited.ValueType = parameterValueType.SorterLibId;
             if (branch)

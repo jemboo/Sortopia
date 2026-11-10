@@ -27,14 +27,14 @@ public sealed class WorkspaceFieldTests : IDisposable
         var fields = node.Editor!;
         fields.Description = "Shared description";
         fields.ResultsDatabaseName = "Results";
-        fields.ResultsFunctionName = "Evaluate";
+        node.Parent!.Editor!.ResultsFunctionName = "Evaluate";
         fields.AddOutputTypeCommand.Execute(null);
         fields.AddResultsQueryKeyCommand.Execute(null);
         fields.ResultsQueryKeys.Single().Text = "Seed";
         if (branch)
         {
             fields.SetupDatabaseName = "Setup";
-            fields.SetupFunctionName = "Generate";
+            node.Parent!.Editor!.SetupFunctionName = "Generate";
             WorkspaceHierarchyTests.AddSetupSource(node);
         }
         Assert.Empty(page.Error);
@@ -106,7 +106,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         fields.SetupDatabaseOverride.EffectiveValue = "Run setup";
         parent.Editor!.Description = "Updated description";
         parent.Editor.SetupDatabaseName = "Updated setup";
-        parent.Editor.SetupFunctionName = "Updated generator";
+        parent.Parent!.Editor!.SetupFunctionName = "Updated generator";
         Assert.Equal("", fields.DescriptionOverride.EffectiveValue);
         Assert.Equal("Updated setup", fields.SetupDatabaseOverride.EffectiveValue);
         Assert.Equal("Updated generator", fields.SetupFunctionOverride.EffectiveValue);
@@ -127,7 +127,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         var savedInputs = RunDto.fromDomain(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0]);
         Assert.Null(savedInputs.descriptionOverride);
         Assert.Null(typeof(runDto).GetProperty("setupDatabaseNameOverride"));
-        Assert.Null(savedInputs.setupFunctionNameOverride);
+
     }
 
     [Fact]
@@ -139,16 +139,16 @@ public sealed class WorkspaceFieldTests : IDisposable
         Assert.Equal("Generate", field.EffectiveValue);
         field.EffectiveValue = "Run generator";
         field.IsOverridden = false;
-        parent.Editor!.SetupFunctionName = "New parent generator";
+        parent.Parent!.Editor!.SetupFunctionName = "New parent generator";
         parent.Name = "Renamed project";
         Assert.Equal("New parent generator", field.EffectiveValue);
-        Assert.Equal("Inherited from Renamed project", field.SourceLabel);
+        Assert.Same(parent.Parent.Editor, field.InheritedSource);
         field.IsOverridden = true;
-        Assert.Equal("Run generator", field.EffectiveValue);
-        Assert.Equal("Overridden for this run", field.SourceLabel);
+        Assert.Equal("New parent generator", field.EffectiveValue);
+        Assert.False(field.CanOverride);
         field.EffectiveValue = "";
-        Assert.NotEmpty(field.Error);
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.Empty(field.Error);
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         field.IsOverridden = false;
         Assert.Empty(field.Error);
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
@@ -208,7 +208,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         var page = Open();
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var ancestor = page.Selected!;
-        ancestor.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        ancestor.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(branch));
         var inherited = WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "InheritedResult", "value");
         if (branch) WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "InheritedSetup", "value", true);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);

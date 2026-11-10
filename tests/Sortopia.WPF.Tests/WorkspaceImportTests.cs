@@ -16,7 +16,7 @@ public sealed class WorkspaceImportTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?> picker, bool empty = false)
     {
-        var modules = empty ? Array.Empty<WorkspaceModule>() : [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Existing", "existing", [],
+        var modules = empty ? Array.Empty<WorkspaceModule>() : [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Existing", "existing", [],
             [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [WorkspaceHierarchyTests.MakeRun("Parent project", "Trial")])])];
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Root", modules), Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
@@ -42,7 +42,7 @@ public sealed class WorkspaceImportTests : IDisposable
     internal static void WriteModule(string folder, string name, hierarchyKind family = hierarchyKind.Root)
     {
         Directory.CreateDirectory(folder);
-        File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "module"), WorkspaceCodec.encodeModule(WorkspaceModule.create(family, Guid.NewGuid(), name, Path.GetFileName(folder), [], [])));
+        File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "module"), WorkspaceCodec.encodeModule(WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, Path.GetFileName(folder), [], [])));
         // The disk hierarchy is authoritative, even when the parent's snapshot has a stale child list.
         WriteProject(Path.Combine(folder, "projects", "child-project"), "Child project", family);
     }

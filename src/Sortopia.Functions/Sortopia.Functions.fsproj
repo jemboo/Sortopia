@@ -2,9 +2,11 @@
   <ItemGroup>
     <Compile Include="FunctionTypes.fs" />
     <Compile Include="FunctionNames.fs" />
+    <Compile Include="InputGenerators.fs" />
     <Compile Include="SetupFunctions.fs" />
     <Compile Include="ResultsFunctions.fs" />
     <Compile Include="FunctionCatalogs.fs" />
+    <Compile Include="FunctionConfiguration.fs" />
     <Compile Include="RunExecution.fs" />
   </ItemGroup>
   <ItemGroup>

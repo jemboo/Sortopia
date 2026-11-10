@@ -7,6 +7,7 @@ public sealed partial class WorkspaceConfigurationViewModel
     internal IEnumerable<WorkspaceItemSnapshot> InspectorSnapshots()
     {
         static string State(WorkspaceOverrideState state) => state.IsReadOnly ? "Fixed · sealed project"
+            : state.FixedByFunction?.Invoke() == true ? "Defined by function"
             : state.HasInheritedSource ? "Inherited" : state.IsOverridden || state.IsProjectValue ? "Local" : "Default";
         WorkspaceItemSnapshot Field(string key, string group, WorkspaceOverrideField field) =>
             new(key, group, field.Title, field.IsOverridden && field.EffectiveValue.Length == 0 ? "(empty)" : field.EffectiveValue, State(field), field.Error, field.InheritedSource);
@@ -26,7 +27,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         static string Spans(IEnumerable<WorkspaceParameterSpan> values) => Summary(values.Select(span => $"{span.Key}: {string.Join(", ", span.Values.Select(value => value.Text))}"));
         yield return Field("description", "General", DescriptionOverride);
         if (!IsModule) yield return Field("resultsDatabase", "Results", ResultsDatabaseOverride);
-        yield return Field("resultsFunction", "Results", ResultsFunctionOverride);
+        yield return Field("resultsFunction", "Results", ResultsFunctionOverride) with { Error = ResultsFunctionError };
         yield return List("resultsTypes", "Results", OutputTypesOverride, Types(EffectiveOutputs), OutputTypesError);
         yield return List("resultsQueryKeys", "Results", ResultsQueryKeysOverride, Summary(EffectiveOutputKeys), ResultsQueryKeysError);
         yield return Defaults(false);
@@ -37,9 +38,9 @@ public sealed partial class WorkspaceConfigurationViewModel
         }
         if (!IsBranch) yield break;
         if (!IsModule) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
-        yield return Field("setupFunction", "Setup", SetupFunctionOverride);
+        yield return Field("setupFunction", "Setup", SetupFunctionOverride) with { Error = SetupFunctionError };
         yield return List("setupOutputs", "Setup", SetupDataTypesOverride,
-            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {row.Source?.Name ?? "Missing source"} · keys: {row.QueryKeysSummary}")), SetupDataTypesError);
+            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")), FirstError(SetupDataTypesError, SetupQueryKeysError));
         yield return Defaults(true);
         if (IsRun)
         {

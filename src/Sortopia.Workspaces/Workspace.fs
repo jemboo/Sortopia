@@ -64,6 +64,7 @@ type rootProject =
         Defaults.validateRoot local
         let configuration = Defaults.resolveRoot parent local
         ProjectConfiguration.validateRoot configuration
+        Defaults.validateRootModule configuration
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
@@ -83,7 +84,7 @@ type rootProject =
     static member withRuns (value: rootProject) runs =
         rootProject.restore value.Id value.ProjectName value.FolderName value.Configuration value.LocalOverrides value.IsSealed runs
     static member create id name folderName configuration runs =
-        rootProject.createInherited id name folderName Defaults.root (Defaults.localRoot configuration) runs
+        rootProject.createInherited id name folderName configuration (Defaults.localRoot configuration) runs
     static member rebind parent (value: rootProject) =
         if value.IsSealed || Defaults.resolveRoot parent value.LocalOverrides = value.Configuration then value
         else rootProject.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
@@ -122,6 +123,8 @@ type branchProject =
         Defaults.validateBranch local
         let configuration = Defaults.resolveBranch parent local
         ProjectConfiguration.validateBranch configuration
+        Defaults.validateBranchModule configuration
+        Sortopia.Functions.FunctionConfiguration.validateSetup true configuration.Setup
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
@@ -141,7 +144,7 @@ type branchProject =
     static member withRuns (value: branchProject) runs =
         branchProject.restore value.Id value.ProjectName value.FolderName value.Configuration value.LocalOverrides value.IsSealed runs
     static member create id name folderName configuration runs =
-        branchProject.createInherited id name folderName Defaults.branch (Defaults.localBranch configuration) runs
+        branchProject.createInherited id name folderName configuration (Defaults.localBranch configuration) runs
     static member rebind parent (value: branchProject) =
         if value.IsSealed || Defaults.resolveBranch parent value.LocalOverrides = value.Configuration then value
         else branchProject.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
@@ -346,7 +349,7 @@ module WorkspaceProjects =
             source
         let rec validateModule (m: workspaceModule) =
             match m.Configuration with
-            | BranchModuleConfig config -> config.SetupDataTypes |> List.iter (validateSource false >> ignore)
+            | BranchModuleConfig config -> config.SetupDataTypes |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty) |> List.iter (validateSource false >> ignore)
             | RootModuleConfig _ -> ()
             m.Modules |> Array.iter validateModule
         modules |> Array.iter validateModule
@@ -354,7 +357,7 @@ module WorkspaceProjects =
             match p.Configuration with
             | RootProjectConfig _ -> []
             | BranchProjectConfig config ->
-                config.SetupDataTypes |> List.map (fun entry -> (validateSource p.IsSealed entry).Id) |> List.distinct)
+                config.SetupDataTypes |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty) |> List.map (fun entry -> (validateSource p.IsSealed entry).Id) |> List.distinct)
         // Topological validation avoids recursive stack growth for long source chains.
         let incoming = Collections.Generic.Dictionary<Guid<projectId>, int>()
         projects |> Map.iter (fun id _ -> incoming[id] <- 0)

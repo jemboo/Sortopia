@@ -22,7 +22,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var parent = project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(kind, settings), []);
         var value = RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 11, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
+            schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
             runKind = kind == hierarchyKind.Root ? "root" : "branch", resultsParameterSpans = [], setupParameterSpans = setup ?? []
         });
         return project.withRuns(parent, [value]);
@@ -30,17 +30,20 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     private workspace Create(bool failSecondSetup = false)
     {
         var sourceSettings = RunExecutionTests.Settings(false);
-        sourceSettings.resultsQueryParameterKeys = ["ChannelCount"];
-        sourceSettings.resultsParameterDefaults = [..sourceSettings.resultsParameterDefaults, Binding("ChannelCount", "4")];
+        sourceSettings.resultsQueryParameterKeys = [];
         var source = Project("Source", hierarchyKind.Root, sourceSettings);
         var consumerSettings = RunExecutionTests.Settings(true);
+        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationMerge;
+        consumerSettings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(), .. sourceSettings.resultsParameterDefaults];
         consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] }];
+        consumerSettings.resultsFunctionName = ResultsFunctionNames.sorterEval;
+        consumerSettings.resultsParameterDefaults = [Binding("ChannelCount", "4"), Binding("SorterEvalType", "V1", parameterValueType.Text), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
         var consumer = Project("Consumer", hierarchyKind.Branch, consumerSettings,
             failSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "invalid"] }] : null);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [
-            workspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Outer", "Outer", [
-                workspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Inner", "Inner", [], [source])], []),
-            workspaceModule.create(hierarchyKind.Branch, Guid.NewGuid(), "Consumers", "Consumers", [], [consumer])]);
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Outer", "Outer", [
+                WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", "Inner", [], [source])], []),
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Consumers", "Consumers", [], [consumer])]);
         WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token);
         return WorkspaceFileStore.LoadDefinition(temporary.FullName);
     }
@@ -60,12 +63,12 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var published = Execute(world, "Source"); Completed(published);
         var branch = ((run.BranchRun)consumer.Runs[0]).Item;
         var parameters = BranchRun.makeSetupParameterSets(branch)[0];
-        var entry = branch.SetupDataTypes.Head;
+        var entry = branch.SetupDataTypes.Single(output => output.DataType.IsSortableTests);
         var loaded = WorkspaceData.loadSource(world, temporary.FullName, entry, parameters, Token);
         Assert.Equal(published.Results[0].StoredOutputs.Head.Reference, loaded.Reference);
-        // The source projects by ChannelCount, while this setup projects by SortableDataFormat.
-        var other = parameterSet.fromBindings([ParameterBinding.create(ParamKeys.channelCountKey, 8), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")]);
-        Assert.Contains("missing", Assert.Throws<InvalidOperationException>(() => WorkspaceData.loadSource(world, temporary.FullName, entry, other, Token)).Message);
+        // Model-only parameters do not affect the source's library/format projection.
+        var other = parameters.WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 8));
+        Assert.Equal(loaded.Reference, WorkspaceData.loadSource(world, temporary.FullName, entry, other, Token).Reference);
         var wrongType = new setupDataTypeConfig(sortopiaDataType.NewSortableTests("different"), source.Id, entry.QueryParameterKeys);
         Assert.Contains("does not provide", Assert.Throws<InvalidOperationException>(() => WorkspaceData.loadSource(world, temporary.FullName, wrongType, parameters, Token)).Message);
         var absent = new setupDataTypeConfig(entry.DataType, Guid.NewGuid(), entry.QueryParameterKeys);
@@ -77,7 +80,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.All(second.Setup.Concat(second.Results).SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
         Assert.Equal(first.Setup[0].StoredOutputs.Head.Reference, second.Setup[0].StoredOutputs.Head.Reference);
         foreach (var file in dataFiles) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
-        Assert.Equal(3, dataFiles.Count); // One source result, one setup and one consumer result.
+        Assert.Equal(4, dataFiles.Count); // One source result, two setup outputs and one consumer evaluation.
         var receipts = Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories).Where(path => path.Contains(Path.DirectorySeparatorChar + "executions" + Path.DirectorySeparatorChar));
         Assert.Equal(4, receipts.Count());
     }
@@ -93,7 +96,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Equal(runExecutionStatus.Failed, second.Status); Assert.Single(second.Setup); Assert.Empty(second.Results);
         Assert.True(second.Setup[0].StoredOutputs.Head.Reused);
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, Named(world, "Consumer").Id);
-        Assert.Single(Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories));
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories).Length);
         var receipts = Directory.GetFiles(Path.Combine(folder, "executions"), "*.msgpack").Select(path => Sortopia.Core.Serialization.MessagePackSetup.deserialize<executionReceiptDto>(File.ReadAllBytes(path))).ToArray();
         Assert.Equal(2, receipts.Length); Assert.All(receipts, receipt => Assert.Equal("Failed", receipt.Status));
     }
@@ -103,10 +106,10 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     {
         var world = Create(); var source = Named(world, "Source");
         var branch = ((run.BranchRun)Named(world, "Consumer").Runs[0]).Item;
-        var entry = branch.SetupDataTypes.Head; var parameters = BranchRun.makeSetupParameterSets(branch)[0];
+        var entry = branch.SetupDataTypes.Single(output => output.DataType.IsSortableTests); var parameters = BranchRun.makeSetupParameterSets(branch)[0];
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, source.Id);
         var store = new SortopiaFileDb(folder, source.Id);
-        var output = ResultsFunctions.makeSortableTests(RunParameterSets.create(source.Runs[0]).Results[0], ListModule.Empty<functionData>()).ResultValue.Head;
+        var output = ResultsFunctions.mergeSortableTests.Execute.Invoke(RunParameterSets.create(source.Runs[0]).Results[0]).Invoke(ListModule.Empty<functionData>()).ResultValue.Head;
         var factory = FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(output));
         dataKey Key(bool withDependency) => DataKey.create(source.Id, source.ResultsDatabaseName, false, source.ResultsFunctionName, "1", entry.DataType,
             source.ResultsQueryParameterKeys, parameters, withDependency ? ListModule.OfArray(new[] { new storedDataReference(source.Id, Guid.NewGuid(), Guid.NewGuid(), true, entry.DataType) }) : ListModule.Empty<storedDataReference>());

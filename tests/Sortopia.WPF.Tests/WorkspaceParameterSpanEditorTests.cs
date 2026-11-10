@@ -20,7 +20,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
         if (page.HasSavedWorkspace) return page;
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        page.Selected!.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(branch));
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         return page;
     }

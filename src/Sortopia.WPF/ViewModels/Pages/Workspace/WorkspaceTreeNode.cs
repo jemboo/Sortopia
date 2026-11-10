@@ -129,7 +129,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     public string ContainmentHint => IsWorkspace ? "Choose a root module for runs without setup, or a branch module for runs with setup."
         : Kind == WorkspaceEntityKind.Module ? $"Contains {FamilyName.ToLowerInvariant()} modules and {FamilyName.ToLowerInvariant()} projects. New children inherit this type."
         : Kind == WorkspaceEntityKind.Project ? $"Contains only {FamilyName.ToLowerInvariant()} runs. Projects do not contain other projects."
-        : IsBranch ? "Branch run: supply setup and execution parameters. Database names come from the project; description and the setup function can be overridden."
+        : IsBranch ? "Branch run: supply the setup and results functions’ required parameters. Functions and database names are fixed by the project; description can be overridden."
         : "Root run: supply execution parameters and choose whether to inherit the project description.";
     public bool IsProject => Kind == WorkspaceEntityKind.Project;
     public bool HasConfiguration => !IsWorkspace;
@@ -382,7 +382,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
             runNode.savedParentProjectId = child.ParentProjectId;
             node.Children.Add(runNode);
         }
-        if (value.IsSealed) { node.sealedProject = project.withRuns(value, []); node.Editor.Freeze(); }
+        if (value.IsSealed) { node.sealedProject = project.withRuns(value, []); node.Editor.Freeze(SettingsDto.fromDomain(value.Configuration)); }
         node.RememberSavedChildren();
         return node;
     }

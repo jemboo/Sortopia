@@ -17,7 +17,7 @@ public sealed class FunctionCatalogTests
     private static parameterSet Parameters(params parameterBinding[] bindings) => parameterSet.fromBindings(bindings);
     private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
     {
-        var function = setup ? FunctionCatalogs.setupFunctionCatalog[name].Invoke(SetupDataContext.transient) : FunctionCatalogs.resultsFunctionCatalog[name];
+        var function = setup ? FunctionCatalogs.setupFunctionCatalog[name].Execute.Invoke(SetupDataContext.transient) : FunctionCatalogs.resultsFunctionCatalog[name].Execute;
         var result = function.Invoke(parameters).Invoke(ListModule.OfArray(inputs));
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue : "");
         return result.ResultValue;
@@ -55,7 +55,7 @@ public sealed class FunctionCatalogTests
     {
         var library = merge ? ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2))
             : ParameterBinding.create(ParamKeys.prefixLibIdKey, PrefixLib.ids().First(value => value.ChannelCount == 8 && value.StageLength == 1));
-        var value = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(false, ResultsFunctionNames.sortableTests,
+        var value = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(false, merge ? ResultsFunctionNames.mergeSortableTests : ResultsFunctionNames.prefixSortableTests,
             Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"), library))));
         Assert.Equal(merge ? 4 : 8, SortableTests.getChannelCount(value.Item1));
         Assert.Equal(merge ? 9 : 81, SortableTests.getSortableCount(value.Item1));
@@ -66,17 +66,17 @@ public sealed class FunctionCatalogTests
     public void Catalog_functions_report_missing_or_invalid_inputs_without_requiring_a_host()
     {
         var empty = Parameters();
-        foreach (var function in FunctionCatalogs.resultsFunctionCatalog.Values.Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => value.Invoke(SetupDataContext.transient))))
+        foreach (var function in FunctionCatalogs.resultsFunctionCatalog.Values.Select(value => value.Execute).Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => value.Execute.Invoke(SetupDataContext.transient))))
         {
             var result = function.Invoke(empty).Invoke(ListModule.Empty<functionData>());
             Assert.True(result.IsError);
             Assert.NotEmpty(result.ErrorValue);
         }
-        var wrongType = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.standardTests].Invoke(SetupDataContext.transient).Invoke(
+        var wrongType = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.standardTests].Execute.Invoke(SetupDataContext.transient).Invoke(
             Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "invalid"), ParameterBinding.create(ParamKeys.channelCountKey, 4)))
             .Invoke(ListModule.Empty<functionData>());
         Assert.True(wrongType.IsError);
-        var invalidReplication = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Invoke(SetupDataContext.transient).Invoke(ModelParameters(-1)).Invoke(ListModule.Empty<functionData>());
+        var invalidReplication = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Execute.Invoke(SetupDataContext.transient).Invoke(ModelParameters(-1)).Invoke(ListModule.Empty<functionData>());
         Assert.True(invalidReplication.IsError);
     }
 
@@ -97,21 +97,23 @@ public sealed class FunctionCatalogTests
             Assert.Equal(FunctionCatalogs.setupFunctionCatalog.Keys, module.Editor.SetupFunctionOverride.Choices);
             Assert.False(module.Editor.ResultsDatabaseOverride.HasChoices);
             module.Editor.ResultsFunctionOverride.IsOverridden = true;
-            module.Editor.ResultsFunctionOverride.EffectiveValue = ResultsFunctionNames.sortableTests;
+            module.Editor.ResultsFunctionOverride.EffectiveValue = ResultsFunctionNames.mergeSortableTests;
             if (branch)
             {
                 module.Editor.SetupFunctionOverride.IsOverridden = true;
                 module.Editor.SetupFunctionOverride.EffectiveValue = SetupFunctionNames.standardTests;
             }
+            module.Editor.LoadProject(RunExecutionTests.Settings(branch));
             page.AddProjectCommand.Execute(null);
             var project = page.Selected!;
-            Assert.Equal(ResultsFunctionNames.sortableTests, project.Editor!.ResultsFunctionName);
+            Assert.Equal(ResultsFunctionNames.mergeSortableTests, project.Editor!.ResultsFunctionName);
             Assert.Same(module.Editor, project.Editor.ResultsFunctionOverride.InheritedSource);
             project.Editor.ResultsFunctionOverride.IsOverridden = true;
             project.Editor.ResultsFunctionOverride.EffectiveValue = ResultsFunctionNames.sorterEval;
             page.AddRunCommand.Execute(null);
             var run = page.Selected!;
-            Assert.Equal(ResultsFunctionNames.sorterEval, run.Editor!.ResultsFunctionName);
+            Assert.Equal(ResultsFunctionNames.mergeSortableTests, run.Editor!.ResultsFunctionName);
+            Assert.False(project.Editor.ResultsFunctionOverride.CanOverride);
             Assert.False(run.Editor.ResultsFunctionOverride.CanOverride);
             if (branch)
             {
@@ -122,13 +124,21 @@ public sealed class FunctionCatalogTests
             await page.SaveWorkspaceAsync();
             Assert.Empty(page.Error);
             var saved = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];
-            Assert.Equal(ResultsFunctionNames.sorterEval, saved.ResultsFunctionName);
-            if (branch) Assert.Equal(SetupFunctionNames.uniformSorterModels, saved.SetupFunctionName.Value);
+            Assert.Equal(ResultsFunctionNames.mergeSortableTests, saved.ResultsFunctionName);
+            if (branch) Assert.Equal(SetupFunctionNames.standardTests, saved.SetupFunctionName.Value);
             var reopened = new WorkspacePageViewModel(() => { }, _ => null, settings);
             var savedProject = reopened.Roots[0].Children[0].Children[0];
             Assert.True(savedProject.IsSealed);
             Assert.False(savedProject.Editor!.ResultsFunctionOverride.CanEditValue);
-            Assert.Equal(ResultsFunctionNames.sorterEval, savedProject.Editor.ResultsFunctionName);
+            Assert.Equal(ResultsFunctionNames.mergeSortableTests, savedProject.Editor.ResultsFunctionName);
+            // A later module choice applies to drafts; sealed projects keep their execution contract.
+            var savedModule = reopened.Roots[0].Children[0];
+            savedModule.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
+            savedModule.Editor.ResultsParameterDefaults.Single(row => row.Key == "MergeLibId").RemoveCommand.Execute(null);
+            await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
+            var fixedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];
+            Assert.Equal(ResultsFunctionNames.mergeSortableTests, fixedRun.ResultsFunctionName);
+            Assert.Contains(fixedRun.ResultsParameterDefaults, value => value.KeyName == "MergeLibId");
         }
         finally { temporary.Delete(recursive: true); }
     }

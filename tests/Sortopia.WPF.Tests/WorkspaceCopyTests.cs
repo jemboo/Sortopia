@@ -19,7 +19,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open()
     {
-        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Parent module", "parent-module", [],
+        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Parent module", "parent-module", [],
             [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [])])]);
         WorkspaceFileStore.CreateWorkspace(Root, definition, Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,

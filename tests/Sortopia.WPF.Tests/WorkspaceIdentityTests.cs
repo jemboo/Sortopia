@@ -18,7 +18,7 @@ public sealed class WorkspaceIdentityTests : IDisposable
     public void Empty_ids_and_duplicate_run_ids_are_rejected()
     {
         Assert.Throws<ArgumentException>(() => workspace.create(Guid.Empty, "W", "W", []));
-        Assert.Throws<ArgumentException>(() => WorkspaceModule.create(hierarchyKind.Root, Guid.Empty, "M", "M", [], []));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.Empty, "M", "M", [], []));
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.Empty, "P", "P", []));
         foreach (var branch in new[] { false, true })
         {

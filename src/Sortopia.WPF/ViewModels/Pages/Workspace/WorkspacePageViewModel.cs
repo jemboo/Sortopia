@@ -295,7 +295,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         Status = "Created an editable project version with a new ID and no runs.";
     }
     private bool CanAddModule(hierarchyKind family) => CanAdd(WorkspaceEntityKind.Module) && (Selected!.IsWorkspace || Selected.Family == family);
-    private bool CanAdd(WorkspaceEntityKind kind) => CanEdit && !HasEditErrors && Selected?.CanContain(kind) == true;
+    private bool CanAdd(WorkspaceEntityKind kind) => CanEdit && (kind != WorkspaceEntityKind.Run || !HasEditErrors) && Selected?.CanContain(kind) == true;
     private bool CanAddExisting(WorkspaceEntityKind kind)
     {
         if (!CanAdd(kind) || !Directory.Exists(WorkspaceFolder)) return false;

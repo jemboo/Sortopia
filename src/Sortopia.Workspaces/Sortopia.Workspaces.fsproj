@@ -6,5 +6,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Runs/Sortopia.Runs.fsproj" />
+    <ProjectReference Include="../Sortopia.Functions/Sortopia.Functions.fsproj" />
   </ItemGroup>
 </Project>

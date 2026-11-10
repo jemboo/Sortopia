@@ -25,7 +25,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     private static project Project(string name, projectSettingsDto settings) => project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
     private static runDto Inputs(project parent) => new()
     {
-        schemaVersion = 11, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch", resultsParameterSpans = [], setupParameterSpans = []
+        schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch", resultsParameterSpans = [], setupParameterSpans = []
     };
     private static project WithRun(project parent) => project.withRuns(parent, [RunDto.toDomain(parent, Inputs(parent))]);
     private static project Source(bool seal = true)
@@ -49,7 +49,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         return seal ? WithRun(parent) : parent;
     }
     private static workspace Workspace(params project[] projects) => workspace.create(Guid.NewGuid(), "Research", "Workspace",
-        [workspaceModule.create(hierarchyKind.Branch, Guid.NewGuid(), "Library", "Library", [], projects)]);
+        [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Library", "Library", [], projects)]);
 
     [Fact]
     public void Unified_entries_define_identical_map_keys_and_independent_source_and_setup_queries()
@@ -146,7 +146,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         page.CreateProjectVersionCommand.Execute(null);
         var version = page.Selected!;
         Assert.False(version.IsSealed); Assert.NotEqual(source.Id, version.Id); Assert.Empty(version.Children);
-        version.Editor!.ResultsFunctionName = "EvaluateV2";
+        version.Parent!.Editor!.ResultsFunctionName = "EvaluateV2";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var final = WorkspaceFileStore.LoadDefinition(Root);
         Assert.Equal("Evaluate", final.ProjectIndex[source.Id].ResultsFunctionName);
@@ -246,7 +246,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
             Assert.NotEmpty(page.Error);
         }
         Assert.False(parent.IsSealed);
-        parent.Editor.ResultsFunctionName = "Retry evaluator";
+        parent.Parent!.Editor!.ResultsFunctionName = "Retry evaluator";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root).ProjectIndex[parent.Id];
         Assert.True(saved.IsSealed);

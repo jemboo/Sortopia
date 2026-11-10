@@ -57,19 +57,18 @@ module ModuleDefaults =
     let toRootProject (value: rootModuleConfig) : rootProjectConfig = {
         Description = value.Description
         Results = { DatabaseName = UMX.tag "Results"; FunctionName = value.ResultsFunctionName
-                    SortopiaDataTypes = value.ResultsSortopiaDataTypes; QueryParameterKeys = value.ResultsQueryParameterKeys
+                    Outputs = Defaults.resultOutputs value.ResultsFunctionName value.ResultsSortopiaDataTypes value.ResultsQueryParameterKeys
                     ParameterDefaults = value.ResultsParameterDefaults }
     }
     let fromRootOverrides (value: rootDefaultOverrides) : rootModuleOverrides = {
         Description = value.Description
-        ResultsFunctionName = value.ResultsFunctionName
+        ResultsFunctionName = None
         ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
         ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
     }
     let toRootOverrides (value: rootModuleOverrides) : rootDefaultOverrides = {
         Description = value.Description
-        ResultsFunctionName = value.ResultsFunctionName
         ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
         ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
@@ -77,8 +76,14 @@ module ModuleDefaults =
     }
     let root = fromRootProject Defaults.root
     let inheritRoot = fromRootOverrides Defaults.inheritRoot
-    let resolveRoot parent local = Defaults.resolveRoot (toRootProject parent) (toRootOverrides local) |> fromRootProject
-    let validateRoot local = toRootOverrides local |> Defaults.validateRoot
+    let resolveRoot (parent: rootModuleConfig) (local: rootModuleOverrides) =
+        let name = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
+        let parent = { parent with ResultsFunctionName = name
+                                   ResultsParameterDefaults = if name = parent.ResultsFunctionName then parent.ResultsParameterDefaults else Defaults.resultsDefaultsFor name parent.ResultsParameterDefaults }
+        Defaults.resolveRoot (toRootProject parent) (toRootOverrides local) |> fromRootProject
+    let validateRoot local =
+        toRootOverrides local |> Defaults.validateRoot
+        local.ResultsFunctionName |> Option.iter (fun name -> if System.String.IsNullOrWhiteSpace (UMX.untag name) then invalidArg "resultsFunctionName" "Choose a results function on this module or inherit one.")
     let validateRootConfiguration value = toRootProject value |> Defaults.validateRootModule
 
     let fromBranchProject (value: branchProjectConfig) : branchModuleConfig = {
@@ -94,28 +99,26 @@ module ModuleDefaults =
     let toBranchProject (value: branchModuleConfig) : branchProjectConfig = {
         Description = value.Description
         Results = { DatabaseName = UMX.tag "Results"; FunctionName = value.ResultsFunctionName
-                    SortopiaDataTypes = value.ResultsSortopiaDataTypes; QueryParameterKeys = value.ResultsQueryParameterKeys
+                    Outputs = Defaults.resultOutputs value.ResultsFunctionName value.ResultsSortopiaDataTypes value.ResultsQueryParameterKeys
                     ParameterDefaults = value.ResultsParameterDefaults }
         Setup = { DatabaseName = UMX.tag "Setup"; FunctionName = value.SetupFunctionName
-                  DataTypes = value.SetupDataTypes; ParameterDefaults = value.SetupParameterDefaults }
+                  Outputs = Defaults.setupOutputs value.SetupFunctionName value.SetupDataTypes; ParameterDefaults = value.SetupParameterDefaults }
     }
     let fromBranchOverrides (value: branchDefaultOverrides) : branchModuleOverrides = {
         Description = value.Description
-        ResultsFunctionName = value.ResultsFunctionName
+        ResultsFunctionName = None
         ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
         ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
-        SetupFunctionName = value.SetupFunctionName
+        SetupFunctionName = None
         SetupDataTypes = value.SetupDataTypes
         SetupParameterDefaults = value.SetupParameterDefaults
     }
     let toBranchOverrides (value: branchModuleOverrides) : branchDefaultOverrides = {
         Description = value.Description
-        ResultsFunctionName = value.ResultsFunctionName
         ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
         ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
-        SetupFunctionName = value.SetupFunctionName
         SetupDataTypes = value.SetupDataTypes
         SetupParameterDefaults = value.SetupParameterDefaults
         ResultsDatabaseName = None
@@ -123,8 +126,17 @@ module ModuleDefaults =
     }
     let branch = fromBranchProject Defaults.branch
     let inheritBranch = fromBranchOverrides Defaults.inheritBranch
-    let resolveBranch parent local = Defaults.resolveBranch (toBranchProject parent) (toBranchOverrides local) |> fromBranchProject
-    let validateBranch local = toBranchOverrides local |> Defaults.validateBranch
+    let resolveBranch (parent: branchModuleConfig) (local: branchModuleOverrides) =
+        let resultsName = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
+        let setupName = local.SetupFunctionName |> Option.defaultValue parent.SetupFunctionName
+        let parent = { parent with ResultsFunctionName = resultsName; SetupFunctionName = setupName
+                                   ResultsParameterDefaults = if resultsName = parent.ResultsFunctionName then parent.ResultsParameterDefaults else Defaults.resultsDefaultsFor resultsName parent.ResultsParameterDefaults
+                                   SetupParameterDefaults = if setupName = parent.SetupFunctionName then parent.SetupParameterDefaults else Defaults.setupDefaultsFor setupName parent.SetupParameterDefaults }
+        Defaults.resolveBranch (toBranchProject parent) (toBranchOverrides local) |> fromBranchProject
+    let validateBranch local =
+        toBranchOverrides local |> Defaults.validateBranch
+        for name in [local.ResultsFunctionName |> Option.map UMX.untag; local.SetupFunctionName |> Option.map UMX.untag] do
+            name |> Option.iter (fun value -> if System.String.IsNullOrWhiteSpace value then invalidArg "functionName" "Choose a function on this module or inherit one.")
     let validateBranchConfiguration value = toBranchProject value |> Defaults.validateBranchModule
 
     let fromProject = function RootProjectConfig value -> RootModuleConfig (fromRootProject value) | BranchProjectConfig value -> BranchModuleConfig (fromBranchProject value)

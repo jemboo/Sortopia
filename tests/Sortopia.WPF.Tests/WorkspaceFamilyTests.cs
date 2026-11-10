@@ -18,8 +18,8 @@ public sealed class WorkspaceFamilyTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static project Project(hierarchyKind kind) => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p",
         [WorkspaceHierarchyTests.MakeRun("P", "R", kind == hierarchyKind.Branch)]);
-    private static WorkspaceModule Module(hierarchyKind kind) => WorkspaceModule.create(kind, Guid.NewGuid(), kind.ToString(), kind.ToString(),
-        [WorkspaceModule.create(kind, Guid.NewGuid(), "Nested", "nested", [], [Project(kind)])], [Project(kind)]);
+    private static WorkspaceModule Module(hierarchyKind kind) => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), kind.ToString(), kind.ToString(),
+        [WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "Nested", "nested", [], [Project(kind)])], [Project(kind)]);
 
     [Fact]
     public void Concrete_types_express_the_allowed_children()
@@ -64,8 +64,8 @@ public sealed class WorkspaceFamilyTests : IDisposable
     {
         var otherProject = Project(other);
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p", otherProject.Runs));
-        Assert.Throws<ArgumentException>(() => WorkspaceModule.create(kind, Guid.NewGuid(), "M", "m", [], [otherProject]));
-        Assert.Throws<ArgumentException>(() => WorkspaceModule.create(kind, Guid.NewGuid(), "M", "m", [Module(other)], []));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "M", "m", [], [otherProject]));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "M", "m", [Module(other)], []));
         var projectDto = ProjectDto.fromDomain(otherProject);
         projectDto.projectKind = kind.ToString().ToLowerInvariant();
         Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeProject(MessagePackSetup.serialize(projectDto)));

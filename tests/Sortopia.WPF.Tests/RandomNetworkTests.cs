@@ -2180,8 +2180,8 @@ public sealed class RandomNetworkTests
         try
         {
             var vm = WorkspaceRunExecutionTests.Create(temporary.FullName, true);
-            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "Repl", false, "0", "1", "2");
-            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected.Editor!, "Repl", true, "0", "1");
+            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
+            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected.Editor!, "SortableDataFormat", true, "Bools", "Bools");
             vm.SelectConfigurationItem("execution");
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
             void Layout(int width = 1000)
@@ -2231,7 +2231,8 @@ public sealed class RandomNetworkTests
                 encoder.Save(stream);
             }
             // Invalid format choices are caught while editing, before saving/executing.
-            var badFormat = WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "SortableDataFormat", true, "invalid");
+            var badFormat = vm.Selected!.Editor!.SetupParameters.Single();
+            badFormat.Values[0].Text = "invalid";
             Layout();
             Assert.False(vm.SaveWorkspaceCommand.CanExecute(null));
             Assert.False(button.IsEnabled);
@@ -2283,30 +2284,33 @@ public sealed class RandomNetworkTests
             Assert.False(results.IsEnabled);
             Assert.Equal(Sortopia.Functions.FunctionCatalogs.resultsFunctionCatalog.Keys, results.Items.Cast<string>());
             Assert.Equal(Sortopia.Functions.FunctionCatalogs.setupFunctionCatalog.Keys, setup.Items.Cast<string>());
-            Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.sortableTests);
+            Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.mergeSortableTests);
             Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.standardTests);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sortableTests, module.Editor!.ResultsFunctionName);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, module.Editor!.ResultsFunctionName);
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, module.Editor.SetupFunctionName);
+            module.Editor.LoadProject(RunExecutionTests.Settings(true));
             vm.AddProjectCommand.Execute(null);
             var project = vm.Selected!;
             Layout();
             Assert.False(results.IsEnabled);
             Assert.False(setup.IsEnabled);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sortableTests, results.Text);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.Text);
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, setup.Text);
-            Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.sorterEval);
+            Assert.False(project.Editor!.ResultsFunctionOverride.CanOverride);
+            Assert.False(project.Editor.SetupFunctionOverride.CanOverride);
             vm.AddRunCommand.Execute(null);
             var run = vm.Selected!;
             Layout();
             Assert.False(results.IsEnabled);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, results.Text);
-            Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.uniformSorterModels);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.Text);
+            Assert.False(setup.IsEnabled);
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, project.Editor!.SetupFunctionName);
-            Assert.Equal(Sortopia.Functions.SetupFunctionNames.uniformSorterModels, run.Editor!.SetupFunctionName);
+            Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, run.Editor!.SetupFunctionName);
             ((CheckBox)setupEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
             Layout();
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, setup.Text);
-            Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.uniformSorterModels);
+            Assert.False(run.Editor.SetupFunctionOverride.CanOverride);
+            vm.SelectConfigurationItem("setupFunction");
             run.Editor.Sections.Description = run.Editor.Sections.ResultsDefaults = run.Editor.Sections.ResultsSpans = run.Editor.Sections.ResultsPreview = false;
             run.Editor.Sections.SetupDefaults = run.Editor.Sections.SetupSpans = run.Editor.Sections.SetupPreview = false;
             foreach (var width in new[] { 1000, 640 })
@@ -2330,7 +2334,7 @@ public sealed class RandomNetworkTests
             Assert.True(vm.Selected.IsSealed);
             Assert.False(results.IsEnabled);
             Assert.False(setup.IsEnabled);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, results.Text);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.Text);
         }
         finally { temporary.Delete(recursive: true); }
     }
@@ -2586,13 +2590,13 @@ public sealed class RandomNetworkTests
             "ResultsDatabaseOverrideEditor" => "resultsDatabase",
             "OutputTypesHeader" or "OutputTypesList" or "AddOutputTypeButton" => "resultsTypes",
             "ResultsQueryKeysList" => "resultsQueryKeys",
-            "ResultsDefaultsSection" or "ResultsParameterDefaultsList" or "InheritedResultsParameterDefaultsList" or "AddResultsParameterDefaultButton" => "resultsDefaults",
+            "ResultsDefaultsSection" or "ResultsParameterDefaultsList" or "InheritedResultsParameterDefaultsList" or "AddResultsParameterDefaultButton" or "AddRequiredResultsDefaultsButton" => "resultsDefaults",
             "ResultsSpansSection" or "ResultsParametersList" or "AddRequiredResultsParametersButton" => "resultsSpans",
             "ResultsPreviewSection" or "ResultsSetsPreview" => "resultsPreview",
             "SetupSettingsSection" or "SetupFunctionOverrideEditor" => "setupFunction",
             "SetupDatabaseOverrideEditor" => "setupDatabase",
             "SetupDataTypesList" or "AddSetupDataTypeButton" => "setupOutputs",
-            "SetupDefaultsSection" or "SetupParameterDefaultsList" or "InheritedSetupParameterDefaultsList" => "setupDefaults",
+            "SetupDefaultsSection" or "SetupParameterDefaultsList" or "InheritedSetupParameterDefaultsList" or "AddRequiredSetupDefaultsButton" => "setupDefaults",
             "SetupSpansSection" or "SetupParametersList" or "AddRequiredSetupParametersButton" => "setupSpans",
             "SetupPreviewSection" or "SetupSetsPreview" => "setupPreview",
             _ => null
@@ -2800,6 +2804,37 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
             Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
+            var beforeContract = branchModule.Editor!.ToLocalOverrides();
+            branchModule.Editor.LoadProject(FunctionOutputContractTests.Combined(true));
+            vm.SelectConfigurationItem("setupOutputs");
+            foreach (var width in new[] { 1000, 640 })
+            {
+                RenderWorkspaceState($"function-output-contracts-{width}", width, 800);
+                Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
+            }
+            Assert.False(((Button)FindWorkspaceField(fields, "AddSetupDataTypeButton")).IsVisible);
+            Assert.False(branchModule.Editor.SetupDataTypesOverride.CanEditValue);
+            foreach (var setup in new[] { false, true })
+            {
+                var rows = setup ? branchModule.Editor.SetupParameterDefaults : branchModule.Editor.ResultsParameterDefaults;
+                var count = rows.Count;
+                rows.Single(row => row.Key == "ChannelCount").RemoveCommand.Execute(null);
+                var populate = (Button)FindWorkspaceField(fields, setup ? "AddRequiredSetupDefaultsButton" : "AddRequiredResultsDefaultsButton");
+                LayoutWorkspace(); Assert.True(populate.IsEnabled);
+                Assert.Equal(Visibility.Visible, ((FrameworkElement)populate.Parent).Visibility);
+                populate.Command.Execute(null); LayoutWorkspace();
+                Assert.Equal(count, rows.Count); Assert.False(populate.IsEnabled);
+                Assert.Equal("4", rows.Single(row => row.Key == "ChannelCount").Value.Text);
+                Assert.Empty(rows.Single(row => row.Key == "ChannelCount").Error);
+                RenderWorkspaceState($"required-{(setup ? "setup" : "results")}-defaults", 1000, 800);
+                rows.Single(row => row.Key == "ChannelCount").Value.Text = "4";
+            }
+            branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardEvaluationInputs;
+            branchModule.Editor.ResultsParameterDefaultsOverride.IsOverridden = false;
+            vm.SelectConfigurationItem("resultsTypes"); RenderWorkspaceState("results-output-contracts");
+            Assert.False(((ItemsControl)FindWorkspaceField(fields, "OutputTypesList")).IsVisible);
+            branchModule.Editor.LoadOverrides(beforeContract);
+            LayoutWorkspace();
             var moduleDescriptionEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "DescriptionOverrideEditor");
             var moduleDescriptionToggle = (CheckBox)moduleDescriptionEditor.FindName("OverrideToggle");
             Assert.Equal("Override on this module", moduleDescriptionToggle.Content);
@@ -2853,7 +2888,7 @@ public sealed class RandomNetworkTests
             var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             var executeInput = (TextBox)executeEditor.FindName("OverrideValueInput");
             Assert.Equal("Evaluate", executeInput.Text);
-            Assert.False(executeInput.IsReadOnly);
+            Assert.True(executeInput.IsReadOnly);
             // Clear local project values through the actual controls and show the supplying module.
             ((CheckBox)moduleDescriptionEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
             ((CheckBox)executeEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
@@ -3031,7 +3066,7 @@ public sealed class RandomNetworkTests
             LayoutWorkspace();
             Assert.Equal("Branch run", vm.Selected.KindLabel);
             Assert.True(vm.Selected.Editor!.SetupFunctionOverride.IsInherited);
-            Assert.Contains("setup and execution", ((TextBlock)page.FindName("SelectionHint")).Text);
+            Assert.Contains("setup and results", ((TextBlock)page.FindName("SelectionHint")).Text);
             Assert.True(executeInput.IsReadOnly);
             RenderWorkspaceState("branch-family");
             var branchRun = vm.Selected;
@@ -3153,7 +3188,8 @@ public sealed class RandomNetworkTests
             ((CheckBox)setupOverride.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
             LayoutWorkspace();
             ((TextBox)setupOverride.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "GenerateForThisRun");
-            Assert.Equal("GenerateForThisRun", branchRun.Editor.SetupFunctionOverride.EffectiveValue);
+            Assert.Equal(branchModule.Editor!.SetupFunctionName, branchRun.Editor.SetupFunctionOverride.EffectiveValue);
+            Assert.False(branchRun.Editor.SetupFunctionOverride.CanOverride);
             var inspector = (ScrollViewer)page.FindName("EntityInspectorViewport");
             var setupFields = (FrameworkElement)FindWorkspaceField(fields, "SetupFields");
             inspector.ScrollToVerticalOffset(inspector.VerticalOffset + setupFields.TranslatePoint(new Point(0, 0), inspector).Y);

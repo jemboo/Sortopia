@@ -29,13 +29,14 @@ public sealed class WorkspaceInspectorTests : IDisposable
         Assert.Same(module.Editor, function.Source);
         page.SelectConfigurationItemCommand.Execute(function);
         Assert.Equal("resultsFunction", page.ActiveItemKey); Assert.True(function.IsActive);
-        project.Editor!.ResultsFunctionName = "";
+        var functionName = module.Editor!.ResultsFunctionName;
+        module.Editor.ResultsFunctionName = "";
         Assert.True(function.HasError); Assert.Equal("Needs attention", function.Status);
         Assert.Same(function, page.InspectorItems.Single(item => item.Key == "resultsFunction"));
         var issue = page.SaveIssues.First(issue => ReferenceEquals(issue.Node, project) && issue.Message == function.Error);
         page.Selected = module; page.ReviewSaveIssueCommand.Execute(issue);
         Assert.Same(project, page.Selected); Assert.Equal("resultsFunction", page.ActiveItemKey);
-        project.Editor.ResultsFunctionOverride.IsOverridden = false;
+        module.Editor.ResultsFunctionName = functionName;
         function = page.InspectorItems.Single(item => item.Key == "resultsFunction");
         Assert.False(function.HasError);
         page.SelectInspectorSourceCommand.Execute(function);
@@ -44,9 +45,9 @@ public sealed class WorkspaceInspectorTests : IDisposable
         page.AddRunCommand.Execute(null);
         var run = page.Selected!;
         page.SelectConfigurationItem("resultsSpans");
-        WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", false, "1", "2");
+        WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "SortableDataFormat", false, "Bools", "BitVector512");
         Assert.Contains("2 parameter set", page.InspectorItems.Single(item => item.Key == "resultsPreview").Value);
-        Assert.Contains("StageLength", page.InspectorItems.Single(item => item.Key == "resultsSpans").Value);
+        Assert.Contains("SortableDataFormat", page.InspectorItems.Single(item => item.Key == "resultsSpans").Value);
         page.Selected = project; page.Selected = run;
         Assert.Equal("resultsSpans", page.ActiveItemKey);
         page.SelectConfigurationItem("missing-key"); Assert.Equal("resultsSpans", page.ActiveItemKey);

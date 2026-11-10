@@ -60,6 +60,23 @@ module RunExecution =
                 FunctionCatalogs.setupFunctionCatalog |> Map.tryFind name
                 |> Option.defaultWith (fun () -> invalidOp $"Unknown setup function '{name}'."))
             let sets = RunParameterSets.create value
+            match value with
+            | run.RootRun root -> FunctionConfiguration.validateResults root.ProjectConfiguration.Results
+            | run.BranchRun branch ->
+                FunctionConfiguration.validateResults branch.ProjectConfiguration.Results
+                FunctionConfiguration.validateSetup true branch.ProjectConfiguration.Setup
+            // Validate both phases before generating or reusing any data.
+            for i = 0 to sets.Results.Length - 1 do
+                context <- $"Validating results set {i + 1} · {value.ResultsFunctionName}"
+                cancellation.ThrowIfCancellationRequested()
+                FunctionParameters.validate resultsFunction.RequiredParameters sets.Results[i]
+            match setupFunction, sets.Setup with
+            | Some definition, Some parameters ->
+                for i = 0 to parameters.Length - 1 do
+                    context <- $"Validating setup set {i + 1} · {value.SetupFunctionName.Value}"
+                    cancellation.ThrowIfCancellationRequested()
+                    FunctionParameters.validate definition.RequiredParameters parameters[i]
+            | _ -> ()
             let setupCount = sets.Setup |> Option.map Array.length |> Option.defaultValue 0
             let resultsCount = int64 sets.Results.Length * (if setupFunction.IsSome then int64 setupCount else 1L)
             if resultsCount > int64 Array.MaxLength then
@@ -86,16 +103,16 @@ module RunExecution =
                 let branch = match value with run.BranchRun branch -> branch | _ -> invalidOp "Expected a branch run."
                 for i = 0 to setupSets.Length - 1 do
                     invoke runExecutionPhase.Setup (UMX.untag value.SetupFunctionName.Value) None (i + 1) setupSets[i] inputs
-                        (fun parameters inputs -> data.Setup(branch, parameters, inputs, functionValue)) setup
+                        (fun parameters inputs -> data.Setup(branch, parameters, inputs, functionValue.Execute)) setup
                 for batch in setup do
                     for i = 0 to sets.Results.Length - 1 do
                         invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) (Some batch.SetNumber)
                             (i + 1) sets.Results[i] (inputs @ batch.Outputs)
-                            (fun parameters inputs -> data.Results(value, parameters, Some batch, inputs, resultsFunction)) results
+                            (fun parameters inputs -> data.Results(value, parameters, Some batch, inputs, resultsFunction.Execute)) results
             | _ ->
                 for i = 0 to sets.Results.Length - 1 do
                     invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) None (i + 1) sets.Results[i] inputs
-                        (fun parameters inputs -> data.Results(value, parameters, None, inputs, resultsFunction)) results
+                        (fun parameters inputs -> data.Results(value, parameters, None, inputs, resultsFunction.Execute)) results
             report runExecutionStatus.Completed ""
         with
         | :? OperationCanceledException when cancellation.IsCancellationRequested -> report runExecutionStatus.Cancelled ""

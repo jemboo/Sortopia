@@ -16,6 +16,11 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
     private readonly Func<IEnumerable<string>> suggestedQueryKeys;
     private Guid sourceProjectId;
+    public bool CanEditContract { get; private set; } = true;
+    public bool IsContractFixed => !CanEditContract;
+    public bool RequiresSource { get; private set; } = true;
+    public bool GeneratesData => !RequiresSource;
+    private bool allowUnassignedSource;
     public WorkspaceSetupDataTypeEntry(setupDataTypeConfigDto value, Func<IEnumerable<WorkspaceSourceProject>> sources, Action<WorkspaceSetupDataTypeEntry> remove,
         Func<IEnumerable<string>>? suggestedQueryKeys = null)
     {
@@ -34,14 +39,17 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     public IEnumerable<WorkspaceSourceProject> SourceProjects => sources().Where(Matches);
     public WorkspaceSourceProject? Source => sources().FirstOrDefault(p => p.Id == SourceProjectId);
     public WorkspaceConfigurationViewModel? SourceEditor => Source?.Editor;
-    public string SourceLabel => Source?.Label ?? $"Missing source: {SourceProjectId}";
+    public string SourceLabel => !RequiresSource ? "Generated from parameters; no source project needed" : Source?.Label ?? "Choose a source project";
     public string QueryKeysSummary => QueryKeys.Count == 0 ? "No setup query keys" : string.Join(", ", QueryKeys.Select(k => k.Text));
-    public string SourceQueryHint => Source is { } p ? $"Source results query keys: {(p.Settings.resultsQueryParameterKeys.Length == 0 ? "none" : string.Join(", ", p.Settings.resultsQueryParameterKeys))}" : "Choose a project providing this exact data type and text.";
+    public string SourceQueryHint => !RequiresSource ? "Generated from parameters; no source project needed."
+        : Source is { } p ? $"Source results query keys: {string.Join(", ", p.Settings.resultsDataTypes?.FirstOrDefault(output => output.dataType.kind == DataType.Kind && output.dataType.value == DataType.Text)?.queryParameterKeys ?? p.Settings.resultsQueryParameterKeys)}"
+        : allowUnassignedSource ? "Choose a shared source here, or let each descendant project choose its source." : "Choose a project providing this exact data type and text.";
     public ObservableCollection<WorkspaceTextEntry> QueryKeys { get; } = [];
     public RelayCommand AddQueryKeyCommand { get; }
     public RelayCommand RemoveCommand { get; }
     private bool Matches(WorkspaceSourceProject p) => p.Settings.resultsSortopiaDataTypes.Any(t => t.kind == DataType.Kind && t.value == DataType.Text);
     public string Error => DataType.Error.Length > 0 ? DataType.Error
+        : !RequiresSource || allowUnassignedSource && SourceProjectId == Guid.Empty ? ""
         : SourceProjectId == Guid.Empty ? "Choose a source project."
         : Source is not { } p ? "The source project is missing from this workspace."
         : !Matches(p) ? "The source must provide this exact data type, including its free-form text."
@@ -53,6 +61,15 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     {
         foreach (var key in QueryKeys) key.RefreshKeyChoices();
         OnPropertyChanged("");
+    }
+    internal void SetContract(bool fixedContract, bool requiresSource, bool allowUnassigned, string[] keys)
+    {
+        CanEditContract = !fixedContract; RequiresSource = requiresSource; allowUnassignedSource = allowUnassigned;
+        if (!QueryKeys.Select(key => key.Text).SequenceEqual(keys))
+        {
+            QueryKeys.Clear(); foreach (var key in keys) AddKey(key);
+        }
+        RefreshSources();
     }
     internal setupDataTypeConfigDto ToDto() => new() { dataType = DataType.ToDto(), sourceProjectId = SourceProjectId, queryParameterKeys = QueryKeys.Select(k => k.Text).ToArray() };
 }

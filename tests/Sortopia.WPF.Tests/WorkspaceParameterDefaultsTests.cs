@@ -27,7 +27,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     }
     private static runDto Inputs(bool branch, parameterSpanDto[]? spans = null, parameterSpanDto[]? setup = null) => new()
     {
-        schemaVersion = 11, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
+        schemaVersion = 13, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
         resultsParameterSpans = spans ?? [], setupParameterSpans = setup ?? []
     };
     private static parameterSet[] Sets(run value) => RunParameterSets.create(value).Results;
@@ -268,7 +268,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var page = Open();
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var module = page.Selected!;
-        module.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        module.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(branch));
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;
         var owner = onProject ? project : module;

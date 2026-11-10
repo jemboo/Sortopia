@@ -16,7 +16,7 @@ public sealed class WorkspaceDiskTests : IDisposable
     private string ModuleFolder => Path.Combine(Root, "modules", "sorting");
     private string ProjectFolder => Path.Combine(ModuleFolder, "projects", "search");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [],
+    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [],
         [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?>? picker = null)
     {

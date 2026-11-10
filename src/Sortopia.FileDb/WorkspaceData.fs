@@ -35,7 +35,7 @@ module WorkspaceData =
         let version = FunctionCatalogs.resultsFunctionVersions |> Map.tryFind settings.FunctionName
                       |> Option.defaultWith (fun () -> invalidOp $"Unknown source results function '{settings.FunctionName}'.")
         let key = DataKey.create source.Id (string settings.DatabaseName) false (string settings.FunctionName) version
-                    entry.DataType settings.QueryParameterKeys parameters []
+                    entry.DataType settings.DataTypes[entry.DataType] parameters []
         let store = openProject workspace workspaceRoot source.Id
         match store.FindResults(key, token) with
         | Error message -> invalidOp message

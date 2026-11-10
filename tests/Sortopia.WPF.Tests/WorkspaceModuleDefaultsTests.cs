@@ -37,7 +37,9 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         inputs.parentProjectId = parent.Id;
         parent = project.createInherited(parent.Id, parent.ProjectName, parent.FolderName, config, parent.LocalOverrides, [RunDto.toDomain(parent, inputs)]);
         var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", "Nested", ModuleDefaults.fromProject(config), ModuleDefaults.fromOverrides(Defaults.inherited(branch)), [], [parent]);
-        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", "Top", ModuleDefaults.configuration(branch), ModuleDefaults.fromOverrides(local), [nested], []);
+        var moduleLocal = ModuleOverridesDto.fromDomain(ModuleDefaults.fromOverrides(local));
+        moduleLocal.resultsFunctionName = "Evaluate"; moduleLocal.setupFunctionName = branch ? "Generate" : null;
+        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", "Top", ModuleDefaults.configuration(branch), ModuleOverridesDto.toDomain(kind, moduleLocal), [nested], []);
     }
 
     [Theory]
@@ -71,7 +73,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Equal("Evaluate", run.ResultsFunctionName);
         Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval("") }, run.ResultsSortopiaDataTypes);
         Assert.Equal(new[] { "Seed" }, project.ResultsQueryParameterKeys);
-        Assert.Equal("Evaluate", OverridesDto.fromDomain(project.LocalOverrides).resultsFunctionName);
+        Assert.Null(OverridesDto.fromDomain(project.LocalOverrides).resultsFunctionName);
         Assert.Null(ModuleOverridesDto.fromDomain(savedModule.LocalOverrides).resultsSortopiaDataTypes);
         if (branch)
         {
@@ -221,7 +223,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.NotEqual(saved.Id, copied.Id);
         Assert.Equal("Results", copied.Projects[0].Runs[0].ResultsDatabaseName);
         Assert.Null(ModuleOverridesDto.fromDomain(copied.LocalOverrides).resultsFunctionName);
-        Assert.Equal("Evaluate", OverridesDto.fromDomain(copied.Projects[0].LocalOverrides).resultsFunctionName);
+        Assert.Null(OverridesDto.fromDomain(copied.Projects[0].LocalOverrides).resultsFunctionName);
     }
 
     [Fact]

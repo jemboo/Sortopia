@@ -52,17 +52,17 @@ public sealed class WorkspaceDataTypeTests : IDisposable
         if (branch) inputs.setupParameterSpans = inputs.setupParameterSpans.Concat(inputs.resultsParameterSpans).ToArray();
         var run = RunDto.toDomain(parent, inputs);
         parent = project.create(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, [run]);
-        var module = workspaceModule.create(parent.Kind, Guid.NewGuid(), "M", "M", [], [parent]);
+        var module = WorkspaceHierarchyTests.MakeModule(parent.Kind, Guid.NewGuid(), "M", "M", [], [parent]);
         var source = Parent(false, values);
         source = project.restore(WorkspaceTestFiles.Id("source"), "Source", "Source", source.Configuration, source.LocalOverrides, true, []);
-        var sources = workspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Sources", "Sources", [], [source]);
+        var sources = WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sources", "Sources", [], [source]);
         var workspace = Sortopia.Workspaces.workspace.create(Guid.NewGuid(), "W", "W", [module, sources]);
         var restored = WorkspaceCodec.decodeWorkspace(WorkspaceCodec.encodeWorkspace(workspace)).Modules[0].Projects[0];
         Assert.Equal(values, restored.ResultsSortopiaDataTypes);
         Assert.Equal(values, restored.Runs[0].ResultsSortopiaDataTypes);
         Assert.Equal(values, WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)).ResultsSortopiaDataTypes);
         if (branch) Assert.Equal(values.Reverse(), restored.Runs[0].SetupSortopiaDataTypes.Value);
-        Assert.Equal(11, MessagePackSetup.deserialize<workspaceDto>(WorkspaceCodec.encodeWorkspace(workspace)).schemaVersion);
+        Assert.Equal(13, MessagePackSetup.deserialize<workspaceDto>(WorkspaceCodec.encodeWorkspace(workspace)).schemaVersion);
     }
 
     [Fact]

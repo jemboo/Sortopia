@@ -66,13 +66,13 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         var issue = Assert.Single(page.SaveIssues, value => value.Message.Contains("No results function"));
         Assert.Contains("SingleStage", issue.Location); Assert.Contains("Shared module", issue.Location);
         Assert.Equal("Results settings", issue.Section);
-        Assert.Contains("Override on this project", issue.Message); Assert.Contains("catalog", issue.Message);
+        Assert.Contains("Override on this module", issue.Message); Assert.Contains("catalog", issue.Message);
         Assert.DoesNotContain("ancestor", issue.Message);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         project.Editor!.Sections.ResultsSettings = false; page.Selected = page.Roots[0];
         page.ReviewSaveIssueCommand.Execute(issue);
         Assert.Same(project, page.Selected); Assert.True(project.Editor.Sections.ResultsSettings);
-        project.Editor.ResultsFunctionName = "Evaluate"; project.Editor.SetupFunctionName = "Generate";
+        project.Parent!.Editor!.ResultsFunctionName = "Evaluate"; project.Parent.Editor.SetupFunctionName = "Generate";
         Assert.Empty(page.SaveIssues); Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         project.Editor.ResultsDatabaseName = " ";
         var database = Assert.Single(page.SaveIssues);
@@ -106,7 +106,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
     public void Parameter_validation_names_the_key_and_its_editor_section()
     {
         var page = Open(); page.AddModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(false)); page.AddProjectCommand.Execute(null);
+        page.Selected!.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(false)); page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
         var editor = page.Selected!.Editor!;
         WorkspaceParameterSetsPreviewTests.AddSpan(editor, "ChannelCount", false, "not an integer");

@@ -1,51 +1,37 @@
 namespace Sortopia.Functions
 
-open System
-open FSharp.UMX
-open Sortopia.Core
 open Sortopia.Runs
-open Sortopia.Sorting
-open Sortopia.Models.Inputs
-open Sortopia.Models.Sorting
-open Sortopia.Models.Sorting.Simple
-open FunctionParameters
+open InputGenerators
 
-// Adapted from GeneSort.Project.V1/Catalogs/Setup/SorterEval:
-// SortableTestsMakers.makeStandardTests and SorterModelSetMakers.makeUniformSorterModelSet.
+// Adapted from GeneSort's SetupCatalog.runBoth and SortableTestsMakers.getModuleTests.
 // Copyright (c) 2025 Tom Patterson. See GENESORT-LICENSE.txt.
 module SetupFunctions =
-    let makeStandardTests : resultsFunction = fun parameters _ ->
-        try
-            let channels = required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>
-            let format = required ParamKeys.sortableDataFormatKey parameters |> SortableDataFormat.fromString
-            let model = msasF.create channels |> sortableTestsModel.MsasF
-            let tests = SortableTestsModel.makeSortableTests (Guid.NewGuid() |> UMX.tag) model format
-            Ok [functionData.SortableTests (tests, [||])]
-        with error -> Error error.Message
+    let standardTests =
+        FunctionDefinition.setup [sortopiaDataType.SortableTests "", standardKeys]
+            (fun context parameters _ ->
+                context.GetOrCreate("SortableTests", [], fun () -> attempt (fun () -> InputGenerators.standardTests parameters))
+                |> Result.map List.singleton)
 
-    let makeUniformSorterModels : resultsFunction = fun parameters _ ->
-        try
-            let channels = required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>
-            let modelType = required ParamKeys.simpleSorterModelTypeKey parameters |> SimpleSorterModelType.fromString
-            let rng = required ParamKeys.rngTypeKey parameters |> RngType.fromString |> RngFactory.create
-            let excludeSelf = required ParamKeys.excludeSelfCeKey parameters |> UMX.tag<excludeSelfCe>
-            let stages = required ParamKeys.stageLengthKey parameters
-            let count = required ParamKeys.sorterCountKey parameters
-            let repl = required ParamKeys.replKey parameters
-            if stages < 0 || count <= 0 || repl < 0 then
-                invalidArg "parameters" "StageLength and Repl must be nonnegative; SorterCount must be positive."
-            let first = int64 repl * int64 count
-            if first + int64 count - 1L > int64 Int32.MaxValue then
-                invalidArg "parameters" "The replication's sorter indices exceed the supported range."
-            let generator = SimpleSorterModelGen.makeUniform rng channels [||] (UMX.tag stages) modelType excludeSelf |> sorterModelGen.Simple
-            let models = SorterModelGen.makeSorterModelSetFromIndexSpan (Guid.NewGuid() |> UMX.tag) (UMX.tag (int first)) (UMX.tag count) generator
-            Ok [functionData.SorterModelSet models]
-        with error -> Error error.Message
+    let uniformSorterModels =
+        FunctionDefinition.setup [sortopiaDataType.SorterModelSet "", modelKeys]
+            (fun context parameters _ ->
+                context.GetOrCreate("SorterModelSet", [], fun () -> attempt (fun () -> uniformModels parameters))
+                |> Result.map List.singleton)
 
-    let standardTests : setupFunction = fun context parameters inputs ->
-        context.GetOrCreate("SortableTests", [], fun () -> makeStandardTests parameters inputs |> Result.map List.exactlyOne)
-        |> Result.map List.singleton
+    let private prepareEvaluation testsKeys sourceKinds makeTests =
+        FunctionDefinition.setupWithSources
+            [sortopiaDataType.SortableTests "", testsKeys; sortopiaDataType.SorterModelSet "", modelKeys]
+            (sourceKinds |> List.map (fun kind -> SortopiaDataType.create kind ""))
+            (fun context parameters inputs ->
+                let sourceCheck = if List.isEmpty sourceKinds then Ok () else attempt (fun () -> makeTests parameters inputs |> ignore)
+                // Each output checks its own projection before invoking its factory.
+                sourceCheck |> Result.bind (fun () -> context.GetOrCreate("SorterModelSet", [], fun () -> attempt (fun () -> uniformModels parameters)))
+                |> Result.bind (fun models ->
+                    context.GetOrCreate("SortableTests", sourceKinds, fun () -> attempt (fun () -> makeTests parameters inputs))
+                    |> Result.map (fun tests -> [models; tests])))
 
-    let uniformSorterModels : setupFunction = fun context parameters inputs ->
-        context.GetOrCreate("SorterModelSet", [], fun () -> makeUniformSorterModels parameters inputs |> Result.map List.exactlyOne)
-        |> Result.map List.singleton
+    let evaluationStandard = prepareEvaluation standardKeys [] (fun parameters _ -> InputGenerators.standardTests parameters)
+    // Source project IDs replace GeneSort's SortableTestsModule name. The library
+    // key and format look up the source's exact result projection.
+    let evaluationMerge = prepareEvaluation mergeKeys ["SortableTests"] sourceTests
+    let evaluationPrefix = prepareEvaluation prefixKeys ["SortableTests"] sourceTests

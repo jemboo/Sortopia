@@ -15,24 +15,29 @@ public sealed class RunExecutionTests
     internal static projectSettingsDto Settings(bool branch)
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
-        settings.resultsFunctionName = ResultsFunctionNames.sortableTests;
+        settings.resultsFunctionName = ResultsFunctionNames.mergeSortableTests;
         settings.setupFunctionName = branch ? SetupFunctionNames.standardTests : "";
         settings.resultsQueryParameterKeys = [];
-        settings.resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "standard" }];
+        settings.resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "" }];
         settings.resultsParameterDefaults = [Binding("SortableDataFormat", "Bools"), Binding("MergeLibId",
             MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2)), parameterValueType.MergeLibId)];
         settings.setupParameterDefaults = branch ? [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SortableDataFormat", "Bools")] : [];
         return settings;
     }
-    private static parameterBindingDto Binding(string key, string value, parameterValueType type = parameterValueType.Text) =>
+    internal static parameterBindingDto Binding(string key, string value, parameterValueType type = parameterValueType.Text) =>
         new() { keyName = key, value = value, valueType = (int)type };
+    internal static parameterBindingDto[] ModelDefaults(int channels = 4) => [
+        Binding("ChannelCount", channels.ToString(), parameterValueType.Integer), Binding("StageLength", "3", parameterValueType.Integer),
+        Binding("SimpleSorterModelType", "Mssi"), Binding("RngType", "SplitMix64"),
+        Binding("ExcludeSelfCe", "true", parameterValueType.Boolean), Binding("SorterCount", "3", parameterValueType.Integer),
+        Binding("Repl", "0", parameterValueType.Integer)];
     internal static run MakeRun(bool branch, projectSettingsDto? settings = null, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
         var id = Guid.NewGuid();
         var parent = project.create(id, "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings ?? Settings(branch)), []);
         return RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 11, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
+            schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
             resultsParameterSpans = results ?? [], setupParameterSpans = setup ?? []
         });
     }
@@ -44,12 +49,12 @@ public sealed class RunExecutionTests
     [Fact]
     public void Root_executes_every_set_beyond_the_preview_limit_and_keeps_typed_parameters()
     {
-        var value = MakeRun(false, results: [new() { keyName = "Repl", values = Enumerable.Range(0, 51).Select(i => i.ToString()).ToArray() }]);
+        var value = MakeRun(false, results: [new() { keyName = "SortableDataFormat", values = Enumerable.Repeat("Bools", 51).ToArray() }]);
         var report = Execute(value, token: TestContext.Current.CancellationToken);
         Assert.Equal(runExecutionStatus.Completed, report.Status);
         Assert.Empty(report.Setup);
         Assert.Equal(51, report.Results.Length);
-        Assert.Equal(Enumerable.Range(0, 51), report.Results.Select(call => call.Parameters.TryFind(ParamKeys.replKey).Value));
+        Assert.All(report.Results, call => Assert.NotNull(call.Parameters.TryFind(ParamKeys.mergeLibIdKey)));
         Assert.All(report.Results, call => Assert.IsType<functionData.SortableTests>(Assert.Single(call.Outputs)));
     }
 
@@ -59,13 +64,13 @@ public sealed class RunExecutionTests
         var settings = Settings(true);
         settings.resultsFunctionName = ResultsFunctionNames.sorterEval;
         settings.resultsParameterDefaults = [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SorterEvalType", "V1"), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
-        var value = MakeRun(true, settings, [new() { keyName = "Repl", values = ["0", "1", "2"] }],
-            [new() { keyName = "Repl", values = ["0", "1"] }]);
+        var value = MakeRun(true, settings, [new() { keyName = "ChannelCount", values = ["4", "4", "4"] }],
+            [new() { keyName = "ChannelCount", values = ["4", "4"] }]);
         var modelParameters = parameterSet.fromBindings([
             ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, 3),
             ParameterBinding.create(ParamKeys.simpleSorterModelTypeKey, "Mssi"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
             ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, 0)]);
-        var models = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Invoke(SetupDataContext.transient).Invoke(modelParameters).Invoke(ListModule.Empty<functionData>()).ResultValue;
+        var models = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Execute.Invoke(SetupDataContext.transient).Invoke(modelParameters).Invoke(ListModule.Empty<functionData>()).ResultValue;
         var updates = new List<runExecutionProgress>();
         var report = Execute(value, new Progress(updates.Add), TestContext.Current.CancellationToken, models.ToArray());
         Assert.Equal(runExecutionStatus.Completed, report.Status);
@@ -119,7 +124,7 @@ public sealed class RunExecutionTests
     public void Cancellation_between_setup_calls_prevents_results_and_preserves_outputs()
     {
         using var cancellation = new CancellationTokenSource();
-        var report = Execute(MakeRun(true, setup: [new() { keyName = "Repl", values = ["0", "1"] }]),
+        var report = Execute(MakeRun(true, setup: [new() { keyName = "SortableDataFormat", values = ["Bools", "Bools"] }]),
             new Progress(update => { if (update.Completed == 1) cancellation.Cancel(); }), cancellation.Token);
         Assert.Equal(runExecutionStatus.Cancelled, report.Status);
         Assert.Single(report.Setup); Assert.Empty(report.Results); Assert.Empty(report.Error);

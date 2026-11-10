@@ -18,8 +18,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var configuration = RunExecutionTests.Settings(branch);
-        configuration.resultsQueryParameterKeys = ["Repl"];
-        configuration.resultsParameterDefaults = [..configuration.resultsParameterDefaults, new() { keyName = "Repl", valueType = (int)parameterValueType.Integer, value = "0" }];
+        configuration.resultsQueryParameterKeys = ["SortableDataFormat"];
         page.Selected!.Editor!.LoadProject(configuration);
         page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
@@ -56,8 +55,8 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     public async Task Execution_persists_outputs_without_changing_saved_definitions(bool branch)
     {
         var page = Create(temporary.FullName, branch);
-        WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!.Editor!, "Repl", false, "1", "2", "3");
-        if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected.Editor!, "Repl", true, "4", "5");
+        WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!.Editor!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
+        if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected.Editor!, "SortableDataFormat", true, "Bools", "Bools");
         Assert.False(page.ExecuteRunCommand.CanExecute(null));
         Assert.Contains("Save", page.ExecuteHint);
         await page.SaveWorkspaceAsync(); SelectRun(page);
@@ -104,8 +103,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     public async Task Unknown_catalog_selection_explains_why_execute_is_disabled()
     {
         var page = Create(temporary.FullName, true);
-        page.Selected!.Editor!.SetupFunctionOverride.IsOverridden = true;
-        page.Selected.Editor.SetupFunctionOverride.EffectiveValue = "missing";
+        page.Selected!.Parent!.Parent!.Editor!.ResultsFunctionName = "missing";
         await page.SaveWorkspaceAsync(); SelectRun(page);
         Assert.False(page.ExecuteRunCommand.CanExecute(null));
         Assert.Contains("missing", page.ExecuteHint);

@@ -48,6 +48,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     private readonly Func<string, WorkspaceParameterValueSource>? source;
     private readonly Func<IEnumerable<string>> suggestedKeys;
     private readonly Func<string, parameterBindingDto?> inheritedValue;
+    private readonly Func<paramKeyDescriptor[]?> requirements;
     private string[] keyChoices = [];
     private string key;
     private parameterValueType customType;
@@ -56,16 +57,17 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
         Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
-        Func<string, parameterBindingDto?>? inheritedValue = null)
+        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null)
     {
         this.key = key; customType = type; this.source = source;
         this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
+        this.requirements = requirements ?? (() => null);
         Value = new(value, () => ValueType, key: () => Key);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => remove(this));
         RefreshKeyChoices();
     }
-    private paramKeyDescriptor? KnownKey => ParamKeys.tryFind(Key)?.Value;
+    private paramKeyDescriptor? KnownKey => requirements()?.FirstOrDefault(value => value.Name == Key) ?? ParamKeys.tryFind(Key)?.Value;
     public string Key
     {
         get => key;
@@ -77,9 +79,10 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         }
     }
     public string[] KeyChoices => keyChoices;
+    public bool HasRestrictedKeys => requirements() is not null;
     private void RefreshKeyChoices()
     {
-        var choices = KnownKeys.Concat(suggestedKeys()).Append(Key).Where(value => !string.IsNullOrWhiteSpace(value))
+        var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (keyChoices.SequenceEqual(choices)) return;
         keyChoices = choices; OnPropertyChanged(nameof(KeyChoices));
@@ -94,10 +97,11 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     public WorkspaceTypedValue Value { get; }
     public WorkspaceParameterValueSource? Source => source?.Invoke(Key);
     public RelayCommand RemoveCommand { get; }
-    public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Enter a parameter key." : "";
+    public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Choose a required parameter key."
+        : requirements() is { } required && !required.Any(value => value.Name == Key) ? $"‘{Key}’ is not required by the selected function. Remove this default or choose one of its required keys." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
     private void RowChanged() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
-    internal void RefreshSource() { RefreshKeyChoices(); OnPropertyChanged(nameof(Source)); }
+    internal void RefreshSource() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); }
     internal parameterBindingDto ToDto() => new() { keyName = Key, valueType = (int)ValueType, value = Value.Text };
 }
 

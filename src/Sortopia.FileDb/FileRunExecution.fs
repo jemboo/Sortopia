@@ -22,7 +22,7 @@ type FileSetupDataContext(store: ISortopiaDb, branch: branchRun, parameters: par
                 let output =
                     match branch.SetupDataTypes |> List.filter (fun entry -> SortopiaDataType.kindName entry.DataType = kind) with
                     | [entry] -> entry
-                    | [] -> invalidOp $"Declare one '{kind}' setup output and choose its source project."
+                    | [] -> invalidOp $"The selected setup function must declare a '{kind}' output."
                     | _ -> invalidOp $"This catalog function needs exactly one configured '{kind}' setup output."
                 let dependencies = sourceKinds |> List.map (fun sourceKind ->
                     match sources |> List.filter (fun source -> SortopiaDataType.kindName source.Reference.DataType = sourceKind) with
@@ -88,7 +88,8 @@ module FileRunExecution =
             member _.Setup(branch, parameters, _, functionValue) =
                 try
                     validateTypes branch.SetupSortopiaDataTypes
-                    let sources = branch.SetupDataTypes |> List.map (fun entry -> WorkspaceData.loadSource workspace root entry parameters token)
+                    let sources = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
+                                  |> List.map (fun entry -> WorkspaceData.loadSource workspace root entry parameters token)
                     let context = FileSetupDataContext(store, branch, parameters, sources, token)
                     let values = functionValue context parameters (sources |> List.map (fun source -> source.Value)) |> require
                     let stored = context.StoredOutputs
@@ -106,11 +107,17 @@ module FileRunExecution =
             member _.Results(value, parameters, setup, inputs, functionValue) =
                 try
                     validateTypes value.ResultsSortopiaDataTypes
-                    let dependencies = setup |> Option.map (fun call -> call.StoredOutputs |> List.map (fun output -> output.Reference)) |> Option.defaultValue []
+                    let requiredInputs = FunctionCatalogs.resultsFunctionCatalog[value.ResultsFunctionName].SourceDataTypes
+                    let dependencies =
+                        setup |> Option.map (fun call ->
+                            call.StoredOutputs |> List.map (fun output -> output.Reference)
+                            |> List.filter (fun reference -> List.contains reference.DataType requiredInputs))
+                        |> Option.defaultValue []
+                    if dependencies.Length <> requiredInputs.Length then invalidOp "The setup outputs do not provide the results function's required input data types."
                     let version = FunctionCatalogs.resultsFunctionVersions[value.ResultsFunctionName]
-                    let keys = value.ResultsSortopiaDataTypes |> List.map (fun dataType ->
+                    let keys = value.ResultsDataTypes |> List.map (fun output ->
                         DataKey.create value.ParentProjectId (string value.ResultsDatabaseName) false (string value.ResultsFunctionName) version
-                            dataType value.ResultsQueryParameterKeys parameters dependencies)
+                            output.DataType output.QueryParameterKeys parameters dependencies)
                     // The results signature remains a simple independent function.
                     // Generate its batch at most once, and only if an output is missing.
                     let generated = lazy (

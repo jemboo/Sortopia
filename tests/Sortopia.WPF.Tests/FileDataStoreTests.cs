@@ -27,14 +27,12 @@ public sealed class FileDataStoreTests : IDisposable
             List(keys ?? ["ChannelCount"]), parameters ?? Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4)), List(inputs ?? []));
     private static FSharpFunc<Unit, FSharpResult<functionData, string>> Factory(Func<functionData> make) =>
         FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(make()));
-    private static functionData Tests(int channels = 4) => SetupFunctions.makeStandardTests(
-        Parameters(ParameterBinding.create(ParamKeys.channelCountKey, channels), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")),
-        List<functionData>()).ResultValue.Head;
-    private static functionData Models(int stages = 3) => SetupFunctions.makeUniformSorterModels(
+    private static functionData Tests(int channels = 4) => SetupFunctions.standardTests.Execute.Invoke(SetupDataContext.transient).Invoke(
+        Parameters(ParameterBinding.create(ParamKeys.channelCountKey, channels), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"))).Invoke(List<functionData>()).ResultValue.Head;
+    private static functionData Models(int stages = 3) => SetupFunctions.uniformSorterModels.Execute.Invoke(SetupDataContext.transient).Invoke(
         Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, stages),
             ParameterBinding.create(ParamKeys.simpleSorterModelTypeKey, "Mssi"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
-            ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, 0)),
-        List<functionData>()).ResultValue.Head;
+            ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, 0))).Invoke(List<functionData>()).ResultValue.Head;
     private static T Ok<T>(FSharpResult<T, string> result)
     { Assert.True(result.IsOk, result.IsError ? result.ErrorValue : ""); return result.ResultValue; }
 
@@ -85,11 +83,11 @@ public sealed class FileDataStoreTests : IDisposable
     public void Codecs_preserve_prefixes_models_and_evaluations()
     {
         var name = MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2);
-        var prefixed = ResultsFunctions.makeSortableTests(Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"),
-            ParameterBinding.create(ParamKeys.mergeLibIdKey, name)), List<functionData>()).ResultValue.Head;
+        var prefixed = ResultsFunctions.mergeSortableTests.Execute.Invoke(Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"),
+            ParameterBinding.create(ParamKeys.mergeLibIdKey, name))).Invoke(List<functionData>()).ResultValue.Head;
         var models = Models(); var tests = Tests();
-        var evaluation = ResultsFunctions.evaluateSorters(Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4),
-            ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V2"), ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)), List(models, tests)).ResultValue.Head;
+        var evaluation = ResultsFunctions.evaluateSorters.Execute.Invoke(Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4),
+            ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V2"), ParameterBinding.create(ParamKeys.collectSortableTestsKey, false))).Invoke(List(models, tests)).ResultValue.Head;
         foreach (var value in new[] { prefixed, models, evaluation })
         {
             var key = Key(type: SortopiaDataType.create(FunctionData.kind(value), "roundtrip"));
@@ -162,16 +160,15 @@ public sealed class FileDataStoreTests : IDisposable
     public void Setup_context_reuses_each_output_independently_on_partial_hits()
     {
         var settings = RunExecutionTests.Settings(true);
-        settings.setupDataTypes = [
-            new() { dataType = new() { kind = "SortableTests", value = "tests" }, sourceProjectId = Guid.NewGuid(), queryParameterKeys = ["ChannelCount"] },
-            new() { dataType = new() { kind = "SorterModelSet", value = "models" }, sourceProjectId = Guid.NewGuid(), queryParameterKeys = ["ChannelCount", "StageLength"] }];
-        settings.setupParameterDefaults = [..settings.setupParameterDefaults, new() { keyName = "StageLength", valueType = (int)parameterValueType.Integer, value = "3" }];
+        settings.setupFunctionName = SetupFunctionNames.evaluationStandard;
+        settings.setupDataTypes = [];
+        settings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
         var branch = ((run.BranchRun)RunExecutionTests.MakeRun(true, settings)).Item;
         var store = new SortopiaFileDb(temporary.FullName, branch.ParentProjectId);
         var testCalls = 0; var modelCalls = 0;
         foreach (var stage in new[] { 3, 4, 4 })
         {
-            var parameters = Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, stage));
+            var parameters = parameterSet.fromBindings(branch.SetupParameterDefaults).WithBinding(ParameterBinding.create(ParamKeys.stageLengthKey, stage));
             var context = new FileSetupDataContext(store, branch, parameters, List<storedData>(), Token);
             Ok(((ISetupDataContext)context).GetOrCreate("SortableTests", List<string>(), Factory(() => { testCalls++; return Tests(); })));
             Ok(((ISetupDataContext)context).GetOrCreate("SorterModelSet", List<string>(), Factory(() => { modelCalls++; return Models(stage); })));
