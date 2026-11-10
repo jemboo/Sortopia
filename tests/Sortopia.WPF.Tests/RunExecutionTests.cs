@@ -31,6 +31,16 @@ public sealed class RunExecutionTests
         Binding("SimpleSorterModelType", "Mssi"), Binding("RngType", "SplitMix64"),
         Binding("ExcludeSelfCe", "true", parameterValueType.Boolean), Binding("SorterCount", "3", parameterValueType.Integer),
         Binding("Repl", "0", parameterValueType.Integer)];
+    // Successful execution fixtures explicitly supply fixed query inputs as one-value spans.
+    // Production run construction never fills these in implicitly.
+    internal static parameterSpanDto[] QuerySpans(IEnumerable<string> keys, IEnumerable<parameterBinding> defaults, parameterSpanDto[]? supplied = null)
+    {
+        var spans = (supplied ?? []).ToList();
+        foreach (var key in keys.Distinct().Where(key => !spans.Any(span => span.keyName == key)))
+            if (defaults.FirstOrDefault(binding => binding.KeyName == key) is { } value)
+                spans.Add(new() { keyName = key, values = [value.FormattedValue] });
+        return spans.ToArray();
+    }
     internal static run MakeRun(bool branch, projectSettingsDto? settings = null, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
         var id = Guid.NewGuid();
@@ -38,13 +48,14 @@ public sealed class RunExecutionTests
         return RunDto.toDomain(parent, new runDto
         {
             schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
-            resultsParameterSpans = results ?? [], setupParameterSpans = setup ?? []
+            resultsParameterSpans = QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults, results),
+            setupParameterSpans = parent is project.BranchProject b ? QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
         });
     }
     private sealed class Progress(Action<runExecutionProgress> action) : IProgress<runExecutionProgress>
     { public void Report(runExecutionProgress value) => action(value); }
-    private static runExecutionReport Execute(run value, IProgress<runExecutionProgress>? progress = null, CancellationToken token = default,
-        params functionData[] inputs) => RunExecution.execute(value, ListModule.OfArray(inputs), progress!, token);
+    private static runExecutionReport Execute(run value, IProgress<runExecutionProgress>? progress = null, CancellationToken token = default) =>
+        RunExecution.execute(new CatalogTestHost(value, token), progress!);
 
     [Fact]
     public void Root_executes_every_set_beyond_the_preview_limit_and_keeps_typed_parameters()
@@ -55,34 +66,34 @@ public sealed class RunExecutionTests
         Assert.Empty(report.Setup);
         Assert.Equal(51, report.Results.Length);
         Assert.All(report.Results, call => Assert.NotNull(call.Parameters.TryFind(ParamKeys.mergeLibIdKey)));
-        Assert.All(report.Results, call => Assert.IsType<functionData.SortableTests>(Assert.Single(call.Outputs)));
+        Assert.All(report.Results, call => Assert.True(Assert.Single(call.StoredOutputs).Reference.DataType.IsSortableTests));
     }
 
     [Fact]
     public void Branch_finishes_all_setup_before_the_full_product_and_passes_the_matching_batch()
     {
         var settings = Settings(true);
+        settings.setupFunctionName = SetupFunctionNames.evaluationStandard;
+        settings.setupParameterDefaults = [.. ModelDefaults(), Binding("SortableDataFormat", "Bools")];
         settings.resultsFunctionName = ResultsFunctionNames.sorterEval;
         settings.resultsParameterDefaults = [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SorterEvalType", "V1"), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
         var value = MakeRun(true, settings, [new() { keyName = "ChannelCount", values = ["4", "4", "4"] }],
-            [new() { keyName = "ChannelCount", values = ["4", "4"] }]);
-        var modelParameters = parameterSet.fromBindings([
-            ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, 3),
-            ParameterBinding.create(ParamKeys.simpleSorterModelTypeKey, "Mssi"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
-            ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, 0)]);
-        var models = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Execute.Invoke(SetupDataContext.transient).Invoke(modelParameters).Invoke(ListModule.Empty<functionData>()).ResultValue;
+            [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]);
         var updates = new List<runExecutionProgress>();
-        var report = Execute(value, new Progress(updates.Add), TestContext.Current.CancellationToken, models.ToArray());
+        var host = new CatalogTestHost(value, TestContext.Current.CancellationToken);
+        var report = RunExecution.execute(host, new Progress(updates.Add));
         Assert.Equal(runExecutionStatus.Completed, report.Status);
         Assert.Equal(2, report.Setup.Length);
+        Assert.Equal(2, report.Setup.SelectMany(call => call.StoredOutputs).Where(output => output.Reference.DataType.IsSortableTests)
+            .Select(output => output.Reference).Distinct().Count());
         Assert.Equal(6, report.Results.Length);
         Assert.Equal(new[] { 1, 1, 1, 2, 2, 2 }, report.Results.Select(call => call.SetupSetNumber.Value));
         Assert.All(updates, update => Assert.Equal(8, update.Total));
         Assert.Equal(2, updates.First(update => update.Message.StartsWith("Results")).Completed);
         foreach (var result in report.Results)
         {
-            var tests = Assert.IsType<functionData.SortableTests>(Assert.Single(report.Setup[result.SetupSetNumber.Value - 1].Outputs));
-            var evaluation = Assert.IsType<functionData.SorterSetEval>(Assert.Single(result.Outputs));
+            var tests = Assert.IsType<functionData.SortableTests>(host.Load(report.Setup[result.SetupSetNumber.Value - 1].StoredOutputs.Single(output => output.Reference.DataType.IsSortableTests).Reference));
+            var evaluation = Assert.IsType<functionData.SorterSetEval>(host.Load(Assert.Single(result.StoredOutputs).Reference));
             Assert.Equal(SortableTests.getId(tests.Item1), evaluation.Item.SorterTestId);
         }
     }

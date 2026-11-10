@@ -14,6 +14,7 @@ open FunctionParameters
 // Adapted from GeneSort's SortableTestsMakers, SortableTestsExecution and
 // SorterModelSetMakers. Copyright (c) 2025 Tom Patterson. See GENESORT-LICENSE.txt.
 module internal InputGenerators =
+    let queryKeys (keys: paramKeyDescriptor list) = keys |> List.map (fun key -> key.Name)
     let standardKeys = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sortableDataFormatKey]
     let mergeKeys = [ParamKey.describe ParamKeys.sortableDataFormatKey; ParamKey.describe ParamKeys.mergeLibIdKey]
     let prefixKeys = [ParamKey.describe ParamKeys.sortableDataFormatKey; ParamKey.describe ParamKeys.prefixLibIdKey]
@@ -57,8 +58,6 @@ module internal InputGenerators =
         if first + int64 count - 1L > int64 Int32.MaxValue then invalidArg "parameters" "The replication's sorter indices exceed the supported range."
         let generator = SimpleSorterModelGen.makeUniform rng (UMX.tag channels) [||] (UMX.tag stages) modelType excludeSelf |> sorterModelGen.Simple
         SorterModelGen.makeSorterModelSetFromIndexSpan (Guid.NewGuid() |> UMX.tag) (UMX.tag (int first)) (UMX.tag count) generator |> functionData.SorterModelSet
-
-    let attempt factory = try Ok (factory ()) with error -> Error error.Message
 
     let sourceTests parameters inputs =
         match inputs |> List.choose (function functionData.SortableTests (tests, prefix) -> Some (tests, prefix) | _ -> None) with

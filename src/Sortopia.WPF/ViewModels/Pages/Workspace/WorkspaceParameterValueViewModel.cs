@@ -80,6 +80,12 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     }
     public string[] KeyChoices => keyChoices;
     public bool HasRestrictedKeys => requirements() is not null;
+    public string? SelectedKey
+    {
+        get => KeyChoices.Contains(Key, StringComparer.Ordinal) ? Key : null;
+        set { if (value is not null && KeyChoices.Contains(value, StringComparer.Ordinal)) Key = value; }
+    }
+
     private void RefreshKeyChoices()
     {
         var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value))
@@ -111,7 +117,8 @@ public sealed record WorkspaceParameterValueSource(string SourceLabel, Workspace
 }
 
 public sealed record WorkspaceParameterBindingPreview(string Key, string TypeLabel, string Value, string Usage,
-    WorkspaceParameterValueSource Source, RelayCommand? OverrideCommand)
+    WorkspaceParameterValueSource Source, RelayCommand? OverrideCommand, RelayCommand? UseAsSpanCommand = null)
 {
     public bool CanOverride => OverrideCommand is not null;
+    public bool CanUseAsSpan => UseAsSpanCommand is not null;
 }

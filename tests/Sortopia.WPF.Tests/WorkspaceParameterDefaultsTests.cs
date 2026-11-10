@@ -54,7 +54,8 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal(new[] { "11:4", "11:6", "11:8", "13:4", "13:6", "13:8" }, sets.Select(set => $"{set.TryFindText("Seed").Value}:{set.TryFindText("ChannelCount").Value}"));
         Assert.All(sets, set => Assert.Equal(" α, fixed\nvalue ", set.TryFindText("Message").Value));
         Assert.Equal("11", QueryParams.forResults(run, sortopiaDataType.NewSorterSetEval(""), sets[0]).Properties["Seed"]);
-        var defaultsOnly = RunDto.toDomain(parent, Inputs(branch));
+        Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, Inputs(branch)));
+        var defaultsOnly = RunDto.toDomain(parent, Inputs(branch, [Span("Seed", "7")]));
         Assert.Equal("7", Assert.Single(Sets(defaultsOnly)).TryFindText("Seed").Value);
         if (branch)
         {
@@ -96,7 +97,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
                 Default("SeedSoss", parameterValueType.Unsigned64, ulong.MaxValue.ToString(CultureInfo.InvariantCulture)),
                 Default("ActivationProbability", parameterValueType.Floating, "2.5e-1"), Default("SetupCompleted", parameterValueType.Boolean, "true"),
                 Default("Id", parameterValueType.Guid, id.ToString("B")), Default("Message", parameterValueType.Text, "")]);
-            var value = Assert.Single(Sets(RunDto.toDomain(parent, Inputs(false))));
+            var value = Assert.Single(Sets(RunDto.toDomain(parent, Inputs(false, [Span("Seed", "+007")]))));
             Assert.Equal("7", value.TryFindText("Seed").Value);
             Assert.Equal(8, value.TryFind(ParamKeys.channelCountKey).Value);
             Assert.Equal(ulong.MaxValue, value.TryFind(ParamKeys.seedSossKey).Value);
@@ -104,7 +105,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
             Assert.True(value.TryFind(ParamKeys.setupCompletedKey).Value);
             Assert.Equal(id, value.TryFind(ParamKeys.idKey).Value);
             Assert.Equal("", value.TryFind(ParamKeys.messageKey).Value);
-            var spanRun = RunDto.toDomain(parent, Inputs(false, [Span("ActivationProbability", "0.5", "1e-1"), Span("SetupCompleted", "false")]));
+            var spanRun = RunDto.toDomain(parent, Inputs(false, [Span("ActivationProbability", "0.5", "1e-1"), Span("SetupCompleted", "false"), Span("Seed", "7")]));
             var sets = Sets(spanRun);
             Assert.Equal(new[] { "0.5", "0.1" }, sets.Select(set => set.TryFindText("ActivationProbability").Value));
             Assert.All(sets, set => Assert.Equal("False", set.TryFindText("SetupCompleted").Value));
@@ -187,9 +188,9 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         page.AddProjectCommand.Execute(null); var parent = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;
-        Assert.Empty(page.Error);
-        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
-        Assert.False(run.Editor!.HasMissingResultsParameters);
+        Assert.Contains("explicit", page.SaveHint);
+        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.True(run.Editor!.HasMissingResultsParameters);
         Assert.Same(module.Editor, run.Editor.ResultsParameterDefaultsOverride.InheritedSource);
         run.Editor.AddResultsParameterCommand.Execute(null);
         var span = run.Editor.ResultsParameters.Single(); span.Key = "Seed"; span.Values.Single().Text = "wrong";
@@ -215,14 +216,14 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal(parameterValueType.Integer, run.Editor!.ResultsParameters[0].ValueType);
         Assert.Equal("16", run.Editor.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Value);
         run.Editor.ResultsParameters.Clear();
-        Assert.Empty(reopened.Error);
+        Assert.Contains("explicit", reopened.SaveHint);
         parent = run.Parent!;
         parent.Editor!.ResultsParameterDefaultsOverride.IsOverridden = true;
         parent.Editor.ResultsParameterDefaults.Clear();
-        Assert.False(run.Editor.HasMissingResultsParameters);
+        Assert.True(run.Editor.HasMissingResultsParameters);
         Assert.True(parent.IsSealed);
         parent.Editor.ResultsParameterDefaultsOverride.IsOverridden = false;
-        Assert.Empty(reopened.Error);
+        Assert.Contains("explicit", reopened.SaveHint);
     }
 
     [Fact]

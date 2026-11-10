@@ -2,7 +2,6 @@ using System.Diagnostics;
 using Sortopia.Functions;
 using Sortopia.FileDb;
 using Sortopia.Runs;
-using Sortopia.Sorting.Inputs;
 using Sortopia.WPF.Commands;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -51,7 +50,7 @@ public sealed partial class WorkspacePageViewModel
     public string ExecutionInstructions => (Selected?.IsBranch == true
         ? "Prepare all setup sets, then process every results set for each setup output. Matching saved data is reused. "
         : "Process every generated parameter set, reusing matching saved data. ")
-        + "Cancel operation stops between function calls.";
+        + "Cancel operation stops at database operations and between function calls.";
 
     public Task ExecuteRunAsync()
     {
@@ -147,16 +146,9 @@ public sealed class WorkspaceRunExecution : ViewModelBase
         Rows = report.Setup.Concat(report.Results).Take(100).Select(call => new WorkspaceExecutionRow(
             $"{call.Phase} set {call.SetNumber}" + (call.SetupSetNumber is { } setup ? $" · setup set {setup.Value}" : "") + $" · {call.FunctionName}",
             string.Join("; ", call.Parameters.ParamMap.Values.Select(binding => $"{binding.KeyName} = {binding.FormattedValue}")),
-            (call.Outputs.IsEmpty ? "No output data" : string.Join("; ", call.Outputs.Select(Summarize)))
-                + string.Concat(call.StoredOutputs.Select(output => $"\n{(output.Reused ? "Reused" : "Saved")}: {output.Reference.Id}")))).ToArray();
+            call.StoredOutputs.IsEmpty ? "No saved output data" : string.Join("\n", call.StoredOutputs.Select(output =>
+                $"{(output.Reused ? "Reused" : "Saved")} {output.Reference.DataType}: {output.Reference.Id}")))).ToArray();
         RowsHint = count > 100 ? $"Showing the first 100 of {count:N0} processed parameter sets." : $"{count:N0} processed parameter sets.";
         OnPropertyChanged("");
     }
-    private static string Summarize(functionData value) => value switch
-    {
-        functionData.SortableTests tests => $"SortableTests: {SortableTests.getSortableCount(tests.Item1):N0} tests, {SortableTests.getChannelCount(tests.Item1)} channels, {tests.Item2.Length:N0} prefix CEs",
-        functionData.SorterModelSet models => $"SorterModelSet: {models.Item.Count:N0} models",
-        functionData.SorterSetEval evaluation => $"SorterSetEval: {evaluation.Item.SorterEvals.Length:N0} evaluations",
-        _ => value.ToString()
-    };
 }

@@ -117,11 +117,14 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         Assert.Contains("Message", editor.ResultsParameterSetsPreview.Error);
         WorkspaceParameterInheritanceTests.AddDefault(module.Editor, "Message", "");
         WorkspaceParameterInheritanceTests.AddDefault(module.Editor, "SetupCompleted", "true");
+        Assert.Empty(editor.ResultsParameterSetsPreview.Rows);
+        editor.UseResultsDefaultsAsSpansCommand.Execute(null);
         var preview = editor.ResultsParameterSetsPreview;
         var set = Assert.Single(preview.Rows).ParameterSet;
         Assert.Equal("", set.TryFind(ParamKeys.messageKey).Value);
         Assert.True(set.TryFind(ParamKeys.setupCompletedKey).Value);
-        Assert.All(preview.Columns, column => Assert.Equal("default", column.Source));
+        Assert.Equal("run span", preview.Columns.Single(column => column.Key == "Message").Source);
+        Assert.Equal("default", preview.Columns.Single(column => column.Key == "SetupCompleted").Source);
         Assert.False(module.Editor.ResultsParameterSetsPreview.HasRows);
     }
 

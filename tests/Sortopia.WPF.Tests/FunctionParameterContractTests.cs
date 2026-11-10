@@ -24,7 +24,7 @@ public sealed class FunctionParameterContractTests
         var valid = parameterSet.fromBindings([ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")]);
         Assert.Empty(FunctionParameters.validationError(definition.RequiredParameters, valid));
         var extra = valid.WithBinding(ParameterBinding.create(ParamKeys.replKey, 0));
-        Assert.Contains("Repl", definition.Execute.Invoke(SetupDataContext.transient).Invoke(extra).Invoke(ListModule.Empty<functionData>()).ErrorValue);
+        Assert.Contains("Repl", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true, SetupFunctionNames.standardTests, extra)).Message);
         Assert.Contains("Integer", Assert.Throws<ArgumentException>(() => ParameterBinding.fromValue("ChannelCount", parameterValue.NewTextValue("4"))).Message);
         Assert.Equal(new[] { "SortableDataFormat", "MergeLibId" }, ResultsFunctions.mergeSortableTests.RequiredParameters.Select(key => key.Name));
         Assert.Equal(new[] { "SortableDataFormat", "PrefixLibId" }, ResultsFunctions.prefixSortableTests.RequiredParameters.Select(key => key.Name));
@@ -56,13 +56,16 @@ public sealed class FunctionParameterContractTests
         Assert.Contains("not required", results.Error);
         Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows);
         results.Key = "SortableDataFormat";
+        run.Editor.UseResultsDefaultsAsSpansCommand.Execute(null);
         Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows);
 
         var extra = WorkspaceParameterInheritanceTests.AddDefault(project.Editor, "Repl", "1");
         Assert.Contains("not required", extra.Error);
-        Assert.Contains("Repl", project.Editor.ResultsParameterDefaultsError);
+        Assert.Empty(project.Editor.ResultsParameterDefaultsError);
+        Assert.DoesNotContain(project.Editor.LocalResultsParameterDefaults, row => row.Key == "Repl");
         extra.RemoveCommand.Execute(null);
         module.Editor.ResultsParameterDefaults.Single(row => row.Key == "MergeLibId").RemoveCommand.Execute(null);
+        run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").RemoveCommand.Execute(null);
         Assert.Contains("MergeLibId", run.Editor.ResultsParametersError);
         run.Editor.AddMissingResultsParametersCommand.Execute(null);
         Assert.True(run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values.Count == 0);
@@ -70,7 +73,7 @@ public sealed class FunctionParameterContractTests
     }
 
     [Fact]
-    public void Switching_module_function_filters_inherited_defaults_but_preserves_invalid_local_drafts()
+    public void Switching_module_function_filters_inherited_defaults_and_retains_other_local_defaults_for_switching_back()
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent");
         parent.Editor!.LoadProject(RunExecutionTests.Settings(false));
@@ -78,7 +81,10 @@ public sealed class FunctionParameterContractTests
         child.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
         Assert.Equal(new[] { "SortableDataFormat" }, child.Editor.InheritedOutputDefaults.Select(value => value.Key));
         var local = WorkspaceParameterInheritanceTests.AddDefault(child.Editor, "MergeLibId", parent.Editor.ResultsParameterDefaults.Single(value => value.Key == "MergeLibId").Value.Text);
-        Assert.Contains("not required", child.Editor.ResultsParameterDefaultsError);
+        Assert.Empty(child.Editor.ResultsParameterDefaultsError);
+        Assert.Empty(child.Editor.LocalResultsParameterDefaults);
+        Assert.Empty(child.Editor.ToLocalOverrides().resultsParameterDefaults);
+        Assert.Contains("switching back", child.Editor.RetainedResultsDefaultsHint);
         child.Editor.ResultsFunctionName = ResultsFunctionNames.mergeSortableTests;
         Assert.Empty(child.Editor.ResultsParameterDefaultsError);
         Assert.Equal("MergeLibId", local.Key);
@@ -93,13 +99,10 @@ public sealed class FunctionParameterContractTests
     }
 
     [Fact]
-    public void Invalid_results_contract_prevents_setup_from_running()
+    public void Invalid_results_inputs_are_rejected_before_a_run_can_be_saved()
     {
-        var value = RunExecutionTests.MakeRun(true, results: [new() { keyName = "Repl", values = ["1"] }]);
-        var report = RunExecution.execute(value, ListModule.Empty<functionData>(), null!, TestContext.Current.CancellationToken);
-        Assert.Equal(runExecutionStatus.Failed, report.Status);
-        Assert.Contains("Repl", report.Error);
-        Assert.Empty(report.Setup); Assert.Empty(report.Results);
+        Assert.Contains("Repl", Assert.Throws<ArgumentException>(() =>
+            RunExecutionTests.MakeRun(true, results: [new() { keyName = "Repl", values = ["1"] }])).Message);
     }
 
     [Fact]

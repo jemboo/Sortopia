@@ -4,11 +4,22 @@ open FSharp.UMX
 open Sortopia.Runs
 
 module FunctionConfiguration =
+    let validateRunInputs (value: run) =
+        FunctionCatalogs.resultsFunctionCatalog |> Map.tryFind value.ResultsFunctionName
+        |> Option.iter (fun definition -> FunctionParameters.validateInputs definition.RequiredParameters value.ResultsQueryParameterKeys value.ResultsParameterDefaults value.ResultsParameterSpans)
+        match value with
+        | run.RootRun _ -> ()
+        | run.BranchRun branch ->
+            FunctionCatalogs.setupFunctionCatalog |> Map.tryFind branch.SetupFunctionName
+            |> Option.iter (fun definition ->
+                FunctionParameters.validateInputs definition.RequiredParameters
+                    (branch.SetupDataTypes |> List.collect (fun output -> output.QueryParameterKeys)) branch.SetupParameterDefaults branch.SetupParameterSpans)
+
     let validateOutputs (definition: functionDefinition<'executor>) (outputs: Map<sortopiaDataType, string<paramKeyName> list>) =
         if (outputs |> Map.toList |> List.map fst) <> definition.SortopiaDataTypes then
             invalidArg "dataTypes" "Saved data types, including their text, must exactly match the selected function."
         for dataType, keys in definition.DataTypes |> Map.toList do
-            let required = keys |> List.map (fun key -> key.Name) |> Set.ofList
+            let required = Set.ofList keys
             let actual = outputs[dataType]
             if Set.ofList actual <> required || actual.Length <> required.Count then
                 invalidArg "queryParameterKeys" $"The keys for '{dataType}' must exactly match the selected function's output contract."

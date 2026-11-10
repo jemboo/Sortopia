@@ -23,7 +23,9 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var value = RunDto.toDomain(parent, new runDto
         {
             schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
-            runKind = kind == hierarchyKind.Root ? "root" : "branch", resultsParameterSpans = [], setupParameterSpans = setup ?? []
+            runKind = kind == hierarchyKind.Root ? "root" : "branch",
+            resultsParameterSpans = RunExecutionTests.QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults),
+            setupParameterSpans = parent is project.BranchProject b ? RunExecutionTests.QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
         });
         return project.withRuns(parent, [value]);
     }
@@ -50,6 +52,75 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     private static project Named(workspace world, string name) => world.ProjectIndex.Values.Single(value => value.ProjectName == name);
     private runExecutionReport Execute(workspace world, string name) => FileRunExecution.execute(world, temporary.FullName, Named(world, name).Runs[0], null!, Token);
     private static void Completed(runExecutionReport report) => Assert.True(report.Status == runExecutionStatus.Completed, report.Error);
+
+    [Fact]
+    public void Unit_functions_save_through_the_host_and_read_only_their_configured_sources_and_setup_batch()
+    {
+        var world = Create();
+        var published = Execute(world, "Source"); Completed(published);
+        var source = Named(world, "Source"); var consumer = Named(world, "Consumer");
+        var value = consumer.Runs[0]; var branch = ((run.BranchRun)value).Item;
+        var factory = new FileRunHost(world, temporary.FullName, value, Token);
+        var sets = RunParameterSets.create(value);
+        var setup = factory.ForSetup(sets.Setup.Value[0]);
+        var testsType = sortopiaDataType.NewSortableTests("");
+        var resultType = sortopiaDataType.NewSorterSetEval("");
+        var empty = ListModule.Empty<storedDataReference>();
+        var never = FuncConvert.FromFunc<Unit, functionData>(_ => throw new InvalidOperationException("Factory must not run."));
+
+        Assert.Contains("not allowed during setup", Assert.Throws<InvalidOperationException>(() => setup.ResultsDb.SaveIfMissing(testsType, empty, never)).Message);
+        Assert.Throws<ArgumentException>(() => setup.SourceResults.Find(Guid.NewGuid(), testsType, setup.Parameters));
+        Assert.Throws<ArgumentException>(() => setup.SourceResults.Find(source.Id, sortopiaDataType.NewSortableTests("other"), setup.Parameters));
+        var sourceReference = published.Results[0].StoredOutputs.Head.Reference;
+        Assert.Throws<ArgumentException>(() => setup.SourceResults.Load(sourceReference)); // Resolve it through this invocation first.
+        Assert.Equal(sourceReference, setup.SourceResults.Find(source.Id, testsType, setup.Parameters));
+        var sourceTests = Assert.IsType<functionData.SortableTests>(setup.SourceResults.Load(sourceReference));
+
+        var definition = FunctionCatalogs.setupFunctionCatalog[branch.SetupFunctionName];
+        var projects = MapModule.OfSeq(branch.SourceProjectIds.Where(pair => definition.SourceDataTypes.Contains(pair.Key))
+            .Select(pair => Tuple.Create(pair.Key, pair.Value)));
+        Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
+        var wrongProject = MapModule.OfArray(new[] { Tuple.Create(testsType, Guid.NewGuid()) });
+        Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(wrongProject));
+        Assert.Empty(setup.SetupDb.StoredOutputs);
+        definition.Execute.Invoke(setup).Invoke(projects);
+        Assert.Equal(2, setup.SetupDb.StoredOutputs.Length);
+        Assert.All(setup.SetupDb.StoredOutputs, output => { Assert.True(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId); });
+
+        Assert.Throws<InvalidOperationException>(() => factory.ForResults(sets.Results[0], ListModule.Empty<storedOutput>()));
+        var results = factory.ForResults(sets.Results[0], setup.SetupDb.StoredOutputs);
+        var savedTests = Assert.IsType<functionData.SortableTests>(results.SetupDb.Load(testsType));
+        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(sourceTests.Item1), Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item1));
+        Assert.Contains("read-only", Assert.Throws<InvalidOperationException>(() => results.SetupDb.SaveIfMissing(testsType, empty, never)).Message);
+        Assert.Throws<ArgumentException>(() => results.SetupDb.Load(sortopiaDataType.NewSortableTests("other")));
+        Assert.Throws<InvalidOperationException>(() => results.SourceResults.Find(source.Id, testsType, setup.Parameters));
+        Assert.Throws<ArgumentException>(() => results.ResultsDb.SaveIfMissing(resultType, ListModule.Singleton(sourceReference), never));
+        FunctionCatalogs.resultsFunctionCatalog[value.ResultsFunctionName].Execute.Invoke(results);
+        var output = Assert.Single(results.ResultsDb.StoredOutputs);
+        Assert.False(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId);
+        var evaluation = Assert.IsType<functionData.SorterSetEval>(results.ResultsDb.Load(resultType));
+        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item1), evaluation.Item.SorterTestId);
+        Assert.Equal(4, Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories)
+            .Count(path => path.Contains(Path.DirectorySeparatorChar + "data" + Path.DirectorySeparatorChar)));
+    }
+
+    [Fact]
+    public void Hosts_require_a_saved_run_and_reject_access_to_the_wrong_phase()
+    {
+        var world = Create(); var source = Named(world, "Source"); var value = source.Runs[0];
+        var factory = new FileRunHost(world, temporary.FullName, value, Token);
+        var parameters = RunParameterSets.create(value).Results[0];
+        Assert.Throws<InvalidOperationException>(() => factory.ForSetup(parameters));
+        var results = factory.ForResults(parameters, ListModule.Empty<storedOutput>());
+        Assert.Throws<ArgumentException>(() => results.SetupDb.Load(sortopiaDataType.NewSortableTests("")));
+        Assert.Throws<ArgumentException>(() => SetupFunctions.standardTests.Execute.Invoke(results).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
+        var unsaved = RunDto.toDomain(source, new runDto
+        {
+            schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = source.Id, runName = "Unsaved", runKind = "root",
+            resultsParameterSpans = RunExecutionTests.QuerySpans(source.ResultsQueryParameterKeys, source.ResultsParameterDefaults), setupParameterSpans = []
+        });
+        Assert.Contains("saved run", Assert.Throws<InvalidOperationException>(() => new FileRunHost(world, temporary.FullName, unsaved, Token)).Message);
+    }
 
     [Fact]
     public void Nested_source_lookup_uses_producer_projection_and_reuses_saved_files_after_reopening()
@@ -109,7 +180,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var entry = branch.SetupDataTypes.Single(output => output.DataType.IsSortableTests); var parameters = BranchRun.makeSetupParameterSets(branch)[0];
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, source.Id);
         var store = new SortopiaFileDb(folder, source.Id);
-        var output = ResultsFunctions.mergeSortableTests.Execute.Invoke(RunParameterSets.create(source.Runs[0]).Results[0]).Invoke(ListModule.Empty<functionData>()).ResultValue.Head;
+        var output = CatalogTestHost.Invoke(false, ResultsFunctionNames.mergeSortableTests, RunParameterSets.create(source.Runs[0]).Results[0]).Head;
         var factory = FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(output));
         dataKey Key(bool withDependency) => DataKey.create(source.Id, source.ResultsDatabaseName, false, source.ResultsFunctionName, "1", entry.DataType,
             source.ResultsQueryParameterKeys, parameters, withDependency ? ListModule.OfArray(new[] { new storedDataReference(source.Id, Guid.NewGuid(), Guid.NewGuid(), true, entry.DataType) }) : ListModule.Empty<storedDataReference>());

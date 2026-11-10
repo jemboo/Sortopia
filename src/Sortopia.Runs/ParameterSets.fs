@@ -5,6 +5,30 @@ open FSharp.UMX
 open Sortopia.Core
 
 module ParameterSets =
+    /// Query parameters must be explicitly present in the run, even if a default exists.
+    let querySpansError (queryKeys: string<paramKeyName> list) (spanKeys: string<paramKeyName> list) =
+        let missing = queryKeys |> List.distinct |> List.filter (fun key -> not (List.contains key spanKeys))
+        if missing.IsEmpty then ""
+        else "Query keys require explicit parameter spans: " + System.String.Join(", ", missing)
+             + ". Add a span for each key, using one value if it is fixed. Defaults do not satisfy query keys."
+    let validateQuerySpans queryKeys (spans: parameterSpan list) =
+        let error = querySpansError queryKeys (spans |> List.map (fun span -> span.KeyName))
+        if error <> "" then invalidArg "parameterSpans" error
+
+    /// Shared by the run editor and execution validation; never inserts spans.
+    let inputKeysError (requiredKeys: string<paramKeyName> list) queryKeys (defaultKeys: string<paramKeyName> list) spanKeys =
+        let provided = Set.ofList (defaultKeys @ spanKeys)
+        let required = Set.ofList requiredKeys
+        let extra = Set.difference provided required |> Set.toList
+        let missing = Set.difference required provided |> Set.toList
+        [ if not extra.IsEmpty then
+              yield "Parameters not required by the selected function: " + System.String.Join(", ", extra) + "."
+          let queryError = querySpansError queryKeys spanKeys
+          if queryError <> "" then yield queryError
+          if not missing.IsEmpty then
+              yield "Missing values for required parameters: " + System.String.Join(", ", missing) + ". Supply a default or a parameter span." ]
+        |> String.concat " "
+
     let valueType (bindings: parameterBinding list) name =
         bindings |> List.tryFind (fun binding -> binding.KeyName = name) |> Option.map (fun binding -> binding.ValueType)
         |> Option.defaultWith (fun () -> ParamKeys.valueType name)

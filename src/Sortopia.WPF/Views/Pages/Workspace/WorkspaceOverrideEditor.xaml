@@ -9,7 +9,7 @@
         <Label Content="{Binding Title}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold">
             <Label.Style><Style TargetType="Label">
                 <Setter Property="Target" Value="{Binding ElementName=OverrideValueInput}" />
-                <Style.Triggers><DataTrigger Binding="{Binding HasChoices}" Value="True"><Setter Property="Target" Value="{Binding ElementName=FunctionNameInput}" /></DataTrigger></Style.Triggers>
+                <Style.Triggers><DataTrigger Binding="{Binding ShowCatalogPicker}" Value="True"><Setter Property="Target" Value="{Binding ElementName=FunctionNameInput}" /></DataTrigger></Style.Triggers>
             </Style></Label.Style>
         </Label>
         <CheckBox x:Name="OverrideToggle" Content="{Binding OverrideCaption}" IsChecked="{Binding IsOverridden}" MinHeight="28"
@@ -21,16 +21,17 @@
             <TextBox.Style>
                 <Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}">
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding HasChoices}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                        <DataTrigger Binding="{Binding ShowCatalogPicker}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
                         <DataTrigger Binding="{Binding IsMultiline}" Value="True"><Setter Property="MinHeight" Value="70" /></DataTrigger>
                         <DataTrigger Binding="{Binding IsInherited}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Workspace.Accent}" /></DataTrigger>
                     </Style.Triggers>
                 </Style>
             </TextBox.Style>
         </TextBox>
-        <ComboBox x:Name="FunctionNameInput" ItemsSource="{Binding Choices}" Text="{Binding EffectiveValue, UpdateSourceTrigger=PropertyChanged}"
-                  IsEditable="True" IsReadOnly="True" IsEnabled="{Binding CanEditValue}"
-                  Visibility="{Binding HasChoices, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Title}"
+        <ComboBox x:Name="FunctionNameInput" ItemsSource="{Binding Choices}" Text="{Binding EffectiveValue, Mode=OneWay}"
+                  SelectedItem="{Binding SelectedChoice, Mode=TwoWay}"
+                  IsEditable="True" IsReadOnly="True" IsEnabled="{Binding CanSelectValue}"
+                  Visibility="{Binding ShowCatalogPicker, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Title}"
                   ToolTip="Choose a function by its catalog name. Enable the local override to change an inherited value." />
         <local:WorkspaceValueSource x:Name="ValueSource" />
         <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />

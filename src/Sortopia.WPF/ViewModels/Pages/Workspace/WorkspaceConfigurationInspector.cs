@@ -25,26 +25,28 @@ public sealed partial class WorkspaceConfigurationViewModel
         }
         static string Types(IEnumerable<sortopiaDataTypeDto> values) => Summary(values.Select(value => value.value.Length == 0 ? value.kind : $"{value.kind}: {value.value}"));
         static string Spans(IEnumerable<WorkspaceParameterSpan> values) => Summary(values.Select(span => $"{span.Key}: {string.Join(", ", span.Values.Select(value => value.Text))}"));
+        if (IsBranch) yield return Field("setupFunction", "Functions", SetupFunctionOverride) with { Error = SetupFunctionError };
+        yield return Field("resultsFunction", "Functions", ResultsFunctionOverride) with { Error = ResultsFunctionError };
         yield return Field("description", "General", DescriptionOverride);
         if (!IsModule) yield return Field("resultsDatabase", "Results", ResultsDatabaseOverride);
-        yield return Field("resultsFunction", "Results", ResultsFunctionOverride) with { Error = ResultsFunctionError };
-        yield return List("resultsTypes", "Results", OutputTypesOverride, Types(EffectiveOutputs), OutputTypesError);
-        yield return List("resultsQueryKeys", "Results", ResultsQueryKeysOverride, Summary(EffectiveOutputKeys), ResultsQueryKeysError);
+        if (!IsModule && IsBranch) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
+        if (!ShowFunctionConfiguration) yield break;
+        yield return List("resultsTypes", "Results", OutputTypesOverride, Types(EffectiveOutputs), FirstError(OutputTypesError, ResultsQueryKeysError));
         yield return Defaults(false);
         if (IsRun)
         {
-            yield return new("resultsSpans", "Results", "Parameter spans", Spans(ResultsParameters), "Local run inputs", ResultsParametersError);
+            yield return new("resultsSpans", "Results", "Parameter spans", Spans(ActiveResultsParameters), "Local run inputs", ResultsParametersError);
             yield return new("resultsPreview", "Results", "Generated parameter sets", ResultsParameterSetsPreview.Summary, "Preview", ResultsParameterSetsPreview.Error);
         }
         if (!IsBranch) yield break;
-        if (!IsModule) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
-        yield return Field("setupFunction", "Setup", SetupFunctionOverride) with { Error = SetupFunctionError };
+
+
         yield return List("setupOutputs", "Setup", SetupDataTypesOverride,
             Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")), FirstError(SetupDataTypesError, SetupQueryKeysError));
         yield return Defaults(true);
         if (IsRun)
         {
-            yield return new("setupSpans", "Setup", "Parameter spans", Spans(SetupParameters), "Local run inputs", SetupParametersError);
+            yield return new("setupSpans", "Setup", "Parameter spans", Spans(ActiveSetupParameters), "Local run inputs", SetupParametersError);
             yield return new("setupPreview", "Setup", "Generated parameter sets", SetupParameterSetsPreview.Summary, "Preview", SetupParameterSetsPreview.Error);
         }
     }

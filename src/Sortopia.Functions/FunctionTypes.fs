@@ -7,6 +7,7 @@ open Sortopia.Sorting.Inputs
 open Sortopia.Models.Sorting
 open Sortopia.Evaluation
 open FSharp.UMX
+open System.Threading
 
 [<Measure>] type sortopiaDataId
 
@@ -21,34 +22,58 @@ type storedDataReference = {
 
 type storedOutput = { Reference: storedDataReference; Reused: bool }
 
-/// In-memory data accepted and returned by the initial catalog functions.
+/// Typed database payloads. Catalog functions save these through their host.
 type functionData =
     | SortableTests of sortableTests * ce array
     | SorterModelSet of sorterModelSet
     | SorterSetEval of sorterSetEval
 
-type resultsFunction = parameterSet -> functionData list -> Result<functionData list, string>
+type runExecutionPhase = Setup = 0 | Results = 1
 
-/// A function declares which upstream types affect an output's identity. Pure
-/// generators use an empty dependency list. Each factory runs only on a miss.
-type ISetupDataContext =
-    abstract GetOrCreate: outputKind: string * sourceKinds: string list * factory: (unit -> Result<functionData, string>) -> Result<functionData, string>
+/// An invocation-scoped database view. SaveIfMissing checks the output's stable
+/// key before calling its factory; reads address the exact saved setup batch.
+type IRunDatabase =
+    abstract SaveIfMissing: sortopiaDataType * storedDataReference list * (unit -> functionData) -> unit
+    abstract Reference: sortopiaDataType -> storedDataReference
+    abstract Load: sortopiaDataType -> functionData
+    abstract StoredOutputs: storedOutput list
 
-type setupFunction = ISetupDataContext -> parameterSet -> functionData list -> Result<functionData list, string>
+/// Read-only access to the configured source projects' results databases.
+type ISourceResults =
+    abstract Find: Guid<projectId> * sortopiaDataType * parameterSet -> storedDataReference
+    abstract Load: storedDataReference -> functionData
 
-/// Each saved data type owns its parameter projection; the union is the input contract.
+/// Bound for one parameter set, with phase-appropriate database access.
+type runHost = {
+    Phase: runExecutionPhase
+    Parameters: parameterSet
+    SetupDb: IRunDatabase
+    ResultsDb: IRunDatabase
+    SourceResults: ISourceResults
+    CancellationToken: CancellationToken
+}
+
+type sourceProjects = Map<sortopiaDataType, Guid<projectId>>
+type resultsFunction = runHost -> unit
+type setupFunction = runHost -> sourceProjects -> unit
+
+/// The application supplies storage; the execution loop binds each invocation.
+type IRunHostFactory =
+    abstract Run: run
+    abstract CancellationToken: CancellationToken
+    abstract ForSetup: parameterSet -> runHost
+    abstract ForResults: parameterSet * storedOutput list -> runHost
+
+/// Required inputs are independent of each saved output's query projection.
 type functionDefinition<'executor> = {
-    DataTypes: Map<sortopiaDataType, paramKeyDescriptor list>
+    RequiredParameters: paramKeyDescriptor list
+    DataTypes: Map<sortopiaDataType, string<paramKeyName> list>
     /// Setup: outputs read from source projects. Results: inputs consumed from setup.
     SourceDataTypes: sortopiaDataType list
     Execute: 'executor
 }
 with
     member this.SortopiaDataTypes = this.DataTypes |> Map.toList |> List.map fst
-    member this.RequiredParameters = this.DataTypes |> Map.toList |> List.collect snd |> List.distinctBy (fun key -> key.Name)
-
-module SetupDataContext =
-    let transient = { new ISetupDataContext with member _.GetOrCreate(_, _, factory) = factory () }
 
 module FunctionData =
     let kind = function
@@ -77,46 +102,70 @@ module FunctionParameters =
         let error = validationError required parameters
         if error <> "" then invalidArg "parameters" error
 
+    let validateInputs (required: paramKeyDescriptor list) queryKeys (defaults: parameterBinding list) (spans: parameterSpan list) =
+        let error = ParameterSets.inputKeysError (required |> List.map (fun key -> key.Name)) queryKeys
+                        (defaults |> List.map (fun binding -> binding.KeyName)) (spans |> List.map (fun span -> span.KeyName))
+        if error <> "" then invalidArg "parameters" error
+        ParameterSets.validateSpans defaults spans
+        for binding in defaults do
+            let descriptor = required |> List.find (fun key -> key.Name = binding.KeyName)
+            if binding.ValueType <> descriptor.ValueType then invalidArg "parameterDefaults" $"Parameter '{binding.KeyName}' must have type {ParameterValue.label descriptor.ValueType}."
+        for span in spans do
+            let descriptor = required |> List.find (fun key -> key.Name = span.KeyName)
+            for text in span.Values do
+                let error = ParameterValue.validationError descriptor.ValueType text
+                if error <> "" then invalidArg "parameterSpans" $"Parameter '{span.KeyName}': {error}"
+
     let required (key: paramKey<'value>) (parameters: parameterSet) =
         parameters.TryFind key
         |> Option.defaultWith (fun () -> invalidArg "parameters" $"Missing or incorrectly typed parameter: {key.Name}.")
 
 module FunctionDefinition =
-    let private produced types values =
-        let expected = types |> Map.toList |> List.map (fst >> SortopiaDataType.kindName) |> List.sort
-        let actual = values |> List.map FunctionData.kind |> List.sort
-        if expected = actual then Ok values else Error "The function did not produce exactly its declared saved data types."
-    let private contract entries =
+    let private saved types (database: IRunDatabase) =
+        let expected = types |> Map.toList |> List.map fst |> List.sort
+        let actual = database.StoredOutputs |> List.map (fun output -> output.Reference.DataType) |> List.sort
+        if expected <> actual then invalidOp "The function must save exactly its declared data types through its host database."
+    let private contract (required: paramKeyDescriptor list) entries =
+        let names = required |> List.map (fun key -> key.Name)
+        if names.Length <> (Set.ofList names).Count then invalidArg "requiredParameters" "Declare each required parameter exactly once."
+        for key in required do
+            if System.String.IsNullOrWhiteSpace (UMX.untag key.Name) then invalidArg "requiredParameters" "Required parameter keys must not be blank."
         let types = entries |> Map.ofList
         if types.IsEmpty || types.Count <> List.length entries then invalidArg "dataTypes" "Declare each saved data type exactly once."
         let kinds = types |> Map.toList |> List.map (fst >> SortopiaDataType.kindName)
         if (Set.ofList kinds).Count <> kinds.Length then invalidArg "dataTypes" "Current executors support one output of each data kind."
-        let parameters = types |> Map.toList |> List.collect snd
         for dataType, keys in entries do
             SortopiaDataType.validate dataType
-            if (keys |> List.distinctBy (fun key -> key.Name)).Length <> keys.Length then invalidArg "dataTypes" "Each output's parameter keys must be unique."
-        for name, keys in parameters |> List.groupBy (fun key -> key.Name) do
-            if (keys |> List.map (fun key -> key.ValueType) |> List.distinct).Length <> 1 then invalidArg "dataTypes" $"Conflicting types for parameter '{name}'."
-        types, parameters |> List.distinctBy (fun key -> key.Name)
+            if (List.distinct keys).Length <> keys.Length then invalidArg "dataTypes" "Each output's query parameter keys must be unique."
+            for key in keys do
+                if not (List.contains key names) then invalidArg "dataTypes" $"Query key '{key}' is not a declared required parameter."
+        types
 
-    let resultsWithInputs inputs dataTypes (execute: resultsFunction) : functionDefinition<resultsFunction> =
-        let types, required = contract dataTypes
-        { DataTypes = types; SourceDataTypes = inputs
-          Execute = fun parameters inputs ->
-              match FunctionParameters.validationError required parameters with
-              | "" -> execute parameters inputs |> Result.bind (produced types)
-              | error -> Error error }
+    let resultsWithInputs required inputs dataTypes (execute: resultsFunction) : functionDefinition<resultsFunction> =
+        let types = contract required dataTypes
+        { RequiredParameters = required; DataTypes = types; SourceDataTypes = inputs
+          Execute = fun host ->
+              if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
+              host.CancellationToken.ThrowIfCancellationRequested()
+              FunctionParameters.validate required host.Parameters
+              execute host
+              saved types host.ResultsDb }
 
-    let results dataTypes execute = resultsWithInputs [] dataTypes execute
+    let results required dataTypes execute = resultsWithInputs required [] dataTypes execute
 
-    let setupWithSources dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
-        let types, required = contract dataTypes
+    let setupWithSources required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
+        let types = contract required dataTypes
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
-        { DataTypes = types; SourceDataTypes = sources
-          Execute = fun context parameters inputs ->
-              match FunctionParameters.validationError required parameters with
-              | "" -> execute context parameters inputs |> Result.bind (produced types)
-              | error -> Error error }
+        { RequiredParameters = required; DataTypes = types; SourceDataTypes = sources
+          Execute = fun host projects ->
+              if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
+              host.CancellationToken.ThrowIfCancellationRequested()
+              FunctionParameters.validate required host.Parameters
+              if Set.ofList sources <> (projects |> Map.toList |> List.map fst |> Set.ofList)
+                 || (projects |> Map.exists (fun _ id -> UMX.untag id = System.Guid.Empty)) then
+                  invalidArg "sourceProjects" "Supply exactly the source projects required by this setup function."
+              execute host projects
+              saved types host.SetupDb }
 
-    let setup dataTypes execute = setupWithSources dataTypes [] execute
+    let setup required dataTypes execute = setupWithSources required dataTypes [] execute

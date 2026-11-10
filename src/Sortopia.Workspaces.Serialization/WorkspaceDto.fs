@@ -120,15 +120,18 @@ module RunDto =
         let outputSpans = Contract.array "resultsParameterSpans" value.resultsParameterSpans |> Array.map Contract.spanTo |> Array.toList
         let setupSpans = Contract.array "setupParameterSpans" value.setupParameterSpans |> Array.map Contract.spanTo |> Array.toList
         let description = Option.ofObj value.descriptionOverride
-        match parent, value.runKind with
-        | project.RootProject p, "root" ->
-            if not setupSpans.IsEmpty then
-                invalidArg "runKind" "A root run cannot have setup settings."
-            RootRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans } |> run.RootRun
-        | project.BranchProject p, "branch" ->
-            BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans
-                                 SetupParameterSpans = setupSpans } |> run.BranchRun
-        | _ -> invalidArg "runKind" "A project can only contain runs of its own type."
+        let result =
+            match parent, value.runKind with
+            | project.RootProject p, "root" ->
+                if not setupSpans.IsEmpty then
+                    invalidArg "runKind" "A root run cannot have setup settings."
+                RootRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans } |> run.RootRun
+            | project.BranchProject p, "branch" ->
+                BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans
+                                     SetupParameterSpans = setupSpans } |> run.BranchRun
+            | _ -> invalidArg "runKind" "A project can only contain runs of its own type."
+        FunctionConfiguration.validateRunInputs result
+        result
 
 module ResultsDataTypeConfigDto =
     let fromDomain (value: resultsDataTypeConfig) : resultsDataTypeConfigDto =

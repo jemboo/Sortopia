@@ -43,6 +43,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         Assert.Same(project.Editor, run.Editor.ResultsDatabaseOverride.InheritedSource);
         Assert.False(run.Editor.SetupDatabaseOverride.CanOverride);
         if (branch) Assert.Equal("Project setup", run.Editor.SetupDatabaseName);
+        WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(page.WorkspaceFolder);
         var dto = ModuleDto.fromDomain(saved.Modules[0]);
@@ -90,6 +91,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         var page = Open(); page.AddModuleCommand.Execute(null);
         page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(false));
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
+        WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         var node = page.Roots[0].DescendantsAndSelf().Single(value => value.Kind == kind);
         var previousName = node.Name;
         node.NameInput = " ";

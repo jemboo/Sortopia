@@ -32,9 +32,9 @@ module FunctionCatalogs =
     let resultsOutputs name =
         resultsFunctionCatalog |> Map.tryFind name |> Option.map (fun definition ->
             definition.DataTypes |> Map.toList |> List.map (fun (dataType, keys) ->
-                { DataType = dataType; QueryParameterKeys = keys |> List.map (fun key -> key.Name) } : resultsDataTypeConfig))
+                { DataType = dataType; QueryParameterKeys = keys } : resultsDataTypeConfig))
 
     let setupOutputs name =
         setupFunctionCatalog |> Map.tryFind name |> Option.map (fun definition ->
             definition.DataTypes |> Map.toList |> List.map (fun (dataType, keys) ->
-                dataType, keys |> List.map (fun key -> key.Name)))
+                dataType, keys))

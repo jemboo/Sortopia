@@ -106,9 +106,8 @@ public sealed class WorkspaceRequiredDefaultsTests
             Assert.Empty(FunctionParameters.validationError(function.Keys, parameters));
             if (function.Name == SetupFunctionNames.evaluationStandard)
             {
-                var generated = SetupFunctions.evaluationStandard.Execute.Invoke(SetupDataContext.transient).Invoke(parameters).Invoke(ListModule.Empty<functionData>());
-                Assert.True(generated.IsOk, generated.IsError ? generated.ErrorValue : "");
-                Assert.Equal(100, ((functionData.SorterModelSet)generated.ResultValue.Single(value => value.IsSorterModelSet)).Item.Count);
+                var generated = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationStandard, parameters);
+                Assert.Equal(100, ((functionData.SorterModelSet)generated.Single(value => value.IsSorterModelSet)).Item.Count);
             }
         }
     }

@@ -1,5 +1,6 @@
 using System.IO;
 using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Core;
 using Sortopia.Functions;
 using Sortopia.Models.Sorting;
 using Sortopia.Runs;
@@ -16,17 +17,32 @@ public sealed class FunctionCatalogTests
 {
     private static parameterSet Parameters(params parameterBinding[] bindings) => parameterSet.fromBindings(bindings);
     private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
-    {
-        var function = setup ? FunctionCatalogs.setupFunctionCatalog[name].Execute.Invoke(SetupDataContext.transient) : FunctionCatalogs.resultsFunctionCatalog[name].Execute;
-        var result = function.Invoke(parameters).Invoke(ListModule.OfArray(inputs));
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue : "");
-        return result.ResultValue;
-    }
+        => CatalogTestHost.Invoke(setup, name, parameters, inputs);
     private static parameterSet ModelParameters(int repl = 0) => Parameters(
         ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, 3),
         ParameterBinding.create(ParamKeys.simpleSorterModelTypeKey, "Mssi"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
         ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 3),
         ParameterBinding.create(ParamKeys.replKey, repl));
+
+    [Fact]
+    public void Returning_unit_without_saving_declared_outputs_is_rejected_for_both_phases()
+    {
+        var value = RunExecutionTests.MakeRun(true);
+        var factory = new CatalogTestHost(value, TestContext.Current.CancellationToken);
+        var sets = RunParameterSets.create(value);
+        var resultsDefinition = FunctionCatalogs.resultsFunctionCatalog[value.ResultsFunctionName];
+        var noResults = FunctionDefinition.results(resultsDefinition.RequiredParameters, ListModule.OfSeq(resultsDefinition.DataTypes.Select(pair => Tuple.Create(pair.Key, pair.Value))),
+            FuncConvert.FromFunc<runHost, Unit>(_ => null!));
+        var results = factory.ForResults(sets.Results[0], ListModule.Empty<storedOutput>());
+        Assert.Contains("save exactly", Assert.Throws<InvalidOperationException>(() => noResults.Execute.Invoke(results)).Message);
+
+        var setupDefinition = FunctionCatalogs.setupFunctionCatalog[value.SetupFunctionName.Value];
+        var noSetup = FunctionDefinition.setup(setupDefinition.RequiredParameters, ListModule.OfSeq(setupDefinition.DataTypes.Select(pair => Tuple.Create(pair.Key, pair.Value))),
+            FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(_ =>
+                FuncConvert.FromFunc<FSharpMap<sortopiaDataType, Guid>, Unit>(_ => null!)));
+        var setup = factory.ForSetup(sets.Setup.Value[0]);
+        Assert.Contains("save exactly", Assert.Throws<InvalidOperationException>(() => noSetup.Execute.Invoke(setup).Invoke(MapModule.Empty<sortopiaDataType, Guid>())).Message);
+    }
 
     [Fact]
     public void Named_setup_functions_generate_tests_and_repeatable_models_for_the_results_evaluator()
@@ -63,21 +79,17 @@ public sealed class FunctionCatalogTests
     }
 
     [Fact]
-    public void Catalog_functions_report_missing_or_invalid_inputs_without_requiring_a_host()
+    public void Catalog_functions_report_missing_or_invalid_inputs_through_a_database_host()
     {
         var empty = Parameters();
-        foreach (var function in FunctionCatalogs.resultsFunctionCatalog.Values.Select(value => value.Execute).Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => value.Execute.Invoke(SetupDataContext.transient))))
+        foreach (var function in FunctionCatalogs.resultsFunctionCatalog.Keys.Select(name => (Setup: false, Name: name))
+            .Concat(FunctionCatalogs.setupFunctionCatalog.Keys.Select(name => (Setup: true, Name: name))))
         {
-            var result = function.Invoke(empty).Invoke(ListModule.Empty<functionData>());
-            Assert.True(result.IsError);
-            Assert.NotEmpty(result.ErrorValue);
+            Assert.Contains("Missing required", Assert.ThrowsAny<Exception>(() => Invoke(function.Setup, function.Name, empty)).Message);
         }
-        var wrongType = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.standardTests].Execute.Invoke(SetupDataContext.transient).Invoke(
-            Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "invalid"), ParameterBinding.create(ParamKeys.channelCountKey, 4)))
-            .Invoke(ListModule.Empty<functionData>());
-        Assert.True(wrongType.IsError);
-        var invalidReplication = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Execute.Invoke(SetupDataContext.transient).Invoke(ModelParameters(-1)).Invoke(ListModule.Empty<functionData>());
-        Assert.True(invalidReplication.IsError);
+        Assert.ThrowsAny<Exception>(() => Invoke(true, SetupFunctionNames.standardTests,
+            Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "invalid"), ParameterBinding.create(ParamKeys.channelCountKey, 4))));
+        Assert.ThrowsAny<Exception>(() => Invoke(true, SetupFunctionNames.uniformSorterModels, ModelParameters(-1)));
     }
 
     [Theory]
@@ -93,7 +105,7 @@ public sealed class FunctionCatalogTests
             var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
             var module = page.Selected!;
-            Assert.Equal(FunctionCatalogs.resultsFunctionCatalog.Keys, module.Editor!.ResultsFunctionOverride.Choices);
+            Assert.Equal(branch ? [] : FunctionCatalogs.resultsFunctionCatalog.Where(entry => entry.Value.SourceDataTypes.IsEmpty).Select(entry => entry.Key), module.Editor!.ResultsFunctionOverride.Choices);
             Assert.Equal(FunctionCatalogs.setupFunctionCatalog.Keys, module.Editor.SetupFunctionOverride.Choices);
             Assert.False(module.Editor.ResultsDatabaseOverride.HasChoices);
             module.Editor.ResultsFunctionOverride.IsOverridden = true;
@@ -121,6 +133,7 @@ public sealed class FunctionCatalogTests
                 run.Editor.SetupFunctionOverride.IsOverridden = true;
                 run.Editor.SetupFunctionOverride.EffectiveValue = SetupFunctionNames.uniformSorterModels;
             }
+            WorkspaceRunExecutionTests.SupplyQuerySpans(page);
             await page.SaveWorkspaceAsync();
             Assert.Empty(page.Error);
             var saved = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];

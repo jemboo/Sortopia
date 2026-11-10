@@ -23,7 +23,8 @@ public partial class WorkspacePage : UserControl
         if (sender is not FrameworkContentElement { DataContext: WorkspaceSaveIssue issue }) return;
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
-            FrameworkElement? target = issue.Section switch
+            FrameworkElement? target = DataContext is WorkspacePageViewModel { ActiveItemKey: "resultsFunction" or "setupFunction" }
+                ? ConfigurationFields.FindName("FunctionsSection") as FrameworkElement : issue.Section switch
             {
                 "Name" => issue.Node.IsWorkspace ? WorkspaceNameInput : EntityNameInput,
                 "Location" => EntityLocationExpander,

@@ -40,15 +40,10 @@ public sealed class FunctionOutputContractTests : IDisposable
         return settings;
     }
     private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
-    {
-        var fn = setup ? FunctionCatalogs.setupFunctionCatalog[name].Execute.Invoke(SetupDataContext.transient) : FunctionCatalogs.resultsFunctionCatalog[name].Execute;
-        var result = fn.Invoke(parameters).Invoke(ListModule.OfArray(inputs));
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue : "");
-        return result.ResultValue;
-    }
+        => CatalogTestHost.Invoke(setup, name, parameters, inputs);
 
     [Fact]
-    public void Catalog_maps_define_exact_output_text_and_the_typed_parameter_union()
+    public void Catalog_maps_define_output_text_and_query_subsets_of_required_parameters()
     {
         var contracts = FunctionCatalogs.resultsFunctionCatalog.Values.Select(value => (value.DataTypes, value.RequiredParameters))
             .Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => (value.DataTypes, value.RequiredParameters)));
@@ -56,12 +51,12 @@ public sealed class FunctionOutputContractTests : IDisposable
         {
             Assert.NotEmpty(outputs);
             Assert.All(outputs.Keys, type => Assert.Equal("", SortopiaDataType.text(type)));
-            Assert.Equal(outputs.Values.SelectMany(keys => keys).Select(key => key.Name).Distinct().Order(), required.Select(key => key.Name).Order());
+            Assert.All(outputs.Values.SelectMany(keys => keys), key => Assert.Contains(required, descriptor => descriptor.Name == key));
         }
         var function = SetupFunctions.evaluationStandard;
-        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, function.DataTypes[sortopiaDataType.NewSortableTests("")].Select(key => key.Name));
-        Assert.DoesNotContain(function.DataTypes[sortopiaDataType.NewSortableTests("")], key => key.Name == "Repl");
-        Assert.Contains(function.DataTypes[sortopiaDataType.NewSorterModelSet("")], key => key.Name == "Repl");
+        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, function.DataTypes[sortopiaDataType.NewSortableTests("")]);
+        Assert.DoesNotContain(function.DataTypes[sortopiaDataType.NewSortableTests("")], key => key == "Repl");
+        Assert.Contains(function.DataTypes[sortopiaDataType.NewSorterModelSet("")], key => key == "Repl");
         var settings = Combined(false);
         var run = (run.RootRun)RunExecutionTests.MakeRun(false, settings);
         var dto = SettingsDto.fromDomain(projectConfiguration.NewRootProjectConfig(run.Item.ProjectConfiguration));
@@ -95,6 +90,7 @@ public sealed class FunctionOutputContractTests : IDisposable
         var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "Repl", true, "1", "2");
         Assert.Contains("SortableDataFormat", span.KeyChoices);
         Assert.DoesNotContain("CollectSortableTests", span.KeyChoices);
+        run.Editor!.UseSetupDefaultsAsSpansCommand.Execute(null);
         Assert.Equal(2, run.Editor!.SetupParameterSetsPreview.Rows.Count());
         module.Editor.SetupFunctionName = SetupFunctionNames.standardTests;
         Assert.Contains("SorterModelSet", run.Editor.FunctionCompatibilityError);
@@ -144,8 +140,7 @@ public sealed class FunctionOutputContractTests : IDisposable
         Assert.Equal(3, Assert.IsType<functionData.SorterModelSet>(generated.Single(value => value.IsSorterModelSet)).Item.Count);
         Assert.Single(FunctionCatalogs.setupFunctionCatalog[name].SourceDataTypes);
         var wrongChannels = parameters.WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 6));
-        var invalid = FunctionCatalogs.setupFunctionCatalog[name].Execute.Invoke(SetupDataContext.transient).Invoke(wrongChannels).Invoke(ListModule.OfArray(new[] { source }));
-        Assert.True(invalid.IsError); Assert.Contains("ChannelCount", invalid.ErrorValue);
+        Assert.Contains("ChannelCount", Assert.ThrowsAny<Exception>(() => Invoke(true, name, wrongChannels, source)).Message);
     }
 
     private workspace SaveRun(bool branch, projectSettingsDto settings, parameterSpanDto[] results, parameterSpanDto[] setup)

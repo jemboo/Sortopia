@@ -4,6 +4,7 @@
     <Compile Include="DataCodec.fs" />
     <Compile Include="SortopiaFileDb.fs" />
     <Compile Include="WorkspaceData.fs" />
+    <Compile Include="FileRunHost.fs" />
     <Compile Include="FileRunExecution.fs" />
   </ItemGroup>
   <ItemGroup>

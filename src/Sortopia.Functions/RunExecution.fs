@@ -5,7 +5,6 @@ open System.Threading
 open FSharp.UMX
 open Sortopia.Runs
 
-type runExecutionPhase = Setup = 0 | Results = 1
 type runExecutionStatus = Completed = 0 | Failed = 1 | Cancelled = 2
 
 type runFunctionResult = {
@@ -14,16 +13,8 @@ type runFunctionResult = {
     SetupSetNumber: int option
     SetNumber: int
     Parameters: parameterSet
-    Outputs: functionData list
     StoredOutputs: storedOutput list
 }
-
-type functionOutput = { Values: functionData list; Stored: storedOutput list }
-
-/// Execution policy is separate from the function catalog and loop.
-type IRunDataAccess =
-    abstract Setup: branchRun * parameterSet * functionData list * setupFunction -> Result<functionOutput, string>
-    abstract Results: run * parameterSet * runFunctionResult option * functionData list * resultsFunction -> Result<functionOutput, string>
 
 type runExecutionProgress = {
     Message: string
@@ -41,10 +32,10 @@ type runExecutionReport = {
 module RunExecution =
     /// Execute all setup sets before any results sets. Each setup batch is paired
     /// with every results set; batches are never combined with each other.
-    /// Inputs and outputs remain typed and in memory. Cancellation is checked
-    /// between synchronous catalog calls, which cannot themselves be interrupted.
-    let executeWith (data: IRunDataAccess) (value: run) (inputs: functionData list)
-                (progress: IProgress<runExecutionProgress>) (cancellation: CancellationToken) =
+    /// Only saved references pass between phases; functions read through their host.
+    let execute (factory: IRunHostFactory) (progress: IProgress<runExecutionProgress>) =
+        let value = factory.Run
+        let cancellation = factory.CancellationToken
         let setup = ResizeArray<runFunctionResult>()
         let results = ResizeArray<runFunctionResult>()
         let mutable context = "Preparing run"
@@ -59,6 +50,7 @@ module RunExecution =
             let setupFunction = value.SetupFunctionName |> Option.map (fun name ->
                 FunctionCatalogs.setupFunctionCatalog |> Map.tryFind name
                 |> Option.defaultWith (fun () -> invalidOp $"Unknown setup function '{name}'."))
+            FunctionConfiguration.validateRunInputs value
             let sets = RunParameterSets.create value
             match value with
             | run.RootRun root -> FunctionConfiguration.validateResults root.ProjectConfiguration.Results
@@ -85,44 +77,35 @@ module RunExecution =
             let notify () =
                 if not (isNull progress) then
                     progress.Report { Message = context; Completed = int64 setup.Count + int64 results.Count; Total = total }
-            let invoke phase name setupNumber setNumber parameters functionInputs functionValue (destination: ResizeArray<_>) =
+            let invoke phase name setupNumber setNumber parameters makeHost functionValue (destination: ResizeArray<_>) =
                 cancellation.ThrowIfCancellationRequested()
                 let prefix = if phase = runExecutionPhase.Setup then "Setup" else "Results"
                 let suffix = setupNumber |> Option.map (fun number -> $" (setup set {number})") |> Option.defaultValue ""
                 context <- $"{prefix} set {setNumber}{suffix} · {name}"
                 notify ()
-                match functionValue parameters functionInputs with
-                | Error message -> invalidOp message
-                | Ok outputs ->
-                    destination.Add { Phase = phase; FunctionName = name; SetupSetNumber = setupNumber
-                                      SetNumber = setNumber; Parameters = parameters; Outputs = outputs.Values; StoredOutputs = outputs.Stored }
-                    notify ()
+                let host: runHost = makeHost ()
+                functionValue host
+                let database = if phase = runExecutionPhase.Setup then host.SetupDb else host.ResultsDb
+                destination.Add { Phase = phase; FunctionName = name; SetupSetNumber = setupNumber
+                                  SetNumber = setNumber; Parameters = parameters; StoredOutputs = database.StoredOutputs }
+                notify ()
                 cancellation.ThrowIfCancellationRequested()
             match setupFunction, sets.Setup with
             | Some functionValue, Some setupSets ->
                 let branch = match value with run.BranchRun branch -> branch | _ -> invalidOp "Expected a branch run."
+                let sources = branch.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType functionValue.SourceDataTypes)
                 for i = 0 to setupSets.Length - 1 do
-                    invoke runExecutionPhase.Setup (UMX.untag value.SetupFunctionName.Value) None (i + 1) setupSets[i] inputs
-                        (fun parameters inputs -> data.Setup(branch, parameters, inputs, functionValue.Execute)) setup
+                    invoke runExecutionPhase.Setup (UMX.untag value.SetupFunctionName.Value) None (i + 1) setupSets[i]
+                        (fun () -> factory.ForSetup setupSets[i]) (fun host -> functionValue.Execute host sources) setup
                 for batch in setup do
                     for i = 0 to sets.Results.Length - 1 do
                         invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) (Some batch.SetNumber)
-                            (i + 1) sets.Results[i] (inputs @ batch.Outputs)
-                            (fun parameters inputs -> data.Results(value, parameters, Some batch, inputs, resultsFunction.Execute)) results
+                            (i + 1) sets.Results[i] (fun () -> factory.ForResults(sets.Results[i], batch.StoredOutputs)) resultsFunction.Execute results
             | _ ->
                 for i = 0 to sets.Results.Length - 1 do
-                    invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) None (i + 1) sets.Results[i] inputs
-                        (fun parameters inputs -> data.Results(value, parameters, None, inputs, resultsFunction.Execute)) results
+                    invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) None (i + 1) sets.Results[i]
+                        (fun () -> factory.ForResults(sets.Results[i], [])) resultsFunction.Execute results
             report runExecutionStatus.Completed ""
         with
         | :? OperationCanceledException when cancellation.IsCancellationRequested -> report runExecutionStatus.Cancelled ""
         | error -> report runExecutionStatus.Failed $"{context}: {error.Message}"
-
-    let execute value inputs progress cancellation =
-        let transient = {
-            new IRunDataAccess with
-                member _.Setup(_, parameters, inputs, functionValue) =
-                    functionValue SetupDataContext.transient parameters inputs |> Result.map (fun outputs -> { Values = outputs; Stored = [] })
-                member _.Results(_, parameters, _, inputs, functionValue) =
-                    functionValue parameters inputs |> Result.map (fun outputs -> { Values = outputs; Stored = [] }) }
-        executeWith transient value inputs progress cancellation

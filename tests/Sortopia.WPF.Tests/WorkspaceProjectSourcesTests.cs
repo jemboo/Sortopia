@@ -25,7 +25,9 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     private static project Project(string name, projectSettingsDto settings) => project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
     private static runDto Inputs(project parent) => new()
     {
-        schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch", resultsParameterSpans = [], setupParameterSpans = []
+        schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch",
+        resultsParameterSpans = RunExecutionTests.QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults),
+        setupParameterSpans = parent is project.BranchProject b ? RunExecutionTests.QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults) : []
     };
     private static project WithRun(project parent) => project.withRuns(parent, [RunDto.toDomain(parent, Inputs(parent))]);
     private static project Source(bool seal = true)
@@ -240,6 +242,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var parent = page.Selected!;
         parent.Editor!.LoadProject(Settings());
         page.AddRunCommand.Execute(null);
+        WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();

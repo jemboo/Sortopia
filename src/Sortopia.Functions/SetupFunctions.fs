@@ -6,32 +6,37 @@ open InputGenerators
 // Adapted from GeneSort's SetupCatalog.runBoth and SortableTestsMakers.getModuleTests.
 // Copyright (c) 2025 Tom Patterson. See GENESORT-LICENSE.txt.
 module SetupFunctions =
+    let private testsType = sortopiaDataType.SortableTests ""
+    let private modelsType = sortopiaDataType.SorterModelSet ""
+
     let standardTests =
-        FunctionDefinition.setup [sortopiaDataType.SortableTests "", standardKeys]
-            (fun context parameters _ ->
-                context.GetOrCreate("SortableTests", [], fun () -> attempt (fun () -> InputGenerators.standardTests parameters))
-                |> Result.map List.singleton)
+        FunctionDefinition.setup standardKeys [testsType, queryKeys standardKeys]
+            (fun host _ -> host.SetupDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
 
     let uniformSorterModels =
-        FunctionDefinition.setup [sortopiaDataType.SorterModelSet "", modelKeys]
-            (fun context parameters _ ->
-                context.GetOrCreate("SorterModelSet", [], fun () -> attempt (fun () -> uniformModels parameters))
-                |> Result.map List.singleton)
+        FunctionDefinition.setup modelKeys [modelsType, queryKeys modelKeys]
+            (fun host _ -> host.SetupDb.SaveIfMissing(modelsType, [], fun () -> uniformModels host.Parameters))
 
-    let private prepareEvaluation testsKeys sourceKinds makeTests =
+    let private prepareEvaluation testsKeys fromSource =
         FunctionDefinition.setupWithSources
-            [sortopiaDataType.SortableTests "", testsKeys; sortopiaDataType.SorterModelSet "", modelKeys]
-            (sourceKinds |> List.map (fun kind -> SortopiaDataType.create kind ""))
-            (fun context parameters inputs ->
-                let sourceCheck = if List.isEmpty sourceKinds then Ok () else attempt (fun () -> makeTests parameters inputs |> ignore)
-                // Each output checks its own projection before invoking its factory.
-                sourceCheck |> Result.bind (fun () -> context.GetOrCreate("SorterModelSet", [], fun () -> attempt (fun () -> uniformModels parameters)))
-                |> Result.bind (fun models ->
-                    context.GetOrCreate("SortableTests", sourceKinds, fun () -> attempt (fun () -> makeTests parameters inputs))
-                    |> Result.map (fun tests -> [models; tests])))
+            (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
+            [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
+            (if fromSource then [testsType] else [])
+            (fun host projects ->
+                let sources =
+                    if fromSource then
+                        let reference = host.SourceResults.Find(projects[testsType], testsType, host.Parameters)
+                        // Validate source/model compatibility even when both outputs already exist.
+                        sourceTests host.Parameters [host.SourceResults.Load reference] |> ignore
+                        [reference]
+                    else []
+                host.SetupDb.SaveIfMissing(modelsType, [], fun () -> uniformModels host.Parameters)
+                host.SetupDb.SaveIfMissing(testsType, sources, fun () ->
+                    if fromSource then sourceTests host.Parameters [host.SourceResults.Load sources.Head]
+                    else InputGenerators.standardTests host.Parameters))
 
-    let evaluationStandard = prepareEvaluation standardKeys [] (fun parameters _ -> InputGenerators.standardTests parameters)
+    let evaluationStandard = prepareEvaluation standardKeys false
     // Source project IDs replace GeneSort's SortableTestsModule name. The library
     // key and format look up the source's exact result projection.
-    let evaluationMerge = prepareEvaluation mergeKeys ["SortableTests"] sourceTests
-    let evaluationPrefix = prepareEvaluation prefixKeys ["SortableTests"] sourceTests
+    let evaluationMerge = prepareEvaluation mergeKeys true
+    let evaluationPrefix = prepareEvaluation prefixKeys true

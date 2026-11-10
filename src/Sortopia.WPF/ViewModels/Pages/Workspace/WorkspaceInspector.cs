@@ -35,7 +35,8 @@ public sealed partial class WorkspacePageViewModel
     public RelayCommand SelectInspectorSourceCommand { get; private set; } = null!;
     public string ActiveItemKey => activeItemKey;
     public string ActiveItemTitle => InspectorItems.FirstOrDefault(item => item.Key == activeItemKey) is { } item
-        ? item.Group is "Results" or "Setup" && !item.Title.StartsWith(item.Group, StringComparison.OrdinalIgnoreCase) ? $"{item.Group} · {item.Title}" : item.Title
+        ? item.Group == "Functions" ? Selected?.Editor?.FunctionsTitle ?? "Functions"
+            : item.Group is "Results" or "Setup" && !item.Title.StartsWith(item.Group, StringComparison.OrdinalIgnoreCase) ? $"{item.Group} · {item.Title}" : item.Title
         : "Configuration item";
     public bool ShowNameEditor => activeItemKey == "name";
     public bool ShowLocationEditor => activeItemKey == "location";
@@ -62,25 +63,32 @@ public sealed partial class WorkspacePageViewModel
     }
     private void InspectorSelectionChanged()
     {
-        activeItemKey = Selected is not null && rememberedItems.TryGetValue(Selected.Id, out var key) ? key : "name";
+        activeItemKey = Selected is not null && rememberedItems.TryGetValue(Selected.Id, out var key) ? key : DefaultInspectorItem;
         RefreshInspector();
     }
+    private string DefaultInspectorItem => Selected?.HasConfiguration == true ? Selected.IsBranch ? "setupFunction" : "resultsFunction" : "name";
     private IEnumerable<WorkspaceItemSnapshot> InspectorSnapshots()
     {
         if (Selected is not { } node) yield break;
+        if (node.Editor is { } module)
+            foreach (var item in module.InspectorSnapshots().Where(item => item.Group == "Functions")) yield return item;
         yield return new("name", "Identity", "Name", node.NameInput, node.IsSealed ? "Fixed · sealed project" : "Local", node.NameError);
         yield return new("location", "Identity", "Location", node.IsRun ? node.PathName : node.FolderNameInput, node.DiskStatus.Length > 0 ? node.DiskStatus : "Saved", node.FolderNameError);
         if (node.Editor is { } editor)
-            foreach (var item in editor.InspectorSnapshots()) yield return item;
+            foreach (var item in editor.InspectorSnapshots().Where(item => item.Group != "Functions")) yield return item;
         if (node.IsRun)
             yield return new("execution", "Execution", "Execution status", SelectedExecution?.Summary ?? "Not executed yet", SelectedExecution?.IsRunning == true ? "Running" : ExecuteHint.Length > 0 ? "Not ready" : "Ready", SelectedExecution?.Error ?? "");
     }
     private void RefreshInspector()
     {
         var snapshots = InspectorSnapshots().ToArray();
-        if (!snapshots.Any(item => item.Key == activeItemKey)) activeItemKey = "name";
+        if (!snapshots.Any(item => item.Key == activeItemKey)) activeItemKey = DefaultInspectorItem;
         if (!InspectorItems.Select(item => item.Key).SequenceEqual(snapshots.Select(item => item.Key)))
-        { InspectorItems.Clear(); foreach (var item in snapshots) InspectorItems.Add(new(item)); }
+        {
+            var existing = InspectorItems.ToDictionary(item => item.Key);
+            InspectorItems.Clear();
+            foreach (var item in snapshots) InspectorItems.Add(existing.GetValueOrDefault(item.Key) ?? new(item));
+        }
         for (var index = 0; index < snapshots.Length; index++)
             InspectorItems[index].Update(snapshots[index], snapshots[index].Key == activeItemKey, index == 0 || snapshots[index - 1].Group != snapshots[index].Group);
         OnPropertyChanged(nameof(ActiveItemKey)); OnPropertyChanged(nameof(ActiveItemTitle));
@@ -97,6 +105,6 @@ public sealed partial class WorkspacePageViewModel
             "Results parameter defaults" => "resultsDefaults", "Setup parameter defaults" => "setupDefaults",
             "Results parameter spans" => "resultsSpans", "Setup parameter spans" => "setupSpans", _ => "name"
         };
-        SelectConfigurationItem(key);
+        SelectConfigurationItem(InspectorItems.Any(item => item.Key == key) ? key : DefaultInspectorItem);
     }
 }

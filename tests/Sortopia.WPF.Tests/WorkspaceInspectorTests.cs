@@ -46,6 +46,7 @@ public sealed class WorkspaceInspectorTests : IDisposable
         var run = page.Selected!;
         page.SelectConfigurationItem("resultsSpans");
         WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "SortableDataFormat", false, "Bools", "BitVector512");
+        WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         Assert.Contains("2 parameter set", page.InspectorItems.Single(item => item.Key == "resultsPreview").Value);
         Assert.Contains("SortableDataFormat", page.InspectorItems.Single(item => item.Key == "resultsSpans").Value);
         page.Selected = project; page.Selected = run;

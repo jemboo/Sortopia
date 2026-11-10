@@ -140,11 +140,13 @@ module private RunConfiguration =
             if System.String.IsNullOrWhiteSpace value then invalidArg argument "Name must not be null, empty, or whitespace."
     let spans argument queryKeys defaults (spans: parameterSpan list) =
         ParameterSets.validateSpans defaults spans
+        ParameterSets.validateQuerySpans queryKeys spans
+    let sourceParameters queryKeys (defaults: parameterBinding list) (spans: parameterSpan list) =
         let names = Set.ofSeq (seq {
             for span in spans do yield span.KeyName
             for value in defaults do yield value.KeyName })
         for key in queryKeys do
-            if not (Set.contains key names) then invalidArg argument $"Query key '{key}' has no default value or matching parameter span."
+            if not (Set.contains key names) then invalidArg "setupParameters" $"Source query key '{key}' has no default value or matching parameter span."
 
 /// Only run identity, an optional description, and execution parameters are supplied per root run.
 type rootRunConfig = {
@@ -249,7 +251,7 @@ module BranchRunSources =
             let source = find entry.SourceProjectId |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" $"Source project '{entry.SourceProjectId}' was not found.")
             if not source.IsSealed then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' must be sealed."
             if not (List.contains entry.DataType source.Results.SortopiaDataTypes) then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' does not provide '{entry.DataType}'."
-            RunConfiguration.spans "setupParameterSpans" source.Results.DataTypes[entry.DataType] value.SetupParameterDefaults value.SetupParameterSpans
+            RunConfiguration.sourceParameters source.Results.DataTypes[entry.DataType] value.SetupParameterDefaults value.SetupParameterSpans
             entry.DataType, source) |> Map.ofList
         { value with sources = sources }
 

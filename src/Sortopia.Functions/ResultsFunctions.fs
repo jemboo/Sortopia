@@ -15,35 +15,51 @@ open FunctionParameters
 // SortableTests/SortableTestsExecution._runSortableTests and SorterEval/SorterEvalExecution._makeSorterEvals.
 // Copyright (c) 2025 Tom Patterson. See GENESORT-LICENSE.txt.
 module ResultsFunctions =
+    let private testsType = sortopiaDataType.SortableTests ""
+    let private modelsType = sortopiaDataType.SorterModelSet ""
+    let private evalType = sortopiaDataType.SorterSetEval ""
+
+    let private generator dataType keys make =
+        FunctionDefinition.results keys [dataType, InputGenerators.queryKeys keys]
+            (fun host -> host.ResultsDb.SaveIfMissing(dataType, [], fun () -> make host.Parameters))
+
     let mergeSortableTests =
-        FunctionDefinition.results [sortopiaDataType.SortableTests "", InputGenerators.mergeKeys]
-            (fun parameters _ -> InputGenerators.attempt (fun () -> [InputGenerators.mergeTests parameters]))
+        generator testsType InputGenerators.mergeKeys InputGenerators.mergeTests
 
     let prefixSortableTests =
-        FunctionDefinition.results [sortopiaDataType.SortableTests "", InputGenerators.prefixKeys]
-            (fun parameters _ -> InputGenerators.attempt (fun () -> [InputGenerators.prefixTests parameters]))
+        generator testsType InputGenerators.prefixKeys InputGenerators.prefixTests
 
     let standardSortableTests =
-        FunctionDefinition.results [sortopiaDataType.SortableTests "", InputGenerators.standardKeys]
-            (fun parameters _ -> InputGenerators.attempt (fun () -> [InputGenerators.standardTests parameters]))
+        generator testsType InputGenerators.standardKeys InputGenerators.standardTests
 
     let uniformSorterModels =
-        FunctionDefinition.results [sortopiaDataType.SorterModelSet "", InputGenerators.modelKeys]
-            (fun parameters _ -> InputGenerators.attempt (fun () -> [InputGenerators.uniformModels parameters]))
+        generator modelsType InputGenerators.modelKeys InputGenerators.uniformModels
 
     let standardEvaluationInputs =
         FunctionDefinition.results
-            [sortopiaDataType.SortableTests "", InputGenerators.standardKeys; sortopiaDataType.SorterModelSet "", InputGenerators.modelKeys]
-            (fun parameters _ -> InputGenerators.attempt (fun () -> [InputGenerators.uniformModels parameters; InputGenerators.standardTests parameters]))
+            (InputGenerators.standardKeys @ InputGenerators.modelKeys |> List.distinctBy (fun key -> key.Name))
+            [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys InputGenerators.modelKeys]
+            (fun host ->
+                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> InputGenerators.uniformModels host.Parameters)
+                host.ResultsDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
 
-    let private evaluate : resultsFunction = fun parameters inputs ->
-        try
-            let exactlyOne name values =
-                match values with
-                | [value] -> value
-                | _ -> invalidArg "inputs" $"Expected exactly one {name} input; received {List.length values}."
-            let models = inputs |> List.choose (function functionData.SorterModelSet value -> Some value | _ -> None) |> exactlyOne "SorterModelSet"
-            let tests, ces = inputs |> List.choose (function functionData.SortableTests (tests, ces) -> Some (tests, ces) | _ -> None) |> exactlyOne "SortableTests"
+    let private models (host: runHost) =
+        match host.SetupDb.Load modelsType with
+        | functionData.SorterModelSet value -> value
+        | _ -> invalidOp "Expected a saved SorterModelSet in the setup database."
+    let private tests (host: runHost) =
+        match host.SetupDb.Load testsType with
+        | functionData.SortableTests (value, prefix) -> value, prefix
+        | _ -> invalidOp "Expected saved SortableTests in the setup database."
+    let private saveEvaluation (host: runHost) make =
+        let inputs = [host.SetupDb.Reference modelsType; host.SetupDb.Reference testsType]
+        host.ResultsDb.SaveIfMissing(evalType, inputs, make)
+
+    let private evaluate : resultsFunction = fun host ->
+        saveEvaluation host (fun () ->
+            let parameters = host.Parameters
+            let models = models host
+            let tests, ces = tests host
             let channels = required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>
             let evalType = required ParamKeys.sorterEvalTypeKey parameters |> SorterEvalType.fromString
             let collect = required ParamKeys.collectSortableTestsKey parameters |> UMX.tag<collectNewSortableTests>
@@ -53,29 +69,30 @@ module ResultsFunctions =
             let prefix = ceBlock.create (Guid.Empty |> UMX.tag) channels ces
             let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None models
             let evaluated = SorterSetEval.makeSorterSetEval (Guid.NewGuid() |> UMX.tag) sorters prefix tests evalType collect
-            Ok [functionData.SorterSetEval evaluated]
-        with error -> Error error.Message
+            functionData.SorterSetEval evaluated)
 
     let evaluateSorters =
-        FunctionDefinition.resultsWithInputs [sortopiaDataType.SorterModelSet ""; sortopiaDataType.SortableTests ""]
-            [ sortopiaDataType.SorterSetEval "", [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey;
-              ParamKey.describe ParamKeys.collectSortableTestsKey] ] evaluate
+        let required = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
+        FunctionDefinition.resultsWithInputs required [modelsType; testsType]
+            [evalType, InputGenerators.queryKeys required] evaluate
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
     let evaluateMutants =
-        FunctionDefinition.resultsWithInputs [sortopiaDataType.SorterModelSet ""; sortopiaDataType.SortableTests ""]
-            [sortopiaDataType.SorterSetEval "", [ParamKey.describe ParamKeys.sorterEvalTypeKey]]
-            (fun parameters inputs -> InputGenerators.attempt (fun () ->
-                let models = inputs |> List.choose (function functionData.SorterModelSet value -> Some value | _ -> None) |> List.exactlyOne
-                let tests, ces = inputs |> List.choose (function functionData.SortableTests (tests, ces) -> Some (tests, ces) | _ -> None) |> List.exactlyOne
+        FunctionDefinition.resultsWithInputs [ParamKey.describe ParamKeys.sorterEvalTypeKey] [modelsType; testsType]
+            [evalType, [ParamKeys.sorterEvalTypeKey.Name]]
+            (fun host -> saveEvaluation host (fun () ->
+                let parameters = host.Parameters
+                let models = models host
+                let tests, ces = tests host
                 let channels = SortableTests.getChannelCount tests
                 let prefix = ceBlock.create (Guid.Empty |> UMX.tag) channels ces
                 let evalType = required ParamKeys.sorterEvalTypeKey parameters |> SorterEvalType.fromString
                 let evaluations = models.SorterModels |> Array.chunkBySize 1000 |> Array.collect (fun chunk ->
+                    host.CancellationToken.ThrowIfCancellationRequested()
                     if chunk |> Array.exists (fun model -> SorterModel.getChannelCount model <> channels) then
                         invalidArg "inputs" "The models and tests must have the same channel count."
                     let group = sorterModelSet.create (Guid.NewGuid() |> UMX.tag) chunk models.RawCeLength
                     let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None group
                     SorterSetEval.makeSorterEvals sorters.Sorters prefix tests evalType (UMX.tag false))
-                [sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> functionData.SorterSetEval]))
+                sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> functionData.SorterSetEval))
