@@ -2192,6 +2192,7 @@ public sealed class RandomNetworkTests
             Assert.False(button.IsEnabled);
             CompleteRun(vm.SaveWorkspaceAsync);
             WorkspaceRunExecutionTests.SelectRun(vm);
+            CompleteRun(() => WorkspaceRunExecutionTests.ExecuteSourceAsync(vm));
             Layout();
             Assert.True(button.IsEnabled);
             Assert.Same(vm.ExecuteRunCommand, button.Command);
@@ -2227,15 +2228,15 @@ public sealed class RandomNetworkTests
                 using var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-execution-{width}.png"));
                 encoder.Save(stream);
             }
-            // A later failure replaces the previous success while retaining the
-            // completed calls from this attempt only.
-            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "SortableDataFormat", true, "invalid");
-            CompleteRun(vm.SaveWorkspaceAsync); WorkspaceRunExecutionTests.SelectRun(vm);
-            CompleteRun(vm.ExecuteRunAsync); Layout();
-            Assert.Equal(Sortopia.Functions.runExecutionStatus.Failed, vm.SelectedExecution!.Report!.Status);
-            Assert.Empty(vm.SelectedExecution.Report.Results);
-            Assert.Empty(vm.SelectedExecution.Rows);
-            Assert.Contains("Setup set 1", vm.SelectedExecution.Error);
+            // Invalid format choices are caught while editing, before saving/executing.
+            var badFormat = WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "SortableDataFormat", true, "invalid");
+            Layout();
+            Assert.False(vm.SaveWorkspaceCommand.CanExecute(null));
+            Assert.False(button.IsEnabled);
+            Assert.Contains("SortableDataFormat", vm.SaveHint);
+            Assert.Equal(Sortopia.Functions.runExecutionStatus.Completed, vm.SelectedExecution!.Report!.Status);
+            badFormat.Values[0].Text = "Bools";
+            CompleteRun(vm.SaveWorkspaceAsync); WorkspaceRunExecutionTests.SelectRun(vm); Layout();
             Assert.False(vm.IsBusy);
             Assert.True(button.IsEnabled);
         }
@@ -2697,16 +2698,42 @@ public sealed class RandomNetworkTests
             Assert.Equal("Evaluate", branchModule.Editor!.ResultsFunctionName);
             var defaultSource = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)
                 ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsDatabaseOverrideEditor")).FindName("ValueSource");
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)fields.FindName("ResultsDatabaseOverrideEditor")).Visibility);
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)fields.FindName("SetupDatabaseOverrideEditor")).Visibility);
             Assert.Equal(Visibility.Collapsed, ((TextBlock)defaultSource.FindName("SourceLinkText")).Visibility);
             RenderWorkspaceState("branch-module-defaults");
             RenderWorkspaceState("module-defaults-narrow", 640, 800);
             Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
             LayoutWorkspace();
             vm.AddProjectCommand.Execute(null);
+            LayoutWorkspace();
+            Assert.True(vm.HasSaveIssues);
+            Assert.Equal(Visibility.Visible, ((Border)page.FindName("SaveValidationSummary")).Visibility);
+            Assert.Contains("Setup function", vm.Error, StringComparison.OrdinalIgnoreCase);
+            RenderWorkspaceState("save-validation");
+            RenderWorkspaceState("save-validation-narrow", 640, 800);
+            var invalidProject = vm.Selected!;
+            invalidProject.Editor!.Sections.SetupSettings = false;
+            vm.Selected = branchModule;
+            LayoutWorkspace();
+            var issueList = (ItemsControl)page.FindName("SaveIssuesList");
+            var issueRow = (ContentPresenter)issueList.ItemContainerGenerator.ContainerFromIndex(0);
+            var issueLink = (System.Windows.Documents.Hyperlink)issueList.ItemTemplate.FindName("SaveIssueLink", issueRow);
+            ((IInvokeProvider)new HyperlinkAutomationPeer(issueLink).GetPattern(PatternInterface.Invoke)!).Invoke();
+            LayoutWorkspace();
+            Assert.Same(invalidProject, vm.Selected);
+            Assert.True(invalidProject.Editor.Sections.SetupSettings);
+            var issueSection = (Expander)fields.FindName("SetupSettingsSection");
+            var issueViewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
+            Assert.InRange(issueSection.TranslatePoint(new Point(0, 0), issueViewport).Y, -1, issueViewport.ViewportHeight);
             WorkspaceHierarchyTests.ConfigureProject(vm.Selected!);
             vm.Selected!.Name = "Evolution";
             LayoutWorkspace();
             Assert.Equal("New branch run", ((Button)page.FindName("NewRunButton")).Content);
+            var projectDatabase = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsDatabaseOverrideEditor");
+            Assert.Equal(Visibility.Visible, projectDatabase.Visibility);
+            Assert.Equal(Visibility.Collapsed, ((CheckBox)projectDatabase.FindName("OverrideToggle")).Visibility);
+            Assert.False(((TextBox)projectDatabase.FindName("OverrideValueInput")).IsReadOnly);
             Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
             var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsFunctionOverrideEditor");
             var executeInput = (TextBox)executeEditor.FindName("OverrideValueInput");
@@ -2765,6 +2792,8 @@ public sealed class RandomNetworkTests
             var integerDefaultInput = (TextBox)integerDefaultEditor.FindName("TypedValueInput");
             integerDefaultInput.SetCurrentValue(TextBox.TextProperty, "eight");
             Assert.False(save.IsEnabled);
+            integerDefaultInput.SetCurrentValue(TextBox.TextProperty, "0");
+            Assert.False(save.IsEnabled); Assert.Contains("1 or greater", vm.Error);
             integerDefaultInput.SetCurrentValue(TextBox.TextProperty, "8");
             Assert.True(save.IsEnabled);
             var booleanDefaultEditor = AddTypedDefault("SetupCompleted", parameterValueType.Boolean);
@@ -2779,6 +2808,62 @@ public sealed class RandomNetworkTests
             RenderWorkspaceState("typed-parameter-defaults");
             RenderWorkspaceState("typed-parameter-defaults-narrow", 640, 800);
             Assert.Equal(0, defaultsViewport.ScrollableWidth);
+            var catalogDefaultEditor = AddTypedDefault("RngType", parameterValueType.Text);
+            var catalogDefaultInput = (ComboBox)catalogDefaultEditor.FindName("ChoiceValueInput");
+            Assert.Equal(Visibility.Visible, catalogDefaultInput.Visibility);
+            Assert.Equal(Visibility.Collapsed, ((TextBox)catalogDefaultEditor.FindName("TypedValueInput")).Visibility);
+            Assert.Contains("SplitMix64", catalogDefaultInput.Items.Cast<string>());
+            catalogDefaultInput.SetCurrentValue(ComboBox.SelectedItemProperty, "SplitMix64"); LayoutWorkspace();
+            Assert.Equal("SplitMix64", branchProject.Editor.ResultsParameterDefaults.Last().Value.Text);
+            Assert.True(save.IsEnabled);
+            var catalogDefaultText = (TextBox)catalogDefaultInput.Template.FindName("PART_EditableTextBox", catalogDefaultInput);
+            catalogDefaultText.SetCurrentValue(TextBox.TextProperty, "invalid RNG"); LayoutWorkspace();
+            Assert.False(save.IsEnabled); Assert.Contains("RngType", vm.Error);
+            catalogDefaultText.SetCurrentValue(TextBox.TextProperty, "LCG"); LayoutWorkspace();
+            Assert.True(save.IsEnabled);
+            var catalogDefaultRow = (ContentPresenter)((ItemsControl)defaultsList).ItemContainerGenerator.ContainerFromIndex(2);
+            var catalogDefaultKey = (ComboBox)((ItemsControl)defaultsList).ItemTemplate.FindName("DefaultKeyInput", catalogDefaultRow);
+            catalogDefaultKey.SetCurrentValue(ComboBox.SelectedItemProperty, "SorterCount"); LayoutWorkspace();
+            Assert.Equal("LCG", ((TextBox)catalogDefaultEditor.FindName("TypedValueInput")).Text);
+            Assert.False(save.IsEnabled);
+            catalogDefaultKey.SetCurrentValue(ComboBox.SelectedItemProperty, "RngType"); LayoutWorkspace();
+            Assert.Equal("LCG", catalogDefaultInput.Text); Assert.True(save.IsEnabled);
+            foreach (var width in new[] { 1000, 640 })
+            {
+                LayoutWorkspace(width, 800);
+                defaultsViewport.ScrollToVerticalOffset(defaultsViewport.VerticalOffset + catalogDefaultRow.TranslatePoint(new Point(0, 0), defaultsViewport).Y);
+                RenderWorkspaceState($"key-specific-defaults-{width}", width, 800);
+                Assert.Equal(0, defaultsViewport.ScrollableWidth);
+            }
+            branchProject.Editor.ResultsParameterDefaults.Last().RemoveCommand.Execute(null);
+            foreach (var (key, type) in new[] { ("SorterLibId", parameterValueType.SorterLibId), ("PrefixLibId", parameterValueType.PrefixLibId), ("MergeLibId", parameterValueType.MergeLibId) })
+            {
+                var libraryEditor = AddTypedDefault(key, type);
+                var binding = branchProject.Editor.ResultsParameterDefaults.Last();
+                Assert.Equal(Visibility.Collapsed, ((TextBox)libraryEditor.FindName("TypedValueInput")).Visibility);
+                var channels = (TextBox)libraryEditor.FindName("LibraryChannelCountInput");
+                Assert.Equal(Visibility.Visible, ((StackPanel)libraryEditor.FindName("LibraryIdFields")).Visibility);
+                channels.SetCurrentValue(TextBox.TextProperty, "16");
+                if (type == parameterValueType.PrefixLibId) ((TextBox)libraryEditor.FindName("LibraryStageLengthInput")).SetCurrentValue(TextBox.TextProperty, "1");
+                if (type == parameterValueType.MergeLibId) ((TextBox)libraryEditor.FindName("LibraryMergeDimensionInput")).SetCurrentValue(TextBox.TextProperty, "2");
+                ((ComboBox)libraryEditor.FindName("LibraryVariantInput")).SetCurrentValue(ComboBox.SelectedItemProperty, type == parameterValueType.PrefixLibId ? "Prefix1" : "VariantA");
+                LayoutWorkspace(); Assert.True(save.IsEnabled); Assert.Empty(binding.Error);
+                channels.SetCurrentValue(TextBox.TextProperty, "bad"); LayoutWorkspace();
+                Assert.False(save.IsEnabled); Assert.Equal("bad", channels.Text);
+                channels.SetCurrentValue(TextBox.TextProperty, "16"); LayoutWorkspace(); Assert.True(save.IsEnabled);
+                var catalog = (ComboBox)libraryEditor.FindName("LibraryCatalogInput");
+                Assert.NotEmpty(catalog.Items.Cast<string>());
+                catalog.SetCurrentValue(ComboBox.SelectedItemProperty, catalog.Items[0]); LayoutWorkspace();
+                Assert.Equal(catalog.Items[0], binding.Value.Text); Assert.True(save.IsEnabled);
+                foreach (var width in new[] { 1000, 640 })
+                {
+                    LayoutWorkspace(width, 1000);
+                    defaultsViewport.ScrollToVerticalOffset(defaultsViewport.VerticalOffset + libraryEditor.TranslatePoint(new Point(0, 0), defaultsViewport).Y - 28);
+                    RenderWorkspaceState($"{key}-editor-{width}", width, 1000);
+                    Assert.Equal(0, defaultsViewport.ScrollableWidth);
+                }
+                binding.RemoveCommand.Execute(null); LayoutWorkspace();
+            }
             var setupSource = WorkspaceHierarchyTests.AddSetupSource(branchProject!);
             LayoutWorkspace();
             var setupEntries = (ItemsControl)fields.FindName("SetupDataTypesList");
@@ -2790,6 +2875,42 @@ public sealed class RandomNetworkTests
             RenderWorkspaceState("setup-source-project-narrow", 640, 800);
             Assert.Equal(0, defaultsViewport.ScrollableWidth);
             LayoutWorkspace();
+            void CheckQueryKeyPicker(ItemsControl list, bool setup)
+            {
+                var inheritedDefault = WorkspaceParameterInheritanceTests.AddDefault(branchModule.Editor!, $"Inherited{(setup ? "Setup" : "Result")}Query", "value", setup);
+                var localDefault = WorkspaceParameterInheritanceTests.AddDefault(branchProject.Editor!, $"Local{(setup ? "Setup" : "Result")}Query", "value", setup);
+                LayoutWorkspace();
+                var queryRow = (ContentPresenter)list.ItemContainerGenerator.ContainerFromIndex(0);
+                var query = (WorkspaceTextEntry)queryRow.Content;
+                var originalKey = query.Text;
+                var picker = (ComboBox)list.ItemTemplate.FindName("QueryKeyInput", queryRow);
+                Assert.True(picker.IsEditable); Assert.Contains("ChannelCount", picker.Items.Cast<string>());
+                Assert.Contains(inheritedDefault.Key, picker.Items.Cast<string>()); Assert.Contains(localDefault.Key, picker.Items.Cast<string>());
+                picker.SetCurrentValue(ComboBox.SelectedItemProperty, inheritedDefault.Key); LayoutWorkspace();
+                Assert.Equal(inheritedDefault.Key, query.Text);
+                var addedDefault = WorkspaceParameterInheritanceTests.AddDefault(branchModule.Editor!, "AddedWhileEditingQuery", "value", setup);
+                LayoutWorkspace();
+                Assert.Contains(addedDefault.Key, picker.Items.Cast<string>());
+                Assert.Equal(inheritedDefault.Key, query.Text); Assert.Equal(inheritedDefault.Key, picker.Text);
+                picker.SetCurrentValue(ComboBox.SelectedItemProperty, localDefault.Key); LayoutWorkspace();
+                localDefault.RemoveCommand.Execute(null); LayoutWorkspace();
+                Assert.Equal(localDefault.Key, query.Text); Assert.Equal(localDefault.Key, picker.Text);
+                var typedKey = (TextBox)picker.Template.FindName("PART_EditableTextBox", picker);
+                typedKey.SetCurrentValue(TextBox.TextProperty, "CustomQueryWithoutDefault"); LayoutWorkspace();
+                Assert.Equal("CustomQueryWithoutDefault", query.Text); Assert.Equal(query.Text, typedKey.Text);
+                foreach (var width in new[] { 1000, 640 })
+                {
+                    LayoutWorkspace(width, 800);
+                    defaultsViewport.ScrollToVerticalOffset(defaultsViewport.VerticalOffset + list.TranslatePoint(new Point(0, 0), defaultsViewport).Y - 36);
+                    RenderWorkspaceState($"{(setup ? "setup" : "results")}-query-key-picker-{width}", width, 800);
+                    Assert.Equal(0, defaultsViewport.ScrollableWidth);
+                }
+                typedKey.SetCurrentValue(TextBox.TextProperty, originalKey);
+                inheritedDefault.RemoveCommand.Execute(null); addedDefault.RemoveCommand.Execute(null); LayoutWorkspace();
+                Assert.Equal(originalKey, query.Text);
+            }
+            CheckQueryKeyPicker((ItemsControl)fields.FindName("ResultsQueryKeysList"), false);
+            CheckQueryKeyPicker((ItemsControl)setupEntries.ItemTemplate.FindName("SetupQueryKeysList", setupEntry), true);
             vm.AddRunCommand.Execute(null);
             vm.Selected!.Name = "Evolve candidate";
             LayoutWorkspace();
@@ -2824,6 +2945,9 @@ public sealed class RandomNetworkTests
                 LayoutWorkspace();
                 var list = (ItemsControl)fields.FindName(listName);
                 var row = (ContentPresenter)list.ItemContainerGenerator.ContainerFromIndex(0);
+                var keyPicker = (ComboBox)list.ItemTemplate.FindName("ParameterKeyInput", row);
+                Assert.Contains("ChannelCount", keyPicker.Items.Cast<string>());
+                Assert.Contains(((WorkspaceParameterSpan)row.Content).Key, keyPicker.Items.Cast<string>());
                 ((Button)list.ItemTemplate.FindName("AddParameterValueButton", row)).Command.Execute(null);
                 LayoutWorkspace();
                 var values = (ItemsControl)list.ItemTemplate.FindName("ParameterValues", row);
@@ -2836,10 +2960,13 @@ public sealed class RandomNetworkTests
             Assert.Equal("7,11", branchRun.Editor!.ResultsParameters.Single().Values.Single().Text);
             Assert.Equal("8", branchRun.Editor.SetupParameters.Single().Values.Single().Text);
             branchRun.Editor.AddResultsParameterCommand.Execute(null);
-            branchRun.Editor.ResultsParameters.Last().Key = "SetupCompleted";
             LayoutWorkspace();
             var typedSpans = (ItemsControl)fields.FindName("ResultsParametersList");
             var typedSpanRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromIndex(1);
+            var typedKeyPicker = (ComboBox)typedSpans.ItemTemplate.FindName("ParameterKeyInput", typedSpanRow);
+            typedKeyPicker.SetCurrentValue(ComboBox.SelectedItemProperty, "SetupCompleted");
+            LayoutWorkspace();
+            Assert.Equal("SetupCompleted", branchRun.Editor.ResultsParameters.Last().Key);
             var typedValues = (ItemsControl)typedSpans.ItemTemplate.FindName("ParameterValues", typedSpanRow);
             var typedValueRow = (ContentPresenter)typedValues.ItemContainerGenerator.ContainerFromIndex(0);
             var typedSpanEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)typedValues.ItemTemplate.FindName("ParameterValueEditor", typedValueRow);
@@ -2849,6 +2976,48 @@ public sealed class RandomNetworkTests
             Assert.Equal("False", branchRun.Editor.ResultsParameters.Last().Values.Single().Text);
             Assert.Equal("Overridden by run span", branchRun.Editor.InheritedOutputDefaults.Single(value => value.Key == "SetupCompleted").Usage);
             Assert.True(save.IsEnabled);
+            // Selecting a key through the combobox changes the value editor and validation.
+            branchRun.Editor.AddResultsParameterCommand.Execute(null); LayoutWorkspace();
+            var choiceRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromIndex(2);
+            var choiceKey = (ComboBox)typedSpans.ItemTemplate.FindName("ParameterKeyInput", choiceRow);
+            choiceKey.SetCurrentValue(ComboBox.SelectedItemProperty, "RngType"); LayoutWorkspace();
+            var choiceValues = (ItemsControl)typedSpans.ItemTemplate.FindName("ParameterValues", choiceRow);
+            var choiceValueRow = (ContentPresenter)choiceValues.ItemContainerGenerator.ContainerFromIndex(0);
+            var choiceEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)choiceValues.ItemTemplate.FindName("ParameterValueEditor", choiceValueRow);
+            var choiceInput = (ComboBox)choiceEditor.FindName("ChoiceValueInput");
+            Assert.Equal(Visibility.Visible, choiceInput.Visibility);
+            Assert.Equal(Visibility.Collapsed, ((TextBox)choiceEditor.FindName("TypedValueInput")).Visibility);
+            choiceInput.SetCurrentValue(ComboBox.SelectedItemProperty, "SplitMix64"); LayoutWorkspace();
+            Assert.Equal("SplitMix64", branchRun.Editor.ResultsParameters.Last().Values[0].Text);
+            Assert.True(save.IsEnabled);
+            var choiceTextInput = (TextBox)choiceInput.Template.FindName("PART_EditableTextBox", choiceInput);
+            choiceTextInput.SetCurrentValue(TextBox.TextProperty, "invalid RNG"); LayoutWorkspace();
+            Assert.Equal("invalid RNG", branchRun.Editor.ResultsParameters.Last().Values[0].Text);
+            Assert.Contains("RngType", vm.Error); Assert.False(save.IsEnabled);
+            choiceTextInput.SetCurrentValue(TextBox.TextProperty, "SplitMix64"); LayoutWorkspace();
+            Assert.Equal("SplitMix64", choiceInput.Text); Assert.True(save.IsEnabled);
+            choiceKey.SetCurrentValue(ComboBox.SelectedItemProperty, "ChannelCount"); LayoutWorkspace();
+            var numericInput = (TextBox)choiceEditor.FindName("TypedValueInput");
+            Assert.Equal(Visibility.Visible, numericInput.Visibility); Assert.Equal("SplitMix64", numericInput.Text);
+            Assert.False(save.IsEnabled);
+            numericInput.SetCurrentValue(TextBox.TextProperty, "0"); LayoutWorkspace();
+            Assert.Contains("1 or greater", vm.Error); Assert.False(save.IsEnabled);
+            numericInput.SetCurrentValue(TextBox.TextProperty, "16"); LayoutWorkspace(); Assert.True(save.IsEnabled);
+            choiceKey.SetCurrentValue(ComboBox.TextProperty, "CustomTypedKey"); LayoutWorkspace();
+            Assert.Equal("CustomTypedKey", branchRun.Editor.ResultsParameters.Last().Key);
+            Assert.Equal("16", branchRun.Editor.ResultsParameters.Last().Values[0].Text);
+            choiceKey.SetCurrentValue(ComboBox.SelectedItemProperty, "RngType"); LayoutWorkspace();
+            choiceInput.SetCurrentValue(ComboBox.SelectedItemProperty, "SplitMix64"); LayoutWorkspace();
+            Assert.True(save.IsEnabled);
+            var spanViewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
+            foreach (var width in new[] { 1000, 640 })
+            {
+                LayoutWorkspace(width, 800);
+                spanViewport.ScrollToVerticalOffset(spanViewport.VerticalOffset + choiceRow.TranslatePoint(new Point(0, 0), spanViewport).Y);
+                RenderWorkspaceState($"span-key-editors-{width}", width, 800);
+                Assert.Equal(0, spanViewport.ScrollableWidth);
+            }
+            LayoutWorkspace();
             Assert.Equal("Evaluate", branchRun.Editor!.ResultsFunctionName);
             var overrideEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("DescriptionOverrideEditor");
             var overrideToggle = (CheckBox)overrideEditor.FindName("OverrideToggle");

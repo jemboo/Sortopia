@@ -129,7 +129,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     public string ContainmentHint => IsWorkspace ? "Choose a root module for runs without setup, or a branch module for runs with setup."
         : Kind == WorkspaceEntityKind.Module ? $"Contains {FamilyName.ToLowerInvariant()} modules and {FamilyName.ToLowerInvariant()} projects. New children inherit this type."
         : Kind == WorkspaceEntityKind.Project ? $"Contains only {FamilyName.ToLowerInvariant()} runs. Projects do not contain other projects."
-        : IsBranch ? "Branch run: supply setup and execution parameters. Description and setup values can inherit or be overridden."
+        : IsBranch ? "Branch run: supply setup and execution parameters. Database names come from the project; description and the setup function can be overridden."
         : "Root run: supply execution parameters and choose whether to inherit the project description.";
     public bool IsProject => Kind == WorkspaceEntityKind.Project;
     public bool HasConfiguration => !IsWorkspace;
@@ -291,7 +291,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         : folderFollowsName ? "Follows the name until saved or edited manually." : "Changing the name keeps this folder location.";
     public string NameError => nameError;
     public string FolderNameError => folderNameError;
-    internal string EditError => nameError.Length > 0 ? nameError : folderNameError.Length > 0 ? folderNameError
+    internal string EditError => nameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Name: {nameError}" : folderNameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Folder name: {folderNameError}"
         : Editor?.ValidationError is { Length: > 0 } error ? $"{KindLabel} '{Name}': {error}"
         : Children.Select(child => child.EditError).FirstOrDefault(message => message.Length > 0) ?? "";
     private void SetNameError(string value)
@@ -304,6 +304,12 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     }
     private string Collision(string value, bool folder)
     {
+        try { if (folder) Sortopia.Runs.FolderName.validate(value); else EntityName.validate(value); }
+        catch (ArgumentException exception)
+        {
+            return folder ? "Choose a folder name without reserved characters, trailing dots/spaces, or a reserved device name. " + exception.Message.Split(" (Parameter", StringSplitOptions.None)[0]
+                : "Enter a name without leading/trailing spaces or control characters; the name cannot be blank.";
+        }
         return Parent?.ChildCollision(Kind, value, folder, this) ?? "";
     }
     private string ChildCollision(WorkspaceEntityKind kind, string value, bool folder, WorkspaceTreeNode? excluded = null)
@@ -359,7 +365,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
     {
         var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id, value.Kind);
-        node.Editor!.LoadOverrides(OverridesDto.fromDomain(value.LocalOverrides));
+        node.Editor!.LoadOverrides(ModuleSettingsDto.toProjectSettings(ModuleOverridesDto.fromDomain(value.LocalOverrides)));
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
         node.RememberSavedChildren();
@@ -389,7 +395,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         CheckDepth(depth);
         ValidateChildren();
-        return WorkspaceModule.createInherited(Id, Name, FolderName, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
+        return WorkspaceModule.createInherited(Id, Name, FolderName, ModuleDefaults.fromProject(ParentConfiguration()), ModuleOverridesDto.toDomain(Family, ModuleSettingsDto.fromProjectSettings(Editor!.ToLocalOverrides())), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private project ReadProject()

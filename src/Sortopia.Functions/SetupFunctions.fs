@@ -14,7 +14,7 @@ open FunctionParameters
 // SortableTestsMakers.makeStandardTests and SorterModelSetMakers.makeUniformSorterModelSet.
 // Copyright (c) 2025 Tom Patterson. See GENESORT-LICENSE.txt.
 module SetupFunctions =
-    let makeStandardTests : setupFunction = fun parameters _ ->
+    let makeStandardTests : resultsFunction = fun parameters _ ->
         try
             let channels = required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>
             let format = required ParamKeys.sortableDataFormatKey parameters |> SortableDataFormat.fromString
@@ -23,7 +23,7 @@ module SetupFunctions =
             Ok [functionData.SortableTests (tests, [||])]
         with error -> Error error.Message
 
-    let makeUniformSorterModels : setupFunction = fun parameters _ ->
+    let makeUniformSorterModels : resultsFunction = fun parameters _ ->
         try
             let channels = required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>
             let modelType = required ParamKeys.simpleSorterModelTypeKey parameters |> SimpleSorterModelType.fromString
@@ -41,3 +41,11 @@ module SetupFunctions =
             let models = SorterModelGen.makeSorterModelSetFromIndexSpan (Guid.NewGuid() |> UMX.tag) (UMX.tag (int first)) (UMX.tag count) generator
             Ok [functionData.SorterModelSet models]
         with error -> Error error.Message
+
+    let standardTests : setupFunction = fun context parameters inputs ->
+        context.GetOrCreate("SortableTests", [], fun () -> makeStandardTests parameters inputs |> Result.map List.exactlyOne)
+        |> Result.map List.singleton
+
+    let uniformSorterModels : setupFunction = fun context parameters inputs ->
+        context.GetOrCreate("SorterModelSet", [], fun () -> makeUniformSorterModels parameters inputs |> Result.map List.exactlyOne)
+        |> Result.map List.singleton

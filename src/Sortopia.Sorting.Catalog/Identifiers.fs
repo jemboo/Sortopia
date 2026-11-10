@@ -49,6 +49,7 @@ type sorterLibId =
 
     static member create (channelCount: int<channelCount>) sorterVariant =
         IdText.positive "channelCount" (int channelCount)
+        if isNull (box sorterVariant) then nullArg "sorterVariant"
         { channelCount = channelCount; sorterVariant = sorterVariant }
 
     member this.ChannelCount = this.channelCount
@@ -77,6 +78,7 @@ type prefixLibId =
     static member create (channelCount: int<channelCount>) (stageLength: int<stageLength>) variant =
         IdText.positive "channelCount" (int channelCount)
         IdText.positive "stageLength" (int stageLength)
+        if isNull (box variant) then nullArg "variant"
         { channelCount = channelCount; stageLength = stageLength; variant = variant }
 
     member this.ChannelCount = this.channelCount
@@ -105,6 +107,7 @@ type mergeLibId =
     static member create (channelCount: int<channelCount>) (mergeDimension: int<mergeDimension>) variant =
         IdText.positive "channelCount" (int channelCount)
         IdText.positive "mergeDimension" (int mergeDimension)
+        if isNull (box variant) then nullArg "variant"
         if int channelCount % int mergeDimension <> 0 then
             invalidArg "mergeDimension" "Channel count must be divisible by merge dimension."
         { channelCount = channelCount; mergeDimension = mergeDimension; variant = variant }

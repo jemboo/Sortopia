@@ -15,7 +15,15 @@ type runFunctionResult = {
     SetNumber: int
     Parameters: parameterSet
     Outputs: functionData list
+    StoredOutputs: storedOutput list
 }
+
+type functionOutput = { Values: functionData list; Stored: storedOutput list }
+
+/// Execution policy is separate from the function catalog and loop.
+type IRunDataAccess =
+    abstract Setup: branchRun * parameterSet * functionData list * setupFunction -> Result<functionOutput, string>
+    abstract Results: run * parameterSet * runFunctionResult option * functionData list * resultsFunction -> Result<functionOutput, string>
 
 type runExecutionProgress = {
     Message: string
@@ -35,7 +43,7 @@ module RunExecution =
     /// with every results set; batches are never combined with each other.
     /// Inputs and outputs remain typed and in memory. Cancellation is checked
     /// between synchronous catalog calls, which cannot themselves be interrupted.
-    let execute (value: run) (inputs: functionData list)
+    let executeWith (data: IRunDataAccess) (value: run) (inputs: functionData list)
                 (progress: IProgress<runExecutionProgress>) (cancellation: CancellationToken) =
         let setup = ResizeArray<runFunctionResult>()
         let results = ResizeArray<runFunctionResult>()
@@ -70,21 +78,34 @@ module RunExecution =
                 | Error message -> invalidOp message
                 | Ok outputs ->
                     destination.Add { Phase = phase; FunctionName = name; SetupSetNumber = setupNumber
-                                      SetNumber = setNumber; Parameters = parameters; Outputs = outputs }
+                                      SetNumber = setNumber; Parameters = parameters; Outputs = outputs.Values; StoredOutputs = outputs.Stored }
                     notify ()
                 cancellation.ThrowIfCancellationRequested()
             match setupFunction, sets.Setup with
             | Some functionValue, Some setupSets ->
+                let branch = match value with run.BranchRun branch -> branch | _ -> invalidOp "Expected a branch run."
                 for i = 0 to setupSets.Length - 1 do
-                    invoke runExecutionPhase.Setup (UMX.untag value.SetupFunctionName.Value) None (i + 1) setupSets[i] inputs functionValue setup
+                    invoke runExecutionPhase.Setup (UMX.untag value.SetupFunctionName.Value) None (i + 1) setupSets[i] inputs
+                        (fun parameters inputs -> data.Setup(branch, parameters, inputs, functionValue)) setup
                 for batch in setup do
                     for i = 0 to sets.Results.Length - 1 do
                         invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) (Some batch.SetNumber)
-                            (i + 1) sets.Results[i] (inputs @ batch.Outputs) resultsFunction results
+                            (i + 1) sets.Results[i] (inputs @ batch.Outputs)
+                            (fun parameters inputs -> data.Results(value, parameters, Some batch, inputs, resultsFunction)) results
             | _ ->
                 for i = 0 to sets.Results.Length - 1 do
-                    invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) None (i + 1) sets.Results[i] inputs resultsFunction results
+                    invoke runExecutionPhase.Results (UMX.untag value.ResultsFunctionName) None (i + 1) sets.Results[i] inputs
+                        (fun parameters inputs -> data.Results(value, parameters, None, inputs, resultsFunction)) results
             report runExecutionStatus.Completed ""
         with
         | :? OperationCanceledException when cancellation.IsCancellationRequested -> report runExecutionStatus.Cancelled ""
         | error -> report runExecutionStatus.Failed $"{context}: {error.Message}"
+
+    let execute value inputs progress cancellation =
+        let transient = {
+            new IRunDataAccess with
+                member _.Setup(_, parameters, inputs, functionValue) =
+                    functionValue SetupDataContext.transient parameters inputs |> Result.map (fun outputs -> { Values = outputs; Stored = [] })
+                member _.Results(_, parameters, _, inputs, functionValue) =
+                    functionValue parameters inputs |> Result.map (fun outputs -> { Values = outputs; Stored = [] }) }
+        executeWith transient value inputs progress cancellation

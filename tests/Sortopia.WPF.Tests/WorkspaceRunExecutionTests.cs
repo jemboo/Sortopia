@@ -1,5 +1,7 @@
 using System.IO;
 using Sortopia.Functions;
+using Sortopia.Runs;
+using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -15,17 +17,43 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         var settings = new WorkspaceFolderSettings(Path.Combine(folder, "settings.txt")); settings.Save(root);
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        var configuration = RunExecutionTests.Settings(branch);
+        configuration.resultsQueryParameterKeys = ["Repl"];
+        configuration.resultsParameterDefaults = [..configuration.resultsParameterDefaults, new() { keyName = "Repl", valueType = (int)parameterValueType.Integer, value = "0" }];
+        page.Selected!.Editor!.LoadProject(configuration);
         page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
+        var run = page.Selected!;
+        if (branch)
+        {
+            page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null);
+            page.Selected!.Name = "Source module";
+            page.Selected.Editor!.LoadProject(RunExecutionTests.Settings(false));
+            page.AddProjectCommand.Execute(null);
+            var source = page.Selected!; source.Name = "Source";
+            page.AddRunCommand.Execute(null);
+            configuration.setupDataTypes = [new() { dataType = configuration.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }];
+            run.Parent!.Editor!.LoadProject(configuration);
+            page.Selected = run;
+        }
         return page;
     }
     internal static void SelectRun(WorkspacePageViewModel page) => page.Selected = page.Roots[0].Children[0].Children[0].Children[0];
+    internal static async Task ExecuteSourceAsync(WorkspacePageViewModel page)
+    {
+        if (page.Roots[0].Children.Count > 1)
+        {
+            page.Selected = page.Roots[0].Children[1].Children[0].Children[0];
+            await page.ExecuteRunAsync();
+            Assert.Empty(page.Error);
+        }
+        SelectRun(page);
+    }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Execution_uses_saved_defaults_and_spans_without_editing_or_saving_outputs(bool branch)
+    public async Task Execution_persists_outputs_without_changing_saved_definitions(bool branch)
     {
         var page = Create(temporary.FullName, branch);
         WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!.Editor!, "Repl", false, "1", "2", "3");
@@ -33,6 +61,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         Assert.False(page.ExecuteRunCommand.CanExecute(null));
         Assert.Contains("Save", page.ExecuteHint);
         await page.SaveWorkspaceAsync(); SelectRun(page);
+        await ExecuteSourceAsync(page);
         Assert.Empty(page.Error);
         Assert.True(page.ExecuteRunCommand.CanExecute(null));
         var files = Directory.GetFiles(page.WorkspaceFolder, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
@@ -45,7 +74,18 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         Assert.False(page.IsBusy); Assert.False(page.HasUnsavedChanges);
         Assert.True(page.ExecuteRunCommand.CanExecute(null));
         foreach (var file in files) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
-        Assert.Equal(files.Count, Directory.GetFiles(page.WorkspaceFolder, "*", SearchOption.AllDirectories).Length);
+        Assert.True(Directory.GetFiles(page.WorkspaceFolder, "*", SearchOption.AllDirectories).Length > files.Count);
+        var outputs = state.Report.Results.SelectMany(call => call.StoredOutputs).ToArray();
+        Assert.Equal(3, outputs.Select(output => output.Reference.Id).Distinct().Count());
+        if (branch) Assert.Single(state.Report.Setup.SelectMany(call => call.StoredOutputs).Select(output => output.Reference.Id).Distinct());
+        await page.ExecuteRunAsync();
+        Assert.All(page.SelectedExecution!.Report!.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
+        var reopened = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
+        SelectRun(reopened);
+        await reopened.ExecuteRunAsync();
+        Assert.Empty(reopened.Error);
+        Assert.Equal(outputs.Select(output => output.Reference.Id), reopened.SelectedExecution!.Report!.Results.SelectMany(call => call.StoredOutputs).Select(output => output.Reference.Id));
+        Assert.All(reopened.SelectedExecution.Report.Setup.Concat(reopened.SelectedExecution.Report.Results).SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
         page.Selected = page.Selected!.Parent;
         Assert.Null(page.SelectedExecution); Assert.False(page.ExecuteRunCommand.CanExecute(null));
         page.AddRunCommand.Execute(null);

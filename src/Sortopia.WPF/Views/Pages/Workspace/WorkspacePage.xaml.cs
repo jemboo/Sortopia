@@ -9,6 +9,28 @@ namespace Sortopia.WPF.Views.Pages.Workspace;
 
 public partial class WorkspacePage : UserControl
 {
+    private void OnReviewSaveIssue(object sender, RoutedEventArgs args)
+    {
+        if (sender is not FrameworkContentElement { DataContext: WorkspaceSaveIssue issue }) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            FrameworkElement? target = issue.Section switch
+            {
+                "Name" => issue.Node.IsWorkspace ? WorkspaceNameInput : EntityNameInput,
+                "Location" => EntityLocationExpander,
+                "Results settings" => ConfigurationFields.FindName("ResultsSettingsSection") as FrameworkElement,
+                "Setup settings" => ConfigurationFields.FindName("SetupSettingsSection") as FrameworkElement,
+                "Results parameter defaults" => ConfigurationFields.FindName("ResultsDefaultsSection") as FrameworkElement,
+                "Setup parameter defaults" => ConfigurationFields.FindName("SetupDefaultsSection") as FrameworkElement,
+                "Results parameter spans" => ConfigurationFields.FindName("ResultsSpansSection") as FrameworkElement,
+                "Setup parameter spans" => ConfigurationFields.FindName("SetupSpansSection") as FrameworkElement,
+                _ => null
+            };
+            if (target is Expander section) section.IsExpanded = true;
+            target?.BringIntoView(new Rect(0, 0, target.ActualWidth, Math.Min(32, target.ActualHeight)));
+            if (target is TextBox input) input.Focus();
+        }));
+    }
     private readonly DispatcherTimer diskStatusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private void OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> args)
     {

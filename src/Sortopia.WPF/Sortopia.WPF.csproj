@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Functions/Sortopia.Functions.fsproj" />
+    <ProjectReference Include="../Sortopia.FileDb/Sortopia.FileDb.fsproj" />
     <ProjectReference Include="..\Sortopia.Sorting.Catalog\Sortopia.Sorting.Catalog.fsproj" />
     <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
     <ProjectReference Include="../Sortopia.Models.Inputs/Sortopia.Models.Inputs.fsproj" />

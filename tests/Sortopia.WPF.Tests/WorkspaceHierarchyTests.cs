@@ -64,10 +64,10 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     }
     internal static run MakeRun(string projectName, string name, bool branch = false) => FromRunDto(new runDto
     {
-        schemaVersion = 9, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id(projectName + "/project"), runName = name,
+        schemaVersion = 11, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id(projectName + "/project"), runName = name,
         descriptionOverride = null,
         resultsParameterSpans = [new parameterSpanDto { keyName = "Seed", values = ["7", "11"] }],
-        setupDatabaseNameOverride = null, setupFunctionNameOverride = null,
+        setupFunctionNameOverride = null,
         setupParameterSpans = branch ? [new parameterSpanDto { keyName = "Width", values = ["8", "12"] }] : []
     }, projectName);
     private workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Branch, Guid.NewGuid(), "Sorting", "Sorting",
@@ -82,7 +82,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var original = MakeRun("Search", "Trial", branch);
         var renamed = WorkspaceRun.withNames("Search", "Trial: renamed", original);
         var bytes = WorkspaceCodec.encodeRun(renamed);
-        Assert.Equal(9, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
+        Assert.Equal(11, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
         Assert.Equal("Trial: renamed", DecodeRun(bytes).RunName);
         Assert.Equal(original.Id, DecodeRun(bytes).Id);
         Assert.Null(typeof(run).GetProperty("FolderName"));
@@ -106,7 +106,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         exposed[0] = WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Replaced", "Replaced", [], []);
         Assert.Equal("Sorting", restored.Modules[0].ModuleName);
         var invalid = WorkspaceDto.fromDomain(original);
-        invalid.schemaVersion = 99;
+        invalid.schemaVersion = 109;
         Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeWorkspace(MessagePackSetup.serialize(invalid)));
     }
 

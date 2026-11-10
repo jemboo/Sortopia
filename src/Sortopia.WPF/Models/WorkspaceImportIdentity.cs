@@ -18,20 +18,20 @@ internal sealed class WorkspaceImportIdentity
         foreach (var child in value.modules) Allocate(child);
         foreach (var child in value.projects) Allocate(child);
     }
-    private void Settings(projectSettingsDto value)
+    private void Settings(setupDataTypeConfigDto[]? entries)
     {
-        foreach (var entry in value.setupDataTypes ?? []) entry.sourceProjectId = replacements.GetValueOrDefault(entry.sourceProjectId, entry.sourceProjectId);
+        foreach (var entry in entries ?? []) entry.sourceProjectId = replacements.GetValueOrDefault(entry.sourceProjectId, entry.sourceProjectId);
     }
     private void Rewrite(projectDto value)
     {
         value.id = replacements[value.id];
-        Settings(value.configuration); Settings(value.localOverrides);
+        Settings(value.configuration.setupDataTypes); Settings(value.localOverrides.setupDataTypes);
         foreach (var run in value.runs) { run.id = replacements[run.id]; run.parentProjectId = value.id; }
     }
     private void Rewrite(moduleDto value)
     {
         value.id = replacements[value.id];
-        Settings(value.configuration); Settings(value.localOverrides);
+        Settings(value.configuration.setupDataTypes); Settings(value.localOverrides.setupDataTypes);
         foreach (var child in value.modules) Rewrite(child);
         foreach (var child in value.projects) Rewrite(child);
     }

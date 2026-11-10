@@ -18,6 +18,34 @@
         </TextBox>
         <ComboBox x:Name="BooleanValueInput" ItemsSource="{Binding BooleanChoices}" SelectedItem="{Binding BooleanValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                   Visibility="{Binding IsBoolean, Converter={StaticResource VisibleWhen}}" ToolTip="Choose True or False" AutomationProperties.Name="Boolean parameter value" />
+        <ComboBox x:Name="ChoiceValueInput" IsEditable="True" IsTextSearchEnabled="False" MaxDropDownHeight="240"
+                  SelectionChanged="OnChoiceSelectionChanged" ToolTip="{Binding Hint}"
+                  Visibility="{Binding HasChoices, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Parameter value choice">
+            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="440" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <StackPanel x:Name="LibraryIdFields" Visibility="{Binding IsLibraryId, Converter={StaticResource VisibleWhen}}">
+            <StackPanel DataContext="{Binding LibraryId}">
+                <Label Content="Catalog entry" Target="{Binding ElementName=LibraryCatalogInput}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                <ComboBox x:Name="LibraryCatalogInput" ItemsSource="{Binding CatalogChoices}" SelectedItem="{Binding SelectedCatalogId, Mode=TwoWay}" MaxDropDownHeight="260" AutomationProperties.Name="Library catalog entry">
+                    <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="420" /></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="{Binding CatalogHint}" TextWrapping="Wrap" Foreground="{DynamicResource Workspace.TextSecondary}" FontSize="12" Margin="0,6,0,8" />
+                <Label Content="Channel count" Target="{Binding ElementName=LibraryChannelCountInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                <TextBox x:Name="LibraryChannelCountInput" Text="{Binding ChannelCount, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Library channel count" />
+                <StackPanel Visibility="{Binding IsPrefix, Converter={StaticResource VisibleWhen}}">
+                    <Label Content="Stage length" Target="{Binding ElementName=LibraryStageLengthInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                    <TextBox x:Name="LibraryStageLengthInput" Text="{Binding StageLength, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Prefix stage length" />
+                </StackPanel>
+                <StackPanel Visibility="{Binding IsMerge, Converter={StaticResource VisibleWhen}}">
+                    <Label Content="Merge dimension" Target="{Binding ElementName=LibraryMergeDimensionInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                    <TextBox x:Name="LibraryMergeDimensionInput" Text="{Binding MergeDimension, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Merge dimension" />
+                </StackPanel>
+                <Label Content="Variant" Target="{Binding ElementName=LibraryVariantInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                <ComboBox x:Name="LibraryVariantInput" ItemsSource="{Binding Variants}" SelectedItem="{Binding Variant, Mode=TwoWay}" AutomationProperties.Name="Library variant" />
+                <TextBlock Text="Identifier" Margin="0,6,0,4" />
+                <TextBox Text="{Binding Identifier, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="100" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Library identifier" />
+            </StackPanel>
+        </StackPanel>
         <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" TextWrapping="Wrap" />
     </StackPanel>
 </UserControl>

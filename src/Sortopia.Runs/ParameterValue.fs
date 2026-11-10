@@ -2,6 +2,7 @@ namespace Sortopia.Runs
 
 open System
 open System.Globalization
+open Sortopia.Sorting.Catalog
 
 type parameterValueType =
     | Text = 0
@@ -10,6 +11,9 @@ type parameterValueType =
     | Floating = 3
     | Boolean = 4
     | Guid = 5
+    | SorterLibId = 6
+    | PrefixLibId = 7
+    | MergeLibId = 8
 
 /// A typed parameter value, independent of its key or role in a run.
 type parameterValue =
@@ -19,6 +23,9 @@ type parameterValue =
     | FloatingValue of float
     | BooleanValue of bool
     | GuidValue of Guid
+    | SorterLibIdValue of sorterLibId
+    | PrefixLibIdValue of prefixLibId
+    | MergeLibIdValue of mergeLibId
 
 module ParameterValue =
     let private invariant = CultureInfo.InvariantCulture
@@ -29,6 +36,9 @@ module ParameterValue =
         | FloatingValue _ -> parameterValueType.Floating
         | BooleanValue _ -> parameterValueType.Boolean
         | GuidValue _ -> parameterValueType.Guid
+        | SorterLibIdValue _ -> parameterValueType.SorterLibId
+        | PrefixLibIdValue _ -> parameterValueType.PrefixLibId
+        | MergeLibIdValue _ -> parameterValueType.MergeLibId
     let typeFor (value: Type) =
         if value = typeof<string> then parameterValueType.Text
         elif value = typeof<int> then parameterValueType.Integer
@@ -36,6 +46,9 @@ module ParameterValue =
         elif value = typeof<float> then parameterValueType.Floating
         elif value = typeof<bool> then parameterValueType.Boolean
         elif value = typeof<Guid> then parameterValueType.Guid
+        elif value = typeof<sorterLibId> then parameterValueType.SorterLibId
+        elif value = typeof<prefixLibId> then parameterValueType.PrefixLibId
+        elif value = typeof<mergeLibId> then parameterValueType.MergeLibId
         else invalidArg "value" $"Unsupported parameter type: {value.Name}."
     let label = function
         | parameterValueType.Text -> "Text"
@@ -44,6 +57,9 @@ module ParameterValue =
         | parameterValueType.Floating -> "Floating point"
         | parameterValueType.Boolean -> "Boolean"
         | parameterValueType.Guid -> "GUID"
+        | parameterValueType.SorterLibId -> "Sorter library ID"
+        | parameterValueType.PrefixLibId -> "Prefix library ID"
+        | parameterValueType.MergeLibId -> "Merge library ID"
         | _ -> "Unknown type"
     let hint = function
         | parameterValueType.Text -> "Text; spaces, line breaks, and blank values are preserved."
@@ -52,6 +68,9 @@ module ParameterValue =
         | parameterValueType.Floating -> "Finite number using a decimal point; scientific notation is allowed."
         | parameterValueType.Boolean -> "Choose True or False."
         | parameterValueType.Guid -> "GUID, for example 01234567-89ab-cdef-0123-456789abcdef."
+        | parameterValueType.SorterLibId -> "Choose a sorter catalog entry, or specify a positive channel count and sorter variant."
+        | parameterValueType.PrefixLibId -> "Choose a prefix catalog entry, or specify positive channel and stage counts and a prefix variant."
+        | parameterValueType.MergeLibId -> "Specify a positive channel count, a positive merge dimension that divides it, and a sorter variant."
         | _ -> "Choose a supported parameter type."
 
     /// Validate the typed value without formatting or reparsing it.
@@ -60,11 +79,21 @@ module ParameterValue =
         match value with
         | TextValue text when isNull text -> invalidArg "value" (hint parameterValueType.Text)
         | FloatingValue number when not (Double.IsFinite number) -> invalidArg "value" (hint parameterValueType.Floating)
+        | SorterLibIdValue id ->
+            if isNull (box id) then nullArg "value"
+            sorterLibId.create id.ChannelCount id.SorterVariant |> ignore
+        | PrefixLibIdValue id ->
+            if isNull (box id) then nullArg "value"
+            prefixLibId.create id.ChannelCount id.StageLength id.PrefixLibVariant |> ignore
+        | MergeLibIdValue id ->
+            if isNull (box id) then nullArg "value"
+            mergeLibId.create id.ChannelCount id.MergeDimension id.SorterLibVariant |> ignore
         | _ -> ()
 
     /// Preserve a supported CLR value directly in the corresponding union case.
     let fromTyped (value: 'value) =
         let boxed = box value
+        if isNull boxed then nullArg "value"
         let result =
             match typeFor typeof<'value> with
             | parameterValueType.Text -> TextValue (unbox<string> boxed)
@@ -73,6 +102,9 @@ module ParameterValue =
             | parameterValueType.Floating -> FloatingValue (unbox<float> boxed)
             | parameterValueType.Boolean -> BooleanValue (unbox<bool> boxed)
             | parameterValueType.Guid -> GuidValue (unbox<Guid> boxed)
+            | parameterValueType.SorterLibId -> SorterLibIdValue (unbox<sorterLibId> boxed)
+            | parameterValueType.PrefixLibId -> PrefixLibIdValue (unbox<prefixLibId> boxed)
+            | parameterValueType.MergeLibId -> MergeLibIdValue (unbox<mergeLibId> boxed)
             | _ -> invalidArg "value" "Unsupported parameter type."
         validate result
         result
@@ -87,9 +119,16 @@ module ParameterValue =
             | FloatingValue value -> box value
             | BooleanValue value -> box value
             | GuidValue value -> box value
+            | SorterLibIdValue value -> box value
+            | PrefixLibIdValue value -> box value
+            | MergeLibIdValue value -> box value
         if not (isNull boxed) && boxed.GetType() = typeof<'value> then Some (unbox<'value> boxed) else None
 
     let private parsed wrap (success, value) = if success then Some (wrap value) else None
+    let private catalog parse wrap text =
+        try Some (wrap (parse text))
+        with
+        | :? ArgumentException | :? FormatException | :? OverflowException -> None
     let tryParse kind (text: string) =
         if isNull text then None
         else
@@ -103,6 +142,9 @@ module ParameterValue =
                 | _ -> None
             | parameterValueType.Boolean -> Boolean.TryParse(text) |> parsed BooleanValue
             | parameterValueType.Guid -> Guid.TryParse(text) |> parsed GuidValue
+            | parameterValueType.SorterLibId -> catalog SorterLibId.fromString SorterLibIdValue text
+            | parameterValueType.PrefixLibId -> catalog PrefixLibId.fromString PrefixLibIdValue text
+            | parameterValueType.MergeLibId -> catalog MergeLibId.fromString MergeLibIdValue text
             | _ -> None
     let format = function
         | TextValue value -> value
@@ -111,6 +153,9 @@ module ParameterValue =
         | FloatingValue value -> value.ToString("R", invariant)
         | BooleanValue value -> string value
         | GuidValue value -> value.ToString("D")
+        | SorterLibIdValue value -> SorterLibId.toString value
+        | PrefixLibIdValue value -> PrefixLibId.toString value
+        | MergeLibIdValue value -> MergeLibId.toString value
     let validationError kind text =
         if tryParse kind text |> Option.isSome then "" else hint kind
     let parse kind text =

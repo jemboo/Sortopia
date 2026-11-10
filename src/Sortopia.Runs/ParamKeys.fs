@@ -3,6 +3,7 @@ namespace Sortopia.Runs
 open System
 open System.Globalization
 open FSharp.UMX
+open Sortopia.Sorting.Catalog
 
 [<Measure>] type paramKeyName
 
@@ -49,6 +50,10 @@ module ParamKey =
     let guid name =
         create name (fun s -> Guid.TryParse(s) |> parsed) (fun value -> value.ToString("D"))
 
+    let sorterLibraryId name = create name (ParameterValue.tryParse parameterValueType.SorterLibId >> Option.bind ParameterValue.tryGet<sorterLibId>) SorterLibId.toString
+    let prefixLibraryId name = create name (ParameterValue.tryParse parameterValueType.PrefixLibId >> Option.bind ParameterValue.tryGet<prefixLibId>) PrefixLibId.toString
+    let mergeLibraryId name = create name (ParameterValue.tryParse parameterValueType.MergeLibId >> Option.bind ParameterValue.tryGet<mergeLibId>) MergeLibId.toString
+
 
 module ParamKeys =
     let setupCompletedKey = ParamKey.boolean "SetupCompleted"
@@ -78,7 +83,7 @@ module ParamKeys =
     let latticeDistanceKey = ParamKey.integer "LatticeDistance"
     let maxOrbitKey = ParamKey.integer "MaxOrbit"
     let mergeDimensionKey = ParamKey.integer "MergeDimension"
-    let mergeLibIdKey = ParamKey.text "MergeLibId"
+    let mergeLibIdKey = ParamKey.mergeLibraryId "MergeLibId"
     let mergeSuffixTypeKey = ParamKey.text "MergeSuffixType"
     let messageKey = ParamKey.text "Message"
     let modificationRateKey = ParamKey.floating "ModificationRate"
@@ -89,7 +94,7 @@ module ParamKeys =
     let orthoRateKey = ParamKey.floating "OrthoRate"
     let paraRateKey = ParamKey.floating "ParaRate"
     let partitionCountKey = ParamKey.integer "PartitionCount"
-    let prefixLibIdKey = ParamKey.text "PrefixLibId"
+    let prefixLibIdKey = ParamKey.prefixLibraryId "PrefixLibId"
     let prioritizeNewMutantsKey = ParamKey.boolean "PrioritizeNewMutants"
     let projectNameKey = ParamKey.text "ProjectName"
     let queryNameKey = ParamKey.text "QueryName"
@@ -124,7 +129,7 @@ module ParamKeys =
     let sorterEvalMeasureInitialKey = ParamKey.text "SorterEvalMeasureInitial"
     let sorterEvalMeasureKey = ParamKey.text "SorterEvalMeasure"
     let sorterEvalTypeKey = ParamKey.text "SorterEvalType"
-    let sorterLibIdKey = ParamKey.text "SorterLibId"
+    let sorterLibIdKey = ParamKey.sorterLibraryId "SorterLibId"
     let sorterLibVariantKey = ParamKey.text "SorterLibVariant"
     let sorterParentCountKey = ParamKey.integer "SorterParentCount"
     let sorterPoolCountKey = ParamKey.integer "SorterPoolCount"

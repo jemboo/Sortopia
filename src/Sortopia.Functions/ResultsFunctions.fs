@@ -20,13 +20,11 @@ module ResultsFunctions =
             let format = required ParamKeys.sortableDataFormatKey parameters |> SortableDataFormat.fromString
             let model, prefix =
                 match parameters.TryFind ParamKeys.mergeLibIdKey, parameters.TryFind ParamKeys.prefixLibIdKey with
-                | Some mergeName, None ->
-                    let library = MergeLibId.fromString mergeName
+                | Some library, None ->
                     let merge = msasM.create library.ChannelCount library.MergeDimension mergeSuffixType.NoSuffix library.SorterLibVariant
                     let prefix = merge.CeArray |> Option.defaultWith (fun () -> invalidArg "parameters" "The merge prefix is unavailable.")
                     sortableTestsModel.MsasMi merge, prefix
-                | None, Some prefixName ->
-                    let library = PrefixLibId.fromString prefixName
+                | None, Some library ->
                     let prefix = SorterDataParse.getCeArrayFromPrefixLib library |> Option.defaultWith (fun () -> invalidArg "parameters" "The prefix is unavailable.")
                     sortableTestsModel.MsasPfx (msasPfx.create library), prefix
                 | _ -> invalidArg "parameters" "Specify exactly one MergeLibId or PrefixLibId."

@@ -18,8 +18,9 @@ public sealed class RunExecutionTests
         settings.resultsFunctionName = ResultsFunctionNames.sortableTests;
         settings.setupFunctionName = branch ? SetupFunctionNames.standardTests : "";
         settings.resultsQueryParameterKeys = [];
+        settings.resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "standard" }];
         settings.resultsParameterDefaults = [Binding("SortableDataFormat", "Bools"), Binding("MergeLibId",
-            MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2)))];
+            MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2)), parameterValueType.MergeLibId)];
         settings.setupParameterDefaults = branch ? [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SortableDataFormat", "Bools")] : [];
         return settings;
     }
@@ -31,7 +32,7 @@ public sealed class RunExecutionTests
         var parent = project.create(id, "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings ?? Settings(branch)), []);
         return RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 9, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
+            schemaVersion = 11, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
             resultsParameterSpans = results ?? [], setupParameterSpans = setup ?? []
         });
     }
@@ -64,7 +65,7 @@ public sealed class RunExecutionTests
             ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, 3),
             ParameterBinding.create(ParamKeys.simpleSorterModelTypeKey, "Mssi"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
             ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, 0)]);
-        var models = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Invoke(modelParameters).Invoke(ListModule.Empty<functionData>()).ResultValue;
+        var models = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Invoke(SetupDataContext.transient).Invoke(modelParameters).Invoke(ListModule.Empty<functionData>()).ResultValue;
         var updates = new List<runExecutionProgress>();
         var report = Execute(value, new Progress(updates.Add), TestContext.Current.CancellationToken, models.ToArray());
         Assert.Equal(runExecutionStatus.Completed, report.Status);

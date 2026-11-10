@@ -17,7 +17,7 @@ public sealed class FunctionCatalogTests
     private static parameterSet Parameters(params parameterBinding[] bindings) => parameterSet.fromBindings(bindings);
     private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
     {
-        var function = setup ? FunctionCatalogs.setupFunctionCatalog[name] : FunctionCatalogs.resultsFunctionCatalog[name];
+        var function = setup ? FunctionCatalogs.setupFunctionCatalog[name].Invoke(SetupDataContext.transient) : FunctionCatalogs.resultsFunctionCatalog[name];
         var result = function.Invoke(parameters).Invoke(ListModule.OfArray(inputs));
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue : "");
         return result.ResultValue;
@@ -53,11 +53,10 @@ public sealed class FunctionCatalogTests
     [InlineData(true)]
     public void Standalone_results_generation_keeps_the_generating_prefix(bool merge)
     {
-        var key = merge ? ParamKeys.mergeLibIdKey : ParamKeys.prefixLibIdKey;
-        var library = merge ? MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2))
-            : PrefixLibId.toString(PrefixLib.ids().First(value => value.ChannelCount == 8 && value.StageLength == 1));
+        var library = merge ? ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2))
+            : ParameterBinding.create(ParamKeys.prefixLibIdKey, PrefixLib.ids().First(value => value.ChannelCount == 8 && value.StageLength == 1));
         var value = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(false, ResultsFunctionNames.sortableTests,
-            Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"), ParameterBinding.create(key, library)))));
+            Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"), library))));
         Assert.Equal(merge ? 4 : 8, SortableTests.getChannelCount(value.Item1));
         Assert.Equal(merge ? 9 : 81, SortableTests.getSortableCount(value.Item1));
         Assert.Equal(merge ? 2 : 4, value.Item2.Length);
@@ -67,17 +66,17 @@ public sealed class FunctionCatalogTests
     public void Catalog_functions_report_missing_or_invalid_inputs_without_requiring_a_host()
     {
         var empty = Parameters();
-        foreach (var function in FunctionCatalogs.resultsFunctionCatalog.Values.Concat(FunctionCatalogs.setupFunctionCatalog.Values))
+        foreach (var function in FunctionCatalogs.resultsFunctionCatalog.Values.Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => value.Invoke(SetupDataContext.transient))))
         {
             var result = function.Invoke(empty).Invoke(ListModule.Empty<functionData>());
             Assert.True(result.IsError);
             Assert.NotEmpty(result.ErrorValue);
         }
-        var wrongType = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.standardTests].Invoke(
+        var wrongType = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.standardTests].Invoke(SetupDataContext.transient).Invoke(
             Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "invalid"), ParameterBinding.create(ParamKeys.channelCountKey, 4)))
             .Invoke(ListModule.Empty<functionData>());
         Assert.True(wrongType.IsError);
-        var invalidReplication = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Invoke(ModelParameters(-1)).Invoke(ListModule.Empty<functionData>());
+        var invalidReplication = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.uniformSorterModels].Invoke(SetupDataContext.transient).Invoke(ModelParameters(-1)).Invoke(ListModule.Empty<functionData>());
         Assert.True(invalidReplication.IsError);
     }
 

@@ -44,6 +44,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         this.pickExistingFolder = pickExistingFolder ?? (_ => null);
         this.openFolder = openFolder;
         this.settings = settings;
+        InitializeSaveValidation();
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
         BrowseWorkspaceFolderCommand = new RelayCommand(async () => await BrowseWorkspaceFolderAsync(), () => !IsBusy && !resolvingNavigation);
         OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedExplorerFolder));
@@ -92,7 +93,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public string Status { get => status; private set => SetProperty(ref status, value); }
     private string DraftEditError => Roots.Select(root => root.EditError).FirstOrDefault(message => message.Length > 0) ?? "";
     public bool HasEditErrors => DraftEditError.Length > 0;
-    public string Error { get => HasEditErrors ? DraftEditError : error; private set => SetProperty(ref error, value); }
+    public string Error
+    {
+        get => HasEditErrors ? DraftEditError : error;
+        private set { if (SetProperty(ref error, value)) OnPropertyChanged(nameof(OperationError)); }
+    }
+    // Draft errors are already shown beside Save, with links to their fields.
+    public string OperationError => HasEditErrors ? "" : error;
     public RelayCommand ReturnHomeCommand { get; }
     public RelayCommand BrowseWorkspaceFolderCommand { get; }
     public RelayCommand OpenFolderCommand { get; }
@@ -192,7 +199,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     };
     public string WorkspaceName
     {
-        get => Roots.FirstOrDefault()?.Name ?? "";
+        get => Roots.FirstOrDefault()?.NameInput ?? "";
         set { if (Roots.Count > 0) Roots[0].Name = value; }
     }
     public string WorkspaceNameError
@@ -416,11 +423,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(WorkspaceName));
         OnPropertyChanged(nameof(WorkspaceNameError));
         OnPropertyChanged(nameof(Error));
+        OnPropertyChanged(nameof(OperationError));
         OnPropertyChanged(nameof(HasEditErrors));
         NotifyCommands();
     }
     private void EditValidationChanged()
     {
+        if (HasEditErrors) HasUnsavedChanges = true;
         RetainedFolders = [];
         NotifyDraftProperties();
     }
@@ -448,6 +457,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     }
     private void NotifyCommands()
     {
+        NotifySaveValidation();
         OnPropertyChanged(nameof(SelectedExecution));
         OnPropertyChanged(nameof(ExecuteHint));
         OnPropertyChanged(nameof(ExecutionInstructions));
@@ -461,17 +471,26 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public void Cancel() => cancellation?.Cancel();
     public Task SaveWorkspaceAsync() => !CanSaveWorkspace ? Task.CompletedTask : RunAsync(async token =>
     {
-        var definition = Roots.Single().ToWorkspace();
-        var original = savedDefinition;
-        var copies = Roots.Single().GetPendingCopies(WorkspaceFolder).ToArray();
-        var moves = Roots.Single().GetPendingMoves(WorkspaceFolder);
-        var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateWorkspace(WorkspaceFolder, definition, token, copies, moves)
-            : WorkspaceFileStore.SaveWorkspace(WorkspaceFolder, definition, original, token, copies, moves), token);
-        AcceptSavedDefinition(result.Definition);
-        RetainedFolders = result.RetainedFolders;
-        Status = $"Workspace '{definition.WorkspaceName}' saved." + (result.CopiedFolders > 0
-            ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "component" : "components")}; sources are unchanged." : "")
-            + (result.MovedFolders > 0 ? $" Moved {result.MovedFolders} {(result.MovedFolders == 1 ? "component" : "components")} with all contents." : "");
+        try
+        {
+            var definition = Roots.Single().ToWorkspace();
+            var original = savedDefinition;
+            var copies = Roots.Single().GetPendingCopies(WorkspaceFolder).ToArray();
+            var moves = Roots.Single().GetPendingMoves(WorkspaceFolder);
+            var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateWorkspace(WorkspaceFolder, definition, token, copies, moves)
+                : WorkspaceFileStore.SaveWorkspace(WorkspaceFolder, definition, original, token, copies, moves), token);
+            AcceptSavedDefinition(result.Definition);
+            RetainedFolders = result.RetainedFolders;
+            Status = $"Workspace '{definition.WorkspaceName}' saved." + (result.CopiedFolders > 0
+                ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "component" : "components")}; sources are unchanged." : "")
+                + (result.MovedFolders > 0 ? $" Moved {result.MovedFolders} {(result.MovedFolders == 1 ? "component" : "components")} with all contents." : "");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception)
+        {
+            Error = $"Could not save workspace ‘{WorkspaceName}’. {exception.GetBaseException().Message} Your edits are still open; correct the problem and save again.";
+            Status = "Workspace changes have not been saved.";
+        }
     });
     private async Task RunAsync(Func<CancellationToken, Task> action)
     {
@@ -525,7 +544,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
                     case WorkspaceUnsavedChoice.Save:
                         if (!CanSaveWorkspace)
                         {
-                            Error = WorkspaceNameError.Length > 0 ? WorkspaceNameError : "Correct the workspace errors before saving, or choose Discard or Cancel.";
+                            Error = SaveHint;
                             return false;
                         }
                         await SaveWorkspaceAsync();

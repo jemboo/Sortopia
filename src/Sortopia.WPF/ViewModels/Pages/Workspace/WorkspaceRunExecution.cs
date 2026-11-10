@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using Microsoft.FSharp.Collections;
 using Sortopia.Functions;
+using Sortopia.FileDb;
 using Sortopia.Runs;
 using Sortopia.Sorting.Inputs;
 using Sortopia.WPF.Commands;
@@ -45,14 +45,16 @@ public sealed partial class WorkspacePageViewModel
     }
     private bool CanExecuteRun => CanEdit && ExecuteHint.Length == 0;
     public string ExecutionInstructions => (Selected?.IsBranch == true
-        ? "Finish all setup sets, then run every results set for each setup output. "
-        : "Run the results function once for every generated parameter set. ")
+        ? "Prepare all setup sets, then process every results set for each setup output. Matching saved data is reused. "
+        : "Process every generated parameter set, reusing matching saved data. ")
         + "Cancel operation stops between function calls.";
 
     public Task ExecuteRunAsync()
     {
         if (!CanExecuteRun) return Task.CompletedTask;
         var value = SelectedSavedRun!;
+        var definition = savedDefinition!;
+        var folder = WorkspaceFolder;
         var state = SelectedExecution!;
         return RunAsync(async token =>
         {
@@ -67,7 +69,7 @@ public sealed partial class WorkspacePageViewModel
             }));
             try
             {
-                var report = await Task.Run(() => RunExecution.execute(value, ListModule.Empty<functionData>(), progress, token));
+                var report = await Task.Run(() => FileRunExecution.execute(definition, folder, value, progress, token));
                 acceptingProgress = false;
                 state.Finish(report);
                 Status = $"Run '{value.RunName}': {state.Summary}";
@@ -126,21 +128,24 @@ public sealed class WorkspaceRunExecution : ViewModelBase
     {
         total = progress.Total;
         Percent = total == 0 ? 0 : 100d * progress.Completed / total;
-        Detail = $"{progress.Message} · {progress.Completed:N0} / {total:N0} calls complete";
+        Detail = $"{progress.Message} · {progress.Completed:N0} / {total:N0} sets ready";
         OnPropertyChanged("");
     }
     internal void Finish(runExecutionReport report)
     {
         IsRunning = false; Report = report;
-        Summary = $"{report.Status} · {report.Setup.Length:N0} setup, {report.Results.Length:N0} results calls completed";
+        var stored = report.Setup.Concat(report.Results).SelectMany(call => call.StoredOutputs).ToArray();
+        Summary = $"{report.Status} · {report.Setup.Length:N0} setup, {report.Results.Length:N0} results sets ready"
+            + $" · {stored.Count(output => !output.Reused):N0} saved, {stored.Count(output => output.Reused):N0} reused";
         Detail = $"Last attempt: {DateTime.Now:g}";
         if (report.Status == runExecutionStatus.Completed) Percent = 100;
         var count = (long)report.Setup.Length + report.Results.Length;
         Rows = report.Setup.Concat(report.Results).Take(100).Select(call => new WorkspaceExecutionRow(
             $"{call.Phase} set {call.SetNumber}" + (call.SetupSetNumber is { } setup ? $" · setup set {setup.Value}" : "") + $" · {call.FunctionName}",
             string.Join("; ", call.Parameters.ParamMap.Values.Select(binding => $"{binding.KeyName} = {binding.FormattedValue}")),
-            call.Outputs.IsEmpty ? "No output data" : string.Join("; ", call.Outputs.Select(Summarize)))).ToArray();
-        RowsHint = count > 100 ? $"Showing the first 100 of {count:N0} completed calls." : $"{count:N0} completed calls.";
+            (call.Outputs.IsEmpty ? "No output data" : string.Join("; ", call.Outputs.Select(Summarize)))
+                + string.Concat(call.StoredOutputs.Select(output => $"\n{(output.Reused ? "Reused" : "Saved")}: {output.Reference.Id}")))).ToArray();
+        RowsHint = count > 100 ? $"Showing the first 100 of {count:N0} processed parameter sets." : $"{count:N0} processed parameter sets.";
         OnPropertyChanged("");
     }
     private static string Summarize(functionData value) => value switch

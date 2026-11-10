@@ -71,7 +71,7 @@ type rootProject =
         if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration || r.ProjectName <> name) then
             invalidArg "configuration" "Existing runs require their original sealed project settings and name."
         let isSealed = isSealed || runs.Length > 0
-        let local = if isSealed then Defaults.localRoot configuration else local
+        let local = if isSealed then Defaults.localRoot configuration else { local with ResultsDatabaseName = Some configuration.ResultsDatabaseName }
         let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; localOverrides = local; runs = [||] }
         { value with runs = runs |> Array.map (fun r -> RootRun.create value r.Configuration) }
     static member createInherited id name folderName parent local runs =
@@ -129,7 +129,7 @@ type branchProject =
         if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration || r.ProjectName <> name) then
             invalidArg "configuration" "Existing runs require their original sealed project settings and name."
         let isSealed = isSealed || runs.Length > 0
-        let local = if isSealed then Defaults.localBranch configuration else local
+        let local = if isSealed then Defaults.localBranch configuration else { local with ResultsDatabaseName = Some configuration.ResultsDatabaseName; SetupDatabaseName = Some configuration.SetupDatabaseName }
         let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; localOverrides = local; runs = [||] }
         { value with runs = runs |> Array.map (fun r -> BranchRun.create value r.Configuration) }
     static member createInherited id name folderName parent local runs =
@@ -203,28 +203,27 @@ type project =
         { ProjectId = this.Id; ProjectName = this.ProjectName; Results = results; IsSealed = this.IsSealed }
 
 type rootModule =
-    private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: rootProjectConfig; localOverrides: rootDefaultOverrides; modules: rootModule array; projects: rootProject array }
+    private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: rootModuleConfig; localOverrides: rootModuleOverrides; modules: rootModule array; projects: rootProject array }
     member this.Id = this.id
     member this.ModuleName = this.moduleName
     member this.FolderName = this.folderName
     member this.Configuration = this.configuration
     member this.LocalOverrides = this.localOverrides
     member this.Description = this.configuration.Description
-    member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
     member this.ResultsFunctionName = this.configuration.ResultsFunctionName
     member this.ResultsSortopiaDataTypes = this.configuration.ResultsSortopiaDataTypes
     member this.ResultsQueryParameterKeys = this.configuration.ResultsQueryParameterKeys
     member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
     member this.Modules = Array.copy this.modules
     member this.Projects = Array.copy this.projects
-    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: rootDefaultOverrides) (modules: rootModule array) (projects: rootProject array) : rootModule =
+    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: rootModuleOverrides) (modules: rootModule array) (projects: rootProject array) : rootModule =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
-        Defaults.validateRoot local
-        let configuration = Defaults.resolveRoot parent local
+        ModuleDefaults.validateRoot local
+        let configuration = ModuleDefaults.resolveRoot parent local
         if isNull modules then nullArg "modules"
-        Defaults.validateRootModule configuration
+        ModuleDefaults.validateRootConfiguration configuration
         if isNull projects then nullArg "projects"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         EntityName.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.ProjectName))
@@ -232,27 +231,25 @@ type rootModule =
         FolderName.unique "projects" (projects |> Seq.map (fun p -> p.FolderName))
         { id = id; moduleName = name; folderName = folderName; configuration = configuration; localOverrides = local
           modules = modules |> Array.map (rootModule.rebind configuration)
-          projects = projects |> Array.map (rootProject.rebind configuration) }
+          projects = projects |> Array.map (rootProject.rebind (ModuleDefaults.toRootProject configuration)) }
     static member create id name folderName modules projects =
-        rootModule.createInherited id name folderName Defaults.root Defaults.inheritRoot modules projects
+        rootModule.createInherited id name folderName ModuleDefaults.root ModuleDefaults.inheritRoot modules projects
     static member rebind parent (value: rootModule) =
-        if Defaults.resolveRoot parent value.LocalOverrides = value.Configuration then value
+        if ModuleDefaults.resolveRoot parent value.LocalOverrides = value.Configuration then value
         else rootModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
 
 type branchModule =
-    private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: branchProjectConfig; localOverrides: branchDefaultOverrides; modules: branchModule array; projects: branchProject array }
+    private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: branchModuleConfig; localOverrides: branchModuleOverrides; modules: branchModule array; projects: branchProject array }
     member this.Id = this.id
     member this.ModuleName = this.moduleName
     member this.FolderName = this.folderName
     member this.Configuration = this.configuration
     member this.LocalOverrides = this.localOverrides
     member this.Description = this.configuration.Description
-    member this.ResultsDatabaseName = this.configuration.ResultsDatabaseName
     member this.ResultsFunctionName = this.configuration.ResultsFunctionName
     member this.ResultsSortopiaDataTypes = this.configuration.ResultsSortopiaDataTypes
     member this.ResultsQueryParameterKeys = this.configuration.ResultsQueryParameterKeys
     member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
-    member this.SetupDatabaseName = this.configuration.SetupDatabaseName
     member this.SetupFunctionName = this.configuration.SetupFunctionName
     member this.SetupDataTypes = this.configuration.SetupDataTypes
     member this.SourceProjectIds = this.configuration.SourceProjectIds
@@ -261,14 +258,14 @@ type branchModule =
     member this.SetupParameterDefaults = this.configuration.SetupParameterDefaults
     member this.Modules = Array.copy this.modules
     member this.Projects = Array.copy this.projects
-    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: branchDefaultOverrides) (modules: branchModule array) (projects: branchProject array) : branchModule =
+    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: branchModuleOverrides) (modules: branchModule array) (projects: branchProject array) : branchModule =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
-        Defaults.validateBranch local
-        let configuration = Defaults.resolveBranch parent local
+        ModuleDefaults.validateBranch local
+        let configuration = ModuleDefaults.resolveBranch parent local
         if isNull modules then nullArg "modules"
-        Defaults.validateBranchModule configuration
+        ModuleDefaults.validateBranchConfiguration configuration
         if isNull projects then nullArg "projects"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         EntityName.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.ProjectName))
@@ -276,11 +273,11 @@ type branchModule =
         FolderName.unique "projects" (projects |> Seq.map (fun p -> p.FolderName))
         { id = id; moduleName = name; folderName = folderName; configuration = configuration; localOverrides = local
           modules = modules |> Array.map (branchModule.rebind configuration)
-          projects = projects |> Array.map (branchProject.rebind configuration) }
+          projects = projects |> Array.map (branchProject.rebind (ModuleDefaults.toBranchProject configuration)) }
     static member create id name folderName modules projects =
-        branchModule.createInherited id name folderName Defaults.branch Defaults.inheritBranch modules projects
+        branchModule.createInherited id name folderName ModuleDefaults.branch ModuleDefaults.inheritBranch modules projects
     static member rebind parent (value: branchModule) =
-        if Defaults.resolveBranch parent value.LocalOverrides = value.Configuration then value
+        if ModuleDefaults.resolveBranch parent value.LocalOverrides = value.Configuration then value
         else branchModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
 
 /// A workspace can hold either family; each concrete module has homogeneous children.
@@ -292,10 +289,9 @@ type workspaceModule =
     member this.Id = match this with workspaceModule.Root m -> m.Id | workspaceModule.Branch m -> m.Id
     member this.ModuleName = match this with workspaceModule.Root m -> m.ModuleName | workspaceModule.Branch m -> m.ModuleName
     member this.FolderName = match this with workspaceModule.Root m -> m.FolderName | workspaceModule.Branch m -> m.FolderName
-    member this.Configuration = match this with workspaceModule.Root m -> RootProjectConfig m.Configuration | workspaceModule.Branch m -> BranchProjectConfig m.Configuration
-    member this.LocalOverrides = match this with workspaceModule.Root m -> RootOverrides m.LocalOverrides | workspaceModule.Branch m -> BranchOverrides m.LocalOverrides
+    member this.Configuration = match this with workspaceModule.Root m -> RootModuleConfig m.Configuration | workspaceModule.Branch m -> BranchModuleConfig m.Configuration
+    member this.LocalOverrides = match this with workspaceModule.Root m -> RootModuleOverrides m.LocalOverrides | workspaceModule.Branch m -> BranchModuleOverrides m.LocalOverrides
     member this.Description = match this with workspaceModule.Root m -> m.Description | workspaceModule.Branch m -> m.Description
-    member this.ResultsDatabaseName = match this with workspaceModule.Root m -> m.ResultsDatabaseName | workspaceModule.Branch m -> m.ResultsDatabaseName
     member this.ResultsFunctionName = match this with workspaceModule.Root m -> m.ResultsFunctionName | workspaceModule.Branch m -> m.ResultsFunctionName
     member this.ResultsSortopiaDataTypes = match this with workspaceModule.Root m -> m.ResultsSortopiaDataTypes | workspaceModule.Branch m -> m.ResultsSortopiaDataTypes
     member this.ResultsQueryParameterKeys = match this with workspaceModule.Root m -> m.ResultsQueryParameterKeys | workspaceModule.Branch m -> m.ResultsQueryParameterKeys
@@ -320,11 +316,11 @@ type workspaceModule =
         if isNull modules then nullArg "modules"
         if isNull projects then nullArg "projects"
         match parent, local with
-        | RootProjectConfig p, RootOverrides l ->
+        | RootModuleConfig p, RootModuleOverrides l ->
             let children = modules |> Array.map (function workspaceModule.Root m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
             let leaves = projects |> Array.map (function project.RootProject x -> x | _ -> invalidArg "projects" "A root module can only contain root projects.")
             rootModule.createInherited id name folderName p l children leaves |> workspaceModule.Root
-        | BranchProjectConfig p, BranchOverrides l ->
+        | BranchModuleConfig p, BranchModuleOverrides l ->
             let children = modules |> Array.map (function workspaceModule.Branch m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
             let leaves = projects |> Array.map (function project.BranchProject x -> x | _ -> invalidArg "projects" "A branch module can only contain branch projects.")
             branchModule.createInherited id name folderName p l children leaves |> workspaceModule.Branch
@@ -350,8 +346,8 @@ module WorkspaceProjects =
             source
         let rec validateModule (m: workspaceModule) =
             match m.Configuration with
-            | BranchProjectConfig config -> config.SetupDataTypes |> List.iter (validateSource false >> ignore)
-            | RootProjectConfig _ -> ()
+            | BranchModuleConfig config -> config.SetupDataTypes |> List.iter (validateSource false >> ignore)
+            | RootModuleConfig _ -> ()
             m.Modules |> Array.iter validateModule
         modules |> Array.iter validateModule
         let dependencies = projects |> Map.map (fun _ p ->
@@ -393,6 +389,6 @@ type workspace =
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         FolderName.unique "modules" (modules |> Seq.map (fun m -> m.FolderName))
         { id = id; workspaceName = name; folderName = folderName
-          modules = modules |> Array.map (fun m -> workspaceModule.rebind (Defaults.configuration (m.Kind = hierarchyKind.Branch)) m) |> WorkspaceProjects.resolve }
+          modules = modules |> Array.map (fun m -> workspaceModule.rebind (ModuleDefaults.configuration (m.Kind = hierarchyKind.Branch)) m) |> WorkspaceProjects.resolve }
     member this.ProjectIndex = WorkspaceProjects.index this.modules
     member this.FindProject id = Map.tryFind id this.ProjectIndex

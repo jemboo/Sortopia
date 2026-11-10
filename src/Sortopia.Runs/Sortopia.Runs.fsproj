@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sortopia.Core\Sortopia.Core.fsproj" />
+    <ProjectReference Include="..\Sortopia.Sorting.Catalog\Sortopia.Sorting.Catalog.fsproj" />
   </ItemGroup>
 </Project>

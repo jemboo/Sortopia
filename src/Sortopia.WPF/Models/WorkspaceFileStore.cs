@@ -170,10 +170,10 @@ public static class WorkspaceFileStore
         }
         WorkspaceModule IdentifyModule(WorkspaceModule value, string folder)
         {
-            var settings = SettingsDto.fromDomain(value.Configuration);
-            var local = OverridesDto.fromDomain(value.LocalOverrides);
-            RemapSources(settings, folder); RemapSources(local, folder);
-            return WorkspaceModule.createInherited(CopyId(value.Id, folder), value.ModuleName, value.FolderName, SettingsDto.toDomain(value.Kind, settings), OverridesDto.toDomain(value.Kind, local),
+            var settings = ModuleSettingsDto.fromDomain(value.Configuration);
+            var local = ModuleOverridesDto.fromDomain(value.LocalOverrides);
+            RemapSources(ModuleSettingsDto.toProjectSettings(settings), folder); RemapSources(ModuleSettingsDto.toProjectSettings(local), folder);
+            return WorkspaceModule.createInherited(CopyId(value.Id, folder), value.ModuleName, value.FolderName, ModuleSettingsDto.toDomain(value.Kind, settings), ModuleOverridesDto.toDomain(value.Kind, local),
                 value.Modules.Select(child => IdentifyModule(child, Child(folder, "modules", child.FolderName))).ToArray(),
                 value.Projects.Select(child => IdentifyProject(child, Child(folder, "projects", child.FolderName))).ToArray());
         }
@@ -493,7 +493,7 @@ public static class WorkspaceFileStore
         return project.restore(saved.Id, projectName, folderName, saved.Configuration, saved.LocalOverrides, saved.IsSealed, runs);
     }
 
-    private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token, projectConfiguration? parent = null)
+    private static WorkspaceModule ReadModuleFolder(string folder, int depth, CancellationToken token, moduleConfiguration? parent = null)
     {
         token.ThrowIfCancellationRequested(); CheckDepth(depth);
         ValidateEntityFolder(folder, "module");
@@ -504,7 +504,7 @@ public static class WorkspaceFileStore
         var moduleName = saved.ModuleName;
         return WorkspaceModule.createInherited(saved.Id, moduleName, folderName, saved.Configuration, saved.LocalOverrides,
             Children(folder, "modules").Select(path => ReadModuleFolder(path, depth + 1, token, saved.Configuration)).ToArray(),
-            Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token, saved.Configuration)).ToArray());
+            Children(folder, "projects").Select(path => ReadProjectFolder(path, depth + 1, token, ModuleDefaults.toProject(saved.Configuration))).ToArray());
     }
 
     private static void ValidateEntityFolder(string folder, string kind)

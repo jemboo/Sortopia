@@ -96,7 +96,7 @@ public sealed class WorkspaceFieldTests : IDisposable
     }
 
     [Fact]
-    public async Task Explicit_blank_description_and_independent_setup_overrides_survive_reopening()
+    public async Task Blank_description_overrides_and_project_databases_survive_reopening()
     {
         var page = Open(); var parent = CreateProject(page, true); var run = CreateRun(page, true);
         var fields = run.Editor!;
@@ -108,7 +108,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         parent.Editor.SetupDatabaseName = "Updated setup";
         parent.Editor.SetupFunctionName = "Updated generator";
         Assert.Equal("", fields.DescriptionOverride.EffectiveValue);
-        Assert.Equal("Run setup", fields.SetupDatabaseOverride.EffectiveValue);
+        Assert.Equal("Updated setup", fields.SetupDatabaseOverride.EffectiveValue);
         Assert.Equal("Updated generator", fields.SetupFunctionOverride.EffectiveValue);
         Assert.Equal("Overridden for this run", fields.DescriptionOverride.SourceLabel);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
@@ -116,7 +116,8 @@ public sealed class WorkspaceFieldTests : IDisposable
         var runFields = reopened.Roots[0].Children[0].Children[0].Children[0].Editor!;
         Assert.True(runFields.DescriptionOverride.IsOverridden);
         Assert.Equal("", runFields.DescriptionOverride.EffectiveValue);
-        Assert.True(runFields.SetupDatabaseOverride.IsOverridden);
+        Assert.False(runFields.SetupDatabaseOverride.CanOverride);
+        Assert.True(runFields.SetupDatabaseOverride.IsInherited);
         Assert.True(runFields.SetupFunctionOverride.IsInherited);
         runFields.DescriptionOverride.IsOverridden = false;
         runFields.SetupDatabaseOverride.IsOverridden = false;
@@ -125,7 +126,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
         var savedInputs = RunDto.fromDomain(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0]);
         Assert.Null(savedInputs.descriptionOverride);
-        Assert.Null(savedInputs.setupDatabaseNameOverride);
+        Assert.Null(typeof(runDto).GetProperty("setupDatabaseNameOverride"));
         Assert.Null(savedInputs.setupFunctionNameOverride);
     }
 
@@ -195,6 +196,66 @@ public sealed class WorkspaceFieldTests : IDisposable
         fields.OutputTypes.Single(choice => choice.Kind == "SorterSetEval").RemoveCommand.Execute(null);
         await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
         Assert.Equal(new[] { sortopiaDataType.NewSorterModelSet("") }, WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].ResultsSortopiaDataTypes);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Query_key_choices_follow_phase_defaults_and_preserve_custom_keys_after_reopening(bool branch, bool onProject)
+    {
+        var page = Open();
+        (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
+        var ancestor = page.Selected!;
+        ancestor.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        var inherited = WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "InheritedResult", "value");
+        if (branch) WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "InheritedSetup", "value", true);
+        (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
+        if (onProject) page.AddProjectCommand.Execute(null);
+        var owner = page.Selected!; var editor = owner.Editor!;
+        WorkspaceParameterInheritanceTests.AddDefault(editor, "LocalResult", "value");
+        editor.AddResultsQueryKeyCommand.Execute(null);
+        var results = editor.ResultsQueryKeys.Single(); results.Text = "LocalResult";
+        Assert.Contains("ChannelCount", results.KeyChoices);
+        Assert.Contains("InheritedResult", results.KeyChoices); Assert.Contains("LocalResult", results.KeyChoices);
+        Assert.DoesNotContain("InheritedSetup", results.KeyChoices);
+        WorkspaceParameterInheritanceTests.AddDefault(editor, "InheritedResult", "overridden");
+        Assert.Single(results.KeyChoices, key => key == "InheritedResult");
+        Assert.Equal(results.KeyChoices.Order(StringComparer.Ordinal), results.KeyChoices);
+        inherited.Key = "RenamedResult";
+        Assert.Contains("RenamedResult", results.KeyChoices); Assert.Equal("LocalResult", results.Text);
+        editor.ResultsParameterDefaults.Single(row => row.Key == "InheritedResult").RemoveCommand.Execute(null);
+        Assert.DoesNotContain("InheritedResult", results.KeyChoices);
+        results.Text = "CustomWithoutDefault";
+        Assert.Contains(results.Text, results.KeyChoices);
+
+        if (branch)
+        {
+            var local = WorkspaceParameterInheritanceTests.AddDefault(editor, "LocalSetup", "value", true);
+            WorkspaceHierarchyTests.AddSetupSource(owner);
+            var setup = editor.SetupDataTypes.Single().QueryKeys.Single(); setup.Text = "LocalSetup";
+            Assert.Contains("ChannelCount", setup.KeyChoices); Assert.Contains("InheritedSetup", setup.KeyChoices);
+            Assert.Contains("LocalSetup", setup.KeyChoices); Assert.DoesNotContain("LocalResult", setup.KeyChoices);
+            Assert.DoesNotContain("InheritedSetup", results.KeyChoices); Assert.DoesNotContain("LocalSetup", results.KeyChoices);
+            WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "AddedSetupLater", "value", true);
+            Assert.Contains("AddedSetupLater", setup.KeyChoices);
+            local.RemoveCommand.Execute(null);
+            Assert.Equal("LocalSetup", setup.Text); Assert.Contains("LocalSetup", setup.KeyChoices);
+        }
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        var reopened = Open().Roots[0].Children[0].Children[0];
+        if (onProject) reopened = reopened.Children.Single(node => node.Id == owner.Id);
+        var restored = reopened.Editor!;
+        Assert.Equal("CustomWithoutDefault", restored.ResultsQueryKeys.Single().Text);
+        Assert.Contains("RenamedResult", restored.ResultsQueryKeys.Single().KeyChoices);
+        Assert.Contains("LocalResult", restored.ResultsQueryKeys.Single().KeyChoices);
+        if (branch)
+        {
+            var setup = restored.SetupDataTypes.Single().QueryKeys.Single();
+            Assert.Equal("LocalSetup", setup.Text); Assert.Contains("InheritedSetup", setup.KeyChoices);
+            Assert.Contains("AddedSetupLater", setup.KeyChoices);
+        }
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

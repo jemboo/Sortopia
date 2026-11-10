@@ -41,7 +41,7 @@ module Defaults =
         let merged = inherited |> List.map (fun binding -> Map.tryFind binding.KeyName replacements |> Option.defaultValue binding)
         merged @ (local |> List.filter (fun binding -> not (Set.contains binding.KeyName inheritedKeys)))
 
-    // Metadata defaults apply when no module or project supplies a local value.
+    // Database names start on each project; the remaining defaults may come from modules.
     let root : rootProjectConfig = {
         Description = ""
         Results = {
@@ -67,7 +67,7 @@ module Defaults =
     let resolveRoot (parent: rootProjectConfig) (local: rootDefaultOverrides) : rootProjectConfig = {
         Description = local.Description |> Option.defaultValue parent.Description
         Results = {
-            DatabaseName = local.ResultsDatabaseName |> Option.defaultValue parent.ResultsDatabaseName
+            DatabaseName = local.ResultsDatabaseName |> Option.defaultValue (UMX.tag "Results")
             FunctionName = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
             SortopiaDataTypes = local.ResultsSortopiaDataTypes |> Option.defaultValue parent.ResultsSortopiaDataTypes
             QueryParameterKeys = local.ResultsQueryParameterKeys |> Option.defaultValue parent.ResultsQueryParameterKeys
@@ -117,13 +117,13 @@ module Defaults =
     let resolveBranch (parent: branchProjectConfig) (local: branchDefaultOverrides) : branchProjectConfig = {
         Description = local.Description |> Option.defaultValue parent.Description
         Results = {
-            DatabaseName = local.ResultsDatabaseName |> Option.defaultValue parent.ResultsDatabaseName
+            DatabaseName = local.ResultsDatabaseName |> Option.defaultValue (UMX.tag "Results")
             FunctionName = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
             SortopiaDataTypes = local.ResultsSortopiaDataTypes |> Option.defaultValue parent.ResultsSortopiaDataTypes
             QueryParameterKeys = local.ResultsQueryParameterKeys |> Option.defaultValue parent.ResultsQueryParameterKeys
             ParameterDefaults = mergeParameterDefaults parent.ResultsParameterDefaults (local.ResultsParameterDefaults |> Option.defaultValue []) }
         Setup = {
-            DatabaseName = local.SetupDatabaseName |> Option.defaultValue parent.SetupDatabaseName
+            DatabaseName = local.SetupDatabaseName |> Option.defaultValue (UMX.tag "Setup")
             FunctionName = local.SetupFunctionName |> Option.defaultValue parent.SetupFunctionName
             DataTypes = local.SetupDataTypes |> Option.defaultValue parent.SetupDataTypes
             ParameterDefaults = mergeParameterDefaults parent.SetupParameterDefaults (local.SetupParameterDefaults |> Option.defaultValue []) } }

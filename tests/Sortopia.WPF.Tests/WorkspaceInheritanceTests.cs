@@ -59,19 +59,19 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var parent = branchProject.seal(((project.BranchProject)Parent(true)).Item);
         var template = ((run.BranchRun)WorkspaceHierarchyTests.MakeRun("P", "R", true)).Item;
         var inherited = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Inherited", parent.Id, null,
-            template.ResultsParameterSpans, null, null, template.SetupParameterSpans));
+            template.ResultsParameterSpans, null, template.SetupParameterSpans));
         Assert.Equal(parent.Description, inherited.Description);
         Assert.Equal(parent.SetupDatabaseName, inherited.SetupDatabaseName);
         Assert.Equal(parent.SetupFunctionName, inherited.SetupFunctionName);
         Assert.Equal(parent.SetupSortopiaDataTypes, inherited.SetupSortopiaDataTypes);
         Assert.Equal(parent.SetupQueryParameterKeys, inherited.SetupQueryParameterKeys);
-        var databaseOverride = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Override database", parent.Id, FSharpOption<string>.Some("Custom description"),
-            template.ResultsParameterSpans, FSharpOption<string>.Some("Other setup"), null, template.SetupParameterSpans));
-        Assert.Equal("Other setup", databaseOverride.SetupDatabaseName);
-        Assert.Equal("Generate", databaseOverride.SetupFunctionName);
-        Assert.Equal("Custom description", databaseOverride.Description);
+        var descriptionOverride = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Override description", parent.Id, FSharpOption<string>.Some("Custom description"),
+            template.ResultsParameterSpans, null, template.SetupParameterSpans));
+        Assert.Equal("Setup", descriptionOverride.SetupDatabaseName);
+        Assert.Equal("Generate", descriptionOverride.SetupFunctionName);
+        Assert.Equal("Custom description", descriptionOverride.Description);
         var functionOverride = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Override function", parent.Id, null,
-            template.ResultsParameterSpans, null, FSharpOption<string>.Some("Other generator"), template.SetupParameterSpans));
+            template.ResultsParameterSpans, FSharpOption<string>.Some("Other generator"), template.SetupParameterSpans));
         Assert.Equal("Setup", functionOverride.SetupDatabaseName);
         Assert.Equal("Other generator", functionOverride.SetupFunctionName);
     }
@@ -85,12 +85,12 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var inherited = Inputs(parent, "Inherited");
         var explicitValues = Inputs(parent, "Explicit");
         explicitValues.descriptionOverride = "";
-        if (branch) { explicitValues.setupDatabaseNameOverride = "Fixed setup"; explicitValues.setupFunctionNameOverride = "Fixed generator"; }
+        if (branch) { explicitValues.setupFunctionNameOverride = "Fixed generator"; }
         parent = WithRuns(parent, inherited, explicitValues);
         var dto = ProjectDto.fromDomain(WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)));
         Assert.Null(dto.runs[0].descriptionOverride);
         Assert.Equal("", dto.runs[1].descriptionOverride);
-        Assert.Null(dto.runs[0].setupDatabaseNameOverride);
+        Assert.Null(typeof(runDto).GetProperty("setupDatabaseNameOverride"));
         dto.localOverrides.description = "New project description";
         dto.localOverrides.resultsDatabaseName = "New results";
         dto.localOverrides.resultsFunctionName = "New executor";
@@ -105,7 +105,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         {
             Assert.Equal("Setup", updated.Runs[0].SetupDatabaseName.Value);
             Assert.Equal("Generate", updated.Runs[0].SetupFunctionName.Value);
-            Assert.Equal("Fixed setup", updated.Runs[1].SetupDatabaseName.Value);
+            Assert.Equal("Setup", updated.Runs[1].SetupDatabaseName.Value);
             Assert.Equal("Fixed generator", updated.Runs[1].SetupFunctionName.Value);
         }
         var fileJson = JsonSerializer.SerializeToNode(RunDto.fromDomain(updated.Runs[0]))!.AsObject();
@@ -123,12 +123,11 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         dto.localOverrides.setupDataTypes = [WorkspaceHierarchyTests.SetupType("SorterModelSet", "", "Width"), WorkspaceHierarchyTests.SetupType("SorterSetEval")];
         var parent = ProjectDto.toDomain(dto);
         var inputs = Inputs(parent);
-        inputs.setupDatabaseNameOverride = "Run setup";
         var run = ((run.BranchRun)RunDto.toDomain(parent, inputs)).Item;
         var parameters = BranchRun.makeSetupParameterSets(run).First();
         var first = QueryParams.forSetup(run, sortopiaDataType.NewSorterModelSet(""), parameters);
         var second = QueryParams.forSetup(run, sortopiaDataType.NewSorterSetEval(""), parameters);
-        Assert.Equal("Run setup", first.DatabaseName);
+        Assert.Equal("Setup", first.DatabaseName);
         Assert.Equal("Width", first.Properties.Single().Key);
         Assert.Equal("8", first.Properties.Single().Value);
         Assert.Empty(second.Properties);
@@ -153,9 +152,6 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         inputs = Inputs(parent);
         inputs.setupFunctionNameOverride = "";
         Assert.Contains("override", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
-        inputs = Inputs(parent);
-        inputs.setupDatabaseNameOverride = " ";
-        Assert.Contains("override", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
         var projectDto = ProjectDto.fromDomain(parent);
         projectDto.localOverrides.setupDataTypes[0].queryParameterKeys = ["Width", "Width"];
         Assert.Throws<ArgumentException>(() => ProjectDto.toDomain(projectDto));
@@ -170,7 +166,6 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var inherited = Inputs(source, "Inherited");
         var overridden = Inputs(source, "Overridden");
         overridden.descriptionOverride = "Explicit description";
-        if (branch) overridden.setupDatabaseNameOverride = "Explicit database";
         source = WithRuns(source, inherited, overridden);
         var destinationDto = ProjectDto.fromDomain(Parent(branch, "Destination", "Destination description"));
         destinationDto.localOverrides.resultsDatabaseName = "Destination results";

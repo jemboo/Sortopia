@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="Defaults.fs" />
+    <Compile Include="ModuleDefaults.fs" />
     <Compile Include="Workspace.fs" />
   </ItemGroup>
   <ItemGroup>

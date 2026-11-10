@@ -104,7 +104,7 @@ public sealed class WorkspaceEditingTests : IDisposable
         Assert.Equal("beta-folder", beta.FolderName);
         Assert.Contains("saved workspace", beta.NameError);
         Assert.Contains("Duplicate name in modules", page.Error);
-        Assert.False(page.HasUnsavedChanges);
+        Assert.True(page.HasUnsavedChanges);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         await page.SaveWorkspaceAsync();
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace")));
@@ -205,7 +205,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     {
         var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Alpha", "alpha", [], []), WorkspaceModule.create(hierarchyKind.Root, Guid.NewGuid(), "Beta", "beta", [], [])]));
         page.Roots.Single().Children[1].Name = "Alpha";
-        Assert.False(page.HasUnsavedChanges);
+        Assert.True(page.HasUnsavedChanges);
         Assert.True(page.HasEditErrors);
         Assert.True(page.DiscardChangesCommand.CanExecute(null));
         page.DiscardChangesCommand.Execute(null);

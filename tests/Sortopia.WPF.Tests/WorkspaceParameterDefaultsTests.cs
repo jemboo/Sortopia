@@ -27,7 +27,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     }
     private static runDto Inputs(bool branch, parameterSpanDto[]? spans = null, parameterSpanDto[]? setup = null) => new()
     {
-        schemaVersion = 9, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
+        schemaVersion = 11, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
         resultsParameterSpans = spans ?? [], setupParameterSpans = setup ?? []
     };
     private static parameterSet[] Sets(run value) => RunParameterSets.create(value).Results;
@@ -245,6 +245,63 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal(parameterValueType.Guid, row.ValueType);
         Assert.NotEmpty(row.Error);
         row.Value.Text = Guid.NewGuid().ToString(); Assert.Empty(row.Error);
+        row.Key = "RngType";
+        Assert.True(row.Value.HasChoices); Assert.False(row.Value.IsTextEditor);
+        Assert.Contains("SplitMix64", row.Value.Choices); Assert.NotEmpty(row.Error);
+        row.Value.Text = "SplitMix64"; Assert.Empty(row.Error);
+        row.Key = "ChannelCount";
+        Assert.Equal("SplitMix64", row.Value.Text); Assert.NotEmpty(row.Error);
+        Assert.True(row.Value.IsTextEditor); Assert.False(row.Value.HasChoices);
+        row.Value.Text = "0"; Assert.Contains("1 or greater", row.Error);
+        row.Value.Text = "16"; Assert.Empty(row.Error);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task Key_specific_default_validation_follows_inheritance_overrides_and_save(bool branch, bool setup, bool onProject)
+    {
+        var page = Open();
+        (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
+        var module = page.Selected!;
+        module.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        page.AddProjectCommand.Execute(null); var project = page.Selected!;
+        page.AddRunCommand.Execute(null); var run = page.Selected!;
+        var owner = onProject ? project : module;
+        var row = WorkspaceParameterInheritanceTests.AddDefault(owner.Editor!, "RngType", "invalid RNG", setup);
+        Assert.True(row.Value.HasChoices); Assert.Contains("RngType", row.Error);
+        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.Contains(page.SaveIssues, issue => ReferenceEquals(issue.Node, owner)
+            && issue.Section == (setup ? "Setup parameter defaults" : "Results parameter defaults") && issue.Message.Contains("RngType"));
+        Assert.Empty((setup ? run.Editor!.SetupParameterSetsPreview : run.Editor!.ResultsParameterSetsPreview).Rows);
+        if (branch) Assert.Single((setup ? run.Editor.ResultsParameterSetsPreview : run.Editor.SetupParameterSetsPreview).Rows);
+
+        row.Value.Text = "SplitMix64";
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.Single((setup ? run.Editor.SetupParameterSetsPreview : run.Editor.ResultsParameterSetsPreview).Rows);
+        Assert.Same(owner.Editor, (setup ? run.Editor.InheritedSetupDefaults : run.Editor.InheritedOutputDefaults)
+            .Single(value => value.Key == "RngType").Source.InheritedSource);
+        if (!onProject)
+        {
+            (setup ? project.Editor!.InheritedSetupDefaults : project.Editor!.InheritedOutputDefaults)
+                .Single(value => value.Key == "RngType").OverrideCommand!.Execute(null);
+            var local = (setup ? project.Editor.SetupParameterDefaults : project.Editor.ResultsParameterDefaults).Single();
+            Assert.True(local.Value.HasChoices); Assert.Equal("SplitMix64", local.Value.Text);
+            Assert.Same(module.Editor, local.Source!.InheritedSource);
+            local.Value.Text = "NET"; Assert.NotEmpty(local.Error); Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+            local.Value.Text = "LCG"; Assert.Empty(local.Error); Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
+            local.RemoveCommand.Execute(null);
+            Assert.Equal("SplitMix64", (setup ? run.Editor.InheritedSetupDefaults : run.Editor.InheritedOutputDefaults)
+                .Single(value => value.Key == "RngType").Value);
+        }
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        var savedRun = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0];
+        var sets = RunParameterSets.create(savedRun);
+        Assert.Equal("SplitMix64", Assert.Single(setup ? sets.Setup.Value : sets.Results).TryFind(ParamKeys.rngTypeKey).Value);
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

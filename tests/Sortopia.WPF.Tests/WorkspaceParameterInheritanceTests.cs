@@ -93,11 +93,11 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0];
         Assert.Equal(new[] { "ChannelCount", "StageLength" }, saved.ResultsParameterDefaults.Select(value => value.KeyName));
         Assert.Equal(new[] { "20", "1" }, saved.ResultsParameterDefaults.Select(value => value.FormattedValue));
-        var overrides = OverridesDto.fromDomain(saved.LocalOverrides);
+        var overrides = ModuleOverridesDto.fromDomain(saved.LocalOverrides);
         Assert.Equal("StageLength", Assert.Single(overrides.resultsParameterDefaults).keyName);
         if (branch)
         {
-            var settings = SettingsDto.fromDomain(saved.Configuration);
+            var settings = ModuleSettingsDto.fromDomain(saved.Configuration);
             Assert.Equal(new[] { "32", "2" }, settings.setupParameterDefaults.Select(value => value.value));
             Assert.Equal("StageLength", Assert.Single(overrides.setupParameterDefaults).keyName);
         }
@@ -112,7 +112,7 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         Assert.Empty(reopened.Error);
         saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0];
         Assert.Equal("24", Assert.Single(saved.ResultsParameterDefaults).FormattedValue);
-        Assert.Empty(OverridesDto.fromDomain(saved.LocalOverrides).resultsParameterDefaults);
+        Assert.Empty(ModuleOverridesDto.fromDomain(saved.LocalOverrides).resultsParameterDefaults);
     }
 
     [Theory]

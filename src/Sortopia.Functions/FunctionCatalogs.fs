@@ -13,6 +13,10 @@ module FunctionCatalogs =
 
     let setupFunctionCatalog : Map<string<setupFunctionName>, setupFunction> =
         Map.ofList [
-            SetupFunctionNames.standardTests, SetupFunctions.makeStandardTests
-            SetupFunctionNames.uniformSorterModels, SetupFunctions.makeUniformSorterModels
+            SetupFunctionNames.standardTests, SetupFunctions.standardTests
+            SetupFunctionNames.uniformSorterModels, SetupFunctions.uniformSorterModels
         ]
+
+    // Bump when a function's output semantics change. Names remain simple map keys.
+    let resultsFunctionVersions = resultsFunctionCatalog |> Map.map (fun _ _ -> "1")
+    let setupFunctionVersions = setupFunctionCatalog |> Map.map (fun _ _ -> "1")

@@ -187,7 +187,6 @@ type branchRunConfig = {
     ParentProjectId: Guid<projectId>
     DescriptionOverride: string option
     ResultsParameterSpans: parameterSpan list
-    SetupDatabaseNameOverride: string<setupDatabaseName> option
     SetupFunctionNameOverride: string<setupFunctionName> option
     SetupParameterSpans: parameterSpan list
 }
@@ -211,7 +210,7 @@ type branchRun =
     member this.ResultsSortopiaDataTypes = this.projectConfiguration.ResultsSortopiaDataTypes
     member this.ResultsQueryParameterKeys = this.projectConfiguration.ResultsQueryParameterKeys
     member this.ResultsParameterDefaults = this.projectConfiguration.ResultsParameterDefaults
-    member this.SetupDatabaseName = this.config.SetupDatabaseNameOverride |> Option.defaultValue this.projectConfiguration.SetupDatabaseName
+    member this.SetupDatabaseName = this.projectConfiguration.SetupDatabaseName
     member this.SetupFunctionName = this.config.SetupFunctionNameOverride |> Option.defaultValue this.projectConfiguration.SetupFunctionName
     member this.SetupParameterSpans = this.config.SetupParameterSpans
     member this.SetupSortopiaDataTypes = this.projectConfiguration.SetupSortopiaDataTypes
@@ -226,8 +225,7 @@ module BranchRun =
         ProjectConfiguration.validateBranch settings
         RunConfiguration.identity config.Id parent.ProjectName config.RunName
         if config.DescriptionOverride |> Option.exists isNull then nullArg "description"
-        for argument, value in ["setupDatabaseName", config.SetupDatabaseNameOverride |> Option.map UMX.untag
-                                "setupFunctionName", config.SetupFunctionNameOverride |> Option.map UMX.untag] do
+        for argument, value in ["setupFunctionName", config.SetupFunctionNameOverride |> Option.map UMX.untag] do
             if value |> Option.exists System.String.IsNullOrWhiteSpace then invalidArg argument "An override must not be blank; omit it to inherit the project setting."
         RunConfiguration.spans "resultsParameterSpans" settings.ResultsQueryParameterKeys settings.ResultsParameterDefaults config.ResultsParameterSpans
         RunConfiguration.spans "setupParameterSpans" (settings.SetupDataTypes |> List.collect (fun entry -> entry.QueryParameterKeys)) settings.SetupParameterDefaults config.SetupParameterSpans

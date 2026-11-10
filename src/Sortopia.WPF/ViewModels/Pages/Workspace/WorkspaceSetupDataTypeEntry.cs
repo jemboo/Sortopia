@@ -14,10 +14,13 @@ public sealed record WorkspaceSourceProject(Guid Id, string Name, bool IsSealed,
 public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
 {
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
+    private readonly Func<IEnumerable<string>> suggestedQueryKeys;
     private Guid sourceProjectId;
-    public WorkspaceSetupDataTypeEntry(setupDataTypeConfigDto value, Func<IEnumerable<WorkspaceSourceProject>> sources, Action<WorkspaceSetupDataTypeEntry> remove)
+    public WorkspaceSetupDataTypeEntry(setupDataTypeConfigDto value, Func<IEnumerable<WorkspaceSourceProject>> sources, Action<WorkspaceSetupDataTypeEntry> remove,
+        Func<IEnumerable<string>>? suggestedQueryKeys = null)
     {
         this.sources = sources;
+        this.suggestedQueryKeys = suggestedQueryKeys ?? (() => []);
         sourceProjectId = value.sourceProjectId;
         DataType = new(value.dataType.kind, value.dataType.value, _ => remove(this));
         DataType.Changed += Edited;
@@ -44,8 +47,12 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
         : !Matches(p) ? "The source must provide this exact data type, including its free-form text."
         : QueryKeys.Any(k => string.IsNullOrWhiteSpace(k.Text)) ? "Enter each setup query key or remove its row."
         : QueryKeys.Select(k => k.Text).Distinct(StringComparer.Ordinal).Count() != QueryKeys.Count ? "Setup query keys must be unique within this entry." : "";
-    private void AddKey(string key) => QueryKeys.Add(new(key, row => QueryKeys.Remove(row)));
+    private void AddKey(string key) => QueryKeys.Add(new(key, row => QueryKeys.Remove(row), suggestedQueryKeys));
     private void Edited() { RefreshSources(); NotifyChanged(); }
-    internal void RefreshSources() => OnPropertyChanged("");
+    internal void RefreshSources()
+    {
+        foreach (var key in QueryKeys) key.RefreshKeyChoices();
+        OnPropertyChanged("");
+    }
     internal setupDataTypeConfigDto ToDto() => new() { dataType = DataType.ToDto(), sourceProjectId = SourceProjectId, queryParameterKeys = QueryKeys.Select(k => k.Text).ToArray() };
 }

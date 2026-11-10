@@ -36,8 +36,8 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
         inputs.parentProjectId = parent.Id;
         parent = project.createInherited(parent.Id, parent.ProjectName, parent.FolderName, config, parent.LocalOverrides, [RunDto.toDomain(parent, inputs)]);
-        var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", "Nested", config, Defaults.inherited(branch), [], [parent]);
-        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", "Top", Defaults.configuration(branch), local, [nested], []);
+        var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", "Nested", ModuleDefaults.fromProject(config), ModuleDefaults.fromOverrides(Defaults.inherited(branch)), [], [parent]);
+        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", "Top", ModuleDefaults.configuration(branch), ModuleDefaults.fromOverrides(local), [nested], []);
     }
 
     [Theory]
@@ -49,7 +49,6 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var dto = WorkspaceDto.fromDomain(original);
         var top = dto.modules[0];
         top.localOverrides.description = "Changed at the top";
-        top.localOverrides.resultsDatabaseName = "Shared results";
         top.localOverrides.resultsFunctionName = "New evaluator";
         top.localOverrides.resultsSortopiaDataTypes = [new() { kind = "SorterModelSet", value = "" }, new() { kind = "SorterSetEval", value = "" }];
         var nested = top.modules[0];
@@ -57,11 +56,9 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         nested.projects[0].localOverrides.description = "";
         if (branch)
         {
-            top.localOverrides.setupDatabaseName = "Shared setup";
             top.localOverrides.setupFunctionName = "New generator";
             top.localOverrides.setupDataTypes = [];
             nested.localOverrides.setupFunctionName = "Nested generator";
-            nested.projects[0].runs[0].setupDatabaseNameOverride = "Run setup";
         }
         var restored = WorkspaceCodec.decodeWorkspace(MessagePackSetup.serialize(dto));
         var savedModule = restored.Modules[0].Modules[0];
@@ -75,13 +72,13 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Equal(new[] { sortopiaDataType.NewSorterSetEval("") }, run.ResultsSortopiaDataTypes);
         Assert.Equal(new[] { "Seed" }, project.ResultsQueryParameterKeys);
         Assert.Equal("Evaluate", OverridesDto.fromDomain(project.LocalOverrides).resultsFunctionName);
-        Assert.Null(OverridesDto.fromDomain(savedModule.LocalOverrides).resultsSortopiaDataTypes);
+        Assert.Null(ModuleOverridesDto.fromDomain(savedModule.LocalOverrides).resultsSortopiaDataTypes);
         if (branch)
         {
             var branchModule = ((WorkspaceModule.Branch)savedModule).Item;
-            Assert.Equal("Shared setup", branchModule.SetupDatabaseName);
+            Assert.Null(typeof(branchModule).GetProperty("SetupDatabaseName"));
             Assert.Equal("Generate", run.SetupFunctionName.Value);
-            Assert.Equal("Run setup", run.SetupDatabaseName.Value);
+            Assert.Equal("Setup", run.SetupDatabaseName.Value);
             Assert.Empty(branchModule.SetupSortopiaDataTypes);
             Assert.Empty(branchModule.SetupQueryParameterKeys);
         }
@@ -137,7 +134,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
             top.Editor.SetupDatabaseName = "Shared setup";
             Assert.Equal("Closer generator", run.Editor.SetupFunctionName);
             Assert.Equal("Inherited from Nested", run.Editor.SetupFunctionOverride.SourceLabel);
-            Assert.Equal("Shared setup", run.Editor.SetupDatabaseName);
+            Assert.Equal("Setup", run.Editor.SetupDatabaseName);
         }
         nested.Editor.ResultsQueryKeysOverride.IsOverridden = true;
         Assert.Equal("Seed", nested.Editor.ResultsQueryKeys.Single().Text); // Seed a new override from the effective list.
@@ -157,7 +154,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0];
-        var local = OverridesDto.fromDomain(saved.LocalOverrides);
+        var local = ModuleOverridesDto.fromDomain(saved.LocalOverrides);
         Assert.Empty(local.resultsQueryParameterKeys);
         Assert.Empty(local.resultsSortopiaDataTypes);
         if (branch) Assert.Empty(local.setupDataTypes);
@@ -177,7 +174,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         if (branch) nested.Editor.SetupDataTypesOverride.IsOverridden = false;
         await reopened.SaveWorkspaceAsync();
         Assert.Empty(reopened.Error);
-        local = OverridesDto.fromDomain(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].LocalOverrides);
+        local = ModuleOverridesDto.fromDomain(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].LocalOverrides);
         Assert.Null(local.resultsSortopiaDataTypes);
         Assert.Null(local.resultsQueryParameterKeys);
         if (branch) Assert.Null(local.setupDataTypes);
@@ -195,9 +192,9 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         settings.resultsFunctionName = "Destination executor";
         settings.description = "Destination description";
         var config = SettingsDto.toDomain(kind, settings);
-        var destination = WorkspaceModule.createInherited(Guid.NewGuid(), "Destination", "Destination", config,
-            branch ? configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item))
-                : configurationOverrides.NewRootOverrides(Defaults.localRoot(((projectConfiguration.RootProjectConfig)config).Item)), [], []);
+        var destination = WorkspaceModule.createInherited(Guid.NewGuid(), "Destination", "Destination", ModuleDefaults.fromProject(config),
+            ModuleDefaults.fromOverrides(branch ? configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item))
+                : configurationOverrides.NewRootOverrides(Defaults.localRoot(((projectConfiguration.RootProjectConfig)config).Item))), [], []);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "W", "Workspace", [source, destination]), Token);
         var page = Open();
         var nested = page.Roots[0].Children[0].Children[0];
@@ -210,7 +207,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[1].Modules[0];
         Assert.Equal(nested.Id, saved.Id);
         Assert.Equal("Results", saved.Projects[0].Runs[0].ResultsDatabaseName);
-        Assert.Null(OverridesDto.fromDomain(saved.LocalOverrides).resultsDatabaseName);
+        Assert.Null(typeof(moduleSettingsDto).GetProperty("resultsDatabaseName"));
 
         var importFolder = Path.Combine(Root, "modules", "Destination", "modules", "Nested");
         var importing = Open(_ => importFolder);
@@ -223,7 +220,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var copied = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0];
         Assert.NotEqual(saved.Id, copied.Id);
         Assert.Equal("Results", copied.Projects[0].Runs[0].ResultsDatabaseName);
-        Assert.Null(OverridesDto.fromDomain(copied.LocalOverrides).resultsFunctionName);
+        Assert.Null(ModuleOverridesDto.fromDomain(copied.LocalOverrides).resultsFunctionName);
         Assert.Equal("Evaluate", OverridesDto.fromDomain(copied.Projects[0].LocalOverrides).resultsFunctionName);
     }
 
@@ -235,7 +232,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         var module = page.Selected!;
         page.AddProjectCommand.Execute(null);
-        Assert.Contains("Set this value", page.Error);
+        Assert.Contains("No results function is selected", page.Error);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         page.EditProjectDefaultsCommand.Execute(null);
         Assert.Same(module, page.Selected);

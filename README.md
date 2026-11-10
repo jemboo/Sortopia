@@ -49,6 +49,8 @@ Choose **Random Networks** for the separate random-generation and testing page. 
 | Sortopia.Runs | Run configurations, output categories, parameter generation and result-query definitions. |
 | Sortopia.Workspaces | Workspaces with root/branch modules and projects containing matching run types. |
 | Sortopia.Workspaces.Serialization | Versioned MessagePack definitions for workspaces, modules, projects and runs. |
+| Sortopia.Functions | Independent results/setup function catalogs and the run execution loop. |
+| Sortopia.FileDb | Project-local compressed MessagePack data, stable typed query IDs, source resolution and persistent run execution. |
 | Sortopia.WPF | Windows desktop shell, MVVM page navigation, sorting-network visualization and trace playback. |
 | Sortopia.Core | Arrays, collections, stable IDs, random sources, sampling, combinatorics and computation builders. Core has no project references. |
 | Sortopia.Permutations | Permutations, involutions, orbits, merge lattices, unfolders and their generation and mutation rates. These types refer to one another and share mathematical invariants. |
@@ -99,6 +101,6 @@ The serialization test projects include bytes written by GeneSort.Core.Mp for th
 | GeneSort.Model.Sortable, Model.Sorting and Model.Sorting.Mp | Migrated into Models.Inputs, Models.Sorting and Models.Sorting.Serialization, with consolidated model tests. See [model contracts and migration notes](docs/models.md) for identity changes and validation fixes. The empty sortable-serialization stub is omitted. |
 | GeneSort.SortingOps and SortingOps.Mp | Migrated into Evaluation and Evaluation.Serialization with consolidated tests, exact CE usage DTOs, scalar/SIMD count parity, immutable result snapshots and deterministic sequence fingerprints. See [evaluation contracts and migration notes](docs/evaluation.md). |
 | GeneSort.Eval | Migrate its higher-level evaluation orchestration after checking callers against the evaluation contracts. |
-| GeneSort.Project, FileDb, Dispatch and WPF | Port after the domain types and DTOs they compose. FileDb is the boundary for validating existing saved projects and run histories against real files. |
+| GeneSort.Project, FileDb, Dispatch and WPF | Sortopia has its own workspace hierarchy, function catalogs, file-based execution store and WPF editors. Existing GeneSort projects and histories are not imported. See [workspaces](docs/workspaces.md). |
 
 The ten test projects follow the library boundaries and cover the APIs retained for Dispatch. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.

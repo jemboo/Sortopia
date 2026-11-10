@@ -62,7 +62,7 @@ public sealed class WorkspaceDataTypeTests : IDisposable
         Assert.Equal(values, restored.Runs[0].ResultsSortopiaDataTypes);
         Assert.Equal(values, WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)).ResultsSortopiaDataTypes);
         if (branch) Assert.Equal(values.Reverse(), restored.Runs[0].SetupSortopiaDataTypes.Value);
-        Assert.Equal(9, MessagePackSetup.deserialize<workspaceDto>(WorkspaceCodec.encodeWorkspace(workspace)).schemaVersion);
+        Assert.Equal(11, MessagePackSetup.deserialize<workspaceDto>(WorkspaceCodec.encodeWorkspace(workspace)).schemaVersion);
     }
 
     [Fact]

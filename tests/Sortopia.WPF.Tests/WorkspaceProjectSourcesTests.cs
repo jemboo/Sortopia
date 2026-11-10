@@ -25,7 +25,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     private static project Project(string name, projectSettingsDto settings) => project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
     private static runDto Inputs(project parent) => new()
     {
-        schemaVersion = 9, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch", resultsParameterSpans = [], setupParameterSpans = []
+        schemaVersion = 11, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch", resultsParameterSpans = [], setupParameterSpans = []
     };
     private static project WithRun(project parent) => project.withRuns(parent, [RunDto.toDomain(parent, Inputs(parent))]);
     private static project Source(bool seal = true)

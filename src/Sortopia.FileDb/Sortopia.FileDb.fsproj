@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="DataKey.fs" />
+    <Compile Include="DataCodec.fs" />
+    <Compile Include="SortopiaFileDb.fs" />
+    <Compile Include="WorkspaceData.fs" />
+    <Compile Include="FileRunExecution.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Functions/Sortopia.Functions.fsproj" />
+    <ProjectReference Include="../Sortopia.Workspaces/Sortopia.Workspaces.fsproj" />
+    <ProjectReference Include="../Sortopia.Sorting.Serialization/Sortopia.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting.Serialization/Sortopia.Models.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Evaluation.Serialization/Sortopia.Evaluation.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

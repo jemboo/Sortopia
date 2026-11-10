@@ -9,9 +9,13 @@ public sealed record WorkspaceParameterTypeChoice(parameterValueType Type, strin
 public sealed class WorkspaceTypedValue : WorkspaceFormItem
 {
     private readonly Func<parameterValueType> valueType;
+    private readonly Func<string>? key;
     private string text;
-    public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null)
-    { this.text = text; this.valueType = valueType; RemoveCommand = new RelayCommand(() => remove?.Invoke(this)); }
+    public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null, Func<string>? key = null)
+    {
+        this.text = text; this.valueType = valueType; this.key = key;
+        LibraryId = new(this); RemoveCommand = new RelayCommand(() => remove?.Invoke(this));
+    }
     public string Text
     {
         get => text;
@@ -19,7 +23,11 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     }
     public parameterValueType ValueType => valueType();
     public bool IsBoolean => ValueType == parameterValueType.Boolean;
-    public bool IsTextEditor => !IsBoolean;
+    public string[] Choices => key is null ? [] : WorkspaceParameterRules.Choices(key());
+    public bool HasChoices => Choices.Length > 0;
+    public bool IsLibraryId => ValueType is parameterValueType.SorterLibId or parameterValueType.PrefixLibId or parameterValueType.MergeLibId;
+    public WorkspaceLibraryIdValue LibraryId { get; }
+    public bool IsTextEditor => !IsBoolean && !HasChoices && !IsLibraryId;
     public bool IsMultiline => ValueType == parameterValueType.Text;
     public bool IsNumeric => ValueType is parameterValueType.Integer or parameterValueType.Unsigned64 or parameterValueType.Floating;
     public bool[] BooleanChoices { get; } = [true, false];
@@ -29,30 +37,53 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
         set { if (value is { } choice) Text = choice.ToString(); }
     }
     public string TypeLabel => ParameterValue.label(ValueType);
-    public string Hint => ParameterValue.hint(ValueType);
-    public string Error => ParameterValue.validationError(ValueType, Text);
+    public string Hint => key is null ? ParameterValue.hint(ValueType) : WorkspaceParameterRules.Hint(key(), ValueType);
+    public string Error => IsLibraryId ? LibraryId.Error : key is null ? ParameterValue.validationError(ValueType, Text) : WorkspaceParameterRules.Error(key(), ValueType, Text);
     public RelayCommand RemoveCommand { get; }
-    internal void RefreshType() => OnPropertyChanged("");
+    internal void RefreshType() { LibraryId.Refresh(); OnPropertyChanged(""); }
 }
 
 public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 {
     private readonly Func<string, WorkspaceParameterValueSource>? source;
+    private readonly Func<IEnumerable<string>> suggestedKeys;
+    private readonly Func<string, parameterBindingDto?> inheritedValue;
+    private string[] keyChoices = [];
     private string key;
     private parameterValueType customType;
     public static string[] KnownKeys { get; } = ParamKeys.all.Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
     public static WorkspaceParameterTypeChoice[] ValueTypes { get; } = Enum.GetValues<parameterValueType>()
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
-        Func<string, WorkspaceParameterValueSource>? source = null)
+        Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
+        Func<string, parameterBindingDto?>? inheritedValue = null)
     {
         this.key = key; customType = type; this.source = source;
-        Value = new(value, () => ValueType);
+        this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
+        Value = new(value, () => ValueType, key: () => Key);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => remove(this));
+        RefreshKeyChoices();
     }
     private paramKeyDescriptor? KnownKey => ParamKeys.tryFind(Key)?.Value;
-    public string Key { get => key; set { if (SetProperty(ref key, value)) RowChanged(); } }
+    public string Key
+    {
+        get => key;
+        set
+        {
+            if (!SetProperty(ref key, value)) return;
+            if (IsCustomKey && inheritedValue(value) is { } inherited) customType = (parameterValueType)inherited.valueType;
+            RowChanged();
+        }
+    }
+    public string[] KeyChoices => keyChoices;
+    private void RefreshKeyChoices()
+    {
+        var choices = KnownKeys.Concat(suggestedKeys()).Append(Key).Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        if (keyChoices.SequenceEqual(choices)) return;
+        keyChoices = choices; OnPropertyChanged(nameof(KeyChoices));
+    }
     public bool IsCustomKey => KnownKey is null;
     public parameterValueType ValueType
     {
@@ -65,8 +96,8 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     public RelayCommand RemoveCommand { get; }
     public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Enter a parameter key." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
-    private void RowChanged() { Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
-    internal void RefreshSource() => OnPropertyChanged(nameof(Source));
+    private void RowChanged() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
+    internal void RefreshSource() { RefreshKeyChoices(); OnPropertyChanged(nameof(Source)); }
     internal parameterBindingDto ToDto() => new() { keyName = Key, valueType = (int)ValueType, value = Value.Text };
 }
 
