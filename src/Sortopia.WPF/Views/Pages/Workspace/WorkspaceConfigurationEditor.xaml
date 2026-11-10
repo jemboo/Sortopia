@@ -165,15 +165,14 @@
         </ResourceDictionary>
     </UserControl.Resources>
     <StackPanel>
-        <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
-        <TextBlock Text="{Binding Hint}" Style="{StaticResource Help}" />
         <Expander x:Name="DescriptionSection" Header="Description" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.Description, Mode=TwoWay}">
             <local:WorkspaceOverrideEditor x:Name="DescriptionOverrideEditor" DataContext="{Binding DescriptionOverride}" Margin="4,6,0,0" />
         </Expander>
         <Expander x:Name="ResultsSettingsSection" Header="Results settings" Tag="{Binding ResultsSettingsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsSettings, Mode=TwoWay}">
         <StackPanel Margin="4,6,0,0">
-        <local:WorkspaceOverrideEditor x:Name="ResultsDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding ResultsDatabaseOverride}" />
-        <local:WorkspaceOverrideEditor x:Name="ResultsFunctionOverrideEditor" DataContext="{Binding ResultsFunctionOverride}" />
+        <StackPanel x:Name="ResultsDatabaseItem"><local:WorkspaceOverrideEditor x:Name="ResultsDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding ResultsDatabaseOverride}" /></StackPanel>
+        <StackPanel x:Name="ResultsFunctionItem"><local:WorkspaceOverrideEditor x:Name="ResultsFunctionOverrideEditor" DataContext="{Binding ResultsFunctionOverride}" /></StackPanel>
+<StackPanel x:Name="ResultsTypesItem">
         <ContentControl x:Name="OutputTypesHeader" Content="{Binding OutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
         <StackPanel Visibility="{Binding OutputTypesOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Each row pairs a data type with free-form text. Spaces, line breaks, and empty strings are preserved." Style="{StaticResource Help}" />
@@ -185,6 +184,8 @@
             <TextBlock Text="{Binding OutputTypesSummary}" />
         </StackPanel>
         <TextBlock Text="{Binding OutputTypesError}" Style="{StaticResource InlineError}" />
+</StackPanel>
+<StackPanel x:Name="ResultsQueryKeysItem">
         <ContentControl Content="{Binding ResultsQueryKeysOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
         <StackPanel Visibility="{Binding ResultsQueryKeysOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Each key needs a default value or a matching results span in every run." Style="{StaticResource Help}" />
@@ -193,6 +194,7 @@
         </StackPanel>
         <TextBlock Text="{Binding ResultsQueryKeysSummary}" TextWrapping="Wrap" Visibility="{Binding ResultsQueryKeysOverride.ShowPreview, Converter={StaticResource VisibleWhen}}" />
         <TextBlock Text="{Binding ResultsQueryKeysError}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
+</StackPanel>
         </StackPanel>
         </Expander>
         <Expander x:Name="ResultsDefaultsSection" Header="Results parameter defaults" Tag="{Binding ResultsParameterDefaultsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsDefaults, Mode=TwoWay}">
@@ -232,8 +234,9 @@
         <StackPanel x:Name="SetupFields" Visibility="{Binding IsBranch, Converter={StaticResource VisibleWhen}}">
             <Expander x:Name="SetupSettingsSection" Header="Setup settings and sources" Tag="{Binding SetupSettingsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.SetupSettings, Mode=TwoWay}">
             <StackPanel Margin="4,6,0,0">
-            <local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding SetupDatabaseOverride}" />
-            <local:WorkspaceOverrideEditor x:Name="SetupFunctionOverrideEditor" DataContext="{Binding SetupFunctionOverride}" />
+            <StackPanel x:Name="SetupDatabaseItem"><local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding SetupDatabaseOverride}" /></StackPanel>
+            <StackPanel x:Name="SetupFunctionItem"><local:WorkspaceOverrideEditor x:Name="SetupFunctionOverrideEditor" DataContext="{Binding SetupFunctionOverride}" /></StackPanel>
+<StackPanel x:Name="SetupOutputsItem">
             <ContentControl Content="{Binding SetupDataTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
             <TextBlock Text="Each row describes data produced by setup. The source must provide the same type and free-form text. Query keys in the row identify this setup output; source lookups use the source project's results query keys." Style="{StaticResource Help}" />
             <StackPanel Visibility="{Binding SetupDataTypesOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
@@ -243,6 +246,7 @@
             <ItemsControl ItemsSource="{Binding InheritedSetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypePreview}"
                           Visibility="{Binding SetupDataTypesOverride.ShowPreview, Converter={StaticResource VisibleWhen}}" />
             <TextBlock Text="{Binding SetupDataTypesError}" Style="{StaticResource InlineError}" />
+</StackPanel>
             </StackPanel>
             </Expander>
             <Expander x:Name="SetupDefaultsSection" Header="Setup parameter defaults" Tag="{Binding SetupParameterDefaultsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.SetupDefaults, Mode=TwoWay}">

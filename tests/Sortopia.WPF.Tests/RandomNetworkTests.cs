@@ -2164,6 +2164,7 @@ public sealed class RandomNetworkTests
             CheckGraphBufferTiles();
             CheckSgdControls();
             CheckSgdPrefixControls();
+            CheckThreePaneWorkspace();
             CheckWorkspaceHierarchy();
             CheckWorkspaceParameterInheritance();
             CheckWorkspaceParameterSetPreviews();
@@ -2181,6 +2182,7 @@ public sealed class RandomNetworkTests
             var vm = WorkspaceRunExecutionTests.Create(temporary.FullName, true);
             WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "Repl", false, "0", "1", "2");
             WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected.Editor!, "Repl", true, "0", "1");
+            vm.SelectConfigurationItem("execution");
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
             void Layout(int width = 1000)
             {
@@ -2262,8 +2264,8 @@ public sealed class RandomNetworkTests
             }
             Layout();
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
-            var resultsEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsFunctionOverrideEditor");
-            var setupEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("SetupFunctionOverrideEditor");
+            var resultsEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
+            var setupEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "SetupFunctionOverrideEditor");
             var results = (ComboBox)resultsEditor.FindName("FunctionNameInput");
             var setup = (ComboBox)setupEditor.FindName("FunctionNameInput");
             void Choose(Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor editor, string name)
@@ -2355,7 +2357,7 @@ public sealed class RandomNetworkTests
                 }
                 Layout();
                 var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
-                var settingsSection = (Expander)fields.FindName("ResultsSettingsSection");
+                var settingsSection = (Expander)FindWorkspaceField(fields, "ResultsSettingsSection");
                 var settingsPeer = (IExpandCollapseProvider)new ExpanderAutomationPeer(settingsSection).GetPattern(PatternInterface.ExpandCollapse)!;
                 settingsPeer.Collapse(); Layout();
                 Assert.False(module.Editor.Sections.ResultsSettings);
@@ -2363,9 +2365,9 @@ public sealed class RandomNetworkTests
                 var project = vm.Selected!;
                 Layout();
                 Assert.True(settingsSection.IsExpanded);
-                Assert.Equal(Visibility.Collapsed, ((FrameworkElement)((Expander)fields.FindName("ResultsPreviewSection")).Parent).Visibility);
+                Assert.Equal(Visibility.Collapsed, ((FrameworkElement)((Expander)FindWorkspaceField(fields, "ResultsPreviewSection")).Parent).Visibility);
                 vm.Selected = module; Layout();
-                Assert.False(settingsSection.IsExpanded);
+                Assert.True(settingsSection.IsExpanded); // Returning to the selected setting opens its editor.
                 vm.Selected = project;
                 vm.AddRunCommand.Execute(null);
                 var run = vm.Selected!;
@@ -2375,21 +2377,21 @@ public sealed class RandomNetworkTests
                 sections.Description = sections.ResultsSettings = sections.ResultsDefaults = sections.ResultsSpans = false;
                 sections.SetupSettings = sections.SetupDefaults = sections.SetupSpans = false;
                 Layout();
-                var results = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterSetsPreview)fields.FindName("ResultsSetsPreview");
-                var setup = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterSetsPreview)fields.FindName("SetupSetsPreview");
+                var results = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterSetsPreview)FindWorkspaceField(fields, "ResultsSetsPreview");
+                var setup = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterSetsPreview)FindWorkspaceField(fields, "SetupSetsPreview");
                 var table = (DataGrid)results.FindName("ParameterSetsTable");
                 Assert.Equal(3, table.Items.Count);
                 Assert.Equal(3, table.Columns.Count);
                 Assert.Contains("default", table.Columns[1].Header.ToString());
                 Assert.Contains("run span", table.Columns[2].Header.ToString());
                 Assert.Equal("16", ((TextBlock)table.Columns[1].GetCellContent(table.Items[0])).Text);
-                Assert.Equal(branch ? Visibility.Visible : Visibility.Collapsed, ((FrameworkElement)fields.FindName("SetupFields")).Visibility);
+                Assert.Equal(branch ? Visibility.Visible : Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "SetupFields")).Visibility);
                 if (branch) Assert.Equal(2, ((DataGrid)setup.FindName("ParameterSetsTable")).Items.Count);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
                 foreach (var width in new[] { 1000, 640 })
                 {
                     Layout(width);
-                    var previewSection = (Expander)fields.FindName("ResultsPreviewSection");
+                    var previewSection = (Expander)FindWorkspaceField(fields, "ResultsPreviewSection");
                     viewport.ScrollToVerticalOffset(viewport.VerticalOffset + previewSection.TranslatePoint(new Point(0, 0), viewport).Y);
                     Layout(width);
                     Assert.Equal(0, viewport.ScrollableWidth);
@@ -2404,14 +2406,14 @@ public sealed class RandomNetworkTests
                 Layout();
                 Assert.Equal(Visibility.Collapsed, table.Visibility);
                 Assert.NotEmpty(((TextBlock)results.FindName("PreviewError")).Text);
-                Assert.NotEmpty(((Expander)fields.FindName("ResultsSpansSection")).Tag.ToString()!);
-                Assert.False(((Expander)fields.FindName("ResultsSpansSection")).IsExpanded);
+                Assert.NotEmpty(((Expander)FindWorkspaceField(fields, "ResultsSpansSection")).Tag.ToString()!);
+                Assert.True(((Expander)FindWorkspaceField(fields, "ResultsSpansSection")).IsExpanded);
                 if (branch) Assert.Equal(2, ((DataGrid)setup.FindName("ParameterSetsTable")).Items.Count);
                 span.Values[0].Text = "6";
                 Layout();
                 Assert.Equal(Visibility.Visible, table.Visibility);
                 Assert.Equal("6", ((TextBlock)table.Columns[2].GetCellContent(table.Items[0])).Text);
-                var previewExpander = (Expander)fields.FindName("ResultsPreviewSection");
+                var previewExpander = (Expander)FindWorkspaceField(fields, "ResultsPreviewSection");
                 var previewPeer = (IExpandCollapseProvider)new ExpanderAutomationPeer(previewExpander).GetPattern(PatternInterface.ExpandCollapse)!;
                 previewPeer.Collapse(); Layout();
                 Assert.False(previewExpander.IsExpanded);
@@ -2442,8 +2444,8 @@ public sealed class RandomNetworkTests
             }
             Layout();
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
-            var inherited = (ItemsControl)fields.FindName("InheritedResultsParameterDefaultsList");
-            var locals = (ItemsControl)fields.FindName("ResultsParameterDefaultsList");
+            var inherited = (ItemsControl)FindWorkspaceField(fields, "InheritedResultsParameterDefaultsList");
+            var locals = (ItemsControl)FindWorkspaceField(fields, "ResultsParameterDefaultsList");
             Assert.Single(inherited.Items);
             Assert.Single(locals.Items);
             Assert.Equal("ChannelCount", ((WorkspaceParameterBindingPreview)inherited.Items[0]).Key);
@@ -2491,6 +2493,119 @@ public sealed class RandomNetworkTests
             Assert.Single(locals.Items);
         }
         finally { temporary.Delete(recursive: true); }
+    }
+
+    private static void CheckThreePaneWorkspace()
+    {
+        var temporary = System.IO.Directory.CreateTempSubdirectory("Sortopia-three-pane-");
+        try
+        {
+            var settings = new Sortopia.WPF.Settings.WorkspaceFolderSettings(System.IO.Path.Combine(temporary.FullName, "settings.txt")); settings.Save(temporary.FullName);
+            var vm = new WorkspacePageViewModel(() => { }, _ => null, settings);
+            var (_, module) = WorkspaceParameterInheritanceTests.Hierarchy(vm, true);
+            module.Editor!.ResultsFunctionName = "Evaluate"; module.Editor.SetupFunctionName = "Generate";
+            vm.AddProjectCommand.Execute(null); vm.Selected!.Name = "Single-stage evaluation";
+            vm.AddRunCommand.Execute(null); var run = vm.Selected!; run.Name = "Stage sweep";
+            var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", false, "1", "2", "3");
+            WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "ChannelCount", true, "8", "16");
+            var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
+            void Layout(int width = 1440, int height = 980)
+            {
+                page.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+                page.Measure(new Size(width, height)); page.Arrange(new Rect(0, 0, width, height)); page.UpdateLayout();
+            }
+            Layout();
+            var panes = (Grid)page.FindName("WorkspacePanes");
+            Assert.Equal(5, panes.ColumnDefinitions.Count);
+            var summary = (Border)page.FindName("ConfigurationSummaryPanel");
+            IEnumerable<DependencyObject> Descendants(DependencyObject node)
+            {
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+                { var child = VisualTreeHelper.GetChild(node, index); yield return child; foreach (var descendant in Descendants(child)) yield return descendant; }
+            }
+            Assert.DoesNotContain(Descendants(summary), element => element is TextBox or ComboBox or CheckBox);
+            var items = (ItemsControl)page.FindName("ConfigurationItems");
+            void SelectItem(string key)
+            {
+                var item = vm.InspectorItems.Single(item => item.Key == key);
+                var row = (ContentPresenter)items.ItemContainerGenerator.ContainerFromItem(item);
+                var link = (System.Windows.Documents.Hyperlink)items.ItemTemplate.FindName("ConfigurationItemLink", row);
+                Assert.True(link.Focusable);
+                ((IInvokeProvider)new HyperlinkAutomationPeer(link).GetPattern(PatternInterface.Invoke)!).Invoke(); Layout();
+                Assert.Equal(key, vm.ActiveItemKey); Assert.True(item.IsActive);
+            }
+            SelectItem("resultsSpans");
+            var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
+            Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("ResultsSpansSection")).Visibility);
+            Assert.Equal(Visibility.Collapsed, ((Expander)fields.FindName("ResultsDefaultsSection")).Visibility);
+            Assert.Equal(Visibility.Collapsed, ((Expander)fields.FindName("DescriptionSection")).Visibility);
+            var list = (ItemsControl)fields.FindName("ResultsParametersList");
+            var spanRow = (ContentPresenter)list.ItemContainerGenerator.ContainerFromIndex(0);
+            var values = (ItemsControl)list.ItemTemplate.FindName("ParameterValues", spanRow);
+            var valueRow = (ContentPresenter)values.ItemContainerGenerator.ContainerFromIndex(0);
+            var valueEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)values.ItemTemplate.FindName("ParameterValueEditor", valueRow);
+            var input = (TextBox)valueEditor.FindName("TypedValueInput");
+            input.SetCurrentValue(TextBox.TextProperty, "-1"); Layout();
+            Assert.True(vm.InspectorItems.Single(item => item.Key == "resultsSpans").HasError);
+            Assert.Contains("-1", vm.InspectorItems.Single(item => item.Key == "resultsSpans").Value);
+            input.SetCurrentValue(TextBox.TextProperty, "1"); Layout();
+            Assert.False(vm.InspectorItems.Single(item => item.Key == "resultsSpans").HasError);
+            var function = vm.InspectorItems.Single(item => item.Key == "resultsFunction");
+            vm.SelectInspectorSourceCommand.Execute(function); Layout();
+            Assert.Same(module, vm.Selected); Assert.Equal("resultsFunction", vm.ActiveItemKey);
+            vm.Selected = run; Layout(); SelectItem("resultsSpans");
+            foreach (var (name, column, delta) in new[] { ("HierarchySplitter", 0, 36.0), ("EditorSplitter", 2, -28.0) })
+            {
+                var splitter = (GridSplitter)page.FindName(name);
+                Assert.True(splitter.Focusable); Assert.Equal(GridResizeDirection.Columns, splitter.ResizeDirection);
+                var before = panes.ColumnDefinitions[column].ActualWidth;
+                ((ITransformProvider)new GridSplitterAutomationPeer(splitter).GetPattern(PatternInterface.Transform)!).Move(delta, 0);
+                page.UpdateLayout(); Assert.NotEqual(before, panes.ColumnDefinitions[column].ActualWidth);
+            }
+            foreach (var (width, height) in new[] { (1440, 980), (1000, 900), (640, 800) })
+            {
+                Layout(width, height);
+                Assert.Equal(0, ((ScrollViewer)page.FindName("WorkspaceViewport")).ScrollableWidth);
+                Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
+                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); image.Render(page);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                using var output = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-three-pane-{width}.png")); encoder.Save(output);
+            }
+            SelectItem("setupPreview"); Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("SetupPreviewSection")).Visibility);
+            SelectItem("execution"); Assert.Equal(Visibility.Visible, ((Expander)page.FindName("RunExecutionExpander")).Visibility);
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
+
+    private static object FindWorkspaceField(Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor fields, string name)
+    {
+        var key = name switch
+        {
+            "DescriptionSection" or "DescriptionOverrideEditor" => "description",
+            "ResultsSettingsSection" or "ResultsFunctionOverrideEditor" => "resultsFunction",
+            "ResultsDatabaseOverrideEditor" => "resultsDatabase",
+            "OutputTypesHeader" or "OutputTypesList" or "AddOutputTypeButton" => "resultsTypes",
+            "ResultsQueryKeysList" => "resultsQueryKeys",
+            "ResultsDefaultsSection" or "ResultsParameterDefaultsList" or "InheritedResultsParameterDefaultsList" or "AddResultsParameterDefaultButton" => "resultsDefaults",
+            "ResultsSpansSection" or "ResultsParametersList" or "AddRequiredResultsParametersButton" => "resultsSpans",
+            "ResultsPreviewSection" or "ResultsSetsPreview" => "resultsPreview",
+            "SetupSettingsSection" or "SetupFunctionOverrideEditor" => "setupFunction",
+            "SetupDatabaseOverrideEditor" => "setupDatabase",
+            "SetupDataTypesList" or "AddSetupDataTypeButton" => "setupOutputs",
+            "SetupDefaultsSection" or "SetupParameterDefaultsList" or "InheritedSetupParameterDefaultsList" => "setupDefaults",
+            "SetupSpansSection" or "SetupParametersList" or "AddRequiredSetupParametersButton" => "setupSpans",
+            "SetupPreviewSection" or "SetupSetsPreview" => "setupPreview",
+            _ => null
+        };
+        DependencyObject? ancestor = fields;
+        while (ancestor is not null && ancestor is not Sortopia.WPF.Views.Pages.Workspace.WorkspacePage) ancestor = VisualTreeHelper.GetParent(ancestor);
+        if (key is not null && ancestor is Sortopia.WPF.Views.Pages.Workspace.WorkspacePage page && page.DataContext is WorkspacePageViewModel vm)
+        {
+            vm.SelectConfigurationItem(key);
+            page.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+            page.UpdateLayout();
+        }
+        return fields.FindName(name);
     }
 
     private static void CheckWorkspaceHierarchy()
@@ -2577,7 +2692,7 @@ public sealed class RandomNetworkTests
             var openFolder = (Button)page.FindName("OpenEntityFolderButton");
             Assert.True(fullPath.IsReadOnly);
             var details = (Border)page.FindName("EntityDetailsPanel");
-            Assert.Equal(Visibility.Collapsed, details.Visibility);
+            Assert.Equal(Visibility.Visible, details.Visibility); // Workspace identity also uses the item editor.
             Assert.True(folderName.IsReadOnly);
             var originalFolderName = folderName.Text;
             newName.SetCurrentValue(TextBox.TextProperty, "Updated research");
@@ -2668,7 +2783,7 @@ public sealed class RandomNetworkTests
                 Assert.True(vm.Selected?.IsRun, $"Selected entity: {vm.Selected?.KindLabel ?? "none"}");
                 var editor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
                 Assert.Equal(Visibility.Visible, editor.Visibility);
-                Assert.True(editor.ActualHeight > 50);
+                vm.SelectConfigurationItem("resultsSpans"); page.UpdateLayout(); Assert.True(editor.ActualHeight > 50);
                 var image = new System.Windows.Media.Imaging.RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
                 image.Render(page);
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
@@ -2685,21 +2800,21 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
             Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
-            var moduleDescriptionEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("DescriptionOverrideEditor");
+            var moduleDescriptionEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "DescriptionOverrideEditor");
             var moduleDescriptionToggle = (CheckBox)moduleDescriptionEditor.FindName("OverrideToggle");
             Assert.Equal("Override on this module", moduleDescriptionToggle.Content);
             moduleDescriptionToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
             LayoutWorkspace();
             ((TextBox)moduleDescriptionEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "Shared description from the branch module");
-            var moduleExecuteEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsFunctionOverrideEditor");
+            var moduleExecuteEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             ((CheckBox)moduleExecuteEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
             LayoutWorkspace();
             ((TextBox)moduleExecuteEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "Evaluate");
             Assert.Equal("Evaluate", branchModule.Editor!.ResultsFunctionName);
             var defaultSource = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)
-                ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsDatabaseOverrideEditor")).FindName("ValueSource");
-            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)fields.FindName("ResultsDatabaseOverrideEditor")).Visibility);
-            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)fields.FindName("SetupDatabaseOverrideEditor")).Visibility);
+                ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor")).FindName("ValueSource");
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor")).Visibility);
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "SetupDatabaseOverrideEditor")).Visibility);
             Assert.Equal(Visibility.Collapsed, ((TextBlock)defaultSource.FindName("SourceLinkText")).Visibility);
             RenderWorkspaceState("branch-module-defaults");
             RenderWorkspaceState("module-defaults-narrow", 640, 800);
@@ -2723,19 +2838,19 @@ public sealed class RandomNetworkTests
             LayoutWorkspace();
             Assert.Same(invalidProject, vm.Selected);
             Assert.True(invalidProject.Editor.Sections.SetupSettings);
-            var issueSection = (Expander)fields.FindName("SetupSettingsSection");
+            var issueSection = (Expander)FindWorkspaceField(fields, "SetupSettingsSection");
             var issueViewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
             Assert.InRange(issueSection.TranslatePoint(new Point(0, 0), issueViewport).Y, -1, issueViewport.ViewportHeight);
             WorkspaceHierarchyTests.ConfigureProject(vm.Selected!);
             vm.Selected!.Name = "Evolution";
             LayoutWorkspace();
             Assert.Equal("New branch run", ((Button)page.FindName("NewRunButton")).Content);
-            var projectDatabase = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsDatabaseOverrideEditor");
+            var projectDatabase = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor");
             Assert.Equal(Visibility.Visible, projectDatabase.Visibility);
             Assert.Equal(Visibility.Collapsed, ((CheckBox)projectDatabase.FindName("OverrideToggle")).Visibility);
             Assert.False(((TextBox)projectDatabase.FindName("OverrideValueInput")).IsReadOnly);
             Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
-            var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("ResultsFunctionOverrideEditor");
+            var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             var executeInput = (TextBox)executeEditor.FindName("OverrideValueInput");
             Assert.Equal("Evaluate", executeInput.Text);
             Assert.False(executeInput.IsReadOnly);
@@ -2748,7 +2863,7 @@ public sealed class RandomNetworkTests
             Assert.Equal(branchModule.Editor.Description, vm.Selected.Editor.Description);
             RenderWorkspaceState("branch-project-defaults");
             var branchProject = vm.Selected;
-            var outputTypeList = (ItemsControl)fields.FindName("OutputTypesList");
+            var outputTypeList = (ItemsControl)FindWorkspaceField(fields, "OutputTypesList");
             var outputTypeRow = (ContentPresenter)outputTypeList.ItemContainerGenerator.ContainerFromIndex(0);
             var outputKindInput = (ComboBox)outputTypeList.ItemTemplate.FindName("DataTypeKindInput", outputTypeRow);
             var outputTextInput = (TextBox)outputTypeList.ItemTemplate.FindName("DataTypeTextInput", outputTypeRow);
@@ -2757,7 +2872,7 @@ public sealed class RandomNetworkTests
             Assert.True(outputTextInput.AcceptsReturn);
             outputTextInput.SetCurrentValue(TextBox.TextProperty, " α, execution output\nsecond line ");
             Assert.Equal(" α, execution output\nsecond line ", branchProject!.Editor!.OutputTypes[0].Text);
-            ((Button)fields.FindName("AddOutputTypeButton")).Command.Execute(null);
+            ((Button)FindWorkspaceField(fields, "AddOutputTypeButton")).Command.Execute(null);
             LayoutWorkspace();
             var reportRow = (ContentPresenter)outputTypeList.ItemContainerGenerator.ContainerFromIndex(1);
             ((ComboBox)outputTypeList.ItemTemplate.FindName("DataTypeKindInput", reportRow)).SetCurrentValue(ComboBox.SelectedItemProperty, "TextReport");
@@ -2772,9 +2887,9 @@ public sealed class RandomNetworkTests
             LayoutWorkspace();
             Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor AddTypedDefault(string key, parameterValueType type)
             {
-                ((Button)fields.FindName("AddResultsParameterDefaultButton")).Command.Execute(null);
+                ((Button)FindWorkspaceField(fields, "AddResultsParameterDefaultButton")).Command.Execute(null);
                 LayoutWorkspace();
-                var defaults = (ItemsControl)fields.FindName("ResultsParameterDefaultsList");
+                var defaults = (ItemsControl)FindWorkspaceField(fields, "ResultsParameterDefaultsList");
                 var row = (ContentPresenter)defaults.ItemContainerGenerator.ContainerFromIndex(defaults.Items.Count - 1);
                 var keyInput = (ComboBox)defaults.ItemTemplate.FindName("DefaultKeyInput", row);
                 var keyText = Assert.IsType<TextBox>(keyInput.Template.FindName("PART_EditableTextBox", keyInput));
@@ -2803,7 +2918,7 @@ public sealed class RandomNetworkTests
             booleanDefaultInput.SetCurrentValue(ComboBox.SelectedItemProperty, true);
             Assert.True(branchProject!.Editor!.ResultsParameterDefaults.Last().Value.BooleanValue);
             var defaultsViewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
-            var defaultsList = (FrameworkElement)fields.FindName("ResultsParameterDefaultsList");
+            var defaultsList = (FrameworkElement)FindWorkspaceField(fields, "ResultsParameterDefaultsList");
             defaultsViewport.ScrollToVerticalOffset(defaultsViewport.VerticalOffset + defaultsList.TranslatePoint(new Point(0, 0), defaultsViewport).Y);
             RenderWorkspaceState("typed-parameter-defaults");
             RenderWorkspaceState("typed-parameter-defaults-narrow", 640, 800);
@@ -2866,7 +2981,7 @@ public sealed class RandomNetworkTests
             }
             var setupSource = WorkspaceHierarchyTests.AddSetupSource(branchProject!);
             LayoutWorkspace();
-            var setupEntries = (ItemsControl)fields.FindName("SetupDataTypesList");
+            var setupEntries = (ItemsControl)FindWorkspaceField(fields, "SetupDataTypesList");
             var setupEntry = (ContentPresenter)setupEntries.ItemContainerGenerator.ContainerFromIndex(0);
             var sourcePicker = (ComboBox)setupEntries.ItemTemplate.FindName("SetupSourceProjectInput", setupEntry);
             Assert.Equal(setupSource.Id, sourcePicker.SelectedValue);
@@ -2909,7 +3024,7 @@ public sealed class RandomNetworkTests
                 inheritedDefault.RemoveCommand.Execute(null); addedDefault.RemoveCommand.Execute(null); LayoutWorkspace();
                 Assert.Equal(originalKey, query.Text);
             }
-            CheckQueryKeyPicker((ItemsControl)fields.FindName("ResultsQueryKeysList"), false);
+            CheckQueryKeyPicker((ItemsControl)FindWorkspaceField(fields, "ResultsQueryKeysList"), false);
             CheckQueryKeyPicker((ItemsControl)setupEntries.ItemTemplate.FindName("SetupQueryKeysList", setupEntry), true);
             vm.AddRunCommand.Execute(null);
             vm.Selected!.Name = "Evolve candidate";
@@ -2936,14 +3051,14 @@ public sealed class RandomNetworkTests
             // Scalar and list links navigate by defining entity even while this run needs parameters.
             Assert.True(vm.HasEditErrors);
             FollowSource((Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)executeEditor.FindName("ValueSource"), branchModule);
-            var outputHeader = (ContentControl)fields.FindName("OutputTypesHeader");
+            var outputHeader = (ContentControl)FindWorkspaceField(fields, "OutputTypesHeader");
             var outputPresenter = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(outputHeader, 0));
             FollowSource((Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)outputHeader.ContentTemplate.FindName("ValueSource", outputPresenter), branchProject!);
             void FillRequiredParameter(string addButtonName, string listName, string value)
             {
-                ((Button)fields.FindName(addButtonName)).Command.Execute(null);
+                ((Button)FindWorkspaceField(fields, addButtonName)).Command.Execute(null);
                 LayoutWorkspace();
-                var list = (ItemsControl)fields.FindName(listName);
+                var list = (ItemsControl)FindWorkspaceField(fields, listName);
                 var row = (ContentPresenter)list.ItemContainerGenerator.ContainerFromIndex(0);
                 var keyPicker = (ComboBox)list.ItemTemplate.FindName("ParameterKeyInput", row);
                 Assert.Contains("ChannelCount", keyPicker.Items.Cast<string>());
@@ -2961,7 +3076,7 @@ public sealed class RandomNetworkTests
             Assert.Equal("8", branchRun.Editor.SetupParameters.Single().Values.Single().Text);
             branchRun.Editor.AddResultsParameterCommand.Execute(null);
             LayoutWorkspace();
-            var typedSpans = (ItemsControl)fields.FindName("ResultsParametersList");
+            var typedSpans = (ItemsControl)FindWorkspaceField(fields, "ResultsParametersList");
             var typedSpanRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromIndex(1);
             var typedKeyPicker = (ComboBox)typedSpans.ItemTemplate.FindName("ParameterKeyInput", typedSpanRow);
             typedKeyPicker.SetCurrentValue(ComboBox.SelectedItemProperty, "SetupCompleted");
@@ -3019,7 +3134,7 @@ public sealed class RandomNetworkTests
             }
             LayoutWorkspace();
             Assert.Equal("Evaluate", branchRun.Editor!.ResultsFunctionName);
-            var overrideEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("DescriptionOverrideEditor");
+            var overrideEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "DescriptionOverrideEditor");
             var overrideToggle = (CheckBox)overrideEditor.FindName("OverrideToggle");
             var overrideInput = (TextBox)overrideEditor.FindName("OverrideValueInput");
             Assert.True(overrideInput.IsReadOnly);
@@ -3034,13 +3149,13 @@ public sealed class RandomNetworkTests
             RenderWorkspaceState("run-description-override");
             overrideToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
             Assert.Equal(branchProject!.Editor!.Description, overrideInput.Text);
-            var setupOverride = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)fields.FindName("SetupFunctionOverrideEditor");
+            var setupOverride = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "SetupFunctionOverrideEditor");
             ((CheckBox)setupOverride.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
             LayoutWorkspace();
             ((TextBox)setupOverride.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "GenerateForThisRun");
             Assert.Equal("GenerateForThisRun", branchRun.Editor.SetupFunctionOverride.EffectiveValue);
             var inspector = (ScrollViewer)page.FindName("EntityInspectorViewport");
-            var setupFields = (FrameworkElement)fields.FindName("SetupFields");
+            var setupFields = (FrameworkElement)FindWorkspaceField(fields, "SetupFields");
             inspector.ScrollToVerticalOffset(inspector.VerticalOffset + setupFields.TranslatePoint(new Point(0, 0), inspector).Y);
             RenderWorkspaceState("run-setup-fields");
             inspector.ScrollToBottom();

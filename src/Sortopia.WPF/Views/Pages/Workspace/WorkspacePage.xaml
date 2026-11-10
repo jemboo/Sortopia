@@ -47,8 +47,8 @@
             </HierarchicalDataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
-    <ScrollViewer x:Name="WorkspaceViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16" Background="{StaticResource Workspace.Canvas}">
-    <Grid MinHeight="640" Height="{Binding ViewportHeight, ElementName=WorkspaceViewport}">
+    <ScrollViewer x:Name="WorkspaceViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Padding="16" Background="{StaticResource Workspace.Canvas}">
+    <Grid MinHeight="640" MinWidth="566" Width="{Binding ViewportWidth, ElementName=WorkspaceViewport}" Height="{Binding ViewportHeight, ElementName=WorkspaceViewport}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -75,16 +75,13 @@
                        Visibility="{Binding HasMissingComponents, Converter={StaticResource WorkspaceBoolVisibility}}" />
             <StackPanel x:Name="WorkspaceNamePanel" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}"
                         Margin="0,8,0,0" IsEnabled="{Binding CanEdit}">
-                <Label Content="Workspace _name" Target="{Binding ElementName=WorkspaceNameInput}" Padding="0,0,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBox x:Name="WorkspaceNameInput" Text="{Binding WorkspaceName, UpdateSourceTrigger=PropertyChanged}" MinHeight="32"
-                             VerticalContentAlignment="Center" AutomationProperties.Name="Workspace name" />
-                    <Button x:Name="SaveWorkspaceButton" Grid.Column="1" Content="Save workspace" Command="{Binding SaveWorkspaceCommand}"
-                            Style="{StaticResource PrimaryAction}" Margin="8,0,0,0" AutomationProperties.Name="Save workspace" ToolTip="{Binding SaveHint}" ToolTipService.ShowOnDisabled="True" />
-                    <Button x:Name="DiscardChangesButton" Grid.Column="2" Content="Discard changes" Command="{Binding DiscardChangesCommand}"
-                            Margin="8,0,0,0" ToolTip="Restore the last saved workspace and cancel pending imports. No files are changed." />
-                </Grid>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button x:Name="SaveWorkspaceButton" Content="Save workspace" Command="{Binding SaveWorkspaceCommand}" Style="{StaticResource PrimaryAction}" Margin="8,0,0,0" ToolTip="{Binding SaveHint}" ToolTipService.ShowOnDisabled="True" />
+                        <Button x:Name="DiscardChangesButton" Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding WorkspaceName}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
                 <TextBlock Text="{Binding WorkspaceNameError}" Style="{StaticResource InlineError}" />
                 <Border x:Name="SaveValidationSummary" Visibility="{Binding HasSaveIssues, Converter={StaticResource WorkspaceBoolVisibility}}"
                         BorderBrush="{StaticResource Workspace.Warning}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,8,0,0">
@@ -105,10 +102,10 @@
                 </Border>
             </StackPanel>
         </StackPanel>
-        <Grid Grid.Row="2" IsEnabled="{Binding CanEdit}" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}">
+        <Grid x:Name="WorkspacePanes" Grid.Row="2" MinWidth="566" IsEnabled="{Binding CanEdit}" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" MinWidth="170" /><ColumnDefinition Width="3*" MinWidth="190" /></Grid.ColumnDefinitions>
-                <WrapPanel Grid.ColumnSpan="2" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" MinWidth="130" /><ColumnDefinition Width="8" /><ColumnDefinition Width="2.5*" MinWidth="180" /><ColumnDefinition Width="8" /><ColumnDefinition Width="4*" MinWidth="240" /></Grid.ColumnDefinitions>
+                <WrapPanel Grid.ColumnSpan="5" Margin="0,0,0,8">
                   <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
                     <Button x:Name="NewRootModuleButton" Content="New root module" Command="{Binding AddModuleCommand}" Margin="0,0,4,4" Visibility="{Binding ShowRootModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains root projects and runs without setup." />
                     <Button x:Name="NewBranchModuleButton" Content="New branch module" Command="{Binding AddBranchModuleCommand}" Margin="0,0,4,4" Visibility="{Binding ShowBranchModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains branch projects and runs with setup and execution." />
@@ -130,8 +127,8 @@
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
                             ToolTip="Remove the selected entity from the workspace. Existing folders and files are kept." />
                 </WrapPanel>
-                <TextBlock x:Name="SelectionHint" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8" />
-                <TreeView x:Name="WorkspaceTree" Grid.Row="2" Margin="0,0,8,0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
+                <TextBlock x:Name="SelectionHint" Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <TreeView x:Name="WorkspaceTree" Grid.Row="2" Margin="0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
                           Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}"
                           BorderBrush="{StaticResource Workspace.StrokeSubtle}" AutomationProperties.Name="Workspace hierarchy">
                     <TreeView.InputBindings>
@@ -154,31 +151,58 @@
                         </Style>
                     </TreeView.ItemContainerStyle>
                 </TreeView>
-            <Border x:Name="EntityDetailsPanel" Grid.Row="2" Grid.Column="1" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="12">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding Selected.IsWorkspace}" Value="False">
-                                <Setter Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
+            <GridSplitter x:Name="HierarchySplitter" Grid.Row="2" Grid.Column="1" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Focusable="True" KeyboardIncrement="16" Background="{StaticResource Workspace.StrokeSubtle}" ToolTip="Resize hierarchy and configuration panels" AutomationProperties.Name="Resize hierarchy and configuration panels" />
+            <Border x:Name="ConfigurationSummaryPanel" Grid.Row="2" Grid.Column="2" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="10" Visibility="{Binding HasSelectedEntity, Converter={StaticResource WorkspaceBoolVisibility}}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Text="Configuration" FontSize="17" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding Selected.Name}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding Selected.KindLabel}" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" />
+                        <TextBlock Text="{Binding Selected.ProjectState}" FontSize="11" Foreground="{StaticResource Workspace.Accent}" TextWrapping="Wrap" />
+                        <TextBlock Text="Select a setting to open its editor." FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    </StackPanel>
+                    <ScrollViewer x:Name="ConfigurationSummaryViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="ConfigurationItems" ItemsSource="{Binding InspectorItems}">
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Group}" FontSize="11" FontWeight="SemiBold" Margin="2,12,0,4" Foreground="{StaticResource Workspace.TextSecondary}" Visibility="{Binding StartsGroup, Converter={StaticResource WorkspaceBoolVisibility}}" />
+                                    <Border Padding="7,6" BorderThickness="2,0,0,1" BorderBrush="{StaticResource Workspace.StrokeSubtle}">
+                                        <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding IsActive}" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" /></DataTrigger></Style.Triggers></Style></Border.Style>
+                                        <StackPanel>
+                                            <TextBlock TextWrapping="Wrap"><Hyperlink x:Name="ConfigurationItemLink" Click="OnConfigurationItemClick" Command="{Binding DataContext.SelectConfigurationItemCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" CommandParameter="{Binding}" Foreground="{StaticResource Workspace.Accent}"><Run Text="{Binding Title, Mode=OneWay}" /></Hyperlink></TextBlock>
+                                            <TextBlock Text="{Binding Value}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="44" ToolTip="{Binding Value}" Margin="0,3,0,0" />
+                                            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontSize="11" Margin="0,3,0,0">
+                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" /><Style.Triggers><DataTrigger Binding="{Binding HasError}" Value="True"><Setter Property="Foreground" Value="{StaticResource Workspace.Warning}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock TextWrapping="Wrap" FontSize="11" Visibility="{Binding HasSource, Converter={StaticResource WorkspaceBoolVisibility}}"><Run Text="Source: " /><Hyperlink Command="{Binding DataContext.SelectInspectorSourceCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" CommandParameter="{Binding}" Foreground="{StaticResource Workspace.Accent}"><Run Text="{Binding SourceName, Mode=OneWay}" /></Hyperlink></TextBlock>
+                                            <TextBlock Text="{Binding Error}" Foreground="{StaticResource Workspace.Warning}" FontSize="11" TextWrapping="Wrap" MaxHeight="32" ToolTip="{Binding Error}" Visibility="{Binding HasError, Converter={StaticResource WorkspaceBoolVisibility}}" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+            <GridSplitter x:Name="EditorSplitter" Grid.Row="2" Grid.Column="3" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Focusable="True" KeyboardIncrement="16" Background="{StaticResource Workspace.StrokeSubtle}" ToolTip="Resize configuration and editor panels" AutomationProperties.Name="Resize configuration and editor panels" />
+            <Border x:Name="EntityDetailsPanel" Grid.Row="2" Grid.Column="4" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="12" Visibility="{Binding HasSelectedEntity, Converter={StaticResource WorkspaceBoolVisibility}}">
                 <ScrollViewer x:Name="EntityInspectorViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,6,0">
                 <StackPanel DataContext="{Binding Selected}">
-                    <TextBlock Text="{Binding KindLabel, TargetNullValue=Select an entity}" FontWeight="SemiBold" Margin="0,0,0,6" />
-                    <StackPanel>
-                        <TextBox x:Name="EntityNameInput" IsEnabled="{Binding CanEditIdentity}" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name" />
+                    <TextBlock Text="{Binding DataContext.ActiveItemTitle, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <StackPanel x:Name="NameItemEditor" Visibility="{Binding DataContext.ShowNameEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
+                        <TextBox x:Name="WorkspaceNameInput" Text="{Binding DataContext.WorkspaceName, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" Visibility="{Binding IsWorkspace, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Workspace name" />
+                        <TextBox x:Name="EntityNameInput" IsEnabled="{Binding CanEditIdentity}" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name">
+                            <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}"><Style.Triggers><DataTrigger Binding="{Binding IsWorkspace}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBox.Style>
+                        </TextBox>
                         <TextBlock x:Name="EntityNameError" Text="{Binding NameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
 
                     <Button Content="Edit parent defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
-                            Visibility="{Binding HasParentDefaults, Converter={StaticResource WorkspaceBoolVisibility}}"
+                            Visibility="{Binding DataContext.ShowParentDefaultsAction, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}"
                             Command="{Binding DataContext.EditProjectDefaultsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
                     <Expander x:Name="RunExecutionExpander" Header="Execution" IsExpanded="True" Margin="0,12,0,0"
                               Foreground="{StaticResource Workspace.TextPrimary}"
-                              Visibility="{Binding IsRun, Converter={StaticResource WorkspaceBoolVisibility}}">
+                              Visibility="{Binding DataContext.ShowExecutionEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <StackPanel Margin="0,8,0,8" DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}">
                             <Button x:Name="ExecuteRunButton" Content="Execute" Command="{Binding ExecuteRunCommand}" HorizontalAlignment="Left" MinWidth="100"
                                     AutomationProperties.Name="Execute run" ToolTip="Execute every generated parameter set using the saved run settings." />
@@ -217,13 +241,13 @@
                                        TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>
-                    <StackPanel Visibility="{Binding HasConfiguration, Converter={StaticResource WorkspaceBoolVisibility}}">
-                        <TextBlock Text="{Binding ProjectState}" TextWrapping="Wrap" Margin="0,8,0,4" Foreground="{DynamicResource Workspace.Accent}" />
+                    <StackPanel Visibility="{Binding DataContext.ShowConfigurationItemEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
+                        <TextBlock Text="{Binding ProjectState}" TextWrapping="Wrap" Margin="0,8,0,4" Foreground="{DynamicResource Workspace.Accent}" Visibility="{Binding IsProject, Converter={StaticResource WorkspaceBoolVisibility}}" />
                         <Button Content="Create new version" HorizontalAlignment="Left" Margin="0,0,0,8" Visibility="{Binding IsSealed, Converter={StaticResource WorkspaceBoolVisibility}}"
                                 Command="{Binding DataContext.CreateProjectVersionCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
-                        <local:WorkspaceConfigurationEditor x:Name="ConfigurationFields" DataContext="{Binding Editor}" />
+                        <local:WorkspaceConfigurationEditor x:Name="ConfigurationFields" DataContext="{Binding Editor}" ActiveItemKey="{Binding DataContext.ActiveItemKey, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
                     </StackPanel>
-                    <Expander x:Name="EntityLocationExpander" Header="Location" Margin="0,16,0,0" Foreground="{StaticResource Workspace.TextSecondary}">
+                    <Expander x:Name="EntityLocationExpander" IsExpanded="True" Visibility="{Binding DataContext.ShowLocationEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}" Header="Location" Margin="0,16,0,0" Foreground="{StaticResource Workspace.TextSecondary}">
                         <Expander.Style><Style TargetType="Expander"><Style.Triggers>
                             <DataTrigger Binding="{Binding HasConfiguration}" Value="False"><Setter Property="IsExpanded" Value="True" /></DataTrigger>
                         </Style.Triggers></Style></Expander.Style>

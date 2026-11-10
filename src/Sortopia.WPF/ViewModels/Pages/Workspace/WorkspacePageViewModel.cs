@@ -45,6 +45,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         this.openFolder = openFolder;
         this.settings = settings;
         InitializeSaveValidation();
+        InitializeInspector();
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
         BrowseWorkspaceFolderCommand = new RelayCommand(async () => await BrowseWorkspaceFolderAsync(), () => !IsBusy && !resolvingNavigation);
         OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedExplorerFolder));
@@ -53,12 +54,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
         CreateProjectVersionCommand = new RelayCommand(CreateProjectVersion, () => CanEdit && Selected is { IsProject: true, IsSealed: true, Parent: not null });
-        EditProjectDefaultsCommand = new RelayCommand(() => Selected = Selected!.Parent, () => CanEdit && Selected?.HasParentDefaults == true);
+        EditProjectDefaultsCommand = new RelayCommand(() =>
+        { var key = ActiveItemKey; Selected = Selected!.Parent; SelectConfigurationItem(key); }, () => CanEdit && Selected?.HasParentDefaults == true);
         SelectValueSourceCommand = new RelayCommand(source =>
         {
             if (source is WorkspaceConfigurationViewModel editor
                 && Roots.SelectMany(root => root.DescendantsAndSelf()).FirstOrDefault(item => ReferenceEquals(item.Editor, editor)) is { } node)
-                Selected = node;
+            { var key = ActiveItemKey; Selected = node; SelectConfigurationItem(key); }
         }, () => CanEdit);
         AddExistingModuleCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Module), () => CanAddExisting(WorkspaceEntityKind.Module));
         AddExistingProjectCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Project), () => CanAddExisting(WorkspaceEntityKind.Project));
@@ -140,6 +142,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             if (selected is not null) selected.IsSelected = false;
             SetProperty(ref selected, value);
             if (selected is not null) selected.IsSelected = true;
+            InspectorSelectionChanged();
             OnPropertyChanged(nameof(SelectedFolderPath));
             NotifyCommands();
         }
@@ -457,6 +460,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     }
     private void NotifyCommands()
     {
+        RefreshInspector();
         NotifySaveValidation();
         OnPropertyChanged(nameof(SelectedExecution));
         OnPropertyChanged(nameof(ExecuteHint));

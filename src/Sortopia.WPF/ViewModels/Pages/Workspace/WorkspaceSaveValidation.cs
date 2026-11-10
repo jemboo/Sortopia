@@ -50,6 +50,7 @@ public sealed partial class WorkspacePageViewModel
         {
             if (value is not WorkspaceSaveIssue issue) return;
             Selected = issue.Node;
+            InspectSaveIssue(issue);
             if (issue.Node.Editor is not { } editor) return;
             switch (issue.Section)
             {

@@ -17,7 +17,11 @@ public sealed partial class WorkspacePageViewModel
         {
             if (Selected?.IsRun != true) return null;
             if (!executions.TryGetValue(Selected.Id, out var state))
-                executions[Selected.Id] = state = new WorkspaceRunExecution();
+            {
+                var id = Selected.Id;
+                executions[id] = state = new WorkspaceRunExecution();
+                state.PropertyChanged += (_, _) => { if (Selected?.Id == id) RefreshInspector(); };
+            }
             return state;
         }
     }

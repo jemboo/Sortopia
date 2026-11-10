@@ -9,6 +9,15 @@ namespace Sortopia.WPF.Views.Pages.Workspace;
 
 public partial class WorkspacePage : UserControl
 {
+    private void OnConfigurationItemClick(object sender, RoutedEventArgs args) =>
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => { EntityInspectorViewport.ScrollToTop(); RevealActiveItem(); }));
+    private void RevealActiveItem()
+    {
+        if (DataContext is not WorkspacePageViewModel viewModel) return;
+        var item = viewModel.InspectorItems.FirstOrDefault(item => item.IsActive);
+        if (item is not null && ConfigurationItems.ItemContainerGenerator.ContainerFromItem(item) is FrameworkElement row)
+            row.BringIntoView();
+    }
     private void OnReviewSaveIssue(object sender, RoutedEventArgs args)
     {
         if (sender is not FrameworkContentElement { DataContext: WorkspaceSaveIssue issue }) return;
@@ -36,6 +45,7 @@ public partial class WorkspacePage : UserControl
     {
         if (DataContext is WorkspacePageViewModel viewModel) viewModel.Selected = args.NewValue as WorkspaceTreeNode;
         EntityInspectorViewport.ScrollToTop();
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RevealActiveItem));
     }
     private void OnTreeRightClick(object sender, MouseButtonEventArgs args)
     {

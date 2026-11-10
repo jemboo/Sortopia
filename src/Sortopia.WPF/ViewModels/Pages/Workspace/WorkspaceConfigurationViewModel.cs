@@ -191,7 +191,7 @@ public sealed class WorkspaceListOverride : WorkspaceOverrideState
 }
 
 /// <summary>Editable local values and effective inherited values are kept separate throughout the tree.</summary>
-public sealed class WorkspaceConfigurationViewModel : ViewModelBase
+public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
 {
     private readonly Func<WorkspaceConfigurationViewModel?> parent;
     private readonly Func<string> name;
