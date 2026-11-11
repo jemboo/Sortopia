@@ -36,7 +36,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
 
     public WorkspacePageViewModel(Action returnHome, Func<string?, string?> pickFolder, WorkspaceFolderSettings settings,
         Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null,
-        Action<string>? openFolder = null)
+        Action<string>? openFolder = null, Action? inspectFiles = null)
     {
         this.returnHome = returnHome;
         this.pickFolder = pickFolder;
@@ -47,6 +47,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         InitializeSaveValidation();
         InitializeInspector();
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
+        InspectFilesCommand = new RelayCommand(inspectFiles ?? (() => { }), () => inspectFiles is not null && !IsBusy);
         BrowseWorkspaceFolderCommand = new RelayCommand(async () => await BrowseWorkspaceFolderAsync(), () => !IsBusy && !resolvingNavigation);
         OpenFolderCommand = new RelayCommand(OpenSelectedFolderInExplorer, () => CanEdit && this.openFolder is not null && Directory.Exists(SelectedExplorerFolder));
         AddModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module, hierarchyKind.Root), () => CanAddModule(hierarchyKind.Root));
@@ -70,7 +71,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
         ExecuteRunCommand = new RelayCommand(async () => await ExecuteRunAsync(), () => CanExecuteRun);
-        InitializePreparedRunCommands();
+        InitializeRunParameterCommands();
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasEditErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         try
@@ -104,6 +105,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     // Draft errors are already shown beside Save, with links to their fields.
     public string OperationError => HasEditErrors ? "" : error;
     public RelayCommand ReturnHomeCommand { get; }
+    public RelayCommand InspectFilesCommand { get; }
     public RelayCommand BrowseWorkspaceFolderCommand { get; }
     public RelayCommand OpenFolderCommand { get; }
     public RelayCommand AddModuleCommand { get; }
@@ -144,7 +146,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             SetProperty(ref selected, value);
             if (selected is not null) selected.IsSelected = true;
             InspectorSelectionChanged();
-            RefreshPreparations();
+            RefreshRunParameterFiles();
             OnPropertyChanged(nameof(SelectedFolderPath));
             NotifyCommands();
         }
@@ -481,14 +483,14 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(ExecuteHint));
         OnPropertyChanged(nameof(ExecutionInstructions));
         ExecuteRunCommand.RaiseCanExecuteChanged();
-        NotifyPreparedRunCommands();
+        NotifyRunParameterCommands();
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
-        foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
+        foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
             RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
-    public void Cancel() => cancellation?.Cancel();
+    public void Cancel() { cancellation?.Cancel(); ResultsExecution.Cancel(); }
     public Task SaveWorkspaceAsync() => !CanSaveWorkspace ? Task.CompletedTask : RunAsync(async token =>
     {
         try

@@ -16,8 +16,12 @@ public sealed class WorkspaceFamilyTests : IDisposable
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-workspace-families-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static project Project(hierarchyKind kind) => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p",
-        [WorkspaceHierarchyTests.MakeRun("P", "R", kind == hierarchyKind.Branch)]);
+    private static project Project(hierarchyKind kind)
+    {
+        var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", kind == hierarchyKind.Branch));
+        dto.id = Guid.NewGuid();
+        return WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p", [WorkspaceHierarchyTests.FromRunDto(dto, "P")]);
+    }
     private static WorkspaceModule Module(hierarchyKind kind) => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), kind.ToString(), kind.ToString(),
         [WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "Nested", "nested", [], [Project(kind)])], [Project(kind)]);
 

@@ -48,8 +48,8 @@ public sealed partial class WorkspacePageViewModel
     }
     private bool CanExecuteRun => CanEdit && ExecuteHint.Length == 0;
     public string ExecutionInstructions => (Selected?.IsBranch == true
-        ? "Prepare runs setup locally and creates one work item for each setup × results pairing. Execute prepared results reads those saved inputs. "
-        : "Prepare creates one work item for every generated results parameter set. Execute prepared results reads those saved inputs. ")
+        ? "Generate run parameters runs setup locally and creates one file for each setup × results pairing. Execute pending results reads those saved inputs. "
+        : "Generate run parameters creates one file for every results parameter set. Execute pending results reads those saved inputs. ")
         + "Cancel operation stops at database operations and between function calls.";
 
     public Task ExecuteRunAsync()
@@ -72,23 +72,20 @@ public sealed partial class WorkspacePageViewModel
             }));
             try
             {
-                Guid? preparationId = null;
                 var report = await Task.Run(() =>
                 {
-                    var prepared = PreparedRunExecution.prepare(definition, folder, value, progress, token);
-                    if (prepared.Preparation is null) return prepared.Execution;
-                    preparationId = prepared.Preparation.Value.Id;
+                    var prepared = RunParameterExecution.generate(definition, folder, value, progress, token);
+                    if (prepared.Execution.Status != runExecutionStatus.Completed) return prepared.Execution;
                     var projectFolder = WorkspaceData.projectFolder(definition, folder, value.ParentProjectId);
-                    var results = PreparedRunExecution.executePreparation(projectFolder, prepared.Preparation.Value.Id, progress, token);
+                    var results = RunParameterExecution.executeFolder(System.IO.Path.Combine(projectFolder, "runParameters"), Microsoft.FSharp.Core.FSharpOption<Guid>.Some(value.Id), progress, token);
                     return new runExecutionReport(results.Status, prepared.Execution.Setup, results.Results, results.Error);
                 });
                 acceptingProgress = false;
                 state.Finish(report);
-                RefreshPreparations();
-                if (preparationId is { } preparedId)
-                    SelectedPreparation = Preparations.FirstOrDefault(item => item.Id == preparedId);
+                await RefreshRunParameterFilesAsync();
                 Status = $"Run '{value.RunName}': {state.Summary}";
                 Error = report.Error;
+                if (!token.IsCancellationRequested) await ResultsExecution.CheckAsync();
             }
             catch (Exception exception)
             {
@@ -164,12 +161,12 @@ public sealed class WorkspaceRunExecution : ViewModelBase
         OnPropertyChanged("");
     }
 
-    internal void FinishPreparation(runPreparationReport report)
+    internal void FinishGeneration(runParameterGenerationReport report)
     {
         Finish(report.Execution);
-        if (report.Preparation is { } ready)
+        if (report.Execution.Status == runExecutionStatus.Completed)
         {
-            Summary = $"Prepared · {ready.Value.WorkItemIds.Length:N0} results work items ready. Results have not been executed.";
+            Summary = $"Generated · {report.WorkItemIds.Length:N0} results parameter files ready. Results have not been executed; existing outputs can be reused.";
             OnPropertyChanged("");
         }
     }

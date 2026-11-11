@@ -7,6 +7,7 @@ open System.Threading
 open FSharp.UMX
 open Sortopia.Workspaces
 open Sortopia.Workspaces.Serialization
+open Sortopia.Core.Serialization
 open WorkspaceFileSystem
 open WorkspaceDisk
 
@@ -83,7 +84,7 @@ module internal WorkspaceSavePlan =
         let remapAssignments folder (entries: setupSourceConfigDto array) =
             if isNull entries then null else entries |> Array.map (fun entry -> { entry with sourceProjectId = remapSource folder entry.sourceProjectId })
         let identifyProject (value: project) folder =
-            let settings = SettingsDto.fromDomain value.Configuration
+            let settings = SettingsDto.fromDomain (if value.IsSealed then value.Configuration else value.InheritedDefaults)
             let local = OverridesDto.fromDomain value.LocalOverrides
             let settings = { settings with setupDataTypes = remapSources folder settings.setupDataTypes }
             let local = { local with setupSources = remapAssignments folder local.setupSources }
@@ -95,7 +96,7 @@ module internal WorkspaceSavePlan =
                 |> RunDto.toDomain parent)
             project.withRuns parent runs
         let rec identifyModule (value: workspaceModule) folder =
-            let settings = ModuleSettingsDto.fromDomain value.Configuration
+            let settings = ModuleSettingsDto.fromDomain value.InheritedDefaults
             let local = ModuleOverridesDto.fromDomain value.LocalOverrides
             let settings = { settings with setupDataTypes = remapSources folder settings.setupDataTypes }
             let local = { local with setupSources = remapAssignments folder local.setupSources }
@@ -106,20 +107,9 @@ module internal WorkspaceSavePlan =
         let definition = workspace.create definition.Id definition.WorkspaceName definition.FolderName
                              (definition.Modules |> Array.map (fun value -> identifyModule value (child root "modules" value.FolderName)))
 
-        let sourceRuns = Dictionary<string, Dictionary<Guid, string>>(pathComparer)
         let findRun projectFolder id =
-            let files =
-                match sourceRuns.TryGetValue(projectFolder) with
-                | true, files -> files
-                | _ ->
-                    let files = Dictionary<Guid, string>()
-                    for file in runFiles projectFolder do
-                        if files.Count >= maxEntities then raise (InvalidDataException("Workspace contains too many runs."))
-                        let runId = readDefinition file |> WorkspaceCodec.readRunId |> UMX.untag
-                        if not (files.TryAdd(runId, file)) then raise (InvalidDataException($"Duplicate run ID in {projectFolder}: {runId}"))
-                    sourceRuns.Add(projectFolder, files)
-                    files
-            files.GetValueOrDefault(id)
+            let path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name id)
+            if File.Exists path then path else null
         let add folder kind id (bytes: byte array) =
             token.ThrowIfCancellationRequested()
             if bytes.Length > maxDefinitionBytes then raise (InvalidDataException($"Definition is too large: {folder}"))
@@ -161,17 +151,18 @@ module internal WorkspaceSavePlan =
                     | Some transfer -> Path.GetFullPath(Path.Combine(transfer.Destination, Path.GetRelativePath(transfer.Source, sourcePath)))
             if not (pathComparer.Equals(path, originalPath) && not (isNull original) && equalBytes original bytes) then
                 writes.Add({ Path = path; Content = bytes; OriginalPath = originalPath; Original = original })
-        let addProject (value: project) folder depth =
+        let addProject inheritedFrom (value: project) folder depth =
             checkDepth depth
             for run in value.Runs do add (Path.Combine(folder, "runs")) "run" (UMX.untag run.Id) (WorkspaceCodec.encodeRun run)
-            add folder "project" (UMX.untag value.Id) (WorkspaceCodec.encodeProject value)
-        let rec addModule (value: workspaceModule) folder depth =
+            add folder "project" (UMX.untag value.Id) (WorkspaceDefinitionCodec.projectWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
+        let rec addModule inheritedFrom (value: workspaceModule) folder depth =
             checkDepth depth
-            for value in value.Modules do addModule value (child folder "modules" value.FolderName) (depth + 1)
-            for value in value.Projects do addProject value (child folder "projects" value.FolderName) (depth + 1)
-            add folder "module" (UMX.untag value.Id) (WorkspaceCodec.encodeModule value)
-        for value in definition.Modules do addModule value (child root "modules" value.FolderName) 1
-        add root "workspace" (UMX.untag definition.Id) (WorkspaceCodec.encodeWorkspace definition) // Root snapshot commits last.
+            let origin = { moduleId = UMX.untag value.Id; moduleName = string value.ModuleName }
+            for value in value.Modules do addModule origin value (child folder "modules" value.FolderName) (depth + 1)
+            for value in value.Projects do addProject origin value (child folder "projects" value.FolderName) (depth + 1)
+            add folder "module" (UMX.untag value.Id) (WorkspaceDefinitionCodec.moduleWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
+        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root "modules" value.FolderName) 1
+        add root "workspace" (UMX.untag definition.Id) (WorkspaceDefinitionCodec.encodeWorkspace definition) // Root references commit last.
         let hasOriginal path = writes |> Seq.exists (fun write -> pathComparer.Equals(write.OriginalPath, path))
         if transfers |> Array.exists (fun transfer -> not (expected.Contains(transfer.Destination)) && not (File.Exists(transfer.Source) && hasOriginal transfer.Destination)) then
             raise (ArgumentException("Every moved or imported folder must belong to an entity in the workspace definition."))

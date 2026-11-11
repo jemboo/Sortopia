@@ -19,23 +19,6 @@ type ISortopiaDb =
     abstract FindResults: dataKey * CancellationToken -> Result<storedData list, string>
     abstract GetOrCreate: dataKey * (unit -> Result<functionData, string>) * CancellationToken -> Result<storedData * bool, string>
 
-[<MessagePackObject>]
-type dataEnvelopeDto = {
-    [<Key(0)>] Version: int
-    [<Key(1)>] ProjectId: Guid
-    [<Key(2)>] Id: Guid
-    [<Key(3)>] QueryId: Guid
-    [<Key(4)>] IsSetup: bool
-    [<Key(5)>] Kind: string
-    [<Key(6)>] Label: string
-    [<Key(7)>] QueryBytes: byte array
-    [<Key(8)>] IdentityBytes: byte array
-    [<Key(9)>] Compression: string
-    [<Key(10)>] RawLength: int
-    [<Key(11)>] Checksum: byte array
-    [<Key(12)>] Payload: byte array
-}
-
 /// Immutable data files. Each writer holds a project lock only for get-or-create;
 /// readers need no lock, and incomplete temporary files are never considered data.
 type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
@@ -55,11 +38,11 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
             if (File.Exists current || Directory.Exists current) && File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint) then
                 invalidOp "Data storage does not follow filesystem links."
             current <- Path.GetDirectoryName current
-    let bucket (reference: storedDataReference) =
+    let typeFolder (reference: storedDataReference) =
         if reference.ProjectId <> projectId then invalidArg "reference" "The data belongs to a different project."
-        Path.Combine(dataFolder, (if reference.IsSetup then "setup" else "results"), string reference.QueryId)
+        Path.Combine(dataFolder, (if reference.IsSetup then "setup" else "results"), SortopiaDataType.kindName reference.DataType)
     let filePath reference =
-        let path = Path.Combine(bucket reference, string reference.Id + ".msgpack")
+        let path = Path.Combine(typeFolder reference, string reference.Id + ".msgpack")
         checkPath path
         path
     let read reference (expectedQuery: byte array option) (expectedIdentity: byte array option) (token: CancellationToken) =
@@ -140,15 +123,22 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         member _.Load(reference, token) = protect (fun () -> read reference None None token)
         member _.FindResults(key, token) = protect (fun () ->
             if key.Reference.IsSetup then invalidArg "key" "Source queries address results data."
-            let folder = bucket key.Reference
+            let folder = typeFolder key.Reference
             checkPath folder
             if not (Directory.Exists folder) then []
             else
-                Directory.EnumerateFiles(folder, "*.msgpack") |> Seq.sort |> Seq.map (fun path ->
+                Directory.EnumerateFiles(folder, "*.msgpack") |> Seq.sort |> Seq.choose (fun path ->
                     token.ThrowIfCancellationRequested()
-                    let id = Guid.Parse(Path.GetFileNameWithoutExtension path) |> UMX.tag<sortopiaDataId>
-                    let reference = { key.Reference with Id = id }
-                    read reference (Some key.QueryBytes) None token) |> Seq.toList)
+                    checkPath path
+                    let header = (DataEnvelope.readHeader path token).Envelope
+                    let id = Guid.Parse(Path.GetFileNameWithoutExtension path)
+                    if header.ProjectId <> UMX.untag projectId || header.IsSetup || header.Id <> id
+                       || header.Kind <> SortopiaDataType.kindName key.Reference.DataType then
+                        invalidOp $"Stored data does not match its type folder: {path}"
+                    if header.QueryId <> UMX.untag key.QueryId then None
+                    else
+                        let reference = { key.Reference with Id = UMX.tag<sortopiaDataId> id }
+                        Some (read reference (Some key.QueryBytes) None token)) |> Seq.toList)
         member _.GetOrCreate(key, factory, token) = protect (fun () ->
             match tryRead key token with
             | Some value -> value, true

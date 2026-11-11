@@ -86,8 +86,9 @@ public sealed class ConfigurationCleanupTests : IDisposable
         var dataType = sortopiaDataType.NewSortableTests("");
         var payload = CatalogTestHost.Invoke(false, config.FunctionName, parameters).Head;
         var store = WorkspaceData.openProject(world, temporary.FullName, parent.Id);
-        var writer = (IRunDatabase)new FileRunDatabase(store, parent.Id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, parameters, FuncConvert.FromFunc<storedDataReference, bool>(_ => false), Token);
+        var plan = OutputPlan.create(parent.Id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
+            config.DataTypes, FunctionCatalogs.requireResults(config.FunctionName).OutputDependencies, parameters, ListModule.Empty<storedDataReference>());
+        var writer = (IRunDatabase)new FileRunDatabase(store, plan, Token);
         writer.SaveIfMissing(dataType, ListModule.Empty<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => payload));
         var source = WorkspaceData.loadSource(world, temporary.FullName,
             new setupDataTypeConfig(dataType, parent.Id, ListModule.Empty<string>()), parameters, Token);

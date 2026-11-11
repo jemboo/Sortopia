@@ -21,7 +21,7 @@ module SetupFunctions =
         FunctionDefinition.setupWithSources version
             (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
-            (if fromSource then [testsType] else [])
+            [testsType, (if fromSource then [testsType] else []); modelsType, []]
             (fun host projects ->
                 let sources =
                     if fromSource then

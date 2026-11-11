@@ -129,46 +129,47 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task UI_prepares_without_results_and_reopens_saved_preparations_for_results_only_execution(bool branch)
+    public async Task UI_generates_files_and_reopens_the_folder_for_results_only_execution(bool branch)
     {
         var page = Create(temporary.FullName, branch);
         SupplyQuerySpans(page);
-        Assert.False(page.PrepareRunCommand.CanExecute(null));
-        Assert.False(page.ExecutePreparedRunCommand.CanExecute(null));
+        Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
         await page.SaveWorkspaceAsync(); SelectRun(page);
         await ExecuteSourceAsync(page);
         var runId = page.Selected!.Id;
-        Assert.True(page.PrepareRunCommand.CanExecute(null));
-        await page.PrepareRunAsync();
+        await page.GenerateRunParametersAsync();
         Assert.Empty(page.Error);
         Assert.Empty(page.SelectedExecution!.Report!.Results);
         Assert.Contains("Results have not been executed", page.SelectedExecution.Summary);
-        var choice = Assert.Single(page.Preparations);
-        Assert.Equal(runId, choice.Preparation.RunId);
-        Assert.True(page.ExecutePreparedRunCommand.CanExecute(null));
-        Assert.Contains(choice.Id.ToString(), page.PreparedCommand);
-        Assert.Contains("execute-results", page.PreparedCommand);
-        Assert.False(page.HasUnsavedChanges);
-
+        await page.ResultsExecution.CheckAsync();
+        Assert.Equal(Sortopia.FileDb.outputState.Pending, Assert.Single(page.ResultsExecution.Outputs).Value.Outputs.State);
+        Assert.Equal(runId, page.ResultsExecution.SelectedRun!.Id);
+        Assert.True(page.ResultsExecution.ExecuteCommand.CanExecute(null));
+        Assert.Contains(runId.ToString(), page.ResultsExecution.CommandLine);
+        Assert.Contains("--parameters-folder", page.ResultsExecution.CommandLine);
         var reopened = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
         SelectRun(reopened);
-        Assert.Equal(choice.Id, Assert.Single(reopened.Preparations).Id);
-        Assert.Equal(choice.Id, reopened.SelectedPreparation!.Id);
-        await reopened.ExecutePreparedRunAsync();
-        Assert.Empty(reopened.Error);
-        Assert.Equal(runExecutionStatus.Completed, reopened.SelectedExecution!.Report!.Status);
-        Assert.Empty(reopened.SelectedExecution.Report.Setup);
-        Assert.Single(reopened.SelectedExecution.Report.Results);
-        await reopened.ExecutePreparedRunAsync();
-        Assert.All(reopened.SelectedExecution.Report.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
-
+        await reopened.RefreshRunParameterFilesAsync();
+        Assert.Equal(runId, reopened.ResultsExecution.SelectedRun!.Id);
+        await reopened.ResultsExecution.ExecuteAsync();
+        Assert.Empty(reopened.ResultsExecution.Error);
+        var report = reopened.ResultsExecution.LastReport!;
+        Assert.Equal(runExecutionStatus.Completed, report.Status);
+        Assert.Empty(report.Setup);
+        Assert.Single(report.Results);
+        Assert.Equal(Sortopia.FileDb.outputState.Complete, Assert.Single(reopened.ResultsExecution.Outputs).Value.Outputs.State);
+        await reopened.ResultsExecution.CheckAsync();
+        Assert.Contains("1 complete", reopened.ResultsExecution.Status);
+        await reopened.ResultsExecution.ExecuteAsync();
+        Assert.All(reopened.ResultsExecution.LastReport!.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
         reopened.Selected!.Editor!.DescriptionOverride.IsOverridden = true;
         reopened.Selected.Editor.DescriptionOverride.EffectiveValue = "Changed";
-        Assert.False(reopened.PrepareRunCommand.CanExecute(null));
-        Assert.False(reopened.ExecutePreparedRunCommand.CanExecute(null));
+        Assert.False(reopened.GenerateRunParametersCommand.CanExecute(null));
+        // Existing parameter files are immutable and can execute independently of editor drafts.
+        Assert.True(reopened.ResultsExecution.ExecuteCommand.CanExecute(null));
         reopened.Selected = reopened.Selected.Parent;
-        Assert.Empty(reopened.Preparations);
-        Assert.False(reopened.ExecutePreparedRunCommand.CanExecute(null));
+        await reopened.RefreshRunParameterFilesAsync();
+        Assert.Empty(reopened.ResultsExecution.Runs);
     }
     public void Dispose() => temporary.Delete(recursive: true);
 }

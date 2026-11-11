@@ -73,13 +73,13 @@ module ResultsFunctions =
 
     let evaluateSorters =
         let required = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
-        FunctionDefinition.resultsWithInputs "1" required [modelsType; testsType]
+        FunctionDefinition.resultsWithInputs "1" required [evalType, [modelsType; testsType]]
             [evalType, InputGenerators.queryKeys required] evaluate
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
     let evaluateMutants =
-        FunctionDefinition.resultsWithInputs "1" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [modelsType; testsType]
+        FunctionDefinition.resultsWithInputs "1" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [evalType, [modelsType; testsType]]
             [evalType, [ParamKeys.sorterEvalTypeKey.Name]]
             (fun host -> saveEvaluation host (fun () ->
                 let parameters = host.Parameters

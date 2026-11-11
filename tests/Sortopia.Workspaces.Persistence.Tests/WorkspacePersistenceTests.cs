@@ -12,7 +12,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
     private string Library => Path.Combine(temporary.FullName, "Library");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    private static workspace Sample(bool branch = false)
+    internal static workspace Sample(bool branch = false)
     {
         var kind = branch ? hierarchyKind.Branch : hierarchyKind.Root;
         parameterBindingDto[] defaults = [

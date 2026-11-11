@@ -75,9 +75,9 @@ type runDto = {
     setupParameterSpans: parameterSpanDto array
 }
 [<CLIMutable>]
-type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; folderName: string; configuration: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
+type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; folderName: string; configuration: projectSettingsDto; inheritedDefaults: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
 [<CLIMutable>]
-type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string; configuration: moduleSettingsDto; localOverrides: moduleOverridesDto; modules: moduleDto array; projects: projectDto array }
+type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string; configuration: moduleSettingsDto; inheritedDefaults: moduleSettingsDto; localOverrides: moduleOverridesDto; modules: moduleDto array; projects: projectDto array }
 [<CLIMutable>]
 type workspaceDto = { schemaVersion: int; id: Guid; workspaceName: string; folderName: string; modules: moduleDto array }
 
@@ -313,6 +313,7 @@ module ProjectDto =
     let fromDomain (value: project) : projectDto = {
         schemaVersion = 14; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
         configuration = settingsFromDomain value; localOverrides = OverridesDto.fromDomain value.LocalOverrides
+        inheritedDefaults = SettingsDto.fromDomain value.InheritedDefaults
         runs = value.Runs |> Array.map RunDto.fromDomain }
     let internal read depth inherited (value: projectDto) =
         Contract.depth depth
@@ -329,7 +330,10 @@ module ProjectDto =
                 FunctionConfiguration.validateResults config.Results
                 FunctionConfiguration.validateSetup true config.Setup
         let local = OverridesDto.toDomain kind value.localOverrides
-        let configuration = if value.isSealed then snapshot else inherited |> Option.map (fun p -> Defaults.resolve p local) |> Option.defaultValue snapshot
+        let configuration =
+            if value.isSealed then snapshot
+            else inherited |> Option.defaultWith (fun () ->
+                if isNull (box value.inheritedDefaults) then snapshot else SettingsDto.toDomain kind value.inheritedDefaults)
         let parent = project.restore (UMX.tag value.id) (UMX.tag value.projectName) value.folderName configuration local value.isSealed [||]
         savedRuns |> Array.map (RunDto.toDomain parent) |> project.withRuns parent
     let toDomain value = read 0 None value
@@ -338,12 +342,13 @@ module ModuleDto =
     let rec fromDomain (value: workspaceModule) : moduleDto = {
         schemaVersion = 14; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
         configuration = ModuleSettingsDto.fromDomain value.Configuration; localOverrides = ModuleOverridesDto.fromDomain value.LocalOverrides
+        inheritedDefaults = ModuleSettingsDto.fromDomain value.InheritedDefaults
         modules = value.Modules |> Array.map fromDomain; projects = value.Projects |> Array.map ProjectDto.fromDomain }
     let rec internal read depth inherited (value: moduleDto) =
         Contract.depth depth
         Contract.version value.schemaVersion
         let kind = Contract.kind value.moduleKind
-        let parent = inherited |> Option.defaultWith (fun () -> ModuleSettingsDto.toDomain kind value.configuration)
+        let parent = inherited |> Option.defaultWith (fun () -> ModuleSettingsDto.toDomain kind (if isNull (box value.inheritedDefaults) then value.configuration else value.inheritedDefaults))
         let local = ModuleOverridesDto.toDomain kind value.localOverrides
         let effective = ModuleDefaults.resolve parent local
         workspaceModule.createInherited (UMX.tag value.id) (UMX.tag value.moduleName) value.folderName parent local
@@ -360,6 +365,8 @@ module WorkspaceDto =
         workspace.create (UMX.tag value.id) (UMX.tag value.workspaceName) value.folderName
             (Contract.array "modules" value.modules |> Array.map (fun m -> ModuleDto.read 1 (Some (ModuleDefaults.configuration (Contract.kind m.moduleKind = hierarchyKind.Branch))) m))
 
+/// Aggregate snapshots for editing, cloning and comparisons. Persisted entity
+/// files use WorkspaceDefinitionCodec and never embed these descendant DTOs.
 module WorkspaceCodec =
     let encodeWorkspace value = value |> WorkspaceDto.fromDomain |> MessagePackSetup.serialize
     let decodeWorkspace bytes = bytes |> MessagePackSetup.deserialize<workspaceDto> |> WorkspaceDto.toDomain

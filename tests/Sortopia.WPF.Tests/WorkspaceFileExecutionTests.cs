@@ -59,7 +59,6 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     {
         private readonly Dictionary<storedDataReference, functionData> loaded = [];
         public List<(Guid ProjectId, sortopiaDataType DataType)> Reads { get; } = [];
-        public bool Allows(storedDataReference reference) => loaded.ContainsKey(reference);
         public storedDataReference Find(Guid projectId, sortopiaDataType dataType, parameterSet parameters)
         {
             var entry = new setupDataTypeConfig(dataType, projectId, ListModule.Empty<string>());
@@ -103,7 +102,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var copies = 0;
         var definition = FunctionDefinition.setupWithSources("1", required,
             ListModule.OfArray(new[] { Tuple.Create(testsType, testsDefinition.DataTypes[testsType]), Tuple.Create(modelsType, modelsDefinition.DataTypes[modelsType]) }),
-            sourceTypes, FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(host =>
+            ListModule.OfSeq(sourceTypes.Select(type => Tuple.Create(type, ListModule.Singleton(type)))), FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(host =>
                 FuncConvert.FromFunc<FSharpMap<sortopiaDataType, Guid>, Unit>(sources =>
                 {
                     foreach (var dataType in sourceTypes)
@@ -116,9 +115,10 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
                 })));
         var consumerId = Guid.NewGuid();
         var outputFolder = Path.Combine(temporary.FullName, "Consumer");
+        var plan = OutputPlan.create(consumerId, "Copied inputs", true, "copy-sources", "1", definition.DataTypes,
+            definition.OutputDependencies, parameters, ListModule.OfSeq(publishedTests.Results.Concat(publishedModels.Results).SelectMany(call => call.StoredOutputs).Select(output => output.Reference)));
         runHost Host(WorkspaceSources sources) => new(runExecutionPhase.Setup, parameters,
-            new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), consumerId, "Copied inputs", true, "copy-sources", "1",
-                definition.DataTypes, parameters, FuncConvert.FromFunc<storedDataReference, bool>(sources.Allows), Token),
+            new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token),
             null!, sources, Token);
         var reader = new WorkspaceSources(world, temporary.FullName);
         var setup = Host(reader);
@@ -165,7 +165,9 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Throws<ArgumentException>(() => setup.SourceResults.Find(Guid.NewGuid(), testsType, setup.Parameters));
         Assert.Throws<ArgumentException>(() => setup.SourceResults.Find(source.Id, sortopiaDataType.NewSortableTests("other"), setup.Parameters));
         var sourceReference = published.Results[0].StoredOutputs.Head.Reference;
-        Assert.Throws<ArgumentException>(() => setup.SourceResults.Load(sourceReference)); // Resolve it through this invocation first.
+        // Planning resolves the exact authorized sources before execution.
+        Assert.IsType<functionData.SortableTests>(setup.SourceResults.Load(sourceReference));
+        Assert.Throws<ArgumentException>(() => setup.SourceResults.Load(new storedDataReference(source.Id, Guid.NewGuid(), sourceReference.QueryId, false, testsType)));
         Assert.Equal(sourceReference, setup.SourceResults.Find(source.Id, testsType, setup.Parameters));
         var sourceTests = Assert.IsType<functionData.SortableTests>(setup.SourceResults.Load(sourceReference));
 
@@ -180,7 +182,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Equal(2, setup.SetupDb.StoredOutputs.Length);
         Assert.All(setup.SetupDb.StoredOutputs, output => { Assert.True(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId); });
 
-        Assert.Throws<InvalidOperationException>(() => factory.ForResults(sets.Results[0], ListModule.Empty<storedOutput>()));
+        Assert.Throws<ArgumentException>(() => factory.ForResults(sets.Results[0], ListModule.Empty<storedOutput>()));
         var results = factory.ForResults(sets.Results[0], setup.SetupDb.StoredOutputs);
         var savedTests = Assert.IsType<functionData.SortableTests>(results.SetupDb.Load(testsType));
         Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(sourceTests.Item1), Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item1));
@@ -246,11 +248,11 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         foreach (var file in dataFiles) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
         Assert.Equal(4, dataFiles.Count); // One source result, two setup outputs and one consumer evaluation.
         var receipts = Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories).Where(path => path.Contains(Path.DirectorySeparatorChar + "executions" + Path.DirectorySeparatorChar));
-        Assert.Equal(4, receipts.Count());
+        Assert.Empty(receipts);
     }
 
     [Fact]
-    public void A_later_setup_failure_keeps_prior_data_reusable_and_records_the_failure()
+    public void A_later_setup_failure_keeps_prior_data_reusable_and_reports_the_failure()
     {
         var world = Create(failSecondSetup: true); Completed(Execute(world, "Source"));
         var first = Execute(world, "Consumer");
@@ -261,8 +263,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.True(second.Setup[0].StoredOutputs.Head.Reused);
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, Named(world, "Consumer").Id);
         Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories).Length);
-        var receipts = Directory.GetFiles(Path.Combine(folder, "executions"), "*.msgpack").Select(path => Sortopia.Core.Serialization.MessagePackSetup.deserialize<executionReceiptDto>(File.ReadAllBytes(path))).ToArray();
-        Assert.Equal(2, receipts.Length); Assert.All(receipts, receipt => Assert.Equal("Failed", receipt.Status));
+        Assert.False(Directory.Exists(Path.Combine(folder, "executions")));
     }
 
     [Fact]

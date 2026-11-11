@@ -5,24 +5,45 @@ open System.IO
 open System.Security.Cryptography
 open System.Text
 open System.Threading
+open System.Runtime.CompilerServices
+open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Workspaces
 open Sortopia.Workspaces.Serialization
+open Sortopia.Core.Serialization
 open WorkspaceFileSystem
 
 module internal WorkspaceDisk =
+    // In-memory optimistic concurrency baseline; never a tracking file. Comparing
+    // only resolved settings would miss edits to captured defaults hidden by a parent.
+    let private loadedFiles = ConditionalWeakTable<workspace, (string * string * string) array>()
+    let private digest bytes = SHA256.HashData(bytes: byte array) |> Convert.ToHexString
+    let private remember value files =
+        loadedFiles.Remove value |> ignore
+        loadedFiles.Add(value, files)
+    let verifySavedFiles (value: workspace) =
+        match loadedFiles.TryGetValue value with
+        | true, files ->
+            for path, kind, hash in files do
+                // The editor explicitly supports restoring missing definitions
+                // from its loaded tree. Existing files must still be unchanged.
+                let replaced =
+                    if File.Exists path then digest (readDefinition path) <> hash
+                    elif kind = "run" || not (Directory.Exists(Path.GetDirectoryName path)) then false
+                    else
+                        ["workspace"; "module"; "project"] |> List.exists (fun kind ->
+                            not (isNull (WorkspaceDefinitionFiles.Find (Path.GetDirectoryName path) kind)))
+                if replaced then
+                    raise (IOException($"The saved workspace changed since it was loaded: {path}. Reopen the workspace before saving again."))
+            true
+        | _ -> false
+
     let folderName rootFolder =
         match Path.GetFileName(normalizeRoot rootFolder) with
         | "" -> "Workspace"
         | name -> name
 
     let rebase (value: workspace) root = workspace.create value.Id value.WorkspaceName (folderName root) value.Modules
-    let loadDefinition rootFolder =
-        let root = normalizeRoot rootFolder
-        checkDirectory root
-        let saved = WorkspaceDefinitionFiles.Require root "workspace" |> readDefinition |> WorkspaceCodec.decodeWorkspace
-        rebase saved root
-
     let containers = function
         | "workspace" -> [| "modules" |]
         | "module" -> [| "modules"; "projects" |]
@@ -55,8 +76,10 @@ module internal WorkspaceDisk =
             checkDirectory folder
             addEntity folder
             entries.Add("D:" + relative root folder)
-            let marker = WorkspaceDefinitionFiles.Find folder kind
-            if not (isNull marker) then addFile marker
+            // Fingerprint physical files without adopting or decoding unlisted
+            // entities. Membership is determined solely by child references.
+            for file in Directory.GetFiles(folder) |> Array.filter (Path.GetFileName >> WorkspaceDefinitionFiles.HasGuid) |> Array.sort do
+                addFile file
             for container in containers kind do
                 let path = Path.Combine(folder, container)
                 if File.Exists(path) then raise (IOException($"A file occupies an entity container: {path}"))
@@ -64,7 +87,7 @@ module internal WorkspaceDisk =
                     checkDirectory path
                     entries.Add("C:" + relative root path)
                     if container = "runs" then
-                        for file in WorkspaceDefinitionFiles.All path "run" do
+                        for file in Directory.GetFiles(path) |> Array.filter (Path.GetFileName >> WorkspaceDefinitionFiles.HasGuid) |> Array.sort do
                             addFile file
                             addEntity file
                     else
@@ -83,41 +106,110 @@ module internal WorkspaceDisk =
             if not (Array.contains container (containers kind)) && Directory.Exists(Path.Combine(folder, container)) then
                 raise (InvalidDataException($"A {kind} cannot contain {container}: {folder}."))
 
-    let private readProjectFolder folder depth (token: CancellationToken) parent =
-        token.ThrowIfCancellationRequested()
-        checkDepth depth
-        validateEntityFolder folder "project"
-        let bytes = WorkspaceDefinitionFiles.Require folder "project" |> readDefinition
-        let saved =
-            match parent with
-            | None -> WorkspaceCodec.decodeProject bytes
-            | Some configuration -> WorkspaceCodec.decodeProjectInherited configuration bytes
-        let runs = runFiles folder |> Array.map (fun file ->
+    type private Reader(token: CancellationToken) =
+        let ids = Collections.Generic.HashSet<struct (string * Guid)>()
+        let files = ResizeArray<string * string>()
+        let kinds = Collections.Generic.Dictionary<string, string>(pathComparer)
+        member _.Files = files |> Seq.map (fun (path, hash) -> path, kinds[path], hash) |> Seq.toArray
+        member _.Token = token
+        member _.Read(path) =
             token.ThrowIfCancellationRequested()
-            WorkspaceCodec.decodeRun saved (readDefinition file))
-        project.restore saved.Id saved.ProjectName (Path.GetFileName(folder)) saved.Configuration saved.LocalOverrides saved.IsSealed runs
+            let bytes = readDefinition path
+            files.Add(path, digest bytes)
+            if files.Count > maxEntities then raise (InvalidDataException("Workspace contains too many entities."))
+            bytes
+        member _.Identity(path: string, kind: string, id: Guid, expected: Guid option) =
+            kinds[path] <- kind
+            EntityId.validate id
+            if not (ids.Add(struct (kind, id))) then raise (InvalidDataException($"Duplicate {kind} ID: {id}"))
+            if Path.GetFileName(path) <> WorkspaceDefinitionFiles.Name id then
+                raise (InvalidDataException($"Definition ID does not match its filename: {path}"))
+            if expected |> Option.exists ((<>) id) then
+                raise (InvalidDataException($"Child reference does not match the definition ID in {path}."))
+        member _.Verify() =
+            for path, hash in files do
+                token.ThrowIfCancellationRequested()
+                if digest (readDefinition path) <> hash then
+                    raise (IOException($"Entity definition changed while being read: {path}. Reopen the folder."))
 
-    let rec private readModuleFolder folder depth (token: CancellationToken) parent =
-        token.ThrowIfCancellationRequested()
+    let private referenceFolder folder container (reference: childFolderReferenceDto) =
+        let directory = Path.Combine(folder, container)
+        if Directory.Exists directory then checkDirectory directory
+        let path = child folder container reference.folderName
+        if not (Directory.Exists path) then raise (DirectoryNotFoundException($"Missing referenced {container} folder '{reference.folderName}' ({reference.id}) in {folder}."))
+        path
+
+    let private definition folder kind depth (reader: Reader) =
+        reader.Token.ThrowIfCancellationRequested()
         checkDepth depth
-        validateEntityFolder folder "module"
-        let bytes = WorkspaceDefinitionFiles.Require folder "module" |> readDefinition
-        let saved =
-            match parent with
-            | None -> WorkspaceCodec.decodeModule bytes
-            | Some configuration -> WorkspaceCodec.decodeModuleInherited configuration bytes
-        workspaceModule.createInherited saved.Id saved.ModuleName (Path.GetFileName(folder)) saved.Configuration saved.LocalOverrides
-            (children folder "modules" |> Array.map (fun path -> readModuleFolder path (depth + 1) token (Some saved.Configuration)))
-            (children folder "projects" |> Array.map (fun path -> readProjectFolder path (depth + 1) token (Some (ModuleDefaults.toProject saved.Configuration))))
+        validateEntityFolder folder kind
+        for container in containers kind do
+            let path = Path.Combine(folder, container)
+            if File.Exists path then raise (IOException($"A file occupies an entity container: {path}"))
+            if Directory.Exists path then checkDirectory path
+        let path = WorkspaceDefinitionFiles.Require folder kind
+        path, reader.Read path
 
-    let private readEntityFolder folder kind token read =
+    let private readProjectFolder folder depth (reader: Reader) parent expected =
+        let path, bytes = definition folder "project" depth reader
+        let dto = WorkspaceDefinitionCodec.decodeProject bytes
+        reader.Identity(path, "project", dto.id, expected)
+        let saved = WorkspaceDefinitionCodec.projectHeader parent dto
+        let runs = dto.runs |> Array.map (fun id ->
+            let file = Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name id)
+            if not (File.Exists file) then raise (FileNotFoundException($"Missing referenced run {id} in project '{dto.projectName}'.", file))
+            let value = WorkspaceCodec.decodeRun saved (reader.Read file)
+            reader.Identity(file, "run", UMX.untag value.Id, Some id)
+            value)
+        project.restore saved.Id saved.ProjectName (Path.GetFileName(folder))
+            (if saved.IsSealed then saved.Configuration else saved.InheritedDefaults) saved.LocalOverrides saved.IsSealed runs
+
+    let rec private readModuleFolder folder depth (reader: Reader) parent expected fromWorkspace =
+        let path, bytes = definition folder "module" depth reader
+        let dto = WorkspaceDefinitionCodec.decodeModule bytes
+        reader.Identity(path, "module", dto.id, expected)
+        let parent = if fromWorkspace then Some (ModuleDefaults.configuration (WorkspaceDefinitionCodec.kind dto.moduleKind = hierarchyKind.Branch)) else parent
+        let saved = WorkspaceDefinitionCodec.moduleHeader parent dto
+        let modules = dto.modules |> Array.map (fun reference ->
+            readModuleFolder (referenceFolder folder "modules" reference) (depth + 1) reader (Some saved.Configuration) (Some reference.id) false)
+        let projects = dto.projects |> Array.map (fun reference ->
+            readProjectFolder (referenceFolder folder "projects" reference) (depth + 1) reader (Some (ModuleDefaults.toProject saved.Configuration)) (Some reference.id))
+        workspaceModule.createInherited saved.Id saved.ModuleName (Path.GetFileName(folder)) saved.InheritedDefaults saved.LocalOverrides modules projects
+
+    let private readEntityFolder folder token read =
         let root = normalizeRoot folder
-        if not (Directory.Exists(root)) then raise (DirectoryNotFoundException("Choose an existing entity folder."))
-        let before = capture root token kind
-        let result = read root
-        if before.Fingerprint <> (capture root token kind).Fingerprint then
-            raise (IOException("The entity folders changed while being read. Add the folder again."))
+        if not (Directory.Exists(root)) then raise (DirectoryNotFoundException($"Entity folder does not exist: {root}"))
+        let reader = Reader(token)
+        let result = read root reader
+        reader.Verify()
         result
 
-    let loadModuleFolder folder token = readEntityFolder folder "module" token (fun root -> readModuleFolder root 0 token None)
-    let loadProjectFolder folder token = readEntityFolder folder "project" token (fun root -> readProjectFolder root 0 token None)
+    let loadModuleFolder folder token = readEntityFolder folder token (fun root reader -> readModuleFolder root 0 reader None None false)
+    let loadProjectFolder folder token = readEntityFolder folder token (fun root reader -> readProjectFolder root 0 reader None None)
+    let loadDefinition rootFolder = readEntityFolder rootFolder CancellationToken.None (fun root reader ->
+        let path, bytes = definition root "workspace" 0 reader
+        let dto = WorkspaceDefinitionCodec.decodeWorkspace bytes
+        reader.Identity(path, "workspace", dto.id, None)
+        let modules = dto.modules |> Array.map (fun reference ->
+            // The workspace supplies no shared defaults. Top-level modules begin inheritance.
+            readModuleFolder (referenceFolder root "modules" reference) 1 reader None (Some reference.id) true)
+        let value = workspace.create (UMX.tag dto.id) (UMX.tag dto.workspaceName) (folderName root) modules
+        remember value reader.Files
+        value)
+
+    let rememberSavedFiles root (value: workspace) =
+        let files = ResizeArray<string * string * string>()
+        let add folder kind id bytes =
+            let path = Path.Combine(folder, WorkspaceDefinitionFiles.Name id)
+            files.Add(path, kind, digest bytes)
+        let rec visit folder inheritedFrom (value: workspaceModule) =
+            add folder "module" (UMX.untag value.Id) (WorkspaceDefinitionCodec.moduleWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
+            let origin = { moduleId = UMX.untag value.Id; moduleName = string value.ModuleName }
+            for m in value.Modules do visit (child folder "modules" m.FolderName) origin m
+            for p in value.Projects do
+                let projectFolder = child folder "projects" p.FolderName
+                add projectFolder "project" (UMX.untag p.Id) (WorkspaceDefinitionCodec.projectWithOrigin origin p |> MessagePackSetup.serialize)
+                for r in p.Runs do add (Path.Combine(projectFolder, "runs")) "run" (UMX.untag r.Id) (WorkspaceCodec.encodeRun r)
+        add root "workspace" (UMX.untag value.Id) (WorkspaceDefinitionCodec.encodeWorkspace value)
+        for m in value.Modules do visit (child root "modules" m.FolderName) Unchecked.defaultof<_> m
+        remember value (files.ToArray())

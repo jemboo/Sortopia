@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="WorkspaceFileSystem.fs" />
+    <Compile Include="WorkspaceFileInspection.fs" />
     <Compile Include="WorkspaceDefinitionFiles.fs" />
     <Compile Include="WorkspaceFolderCopy.fs" />
     <Compile Include="WorkspaceFolderMove.fs" />

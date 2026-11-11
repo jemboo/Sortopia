@@ -1,7 +1,6 @@
 namespace Sortopia.Cli
 
 open System
-open System.IO
 open System.Threading
 open FSharp.UMX
 open Sortopia.FileDb
@@ -9,15 +8,18 @@ open Sortopia.Functions
 open Sortopia.Workspaces.Persistence
 
 module Program =
-    let private help = """Sortopia prepared execution
-  sortopia prepare --workspace <folder> --run <run-id>
-  sortopia list-preparations --project <folder>
-  sortopia execute-results --project <folder> --preparation <preparation-id>
-  sortopia execute-results --project <folder> --parameters <work-item-id-or-file>
+    let private help = """Sortopia results execution
+  sortopia generate-parameters --workspace <folder> --run <run-id>
+  sortopia list-parameters --parameters-folder <project/runParameters> [--run <run-id>]
+  sortopia check-results --parameters-folder <project/runParameters> [--run <run-id>]
+  sortopia execute-results --parameters-folder <project/runParameters> [--run <run-id>]
+  sortopia execute-results --parameters <path-to-work-item.msgpack>
 
-Prepare locally, then copy the complete project folder to the execution machine.
-execute-results reads only that folder and never runs setup. Retrying reuses saved
-outputs. Ctrl+C cancels at database operations and between function calls.
+Generate locally (including setup), then copy the complete project folder.
+Folder execution considers every parameter file present, including older files;
+--run restricts it to one saved run ID. Complete outputs are validated and skipped;
+partial work reuses existing outputs. No manifests or execution receipts are needed.
+Results execution never runs setup. Ctrl+C cancels at storage and function boundaries.
 Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
 
     let private options (args: string array) allowed =
@@ -33,23 +35,11 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
         match Guid.TryParse text with
         | true, id when id <> Guid.Empty -> id
         | _ -> invalidArg "arguments" $"Expected a nonempty GUID: {text}"
-    let private workItemId folder (text: string) =
-        match Guid.TryParse text with
-        | true, id when id <> Guid.Empty -> UMX.tag id
-        | _ ->
-            let id = Path.GetFileNameWithoutExtension text |> guid
-            let expected = Path.GetFullPath(Path.Combine(folder, "runParameters", string id + ".msgpack"))
-            let actual = Path.GetFullPath text
-            let comparison = if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal
-            if not (String.Equals(expected, actual, comparison)) then invalidArg "arguments" "The parameter file must be inside this project's runParameters folder."
-            UMX.tag id
+    let private runFilter values = values |> Map.tryFind "--run" |> Option.map (guid >> UMX.tag)
     let private finish (report: runExecutionReport) =
-        printfn "%A: %d setup, %d results invocations." report.Status report.Setup.Length report.Results.Length
+        printfn "%A: %d setup sets, %d results work items processed." report.Status report.Setup.Length report.Results.Length
         if report.Error <> "" then eprintfn "%s" report.Error
-        match report.Status with
-        | runExecutionStatus.Completed -> 0
-        | runExecutionStatus.Cancelled -> 130
-        | _ -> 1
+        match report.Status with runExecutionStatus.Completed -> 0 | runExecutionStatus.Cancelled -> 130 | _ -> 1
 
     [<EntryPoint>]
     let main args =
@@ -62,32 +52,36 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
             let progress = { new IProgress<runExecutionProgress> with member _.Report value = printfn "%s (%d/%d)" value.Message value.Completed value.Total }
             try
                 match args[0] with
-                | "prepare" ->
+                | "generate-parameters" ->
                     let values = options args[1..] ["--workspace"; "--run"]
                     let folder = required "--workspace" values
-                    let runId = required "--run" values |> guid |> UMX.tag
+                    let id = required "--run" values |> guid |> UMX.tag
                     let workspace = WorkspaceFileStore.LoadDefinition folder
-                    let value = workspace.ProjectIndex.Values |> Seq.collect _.Runs |> Seq.tryFind (fun value -> value.Id = runId)
+                    let value = workspace.ProjectIndex.Values |> Seq.collect _.Runs |> Seq.tryFind (fun value -> value.Id = id)
                                 |> Option.defaultWith (fun () -> invalidOp "The saved run was not found in this workspace.")
-                    let result = PreparedRunExecution.prepare workspace folder value progress cancellation.Token
-                    match result.Preparation with
-                    | Some ready -> printfn "Preparation: %O\nProject folder: %s\nWork items: %d" ready.Id (WorkspaceData.projectFolder workspace folder ready.ProjectId) ready.WorkItemIds.Length
-                    | None -> ()
-                    finish result.Execution
-                | "list-preparations" ->
-                    let values = options args[1..] ["--project"]
-                    let folder = required "--project" values
-                    for ready in PreparedRunFiles.listPreparations folder do
-                        printfn "%O  %s  %s  %d work items" ready.Id (ready.CreatedUtc.ToString("u")) ready.RunName ready.WorkItemIds.Length
-                        for id in ready.WorkItemIds do printfn "  %O" id
+                    let generated = RunParameterExecution.generate workspace folder value progress cancellation.Token
+                    printfn "Published parameter files: %d\nProject folder: %s" generated.WorkItemIds.Length (WorkspaceData.projectFolder workspace folder value.ParentProjectId)
+                    finish generated.Execution
+                | "list-parameters" ->
+                    let values = options args[1..] ["--parameters-folder"; "--run"]
+                    let items = RunParameterFiles.listWorkItems (required "--parameters-folder" values) cancellation.Token
+                    let filter = runFilter values
+                    for item in items |> Array.filter (fun item -> filter |> Option.forall ((=) item.RunId)) do
+                        printfn "%O  run %O  %s  set %d" item.Id item.RunId (string item.Results.FunctionName) item.SetNumber
                     0
+                | "check-results" ->
+                    let values = options args[1..] ["--parameters-folder"; "--run"]
+                    let statuses = RunParameterExecution.inspectFolder (required "--parameters-folder" values) (runFilter values) cancellation.Token
+                    for item in statuses do
+                        printfn "%O  run %O  %A  %d/%d valid outputs" item.Id item.RunId item.Outputs.State item.Outputs.Available.Length item.Outputs.ExpectedCount
+                        if item.Outputs.Error <> "" then eprintfn "%s" item.Outputs.Error
+                    if statuses |> Array.exists (fun item -> item.Outputs.State = outputState.Invalid) then 1 else 0
                 | "execute-results" ->
-                    let values = options args[1..] ["--project"; "--preparation"; "--parameters"]
-                    let folder = required "--project" values
-                    match Map.tryFind "--preparation" values, Map.tryFind "--parameters" values with
-                    | Some id, None -> PreparedRunExecution.executePreparation folder (guid id |> UMX.tag) progress cancellation.Token |> finish
-                    | None, Some id -> PreparedRunExecution.executeWorkItem folder (workItemId folder id) progress cancellation.Token |> finish
-                    | _ -> invalidArg "arguments" "Choose exactly one of --preparation or --parameters."
+                    let values = options args[1..] ["--parameters-folder"; "--run"; "--parameters"]
+                    match Map.tryFind "--parameters-folder" values, Map.tryFind "--parameters" values with
+                    | Some folder, None -> RunParameterExecution.executeFolder folder (runFilter values) progress cancellation.Token |> finish
+                    | None, Some file when not (Map.containsKey "--run" values) -> RunParameterExecution.executeFile file progress cancellation.Token |> finish
+                    | _ -> invalidArg "arguments" "Choose --parameters-folder (optionally --run), or one --parameters file."
                 | _ -> invalidArg "arguments" "Unknown command. Use --help for syntax."
             with
             | :? OperationCanceledException -> eprintfn "Cancelled."; 130

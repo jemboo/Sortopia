@@ -22,9 +22,7 @@ module internal HostStorage =
 
 /// Saves one phase's declared outputs with their own projections and dependencies.
 /// The host retains references, not payloads; factories run only on cache misses.
-type FileRunDatabase(store: ISortopiaDb, projectId: Guid<projectId>, databaseName: string, isSetup: bool,
-                     functionName: string, version: string, outputs: Map<sortopiaDataType, string<paramKeyName> list>,
-                     parameters: parameterSet, allowsDependency: storedDataReference -> bool, token: CancellationToken) =
+type FileRunDatabase(store: ISortopiaDb, plan: Map<sortopiaDataType, plannedOutput>, token: CancellationToken) =
     let saved = ResizeArray<storedOutput>()
     let reference dataType =
         saved |> Seq.tryFind (fun output -> output.Reference.DataType = dataType) |> Option.map (fun output -> output.Reference)
@@ -35,30 +33,39 @@ type FileRunDatabase(store: ISortopiaDb, projectId: Guid<projectId>, databaseNam
         member _.Load dataType = (store.Load(reference dataType, token) |> HostStorage.require).Value
         member _.SaveIfMissing(dataType, dependencies, factory) =
             token.ThrowIfCancellationRequested()
-            let keys = outputs |> Map.tryFind dataType |> Option.defaultWith (fun () -> invalidArg "dataType" $"The selected function does not declare '{dataType}'.")
+            let output = plan |> Map.tryFind dataType |> Option.defaultWith (fun () -> invalidArg "dataType" $"The selected function does not declare '{dataType}'.")
             if saved |> Seq.exists (fun output -> output.Reference.DataType = dataType) then
                 invalidOp $"'{dataType}' was already saved in this invocation."
-            if dependencies |> List.exists (allowsDependency >> not) then
-                invalidArg "dependencies" "An output may depend only on source or setup data read through this host."
+            if List.sort dependencies <> output.Dependencies then
+                invalidArg "dependencies" "The saved output's dependencies must exactly match its declared output plan."
             if not (DataCodec.supported (SortopiaDataType.kindName dataType)) then invalidOp $"Storage for '{dataType}' is not implemented."
-            let key = DataKey.create projectId databaseName isSetup functionName version dataType keys parameters dependencies
             let make () =
                 token.ThrowIfCancellationRequested()
                 let value = factory ()
                 if FunctionData.kind value <> SortopiaDataType.kindName dataType then invalidOp "The generated payload does not match its declared saved data type."
                 Ok value
-            let value, reused = store.GetOrCreate(key, make, token) |> HostStorage.require
+            let value, reused = store.GetOrCreate(output.Key, make, token) |> HostStorage.require
             saved.Add { Reference = value.Reference; Reused = reused }
 
 /// Results execution needs only a project folder, a frozen configuration and exact
 /// setup references. It deliberately has no workspace or upstream-project access.
 module FileResultsHost =
-    let create folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
+    let plan projectId (config: resultsConfig) parameters (inputs: storedDataReference list) =
         let definition = FunctionCatalogs.requireResults config.FunctionName
         if config.FunctionVersion <> definition.Version then
             invalidOp $"Results function '{config.FunctionName}' requires version {config.FunctionVersion}; installed version is {definition.Version}."
         FunctionConfiguration.validateOutputs definition config.DataTypes
         FunctionParameters.validate definition.RequiredParameters parameters
+        if inputs |> List.exists (fun reference -> reference.ProjectId <> projectId || not reference.IsSetup) then
+            invalidArg "inputs" "Results inputs must be project-local setup references."
+        OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
+                          config.DataTypes definition.OutputDependencies parameters inputs
+
+    let create folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
+        let definition = FunctionCatalogs.requireResults config.FunctionName
+        // Setup can produce more types than results consumes; freeze only those needed.
+        let inputs = outputs |> List.map _.Reference |> List.filter (fun reference -> List.contains reference.DataType definition.SourceDataTypes)
+        let plan = plan projectId config parameters inputs
         let store = SortopiaFileDb(folder, projectId) :> ISortopiaDb
         let find dataType =
             if not (List.contains dataType definition.SourceDataTypes) then
@@ -66,7 +73,6 @@ module FileResultsHost =
             match outputs |> List.filter (fun output -> output.Reference.DataType = dataType) with
             | [output] when output.Reference.ProjectId = projectId && output.Reference.IsSetup -> output.Reference
             | _ -> invalidOp $"The setup batch must provide exactly one project-local '{dataType}' input."
-        let dependencies = definition.SourceDataTypes |> List.map find |> Set.ofList
         let setup = {
             new IRunDatabase with
                 member _.Reference dataType = token.ThrowIfCancellationRequested(); find dataType
@@ -75,14 +81,11 @@ module FileResultsHost =
                 member _.StoredOutputs = outputs }
         { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token
           SetupDb = setup
-          ResultsDb = FileRunDatabase(store, projectId, string config.DatabaseName, false, string config.FunctionName,
-                                     config.FunctionVersion, config.DataTypes, parameters,
-                                     (fun reference -> Set.contains reference dependencies), token)
+          ResultsDb = FileRunDatabase(store, plan, token)
           SourceResults = HostStorage.noSources }
 
 type private SourceResults(workspace, root, entries: setupDataTypeConfig list, token: CancellationToken) =
     let loaded = Collections.Generic.Dictionary<storedDataReference, storedData>()
-    member _.Allows reference = loaded.ContainsKey reference
     interface ISourceResults with
         member _.Find(projectId, dataType, parameters) =
             token.ThrowIfCancellationRequested()
@@ -108,8 +111,6 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
             invalidOp "Execute requires a saved run from the supplied workspace."
     let folder = WorkspaceData.projectFolder workspace workspaceRoot parent.Id
     let store = SortopiaFileDb(folder, parent.Id) :> ISortopiaDb
-    let writer database isSetup name version outputs parameters allowed =
-        FileRunDatabase(store, parent.Id, database, isSetup, name, version, outputs, parameters, allowed, token) :> IRunDatabase
     member _.Run = value
     member _.ProjectFolder = folder
     member _.CancellationToken = token
@@ -119,9 +120,13 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
         | run.BranchRun branch ->
             let entries = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
             let sources = SourceResults(workspace, workspaceRoot, entries, token)
+            let definition = FunctionCatalogs.requireSetup branch.SetupFunctionName
+            let inputs = entries |> List.map (fun entry -> (sources :> ISourceResults).Find(entry.SourceProjectId, entry.DataType, parameters))
+            let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
+                                        branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes
+                                        definition.OutputDependencies parameters inputs
             { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token
-              SetupDb = writer (string branch.SetupDatabaseName) true (string branch.SetupFunctionName) branch.ProjectConfiguration.Setup.FunctionVersion
-                               branch.ProjectConfiguration.Setup.DataTypes parameters sources.Allows
+              SetupDb = FileRunDatabase(store, plan, token)
               ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
               SourceResults = sources }
     member _.ForResults(parameters, setupOutputs) =

@@ -2193,8 +2193,9 @@ public sealed class RandomNetworkTests
             }
             Layout();
             var button = (Button)page.FindName("ExecuteRunButton");
-            var prepareButton = (Button)page.FindName("PrepareRunButton");
-            var preparedButton = (Button)page.FindName("ExecutePreparedRunButton");
+            var prepareButton = (Button)page.FindName("GenerateRunParametersButton");
+            var executionPanel = (Sortopia.WPF.Views.Pages.ResultsExecution.ResultsExecutionPanel)page.FindName("RunParameterExecutionPanel");
+            var preparedButton = (Button)executionPanel.FindName("ExecutePendingButton");
             Assert.False(button.IsEnabled);
             Assert.False(prepareButton.IsEnabled);
             Assert.False(preparedButton.IsEnabled);
@@ -2204,8 +2205,8 @@ public sealed class RandomNetworkTests
             Layout();
             Assert.True(button.IsEnabled);
             Assert.Same(vm.ExecuteRunCommand, button.Command);
-            Assert.Same(vm.PrepareRunCommand, prepareButton.Command);
-            Assert.Same(vm.ExecutePreparedRunCommand, preparedButton.Command);
+            Assert.Same(vm.GenerateRunParametersCommand, prepareButton.Command);
+            Assert.Same(vm.ResultsExecution.ExecuteCommand, preparedButton.Command);
             CompleteRun(async () =>
             {
                 button.Command.Execute(null);
@@ -2222,9 +2223,9 @@ public sealed class RandomNetworkTests
             Layout();
             Assert.Contains("2 setup, 6 results", ((TextBlock)page.FindName("RunExecutionSummary")).Text);
             Assert.True(preparedButton.IsEnabled);
-            var choices = (ComboBox)page.FindName("PreparedRunsInput");
-            Assert.Single(choices.Items.Cast<object>());
-            Assert.Same(vm.SelectedPreparation, choices.SelectedItem);
+            var choices = (ComboBox)executionPanel.FindName("RunFilterInput");
+            Assert.Equal(2, choices.Items.Count);
+            Assert.Same(vm.ResultsExecution.SelectedRun, choices.SelectedItem);
             var outputs = (Expander)page.FindName("RunOutputsExpander");
             Assert.Equal(Visibility.Visible, outputs.Visibility);
             Assert.Equal(((SolidColorBrush)page.FindResource("Workspace.TextPrimary")).Color, ((SolidColorBrush)outputs.Foreground).Color);

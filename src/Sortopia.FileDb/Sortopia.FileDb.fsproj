@@ -2,12 +2,15 @@
   <ItemGroup>
     <Compile Include="DataKey.fs" />
     <Compile Include="DataCodec.fs" />
+    <Compile Include="DataEnvelope.fs" />
     <Compile Include="SortopiaFileDb.fs" />
     <Compile Include="WorkspaceData.fs" />
+    <Compile Include="OutputPlan.fs" />
     <Compile Include="FileRunHost.fs" />
     <Compile Include="FileRunExecution.fs" />
-    <Compile Include="PreparedRunFiles.fs" />
-    <Compile Include="PreparedRunExecution.fs" />
+    <Compile Include="RunParameterFiles.fs" />
+    <Compile Include="FileInspection.fs" />
+    <Compile Include="RunParameterExecution.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Functions/Sortopia.Functions.fsproj" />

@@ -3,6 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:homeViews="clr-namespace:Sortopia.WPF.Views.Pages.Home"
         xmlns:homeVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Home"
+        xmlns:inspectorViews="clr-namespace:Sortopia.WPF.Views.Pages.FileInspector"
+        xmlns:inspectorVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.FileInspector"
+        xmlns:resultsViews="clr-namespace:Sortopia.WPF.Views.Pages.ResultsExecution"
+        xmlns:resultsVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.ResultsExecution"
         xmlns:networkViews="clr-namespace:Sortopia.WPF.Views.Pages.Networks"
         xmlns:networkVm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Networks"
         xmlns:workspaceViews="clr-namespace:Sortopia.WPF.Views.Pages.Workspace"
@@ -23,6 +27,10 @@
         FontFamily="Segoe UI"
         UseLayoutRounding="True">
     <Window.Resources>
+        <DataTemplate DataType="{x:Type resultsVm:ResultsExecutionPageViewModel}"><resultsViews:ResultsExecutionPage /></DataTemplate>
+        <DataTemplate DataType="{x:Type inspectorVm:FileInspectorPageViewModel}">
+            <inspectorViews:FileInspectorPage />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type homeVm:HomePageViewModel}">
             <homeViews:HomePage />
         </DataTemplate>

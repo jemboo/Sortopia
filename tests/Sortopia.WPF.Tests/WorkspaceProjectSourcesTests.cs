@@ -222,7 +222,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         parent.Editor!.LoadProject(Settings());
         page.AddRunCommand.Execute(null);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
-        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Path.Combine(Root, "modules", page.Roots[0].Children[0].FolderName), "module"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
             Assert.NotEmpty(page.Error);

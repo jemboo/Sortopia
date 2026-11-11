@@ -1,0 +1,130 @@
+<UserControl x:Class="Sortopia.WPF.Views.Pages.FileInspector.FileInspectorPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels.Pages.FileInspector"
+             AutomationProperties.Name="Workspace file inspector" Foreground="{DynamicResource Workspace.TextPrimary}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
+        </ResourceDictionary.MergedDictionaries>
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" />
+            <Setter Property="Background" Value="{StaticResource Workspace.SurfaceRaised}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Workspace.StrokeSubtle}" />
+            <Setter Property="Padding" Value="6" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="GridViewColumnHeader">
+                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,0,1,1" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter />
+                </Border>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <BooleanToVisibilityConverter x:Key="BoolVisibility" />
+        <HierarchicalDataTemplate DataType="{x:Type vm:InspectionNode}" ItemsSource="{Binding Children}">
+            <StackPanel Margin="3,3,8,3">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource Workspace.TextSecondary}" />
+                <TextBox Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                         Padding="0" TextWrapping="Wrap" MinWidth="80" MaxWidth="720" HorizontalAlignment="Left"
+                         AutomationProperties.Name="{Binding Name}" />
+            </StackPanel>
+        </HierarchicalDataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <ScrollViewer x:Name="InspectorViewport" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Padding="16" Background="{StaticResource Workspace.Canvas}">
+    <Grid MinWidth="660" MinHeight="520" Width="{Binding ViewportWidth, ElementName=InspectorViewport}" Height="{Binding ViewportHeight, ElementName=InspectorViewport}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <DockPanel Margin="0,0,0,12">
+            <Button DockPanel.Dock="Right" Content="← _Back" Command="{Binding ReturnCommand}" Style="{StaticResource PageReturnButtonStyle}" Margin="12,0,0,0" />
+            <StackPanel>
+                <TextBlock Text="Workspace file inspector" FontSize="24" FontWeight="SemiBold" />
+                <TextBlock Text="Read saved configuration and inspect data summaries" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBox Text="{Binding RootFolder, Mode=OneWay}" IsReadOnly="True" VerticalContentAlignment="Center" ToolTip="{Binding RootFolder}" AutomationProperties.Name="Inspected root folder" />
+            <Button Grid.Column="1" Content="_Browse…" Command="{Binding BrowseCommand}" Margin="8,0,0,0" MinHeight="32" ToolTip="Inspect any workspace, module, or project folder" />
+            <Button Grid.Column="2" Content="_Refresh" Command="{Binding RefreshCommand}" Margin="8,0,0,0" ToolTip="Read the current folder and selected file again" />
+        </Grid>
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" MinWidth="220" /><ColumnDefinition Width="7" /><ColumnDefinition Width="3*" MinWidth="260" /></Grid.ColumnDefinitions>
+            <Border Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="6" Padding="10">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <WrapPanel Margin="0,0,0,8">
+                        <Button Content="↑ _Up" Command="{Binding UpCommand}" Margin="0,0,8,0" />
+                        <Button Content="Root folder" Command="{Binding RootCommand}" Margin="0,0,8,0" />
+                        <Button Content="Open folder →" Command="{Binding OpenFolderCommand}" />
+                    </WrapPanel>
+                    <TextBox Grid.Row="1" Text="{Binding CurrentFolder, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" TextWrapping="Wrap" Margin="0,0,0,8" AutomationProperties.Name="Current folder" />
+                    <DockPanel Grid.Row="2" Margin="0,0,0,8">
+                        <Button DockPanel.Dock="Right" Content="_Find" Command="{Binding FilterCommand}" Margin="8,0,0,0" />
+                        <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center" ToolTip="Filter names in this folder" AutomationProperties.Name="Filter file names">
+                            <TextBox.InputBindings><KeyBinding Key="Enter" Command="{Binding FilterCommand}" /></TextBox.InputBindings>
+                        </TextBox>
+                    </DockPanel>
+                    <ListView x:Name="FileList" Grid.Row="3" ItemsSource="{Binding Entries}" SelectedItem="{Binding Selected}" MouseDoubleClick="OnOpenFolder" KeyDown="OnListKeyDown"
+                              Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}" BorderBrush="{StaticResource Workspace.StrokeSubtle}"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                              AutomationProperties.Name="Files and folders">
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="ToolTip" Value="{Binding FullPath}" /></Style></ListView.ItemContainerStyle>
+                        <ListView.View><GridView>
+                            <GridViewColumn Header="Name" Width="230" DisplayMemberBinding="{Binding Name}" />
+                            <GridViewColumn Header="Type" Width="92" DisplayMemberBinding="{Binding Kind}" />
+                            <GridViewColumn Header="Size" Width="82" DisplayMemberBinding="{Binding Size}" />
+                        </GridView></ListView.View>
+                    </ListView>
+                    <DockPanel Grid.Row="4" Margin="0,8,0,0">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Previous" Command="{Binding PreviousCommand}" Margin="0,0,6,0" />
+                            <Button Content="Next" Command="{Binding NextCommand}" />
+                        </StackPanel>
+                        <TextBlock Text="200 per page" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Grid>
+            </Border>
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{StaticResource Workspace.Stroke}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" AutomationProperties.Name="Resize file list and details" />
+            <Border Grid.Column="2" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="6" Padding="14">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Kind}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,8,0,14" />
+                        <ItemsControl ItemsSource="{Binding Metadata}">
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="66" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource Workspace.TextSecondary}" VerticalAlignment="Top" Margin="0,2,8,0" />
+                                    <TextBox Grid.Column="1" Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0" TextWrapping="Wrap" />
+                                </Grid>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Separator Margin="0,12" />
+                        <TreeView x:Name="FileDetails" ItemsSource="{Binding Details}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Decoded file details">
+                            <TreeView.ItemContainerStyle><Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=OneWay}" />
+                            </Style></TreeView.ItemContainerStyle>
+                        </TreeView>
+                        <Expander Header="Referenced files" IsExpanded="True" Margin="0,12,0,0" Visibility="{Binding HasReferences, Converter={StaticResource BoolVisibility}}">
+                            <ItemsControl ItemsSource="{Binding References}">
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Button Command="{Binding DataContext.OpenReferenceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            HorizontalContentAlignment="Left" Margin="0,5,0,0" ToolTip="{Binding FullPath}">
+                                        <StackPanel><TextBlock Text="{Binding Label}" TextWrapping="Wrap" /><TextBlock Text="{Binding Status}" Foreground="{StaticResource Workspace.Accent}" FontSize="11" /></StackPanel>
+                                    </Button>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Expander>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+        <StackPanel Grid.Row="3" Margin="0,10,0,0">
+            <TextBlock Text="{Binding Status}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Text="{Binding Error}" Foreground="{StaticResource Workspace.Warning}" TextWrapping="Wrap" Margin="0,4,0,0" AutomationProperties.LiveSetting="Assertive" />
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</UserControl>

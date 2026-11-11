@@ -27,18 +27,26 @@ type WorkspaceFileStore private () =
         requireNewWorkspace ()
         let plan = WorkspaceSavePlan.prepare rootFolder definition token copies moves
         requireNewWorkspace ()
-        WorkspaceCommit.commit plan token
+        let result = WorkspaceCommit.commit plan token
+        WorkspaceDisk.rememberSavedFiles root result.Definition
+        result
 
     static member SaveWorkspace(rootFolder: string, definition: workspace, savedDefinition: workspace, token: CancellationToken,
                                 [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderCopy>)>] copies: IReadOnlyList<WorkspaceFolderCopy>,
                                 [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderMove>)>] moves: IReadOnlyList<WorkspaceFolderMove>) =
+        token.ThrowIfCancellationRequested()
+        let verified = WorkspaceDisk.verifySavedFiles savedDefinition
         let plan = WorkspaceSavePlan.prepare rootFolder definition token copies moves
-        if not (isNull (WorkspaceDefinitionFiles.Find rootFolder "workspace")) then
+        // Catch edits arriving between the initial baseline check and capture.
+        if verified then WorkspaceDisk.verifySavedFiles savedDefinition |> ignore
+        if not verified && not (isNull (WorkspaceDefinitionFiles.Find rootFolder "workspace")) then
             let current = WorkspaceDisk.loadDefinition rootFolder
             if not (equalBytes (WorkspaceCodec.encodeWorkspace current) (WorkspaceCodec.encodeWorkspace savedDefinition)) then
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
         WorkspaceFileStore.ValidateSealedProjects(savedDefinition, plan.Definition)
-        WorkspaceCommit.commit plan token
+        let result = WorkspaceCommit.commit plan token
+        WorkspaceDisk.rememberSavedFiles (normalizeRoot rootFolder) result.Definition
+        result
 
     static member private ValidateSealedProjects(previous: workspace, next: workspace) =
         let oldProjects = previous.ProjectIndex

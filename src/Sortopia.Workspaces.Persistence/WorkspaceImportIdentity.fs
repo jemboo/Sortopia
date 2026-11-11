@@ -27,11 +27,13 @@ type internal WorkspaceImportIdentity() =
         let id = replacements[value.id]
         { value with id = id
                      configuration = { value.configuration with setupDataTypes = settings value.configuration.setupDataTypes }
+                     inheritedDefaults = { value.inheritedDefaults with setupDataTypes = settings value.inheritedDefaults.setupDataTypes }
                      localOverrides = { value.localOverrides with setupSources = sources value.localOverrides.setupSources }
                      runs = value.runs |> Array.map (fun run -> { run with id = replacements[run.id]; parentProjectId = id }) }
     let rec rewriteModule (value: moduleDto) =
         { value with id = replacements[value.id]
                      configuration = { value.configuration with setupDataTypes = settings value.configuration.setupDataTypes }
+                     inheritedDefaults = { value.inheritedDefaults with setupDataTypes = settings value.inheritedDefaults.setupDataTypes }
                      localOverrides = { value.localOverrides with setupSources = sources value.localOverrides.setupSources }
                      modules = value.modules |> Array.map rewriteModule
                      projects = value.projects |> Array.map rewriteProject }

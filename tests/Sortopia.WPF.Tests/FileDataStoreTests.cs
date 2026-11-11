@@ -68,6 +68,7 @@ public sealed class FileDataStoreTests : IDisposable
         var first = Ok(((ISortopiaDb)store).GetOrCreate(key, Factory(() => { created++; return Tests(16); }), Token));
         Assert.False(first.Item2);
         var file = store.GetPath(key.Reference);
+        Assert.Equal(Path.Combine(temporary.FullName, "data", "setup", "SortableTests", key.Id + ".msgpack"), file);
         Assert.True(new FileInfo(file).Length < 600_000); // The uncompressed Boolean DTO is over 1.3 MiB.
         var original = File.ReadAllBytes(file);
         var second = Ok(((ISortopiaDb)Open()).GetOrCreate(key, Factory(() => { created++; throw new Exception("Must not generate"); }), Token));
@@ -77,6 +78,25 @@ public sealed class FileDataStoreTests : IDisposable
         Assert.Equal(65536, SortableTests.getSortableCount(tests.Item1));
         Assert.Equal(SortableTests.getId(((functionData.SortableTests)first.Item1.Value).Item1), SortableTests.getId(tests.Item1));
         Assert.Single(Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void Type_folder_queries_filter_exact_labels_and_projection_without_decoding_other_payloads()
+    {
+        var store = Open();
+        var first = Key(type: sortopiaDataType.NewSortableTests("a b"), setup: false);
+        var second = Key(type: sortopiaDataType.NewSortableTests("ab"), setup: false);
+        var otherWidth = Key(Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 5)), type: sortopiaDataType.NewSortableTests("a b"), setup: false);
+        foreach (var key in new[] { first, second, otherWidth }) Ok(((ISortopiaDb)store).GetOrCreate(key, Factory(() => Tests()), Token));
+        Assert.Equal(Path.Combine(temporary.FullName, "data", "results", "SortableTests"), Path.GetDirectoryName(store.GetPath(first.Reference)));
+        Assert.Equal(Path.GetDirectoryName(store.GetPath(first.Reference)), Path.GetDirectoryName(store.GetPath(second.Reference)));
+        Assert.NotEqual(first.Id, second.Id);
+        // The nonmatching payload is damaged, but its valid header is sufficient to exclude it.
+        var otherPath = store.GetPath(second.Reference);
+        var bytes = File.ReadAllBytes(otherPath); bytes[^1] ^= 1; File.WriteAllBytes(otherPath, bytes);
+        Assert.Equal(first.Id, Assert.Single(Ok(((ISortopiaDb)store).FindResults(first, Token))).Reference.Id);
+        Assert.Equal(otherWidth.Id, Assert.Single(Ok(((ISortopiaDb)store).FindResults(otherWidth, Token))).Reference.Id);
+        Assert.True(((ISortopiaDb)store).FindResults(second, Token).IsError);
     }
 
     [Fact]
@@ -171,9 +191,11 @@ public sealed class FileDataStoreTests : IDisposable
         foreach (var stage in new[] { 3, 4, 4 })
         {
             var parameters = parameterSet.fromBindings(branch.SetupParameterDefaults).WithBinding(ParameterBinding.create(ParamKeys.stageLengthKey, stage));
-            IRunDatabase context = new FileRunDatabase(store, branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
+            var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
                 setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardEvaluationInputs, "1",
-                branch.ProjectConfiguration.Setup.DataTypes, parameters, FuncConvert.FromFunc<storedDataReference, bool>(_ => false), Token);
+                branch.ProjectConfiguration.Setup.DataTypes, FunctionCatalogs.requireSetup(branch.SetupFunctionName).OutputDependencies,
+                parameters, List<storedDataReference>());
+            IRunDatabase context = new FileRunDatabase(store, plan, Token);
             context.SaveIfMissing(sortopiaDataType.NewSortableTests(""), List<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => { testCalls++; return Tests(); }));
             context.SaveIfMissing(sortopiaDataType.NewSorterModelSet(""), List<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => { modelCalls++; return Models(stage); }));
             Assert.Equal(2, context.StoredOutputs.Length);
@@ -188,8 +210,9 @@ public sealed class FileDataStoreTests : IDisposable
         var type = sortopiaDataType.NewSortableTests("");
         var parameters = Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"));
         var outputs = MapModule.OfArray(new[] { Tuple.Create(type, List("ChannelCount", "SortableDataFormat")) });
-        IRunDatabase database = new FileRunDatabase(Open(), projectId, "Setup", true, SetupFunctionNames.standardTests, "1", outputs,
-            parameters, FuncConvert.FromFunc<storedDataReference, bool>(_ => false), Token);
+        var plan = OutputPlan.create(projectId, "Setup", true, SetupFunctionNames.standardTests, "1", outputs,
+            FunctionCatalogs.requireSetup(SetupFunctionNames.standardTests).OutputDependencies, parameters, List<storedDataReference>());
+        IRunDatabase database = new FileRunDatabase(Open(), plan, Token);
         var make = FuncConvert.FromFunc<Unit, functionData>(_ => Tests());
         Assert.Throws<ArgumentException>(() => database.SaveIfMissing(sortopiaDataType.NewSortableTests("other"), List<storedDataReference>(), make));
         Assert.Throws<ArgumentException>(() => database.SaveIfMissing(sortopiaDataType.NewSorterModelSet(""), List<storedDataReference>(), make));

@@ -11,7 +11,6 @@ open Sortopia.Functions
 open Sortopia.Core.Serialization
 
 [<Measure>] type workItemId
-[<Measure>] type preparationId
 
 /// One immutable results invocation. No paths or live project settings are needed.
 type runParameters = {
@@ -25,15 +24,15 @@ type runParameters = {
     SetupSetNumber: int option
 }
 
-/// Published only after all work items and their local setup inputs are ready.
-type preparedRun = {
-    Id: Guid<preparationId>
-    ProjectId: Guid<projectId>
-    RunId: Guid<runId>
-    RunName: string
-    CreatedUtc: DateTime
-    SetupSetCount: int
-    WorkItemIds: Guid<workItemId> array
+[<MessagePackObject>]
+type dataReferenceDto = {
+    [<Key(0)>] ProjectId: Guid
+    [<Key(1)>] Id: Guid
+    [<Key(2)>] QueryId: Guid
+    [<Key(3)>] IsSetup: bool
+    [<Key(4)>] Kind: string
+    [<Key(5)>] Label: string
+    [<Key(6)>] Reused: bool
 }
 
 [<MessagePackObject>]
@@ -66,26 +65,14 @@ type runParametersDto = {
 }
 
 [<MessagePackObject>]
-type preparedRunDto = {
-    [<Key(0)>] Version: int
-    [<Key(1)>] Id: Guid
-    [<Key(2)>] ProjectId: Guid
-    [<Key(3)>] RunId: Guid
-    [<Key(4)>] RunName: string
-    [<Key(5)>] CreatedUtc: DateTime
-    [<Key(6)>] SetupSetCount: int
-    [<Key(7)>] WorkItemIds: Guid array
-}
-
-[<MessagePackObject>]
-type preparationEnvelopeDto = {
+type runParametersEnvelopeDto = {
     [<Key(0)>] Version: int
     [<Key(1)>] Kind: string
     [<Key(2)>] Checksum: byte array
     [<Key(3)>] Payload: byte array
 }
 
-module internal PreparedCodec =
+module internal RunParameterCodec =
     let reference (value: storedDataReference) : dataReferenceDto = {
         ProjectId = UMX.untag value.ProjectId; Id = UMX.untag value.Id; QueryId = UMX.untag value.QueryId
         IsSetup = value.IsSetup; Kind = SortopiaDataType.kindName value.DataType; Label = SortopiaDataType.text value.DataType; Reused = false }
@@ -146,7 +133,7 @@ module internal PreparedCodec =
           SetNumber = dto.SetNumber; SetupSetNumber = dto.SetupSetNumber }
 
 /// Small immutable metadata files, atomically published beside project-local data.
-module internal PreparedStorage =
+module internal RunParameterStorage =
     let private maxBytes = 67108864
     let private options = MessagePackSetup.options.WithCompression(MessagePackCompression.Lz4BlockArray)
                              .WithSecurity(MessagePackSetup.options.Security.WithMaximumDecompressedSize(maxBytes))
@@ -169,7 +156,7 @@ module internal PreparedStorage =
         if stream.Length > int64 maxBytes then invalidOp "Prepared execution metadata exceeds the 64 MiB limit."
         let bytes = Array.zeroCreate<byte> (int stream.Length)
         stream.ReadExactly bytes
-        let envelope = MessagePackSerializer.Deserialize<preparationEnvelopeDto>(ReadOnlyMemory<byte>(bytes), options)
+        let envelope = MessagePackSerializer.Deserialize<runParametersEnvelopeDto>(ReadOnlyMemory<byte>(bytes), options)
         if isNull (box envelope) || envelope.Version <> 1 || envelope.Kind <> kind || isNull envelope.Payload
            || isNull envelope.Checksum || SHA256.HashData envelope.Payload <> envelope.Checksum then
             invalidOp $"Invalid or damaged {kind} file: {file}"
@@ -182,7 +169,9 @@ module internal PreparedStorage =
         if bytes.Length > maxBytes then invalidOp "Prepared execution metadata exceeds the 64 MiB limit."
         Directory.CreateDirectory(Path.GetDirectoryName file) |> ignore
         let verifyExisting () =
-            if read folder category id kind <> payload then invalidOp $"An immutable {kind} file already exists with different content: {file}"
+            let existing = read folder category id kind
+            if existing <> payload then invalidOp $"An immutable {kind} file already exists with different content: {file}"
+            existing
         if File.Exists file then verifyExisting ()
         else
             let temporary = file + "." + string (Guid.NewGuid()) + ".tmp"
@@ -192,51 +181,62 @@ module internal PreparedStorage =
                     stream.Write bytes
                     stream.Flush true
                 token.ThrowIfCancellationRequested()
-                try File.Move(temporary, file, false)
+                try
+                    File.Move(temporary, file, false)
+                    payload
                 with :? IOException when File.Exists file -> verifyExisting ()
             finally
                 if File.Exists temporary then File.Delete temporary
-    let ids folder category =
-        let directory = Path.GetDirectoryName(path folder category Guid.Empty)
-        if not (Directory.Exists directory) then [||]
-        else Directory.GetFiles(directory, "*.msgpack") |> Array.map (fun file -> Guid.Parse(Path.GetFileNameWithoutExtension file))
-
-module PreparedRunFiles =
+module RunParameterFiles =
+    let private pathComparison = if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal
     let private hash (bytes: byte array) : Guid<workItemId> = UMX.tag (Guid(SHA256.HashData(bytes).[0..15]))
     let internal saveWorkItem folder (value: runParameters) token =
-        let payload = PreparedCodec.toDto value |> MessagePackSetup.serialize
+        let payload = RunParameterCodec.toDto value |> MessagePackSetup.serialize
         let id = hash payload
-        PreparedStorage.publish folder "runParameters" (UMX.untag id) "runParameters" payload token
+        RunParameterStorage.publish folder "runParameters" (UMX.untag id) "runParameters" payload token |> ignore
         id
     let loadWorkItem folder (id: Guid<workItemId>) =
-        let payload = PreparedStorage.read folder "runParameters" (UMX.untag id) "runParameters"
+        let payload = RunParameterStorage.read folder "runParameters" (UMX.untag id) "runParameters"
         if hash payload <> id then invalidOp "The runParameters contents do not match their file ID."
-        let value = MessagePackSetup.deserialize<runParametersDto> payload |> PreparedCodec.fromDto id
-        PreparedStorage.requireProject folder value.ProjectId
+        let value = MessagePackSetup.deserialize<runParametersDto> payload |> RunParameterCodec.fromDto id
+        RunParameterStorage.requireProject folder value.ProjectId
         value
-    let internal savePreparation folder (value: preparedRun) token =
-        let dto: preparedRunDto = {
-            Version = 1; Id = UMX.untag value.Id; ProjectId = UMX.untag value.ProjectId; RunId = UMX.untag value.RunId
-            RunName = value.RunName; CreatedUtc = value.CreatedUtc; SetupSetCount = value.SetupSetCount
-            WorkItemIds = value.WorkItemIds |> Array.map UMX.untag }
-        PreparedStorage.publish folder "preparations" dto.Id "preparation" (MessagePackSetup.serialize dto) token
-    let private readPreparation folder (id: Guid<preparationId>) =
-        let dto = PreparedStorage.read folder "preparations" (UMX.untag id) "preparation" |> MessagePackSetup.deserialize<preparedRunDto>
-        if dto.Version <> 1 || dto.Id <> UMX.untag id || dto.Id = Guid.Empty || dto.ProjectId = Guid.Empty || dto.RunId = Guid.Empty
-           || isNull dto.RunName || dto.SetupSetCount < 0 || isNull dto.WorkItemIds || dto.WorkItemIds.Length = 0
-           || (dto.WorkItemIds |> Array.exists ((=) Guid.Empty)) || (Array.distinct dto.WorkItemIds).Length <> dto.WorkItemIds.Length then
-            invalidOp "Invalid or unsupported preparation manifest."
-        let value = { Id = id; ProjectId = UMX.tag dto.ProjectId; RunId = UMX.tag dto.RunId; RunName = dto.RunName
-                      CreatedUtc = dto.CreatedUtc; SetupSetCount = dto.SetupSetCount; WorkItemIds = dto.WorkItemIds |> Array.map UMX.tag }
-        value
-    let loadPreparation folder id =
-        let value = readPreparation folder id
-        PreparedStorage.requireProject folder value.ProjectId
-        value
-    let listPreparations folder =
-        PreparedStorage.ids folder "preparations"
-        |> Array.map (UMX.tag >> readPreparation folder)
-        // Importing a project assigns new IDs but retains historical files. Those
-        // preparations cannot execute here and must not hide new preparations.
-        |> Array.filter (fun value -> File.Exists(PreparedStorage.path folder "" (UMX.untag value.ProjectId)))
-        |> Array.sortByDescending (fun value -> value.CreatedUtc)
+
+    /// The selected folder stays inside its project; copied projects need no workspace.
+    let projectFolder (parametersFolder: string) =
+        let folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath parametersFolder)
+        if not (String.Equals(Path.GetFileName folder, "runParameters", pathComparison)) then
+            invalidArg "parametersFolder" "Select the project's runParameters folder."
+        if not (Directory.Exists folder) then invalidOp $"Run parameters folder does not exist: {folder}"
+        let mutable current = folder
+        while not (String.IsNullOrEmpty current) do
+            if File.GetAttributes(current).HasFlag FileAttributes.ReparsePoint then invalidOp "Run parameter storage does not follow filesystem links."
+            current <- Path.GetDirectoryName current
+        Path.GetDirectoryName folder
+
+    let workItemId (path: string) : Guid<workItemId> =
+        match Guid.TryParse(Path.GetFileNameWithoutExtension path) with
+        | true, id when id <> Guid.Empty && String.Equals(Path.GetExtension path, ".msgpack", StringComparison.OrdinalIgnoreCase) -> UMX.tag id
+        | _ -> invalidArg "path" $"Expected a GUID-named .msgpack parameter file: {path}"
+
+    let loadFile (path: string) =
+        let full = Path.GetFullPath path
+        let project = projectFolder (Path.GetDirectoryName full)
+        try
+            let id = workItemId full
+            let expected = Path.Combine(project, "runParameters", string id + ".msgpack")
+            if not (String.Equals(full, expected, pathComparison)) then invalidOp "Use the canonical GUID filename from parameter generation."
+            loadWorkItem project id
+        with error -> invalidOp $"Cannot read parameter file '{full}': {error.GetBaseException().Message}"
+
+    /// Enumerate once, ignoring unpublished temporary files. Every discovered file
+    /// is independently usable; there is no separate batch-membership record.
+    let listWorkItems parametersFolder (token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        projectFolder parametersFolder |> ignore
+        let items = Directory.GetFiles(parametersFolder, "*.msgpack") |> Array.map (fun path ->
+            token.ThrowIfCancellationRequested()
+            loadFile path)
+        if (items |> Array.map _.ProjectId |> Array.distinct).Length > 1 then invalidOp "The runParameters folder contains files from different projects."
+        if (items |> Array.map _.Id |> Array.distinct).Length <> items.Length then invalidOp "The runParameters folder contains duplicate work item IDs."
+        items |> Array.sortBy (fun item -> item.RunId, item.SetupSetNumber, item.SetNumber, item.Id)

@@ -34,17 +34,21 @@ public sealed class WorkspaceImportTests : IDisposable
     {
         var run = WorkspaceHierarchyTests.MakeRun(name, "Existing trial", family == hierarchyKind.Branch);
         var value = WorkspaceHierarchyTests.MakeProject(family, Guid.NewGuid(), name, Path.GetFileName(folder), [run]);
+        var inputs = RunDto.fromDomain(value.Runs[0]);
+        inputs.id = Guid.NewGuid();
+        value = project.withRuns(value, [RunDto.toDomain(value, inputs)]);
         Directory.CreateDirectory(Path.Combine(folder, "runs"));
-        File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "project"), WorkspaceCodec.encodeProject(value));
-        File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(run.Id)), WorkspaceCodec.encodeRun(value.Runs[0]));
+        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeProject(value));
+        File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(value.Runs[0].Id)), WorkspaceCodec.encodeRun(value.Runs[0]));
         File.WriteAllText(Path.Combine(folder, "results.txt"), "Keep results");
     }
     internal static void WriteModule(string folder, string name, hierarchyKind family = hierarchyKind.Root)
     {
         Directory.CreateDirectory(folder);
-        File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "module"), WorkspaceCodec.encodeModule(WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, Path.GetFileName(folder), [], [])));
-        // The disk hierarchy is authoritative, even when the parent's snapshot has a stale child list.
         WriteProject(Path.Combine(folder, "projects", "child-project"), "Child project", family);
+        var child = WorkspaceFileStore.LoadProjectFolder(Path.Combine(folder, "projects", "child-project"), Token);
+        var value = WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, Path.GetFileName(folder), [], [child]);
+        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeModule(value));
     }
 
     [Theory]

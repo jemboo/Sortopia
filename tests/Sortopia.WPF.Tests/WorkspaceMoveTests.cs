@@ -106,7 +106,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         var id = Find(page, "R").Id;
         var before = Snapshot(Root);
         await Move(page, "P", "B");
-        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Find(page, "B").GetFolderPath(Root), "module"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
             Assert.NotEmpty(page.Error);
@@ -391,10 +391,12 @@ public sealed class WorkspaceMoveTests : IDisposable
         importSource = Path.Combine(temporary.FullName, "Imported");
         WorkspaceImportTests.WriteModule(importSource, "Imported");
         var innerFolder = Path.Combine(importSource, "modules", "Inner");
-        Directory.CreateDirectory(innerFolder);
-        var innerDefinition = WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", "Inner", [], []);
-        File.WriteAllBytes(Path.Combine(innerFolder, WorkspaceDefinitionFiles.Name(innerDefinition.Id)), WorkspaceCodec.encodeModule(innerDefinition));
-        WorkspaceImportTests.WriteProject(Path.Combine(innerFolder, "projects", "child-project"), "Nested project");
+        WorkspaceImportTests.WriteModule(innerFolder, "Inner");
+        var innerDefinition = WorkspaceFileStore.LoadModuleFolder(innerFolder, Token);
+        var outerFile = WorkspaceDefinitionFiles.Require(importSource, "module");
+        var outer = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(outerFile));
+        outer.modules = [.. outer.modules, new childFolderReferenceDto { id = innerDefinition.Id, folderName = "Inner" }];
+        File.WriteAllBytes(outerFile, Sortopia.Core.Serialization.MessagePackSetup.serialize(outer));
         var before = Snapshot(importSource);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         Assert.Empty(page.Error);
