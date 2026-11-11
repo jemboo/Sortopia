@@ -386,18 +386,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         if (!ReferenceEquals(parent, node.Parent) && !string.Equals(destination, node.SavedFolderPath, StringComparison.OrdinalIgnoreCase)
             && (Directory.Exists(destination) || File.Exists(destination)))
             throw new IOException($"The destination already exists. Choose another parent or folder name: {destination}");
-        // A child of an unsaved import becomes its own copy; exclude it from the parent copy.
-        if (node.PendingCopy is null && node.ImportOriginId is { } originId && node.ImportSourcePath is { } source)
-        {
-            var origin = Roots.Single().DescendantsAndSelf().Select(item => item.PendingCopy).FirstOrDefault(copy => copy?.Id == originId)
-                ?? throw new IOException("Save or discard the pending import before moving this child.");
-            var copy = await Task.Run(() => origin.PrepareChild(WorkspaceFolder, source, destination, token), token);
-            token.ThrowIfCancellationRequested();
-            node.PendingCopy = copy;
-            node.CopyOriginId = originId;
-            node.CopyOriginRelativePath = Path.GetRelativePath(origin.SourceFolder, source);
-            node.RememberImportLocations(source, copy.Id, copy.OriginalIds);
-        }
+        await PrepareImportedChildCopyAsync(node, destination, token);
         var oldParent = node.Parent!;
         oldParent.Children.Remove(node);
         // Append within the entity's typed collection, keeping modules/projects/runs grouped.
@@ -409,6 +398,36 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         Selected = node;
         Status = $"Moved '{node.Name}' under '{parent.Name}' in the draft. Save workspace to move it on disk.";
     });
+    private async Task PrepareImportedChildCopyAsync(WorkspaceTreeNode node, string destination, CancellationToken token)
+    {
+        // A relocated child of an unsaved import becomes its own copy; exclude it from the parent copy.
+        if (node.PendingCopy is null && node.ImportOriginId is { } originId && node.ImportSourcePath is { } source)
+        {
+            var origin = Roots.Single().DescendantsAndSelf().Select(item => item.PendingCopy).FirstOrDefault(copy => copy?.Id == originId)
+                ?? throw new IOException("Save or discard the pending import before moving this child.");
+            var copy = await Task.Run(() => origin.PrepareChild(WorkspaceFolder, source, destination, token), token);
+            token.ThrowIfCancellationRequested();
+            node.PendingCopy = copy;
+            node.CopyOriginId = originId;
+            node.CopyOriginRelativePath = Path.GetRelativePath(origin.SourceFolder, source);
+            node.RememberImportLocations(source, copy.Id, copy.OriginalIds);
+        }
+    }
+    private async Task PrepareModuleLocationCopiesAsync(CancellationToken token)
+    {
+        var nodes = Roots.Single().DescendantsAndSelf().ToArray();
+        // Visit parents before children so nested location edits use their nearest pending copy.
+        foreach (var node in nodes)
+        {
+            if (node.Kind != WorkspaceEntityKind.Module || node.PendingCopy is not null
+                || node.ImportOriginId is not { } originId || node.ImportSourcePath is not { } source) continue;
+            var origin = nodes.Single(item => item.PendingCopy?.Id == originId);
+            var inheritedLocation = Path.Combine(origin.GetFolderPath(WorkspaceFolder), Path.GetRelativePath(origin.PendingCopy!.SourceFolder, source));
+            var destination = node.GetFolderPath(WorkspaceFolder);
+            if (!string.Equals(inheritedLocation, destination, StringComparison.Ordinal))
+                await PrepareImportedChildCopyAsync(node, destination, token);
+        }
+    }
     private void DraftChanged()
     {
         HasUnsavedChanges = true;
@@ -473,6 +492,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         {
             var definition = Roots.Single().ToWorkspace();
             var original = savedDefinition;
+            await PrepareModuleLocationCopiesAsync(token);
             var copies = Roots.Single().GetPendingCopies(WorkspaceFolder).ToArray();
             var moves = Roots.Single().GetPendingMoves(WorkspaceFolder);
             var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateWorkspace(WorkspaceFolder, definition, token, copies, moves)

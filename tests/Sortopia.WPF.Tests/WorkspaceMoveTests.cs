@@ -120,6 +120,79 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Equal("P", saved.ProjectName);
     }
 
+    [Theory]
+    [InlineData("A", "Relocated")]
+    [InlineData("Nested", "Renamed nested")]
+    [InlineData("A", "a")]
+    public async Task Editing_module_location_moves_its_entire_folder_on_save(string name, string folder)
+    {
+        var page = Open();
+        var node = Find(page, name);
+        var source = node.GetFolderPath(Root);
+        Data(source);
+        var before = Snapshot(Root);
+        var filenames = Directory.GetFiles(source, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order().ToArray();
+        node.FolderNameInput = folder;
+        var destination = node.GetFolderPath(Root);
+        page.RefreshDiskStatus();
+        Assert.Equal("Pending move", node.DiskStatus);
+        Assert.All(node.DescendantsAndSelf(), child => Assert.Equal("Pending move", child.DiskStatus));
+        Assert.Equal(before, Snapshot(Root));
+        await page.SaveWorkspaceAsync();
+        Assert.Empty(page.Error);
+        Assert.Empty(page.RetainedFolders);
+        Assert.Equal(node.Id, Find(page, name).Id);
+        Assert.Equal(folder, WorkspaceFileStore.LoadModuleFolder(destination, Token).FolderName);
+        // Enumerating checks the actual spelling on disk, including a case-only rename.
+        Assert.Contains(destination, Directory.GetDirectories(Path.GetDirectoryName(destination)!));
+        Assert.DoesNotContain(source, Directory.GetDirectories(Path.GetDirectoryName(source)!));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(destination, "output", "result.txt")));
+        Assert.True(Directory.Exists(Path.Combine(destination, "output", "empty")));
+        Assert.Equal(filenames, Directory.GetFiles(destination, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order());
+    }
+
+    [Fact]
+    public async Task Parent_and_child_location_edits_rollback_together_and_can_be_retried()
+    {
+        var page = Open();
+        var parent = Find(page, "A");
+        var child = Find(page, "Nested");
+        var source = parent.GetFolderPath(Root);
+        Data(source);
+        Data(child.GetFolderPath(Root));
+        var before = Snapshot(Root);
+        parent.FolderNameInput = "Renamed parent";
+        child.FolderNameInput = "Renamed child";
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await page.SaveWorkspaceAsync();
+            Assert.NotEmpty(page.Error);
+        }
+        Assert.Equal(before, Snapshot(Root));
+        Assert.True(page.HasUnsavedChanges);
+        await page.SaveWorkspaceAsync();
+        Assert.Empty(page.Error);
+        Assert.False(Directory.Exists(source));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Find(page, "A").GetFolderPath(Root), "output", "result.txt")));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Find(page, "Nested").GetFolderPath(Root), "output", "result.txt")));
+        Assert.Empty(Directory.GetDirectories(Root, ".sortopia-*"));
+    }
+
+    [Fact]
+    public async Task Location_edits_cannot_merge_into_an_existing_folder()
+    {
+        var page = Open();
+        var node = Find(page, "A");
+        node.FolderNameInput = "Occupied";
+        var destination = node.GetFolderPath(Root);
+        Directory.CreateDirectory(destination);
+        File.WriteAllText(Path.Combine(destination, "external.txt"), "Leave intact");
+        var before = Snapshot(Root);
+        await page.SaveWorkspaceAsync();
+        Assert.Contains("already exists", page.Error);
+        Assert.Equal(before, Snapshot(Root));
+    }
+
     [Fact]
     public async Task Cut_alone_does_not_dirty_or_remove_the_node_and_discard_cancels_pasted_moves()
     {
@@ -309,6 +382,35 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Contains("already exists", page.Error);
         Assert.Equal(before, Snapshot(Root));
         Assert.True(page.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Location_edits_within_a_pending_module_import_keep_the_contents_with_each_module()
+    {
+        var page = Open();
+        importSource = Path.Combine(temporary.FullName, "Imported");
+        WorkspaceImportTests.WriteModule(importSource, "Imported");
+        var innerFolder = Path.Combine(importSource, "modules", "Inner");
+        Directory.CreateDirectory(innerFolder);
+        var innerDefinition = WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", "Inner", [], []);
+        File.WriteAllBytes(Path.Combine(innerFolder, WorkspaceDefinitionFiles.Name(innerDefinition.Id)), WorkspaceCodec.encodeModule(innerDefinition));
+        WorkspaceImportTests.WriteProject(Path.Combine(innerFolder, "projects", "child-project"), "Nested project");
+        var before = Snapshot(importSource);
+        await page.AddExistingAsync(WorkspaceEntityKind.Module);
+        Assert.Empty(page.Error);
+        Find(page, "Imported").FolderNameInput = "Relocated import";
+        var inner = Find(page, "Inner");
+        inner.FolderNameInput = "Renamed inner";
+        var id = inner.Id;
+        await page.SaveWorkspaceAsync();
+        Assert.Empty(page.Error);
+        Assert.Equal(before, Snapshot(importSource));
+        Assert.Equal(id, Find(page, "Inner").Id);
+        var destination = Find(page, "Inner").GetFolderPath(Root);
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(destination, "projects", "child-project", "results.txt")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Imported")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Relocated import", "modules", "Inner")));
+        Assert.Empty(page.RetainedFolders);
     }
 
     [Fact]

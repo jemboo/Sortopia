@@ -49,7 +49,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
                 var destination = node.GetFolderPath(rootFolder);
                 var inherited = enclosing is not null && enclosing.ContainsSourcePath(source)
                     ? Path.Combine(enclosing.DestinationFolder, Path.GetRelativePath(enclosing.SourceFolder, source)) : source;
-                if (!string.Equals(destination, inherited, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(destination, inherited, StringComparison.Ordinal))
                 {
                     var move = new WorkspaceFolderMove(source, destination);
                     moves.Add(move);
@@ -68,7 +68,8 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         Id = id ?? Guid.NewGuid();
         Kind = kind; this.name = name; this.folderName = kind == WorkspaceEntityKind.Run ? "" : folderName ?? name;
         nameInput = name; folderNameInput = this.folderName;
-        folderFollowsName = kind is not (WorkspaceEntityKind.Workspace or WorkspaceEntityKind.Run) && folderName is null;
+        folderFollowsName = kind is not (WorkspaceEntityKind.Workspace or WorkspaceEntityKind.Run) && folderName is null
+            || kind == WorkspaceEntityKind.Module && folderName == name && IsGeneratedModuleName(name);
         Children.CollectionChanged += (_, args) =>
         {
             if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.RefreshInheritedSubtree(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
@@ -162,10 +163,10 @@ public sealed class WorkspaceTreeNode : ViewModelBase
             {
                 var source = pendingMove || previouslySavedHere ? savedFolderPath ?? path : path;
                 missing = (pendingMove && savedFolderPath is not null || previouslySavedHere) && !File.Exists(source);
-                label = missing ? "Missing definition" : pendingMove && !string.Equals(source, path, StringComparison.OrdinalIgnoreCase) ? "Pending move" : File.Exists(path) ? "" : "Not saved";
+                label = missing ? "Missing definition" : pendingMove && !string.Equals(source, path, StringComparison.Ordinal) ? "Pending move" : File.Exists(path) ? "" : "Not saved";
                 detail = missing ? $"The run definition is missing: {source}" : $"Run definition: {path}";
             }
-            else if (pendingMove && savedFolderPath is { } source && !string.Equals(source, path, StringComparison.OrdinalIgnoreCase))
+            else if (pendingMove && savedFolderPath is { } source && !string.Equals(source, path, StringComparison.Ordinal))
             {
                 var folderMissing = !Directory.Exists(source);
                 missing = folderMissing || WorkspaceDefinitionFiles.Find(source, Kind.ToString().ToLowerInvariant()) is null;
@@ -258,6 +259,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
                 SetProperty(ref folderName, value, nameof(FolderName));
                 SetProperty(ref folderNameInput, value, nameof(FolderNameInput));
                 SetFolderNameError("");
+                if (Kind == WorkspaceEntityKind.Module) MarkMoved();
             }
             foreach (var child in Children) child.RefreshInheritedSubtree();
             Changed?.Invoke();
@@ -278,17 +280,30 @@ public sealed class WorkspaceTreeNode : ViewModelBase
             var conflict = Collision(value, folder: true);
             SetFolderNameError(conflict);
             if (conflict.Length > 0) return;
+            // Binding refreshes can write the current value back; they are not a manual location edit.
+            if (string.Equals(folderName, value, StringComparison.Ordinal)) return;
             folderFollowsName = false;
             OnPropertyChanged(nameof(FolderFollowsName));
             OnPropertyChanged(nameof(FolderNameHint));
-            if (SetProperty(ref folderName, value, nameof(FolderName))) Changed?.Invoke();
+            if (SetProperty(ref folderName, value, nameof(FolderName)))
+            {
+                if (Kind == WorkspaceEntityKind.Module) MarkMoved();
+                Changed?.Invoke();
+            }
             // A manual folder can resolve a name edit that conflicted only through automatic tracking.
             if (nameError.Length > 0) NameInput = nameInput;
         }
     }
     public bool FolderFollowsName => folderFollowsName;
     public string FolderNameHint => IsWorkspace ? "The workspace folder name follows the selected root location."
-        : folderFollowsName ? "Follows the name until saved or edited manually." : "Changing the name keeps this folder location.";
+        : folderFollowsName ? Kind == WorkspaceEntityKind.Module
+            ? "Uses the name you enter until the named module is saved or you edit this folder name."
+            : "Follows the name until saved or edited manually."
+        : Kind == WorkspaceEntityKind.Module ? "Saving a location change moves this folder and all contents. Changing only the name keeps this location."
+        : "Changing the name keeps this folder location.";
+    private static bool IsGeneratedModuleName(string value) => value == "New module"
+        || value.StartsWith("New module ", StringComparison.Ordinal)
+        && int.TryParse(value[11..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var suffix) && suffix >= 2;
     public string NameError => nameError;
     public string FolderNameError => folderNameError;
     internal string EditError => nameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Name: {nameError}" : folderNameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Folder name: {folderNameError}"

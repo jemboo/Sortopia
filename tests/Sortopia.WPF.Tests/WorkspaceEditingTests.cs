@@ -89,6 +89,43 @@ public sealed class WorkspaceEditingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task First_module_name_sets_the_location_even_after_saving_the_placeholder(bool branch, bool savePlaceholder)
+    {
+        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", []));
+        (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
+        WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
+        var node = page.Selected!;
+        var id = node.Id;
+        var originalPath = node.GetFolderPath(Root);
+        if (savePlaceholder)
+        {
+            await page.SaveWorkspaceAsync();
+            Assert.Empty(page.Error);
+            node = Entity(page, WorkspaceEntityKind.Module);
+            File.WriteAllText(Path.Combine(originalPath, "notes.txt"), "Keep while naming");
+        }
+        // Rebinding the location editor must not count as choosing a different folder.
+        node.FolderNameInput = node.FolderNameInput;
+        node.NameInput = "Prefix tests";
+        Assert.True(node.FolderFollowsName);
+        Assert.Equal("Prefix tests", node.FolderName);
+        Assert.Equal("Prefix tests", node.FolderNameInput);
+        await page.SaveWorkspaceAsync();
+        Assert.Empty(page.Error);
+        var saved = Entity(page, WorkspaceEntityKind.Module);
+        Assert.Equal(id, saved.Id);
+        Assert.False(saved.FolderFollowsName);
+        Assert.Equal(Path.Combine(Root, "modules", "Prefix tests"), saved.GetFolderPath(Root));
+        Assert.True(Directory.Exists(saved.GetFolderPath(Root)));
+        Assert.False(Directory.Exists(originalPath));
+        if (savePlaceholder) Assert.Equal("Keep while naming", File.ReadAllText(Path.Combine(saved.GetFolderPath(Root), "notes.txt")));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Conflicting_module_edits_are_rejected_against_saved_siblings_and_reported_immediately(bool nested)

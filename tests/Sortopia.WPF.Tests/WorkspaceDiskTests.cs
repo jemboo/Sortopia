@@ -154,7 +154,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         saved.FolderName = "new-location";
         page.RefreshDiskStatus();
         Assert.Equal("Not saved", added.DiskStatus);
-        Assert.Equal("Not saved", saved.DiskStatus);
+        Assert.Equal("Pending move", saved.DiskStatus);
         Assert.False(page.HasMissingComponents);
         page.DiscardChangesCommand.Execute(null);
         Assert.Empty(page.Roots.Single().Children.Single().DiskStatus);

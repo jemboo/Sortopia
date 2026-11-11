@@ -21,7 +21,7 @@ module internal WorkspaceSavePlan =
         let writes = ResizeArray<WorkspaceFileUpdate>()
         let retainedFolders = ResizeArray<string>()
         let imports = if isNull copies then [||] else copies |> Seq.sortBy (fun copy -> copy.DestinationFolder.Length) |> Seq.toArray
-        let relocations = if isNull moves then [||] else moves |> Seq.filter (fun move -> not (pathComparer.Equals(move.SourceFolder, move.DestinationFolder))) |> Seq.toArray
+        let relocations = if isNull moves then [||] else moves |> Seq.filter (fun move -> not (String.Equals(move.SourceFolder, move.DestinationFolder, StringComparison.Ordinal))) |> Seq.toArray
         let transfers =
             Array.append
                 (imports |> Array.map (fun copy -> { Source = copy.SourceFolder; Destination = copy.DestinationFolder; Copy = Some copy }))
