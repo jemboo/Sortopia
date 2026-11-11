@@ -137,12 +137,8 @@ module ParamKeys =
     let sorterPoolMeasureKey = ParamKey.text "SorterPoolMeasure"
     let sorterPoolSelectionIntervalsKey = ParamKey.text "SorterPoolSelectionIntervals"
     let channelCountKey = ParamKey.integer "ChannelCount"
-    let sourceDbNameKey = ParamKey.text "SourceDbName"
-    let sourceExecutionIdKey = ParamKey.guid "SourceExecutionId"
     let sourceGenerationIntervalKey = ParamKey.integer "SourceGenerationInterval"
     let sourceMutationModKey = ParamKey.integer "SourceMutationMod"
-    let sourceProjectNameKey = ParamKey.text "SourceProjectName"
-    let sourceRunNameKey = ParamKey.text "SourceRunName"
     let stageLengthKey = ParamKey.integer "StageLength"
     let startingReplKey = ParamKey.integer "StartingRepl"
     let textReportNameKey = ParamKey.text "TextReportName"
@@ -230,12 +226,8 @@ module ParamKeys =
         ParamKey.describe sorterPoolMeasureKey
         ParamKey.describe sorterPoolSelectionIntervalsKey
         ParamKey.describe channelCountKey
-        ParamKey.describe sourceDbNameKey
-        ParamKey.describe sourceExecutionIdKey
         ParamKey.describe sourceGenerationIntervalKey
         ParamKey.describe sourceMutationModKey
-        ParamKey.describe sourceProjectNameKey
-        ParamKey.describe sourceRunNameKey
         ParamKey.describe stageLengthKey
         ParamKey.describe startingReplKey
         ParamKey.describe textReportNameKey ]
@@ -245,5 +237,4 @@ module ParamKeys =
     /// Resolve a persisted source-filter name to the corresponding source parameter name.
     let sourceParameterKey = function
         | name when name = sourceMutationModKey.Name -> mutationModKey.Name
-        | name when name = sourceRunNameKey.Name -> runNameKey.Name
         | name -> name
