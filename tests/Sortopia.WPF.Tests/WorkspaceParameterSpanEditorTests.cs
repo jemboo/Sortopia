@@ -3,7 +3,7 @@ using System.IO;
 using Sortopia.Runs;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -20,7 +20,10 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
         if (page.HasSavedWorkspace) return page;
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(branch));
+        var value = WorkspaceHierarchyTests.ProjectSettings(branch);
+        value.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels; value.resultsParameterDefaults = RunExecutionTests.ModelDefaults();
+        if (branch) { value.setupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels; value.setupParameterDefaults = RunExecutionTests.ModelDefaults(); }
+        page.Selected!.Editor!.LoadProject(value);
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         return page;
     }
@@ -89,23 +92,15 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     }
 
     [Fact]
-    public void Key_choices_include_phase_specific_custom_defaults_and_query_keys()
+    public void Key_choices_are_restricted_to_the_inherited_function_contract()
     {
-        var page = Open(true); var run = page.Selected!; var project = run.Parent!.Editor!;
-        WorkspaceParameterInheritanceTests.AddDefault(project, "CustomResult", "1.25").ValueType = parameterValueType.Floating;
-        WorkspaceParameterInheritanceTests.AddDefault(project, "CustomSetup", "true", true).ValueType = parameterValueType.Boolean;
-        project.AddResultsQueryKeyCommand.Execute(null); project.ResultsQueryKeys.Single().Text = "CustomQuery";
-        var results = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "CustomResult", false, "2.5");
-        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "CustomSetup", true, "false");
-        Assert.Contains("CustomResult", results.KeyChoices); Assert.Contains("CustomQuery", results.KeyChoices);
-        Assert.DoesNotContain("CustomSetup", results.KeyChoices);
-        Assert.Contains("CustomSetup", setup.KeyChoices); Assert.DoesNotContain("CustomResult", setup.KeyChoices);
-        Assert.Equal(parameterValueType.Floating, results.ValueType); Assert.True(setup.Values[0].IsBoolean);
-        var culture = CultureInfo.CurrentCulture;
-        try { CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR"); Assert.Empty(results.Error); results.Values[0].Text = "2,5"; Assert.NotEmpty(results.Error); }
-        finally { CultureInfo.CurrentCulture = culture; }
-        WorkspaceParameterInheritanceTests.AddDefault(project, "AddedLater", "1");
-        Assert.Contains("AddedLater", results.KeyChoices);
+        var page = Open(true); var run = page.Selected!;
+        run.Parent!.Parent!.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
+        var results = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "ChannelCount", false, "8");
+        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", true, "3");
+        Assert.Contains("SorterEvalType", results.KeyChoices); Assert.DoesNotContain("StageLength", results.KeyChoices);
+        Assert.Contains("StageLength", setup.KeyChoices); Assert.DoesNotContain("SorterEvalType", setup.KeyChoices);
+        Assert.Equal(parameterValueType.Integer, results.ValueType); Assert.Equal(parameterValueType.Integer, setup.ValueType);
     }
 
     [Theory]
@@ -114,6 +109,8 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     public async Task Invalid_choices_block_save_and_preview_then_round_trip_after_correction(bool setup)
     {
         var page = Open(setup); var editor = page.Selected!.Editor!;
+        editor.UseResultsDefaultsAsSpansCommand.Execute(null); if (setup) editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        (setup ? editor.SetupParameters : editor.ResultsParameters).Single(row => row.Key == "RngType").RemoveCommand.Execute(null);
         var row = WorkspaceParameterSetsPreviewTests.AddSpan(editor, "RngType", setup, "invalid");
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Contains("RngType", page.SaveHint);
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
@@ -125,7 +122,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         Assert.Equal("SplitMix64", (setup ? sets.Setup.Value : sets.Results)[0].TryFind(ParamKeys.rngTypeKey).Value);
         var reopened = Open(setup); // Existing saved workspace is loaded by the settings path.
         var restored = reopened.Roots[0].Children[0].Children[0].Children[0].Editor!;
-        Assert.True((setup ? restored.SetupParameters : restored.ResultsParameters).Single().Values[0].HasChoices);
+        Assert.True((setup ? restored.SetupParameters : restored.ResultsParameters).Single(row => row.Key == "RngType").Values[0].HasChoices);
     }
     public void Dispose() => temporary.Delete(recursive: true);
 }

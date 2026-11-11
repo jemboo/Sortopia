@@ -2,7 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;

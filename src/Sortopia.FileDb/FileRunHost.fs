@@ -103,7 +103,7 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
             let entries = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
             let sources = SourceResults(workspace, workspaceRoot, entries, token)
             { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token
-              SetupDb = writer (string branch.SetupDatabaseName) true (string branch.SetupFunctionName) FunctionCatalogs.setupFunctionVersions[branch.SetupFunctionName]
+              SetupDb = writer (string branch.SetupDatabaseName) true (string branch.SetupFunctionName) branch.ProjectConfiguration.Setup.FunctionVersion
                                branch.ProjectConfiguration.Setup.DataTypes parameters sources.Allows
               ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
               SourceResults = sources }
@@ -114,7 +114,7 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
         let outputs = value.ResultsDataTypes |> List.map (fun entry -> entry.DataType, entry.QueryParameterKeys) |> Map.ofList
         { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token
           SetupDb = setup
-          ResultsDb = writer (string value.ResultsDatabaseName) false (string value.ResultsFunctionName) FunctionCatalogs.resultsFunctionVersions[value.ResultsFunctionName]
+          ResultsDb = writer (string value.ResultsDatabaseName) false (string value.ResultsFunctionName) parent.Snapshot.Results.FunctionVersion
                              outputs parameters (fun reference -> Set.contains reference dependencies)
           SourceResults = HostStorage.noSources }
     interface IRunHostFactory with

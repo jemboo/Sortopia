@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Sortopia.Models.Sorting;
 using Sortopia.Sorting.Catalog;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Models;
 using Sortopia.WPF.ViewModels;
 using Sortopia.WPF.ViewModels.Pages.Home;
@@ -2862,7 +2863,7 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Visible, newBranchModule.Visibility);
             Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
-            var beforeContract = branchModule.Editor!.ToLocalOverrides();
+            var beforeContract = branchModule.Editor!.ToModuleOverrides();
             branchModule.Editor.LoadProject(FunctionOutputContractTests.Combined(true));
             vm.SelectConfigurationItem("setupOutputs");
             foreach (var width in new[] { 1000, 640 })
@@ -2870,7 +2871,7 @@ public sealed class RandomNetworkTests
                 RenderWorkspaceState($"function-output-contracts-{width}", width, 800);
                 Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
             }
-            Assert.False(((Button)FindWorkspaceField(fields, "AddSetupDataTypeButton")).IsVisible);
+            Assert.Null(FindWorkspaceField(fields, "AddSetupDataTypeButton"));
             Assert.False(branchModule.Editor.SetupDataTypesOverride.CanEditValue);
             foreach (var setup in new[] { false, true })
             {
@@ -2890,8 +2891,8 @@ public sealed class RandomNetworkTests
             branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardEvaluationInputs;
             branchModule.Editor.ResultsParameterDefaultsOverride.IsOverridden = false;
             vm.SelectConfigurationItem("resultsTypes"); RenderWorkspaceState("results-output-contracts");
-            Assert.False(((ItemsControl)FindWorkspaceField(fields, "OutputTypesList")).IsVisible);
-            branchModule.Editor.LoadOverrides(beforeContract);
+            Assert.Null(FindWorkspaceField(fields, "OutputTypesList"));
+            branchModule.Editor.LoadModuleOverrides(beforeContract);
             LayoutWorkspace();
             var moduleDescriptionEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "DescriptionOverrideEditor");
             var moduleDescriptionToggle = (CheckBox)moduleDescriptionEditor.FindName("OverrideToggle");
@@ -2902,8 +2903,8 @@ public sealed class RandomNetworkTests
             var moduleExecuteEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             ((CheckBox)moduleExecuteEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
             LayoutWorkspace();
-            ((TextBox)moduleExecuteEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "Evaluate");
-            Assert.Equal("Evaluate", branchModule.Editor!.ResultsFunctionName);
+            ((TextBox)moduleExecuteEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "sortable-tests.standard");
+            Assert.Equal("sortable-tests.standard", branchModule.Editor!.ResultsFunctionName);
             var defaultSource = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)
                 ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor")).FindName("ValueSource");
             Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor")).Visibility);
@@ -2945,7 +2946,7 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
             var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             var executeInput = (TextBox)executeEditor.FindName("OverrideValueInput");
-            Assert.Equal("Evaluate", executeInput.Text);
+            Assert.Equal("sortable-tests.standard", executeInput.Text);
             Assert.True(executeInput.IsReadOnly);
             // Clear local project values through the actual controls and show the supplying module.
             ((CheckBox)moduleDescriptionEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
@@ -2965,8 +2966,8 @@ public sealed class RandomNetworkTests
             Assert.True(branchProject.Editor.FunctionsReady);
             Assert.False(branchProject.Editor.ResultsFunctionOverride.ShowCatalogPicker);
             vm.SelectConfigurationItem("resultsTypes"); LayoutWorkspace();
-            Assert.False(((ItemsControl)fields.FindName("OutputTypesList")).IsVisible);
-            Assert.False(branchProject.Editor.AddOutputTypeCommand.CanExecute(null));
+            Assert.Null(fields.FindName("OutputTypesList"));
+            Assert.Null(fields.FindName("AddOutputTypeButton"));
             Assert.Single(branchProject.Editor.ResultsOutputContracts, row => row.Kind == "SorterSetEval");
             RenderWorkspaceState("project-fixed-output-contracts", 1400, 900);
             var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source catalog", family: Sortopia.Workspaces.hierarchyKind.Branch);
@@ -2984,10 +2985,11 @@ public sealed class RandomNetworkTests
             var sourceEntry = branchProject.Editor.SetupDataTypes.Single(row => row.RequiresSource);
             var setupEntry = (ContentPresenter)setupEntries.ItemContainerGenerator.ContainerFromItem(sourceEntry);
             var sourcePicker = (ComboBox)setupEntries.ItemTemplate.FindName("SetupSourceProjectInput", setupEntry);
-            Assert.Equal(setupSource.Id, Assert.Single(sourcePicker.Items.Cast<WorkspaceSourceProject>()).Id);
+            Assert.Contains(sourcePicker.Items.Cast<WorkspaceSourceProject>(), item => item.Id == setupSource.Id);
+            Assert.All(sourcePicker.Items.Cast<WorkspaceSourceProject>(), item => Assert.Contains(item.Settings.resultsDataTypes, output => output.dataType.kind == "SortableTests" && output.dataType.value == ""));
             sourcePicker.SetCurrentValue(ComboBox.SelectedValueProperty, setupSource.Id); LayoutWorkspace();
             Assert.Equal(setupSource.Id, sourceEntry.SourceProjectId);
-            Assert.False(((ItemsControl)setupEntries.ItemTemplate.FindName("SetupQueryKeysList", setupEntry)).IsVisible);
+            Assert.Null(setupEntries.ItemTemplate.FindName("SetupQueryKeysList", setupEntry));
             Assert.All(branchProject.Editor.SetupDataTypes.Where(row => row.GeneratesData), row => Assert.Empty(row.SourceProjects));
             RenderWorkspaceState("project-allowed-source-projects", 1400, 900);
             Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor AddTypedDefault(string key)

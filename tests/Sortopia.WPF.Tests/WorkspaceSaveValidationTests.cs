@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -73,7 +73,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         project.Editor!.Sections.ResultsSettings = false; page.Selected = page.Roots[0];
         page.ReviewSaveIssueCommand.Execute(issue);
         Assert.Same(project, page.Selected); Assert.True(project.Editor.Sections.ResultsSettings);
-        project.Parent!.Editor!.ResultsFunctionName = "Evaluate"; project.Parent.Editor.SetupFunctionName = "Generate";
+        project.Parent!.Editor!.ResultsFunctionName = "sortable-tests.standard"; project.Parent.Editor.SetupFunctionName = "sortable-tests-with-prefix.standard";
         Assert.Empty(page.SaveIssues); Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         project.Editor.ResultsDatabaseName = " ";
         var database = Assert.Single(page.SaveIssues);

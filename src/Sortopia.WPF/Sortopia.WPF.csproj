@@ -22,7 +22,7 @@
     <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
     <ProjectReference Include="../Sortopia.Models.Inputs/Sortopia.Models.Inputs.fsproj" />
     <ProjectReference Include="../Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
-    <ProjectReference Include="../Sortopia.Workspaces.Serialization/Sortopia.Workspaces.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Workspaces.Persistence/Sortopia.Workspaces.Persistence.fsproj" />
     <InternalsVisibleTo Include="Sortopia.WPF.Tests" />
   </ItemGroup>
 </Project>

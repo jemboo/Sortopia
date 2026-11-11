@@ -62,9 +62,10 @@ type rootProject =
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
         Defaults.validateRoot local
-        let configuration = Defaults.resolveRoot parent local
+        let configuration = if isSealed then parent else Defaults.resolveRoot parent local
         ProjectConfiguration.validateRoot configuration
-        Defaults.validateRootModule configuration
+        if not isSealed then Defaults.validateRootModule configuration
+        else Sortopia.Functions.FunctionConfiguration.validateResults configuration.Results
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
@@ -121,9 +122,10 @@ type branchProject =
         EntityName.validate (UMX.untag name) |> ignore
         FolderName.validate folderName |> ignore
         Defaults.validateBranch local
-        let configuration = Defaults.resolveBranch parent local
+        let configuration = if isSealed then parent else Defaults.resolveBranch parent local
         ProjectConfiguration.validateBranch configuration
-        Defaults.validateBranchModule configuration
+        if not isSealed then Defaults.validateBranchModule configuration
+        else Sortopia.Functions.FunctionConfiguration.validateResults configuration.Results
         Sortopia.Functions.FunctionConfiguration.validateSetup true configuration.Setup
         if isNull runs then nullArg "runs"
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))

@@ -3,7 +3,7 @@ using Sortopia.Core.Serialization;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -19,10 +19,13 @@ public sealed class WorkspaceHierarchyTests : IDisposable
 
     internal static projectSettingsDto ProjectSettings(bool branch = false) => new()
     {
-        description = "Keep every setting: α", resultsDatabaseName = "Results", resultsFunctionName = "Evaluate",
-        resultsSortopiaDataTypes = [new() { kind = "SorterSetEval", value = "" }], resultsQueryParameterKeys = ["Seed"], resultsParameterDefaults = [], setupParameterDefaults = [],
-        setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "Generate" : "",
-        setupDataTypes = []
+        description = "Keep every setting: α", resultsDatabaseName = "Results", resultsFunctionName = "sortable-tests.standard", resultsFunctionVersion = "1",
+        resultsDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }],
+        resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "" }], resultsQueryParameterKeys = ["ChannelCount", "SortableDataFormat"],
+        resultsParameterDefaults = [RunExecutionTests.Binding("ChannelCount", "8", parameterValueType.Integer), RunExecutionTests.Binding("SortableDataFormat", "Bools")],
+        setupParameterDefaults = branch ? [RunExecutionTests.Binding("ChannelCount", "8", parameterValueType.Integer), RunExecutionTests.Binding("SortableDataFormat", "Bools")] : [],
+        setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : "", setupFunctionVersion = branch ? "1" : "",
+        setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }] : []
     };
     internal static projectSettingsDto EditorSettings(bool branch)
     {
@@ -49,41 +52,38 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     internal static void ConfigureProject(WorkspaceTreeNode node)
     {
         var module = node.Kind == WorkspaceEntityKind.Module ? node : node.Parent!;
-        module.Editor!.ResultsFunctionName = "Evaluate";
-        if (node.IsBranch) module.Editor.SetupFunctionName = "Generate";
+        module.Editor!.ResultsFunctionName = "sortable-tests.standard";
+        if (node.IsBranch) module.Editor.SetupFunctionName = "sortable-tests-with-prefix.standard";
         node.Editor!.LoadProject(ProjectSettings(node.IsBranch));
     }
-    // General hierarchy tests use symbolic executors; put their selections on modules.
+    // Hierarchy fixtures use registered functions and explicit query spans.
     internal static WorkspaceModule MakeModule(hierarchyKind kind, Guid id, string name, string folder, WorkspaceModule[] modules, project[] projects)
     {
-        var local = new moduleSettingsDto { resultsFunctionName = "Evaluate", setupFunctionName = kind == hierarchyKind.Branch ? "Generate" : null };
+        var local = new moduleOverridesDto { resultsFunctionName = "sortable-tests.standard", setupFunctionName = kind == hierarchyKind.Branch ? "sortable-tests-with-prefix.standard" : null };
         return WorkspaceModule.createInherited(id, name, folder, ModuleDefaults.configuration(kind == hierarchyKind.Branch), ModuleOverridesDto.toDomain(kind, local), modules, projects);
     }
     internal static WorkspaceTreeNode AddSetupSource(WorkspaceTreeNode owner, string text = "")
     {
         var container = owner.Kind == WorkspaceEntityKind.Module ? owner : owner.Parent!;
+        container.Editor!.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefix;
+        container.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
+        var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source module", family: container.Family);
+        container.Children.Add(sourceModule);
+        sourceModule.Editor!.LoadProject(ProjectSettings(container.IsBranch));
         var source = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Setup source", family: container.Family);
-        var settings = ProjectSettings(container.IsBranch);
-        settings.resultsSortopiaDataTypes = [new() { kind = "SorterModelSet", value = text }];
-        settings.resultsQueryParameterKeys = [];
-        source.Editor!.LoadProject(settings);
-        source.Children.Add(new(WorkspaceEntityKind.Run, "Source run", family: container.Family));
-        container.Children.Add(source);
-        owner.Editor!.AddSetupDataTypeCommand.Execute(null);
-        var entry = owner.Editor.SetupDataTypes.Last();
-        entry.DataType.Text = text;
-        entry.SourceProjectId = source.Id;
-        entry.AddQueryKeyCommand.Execute(null);
-        entry.QueryKeys[0].Text = "Width";
+        sourceModule.Children.Add(source);
+        var entry = owner.Editor!.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
+        owner.Editor.SetupDataTypesOverride.IsOverridden = true;
+        owner.Editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = source.Id;
         return source;
     }
     internal static run MakeRun(string projectName, string name, bool branch = false) => FromRunDto(new runDto
     {
-        schemaVersion = 13, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id(projectName + "/project"), runName = name,
+        schemaVersion = 14, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id(projectName + "/project"), runName = name,
         descriptionOverride = null,
-        resultsParameterSpans = [new parameterSpanDto { keyName = "Seed", values = ["7", "11"] }],
+        resultsParameterSpans = [new parameterSpanDto { keyName = "ChannelCount", values = ["7", "11"] }, new() { keyName = "SortableDataFormat", values = ["Bools"] }],
 
-        setupParameterSpans = branch ? [new parameterSpanDto { keyName = "Width", values = ["8", "12"] }] : []
+        setupParameterSpans = branch ? [new parameterSpanDto { keyName = "ChannelCount", values = ["8", "12"] }, new() { keyName = "SortableDataFormat", values = ["Bools"] }] : []
     }, projectName);
     private workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Sorting", "Sorting",
         [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Nested module", "Nested module", [], [])],
@@ -97,7 +97,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var original = MakeRun("Search", "Trial", branch);
         var renamed = WorkspaceRun.withNames("Search", "Trial: renamed", original);
         var bytes = WorkspaceCodec.encodeRun(renamed);
-        Assert.Equal(13, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
+        Assert.Equal(14, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
         Assert.Equal("Trial: renamed", DecodeRun(bytes).RunName);
         Assert.Equal(original.Id, DecodeRun(bytes).Id);
         Assert.Null(typeof(run).GetProperty("FolderName"));
@@ -115,8 +115,8 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var runs = restored.Modules[0].Projects[0].Runs;
         Assert.True(runs[0].HasSetup);
         Assert.True(runs[1].HasSetup);
-        Assert.Equal(new[] { "8", "12" }, runs[1].SetupParameterSpans.Value.Single().Values);
-        Assert.Empty(runs[1].SetupQueryParameterKeys.Value);
+        Assert.Equal(new[] { "8", "12" }, runs[1].SetupParameterSpans.Value.Single(row => row.KeyName == "ChannelCount").Values);
+        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, Assert.Single(runs[1].SetupQueryParameterKeys.Value).Value);
         var exposed = restored.Modules;
         exposed[0] = WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Replaced", "Replaced", [], []);
         Assert.Equal("Sorting", restored.Modules[0].ModuleName);
@@ -256,7 +256,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         Assert.Equal("With setup", run.RunName);
         Assert.Equal(MakeRun("Search", "With setup", true).Id, run.Id);
         Assert.Equal("Search", run.ProjectName);
-        Assert.Equal("Generate", run.SetupFunctionName.Value);
+        Assert.Equal("sortable-tests-with-prefix.standard", run.SetupFunctionName.Value);
         Assert.Contains(imported.Modules, m => m.ModuleName == "Added on disk");
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace")));
     }

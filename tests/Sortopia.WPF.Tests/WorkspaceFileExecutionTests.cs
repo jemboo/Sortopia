@@ -6,7 +6,7 @@ using Sortopia.Functions;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;
@@ -22,7 +22,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var parent = project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(kind, settings), []);
         var value = RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
+            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
             runKind = kind == hierarchyKind.Root ? "root" : "branch",
             resultsParameterSpans = RunExecutionTests.QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults),
             setupParameterSpans = parent is project.BranchProject b ? RunExecutionTests.QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
@@ -101,7 +101,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var sourceTypes = ListModule.OfArray(new[] { testsType, modelsType });
         var projects = MapModule.OfArray(new[] { Tuple.Create(testsType, testsProject.Id), Tuple.Create(modelsType, modelsProject.Id) });
         var copies = 0;
-        var definition = FunctionDefinition.setupWithSources(required,
+        var definition = FunctionDefinition.setupWithSources("1", required,
             ListModule.OfArray(new[] { Tuple.Create(testsType, testsDefinition.DataTypes[testsType]), Tuple.Create(modelsType, modelsDefinition.DataTypes[modelsType]) }),
             sourceTypes, FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(host =>
                 FuncConvert.FromFunc<FSharpMap<sortopiaDataType, Guid>, Unit>(sources =>
@@ -209,7 +209,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Throws<ArgumentException>(() => SetupFunctions.standardTests.Execute.Invoke(results).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
         var unsaved = RunDto.toDomain(source, new runDto
         {
-            schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = source.Id, runName = "Unsaved", runKind = "root",
+            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = source.Id, runName = "Unsaved", runKind = "root",
             resultsParameterSpans = RunExecutionTests.QuerySpans(source.ResultsQueryParameterKeys, source.ResultsParameterDefaults), setupParameterSpans = []
         });
         Assert.Contains("saved run", Assert.Throws<InvalidOperationException>(() => new FileRunHost(world, temporary.FullName, unsaved, Token)).Message);

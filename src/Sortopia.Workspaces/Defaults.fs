@@ -8,8 +8,6 @@ open Sortopia.Functions
 type rootDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
-    ResultsSortopiaDataTypes: sortopiaDataType list option
-    ResultsQueryParameterKeys: string<paramKeyName> list option
     ResultsParameterDefaults: parameterBinding list option
 }
 
@@ -17,11 +15,9 @@ type rootDefaultOverrides = {
 type branchDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
-    ResultsSortopiaDataTypes: sortopiaDataType list option
-    ResultsQueryParameterKeys: string<paramKeyName> list option
     ResultsParameterDefaults: parameterBinding list option
     SetupDatabaseName: string<setupDatabaseName> option
-    SetupDataTypes: setupDataTypeConfig list option
+    SetupSources: setupSourceConfig list option
     SetupParameterDefaults: parameterBinding list option
 }
 
@@ -59,13 +55,18 @@ module Defaults =
         let merged = inherited |> List.map (fun binding -> Map.tryFind binding.KeyName replacements |> Option.defaultValue binding)
         merged @ (local |> List.filter (fun binding -> not (Set.contains binding.KeyName inheritedKeys)))
 
-    let resultOutputs name types keys =
-        FunctionCatalogs.resultsOutputs name |> Option.defaultWith (fun () ->
-            types |> List.map (fun dataType -> { DataType = dataType; QueryParameterKeys = keys } : resultsDataTypeConfig))
-    let setupOutputs name (entries: setupDataTypeConfig list) =
-        FunctionCatalogs.setupOutputs name |> Option.map (List.map (fun (dataType, keys) ->
-            let source = if FunctionConfiguration.requiresSource name dataType then entries |> List.tryFind (fun entry -> entry.DataType = dataType) |> Option.map (fun entry -> entry.SourceProjectId) |> Option.defaultValue (UMX.tag System.Guid.Empty) else UMX.tag System.Guid.Empty
-            { DataType = dataType; SourceProjectId = source; QueryParameterKeys = keys })) |> Option.defaultValue entries
+    let resultOutputs (name: string<resultsFunctionName>) =
+        if UMX.untag name = "" then [] else FunctionCatalogs.resultsOutputs name
+    let setupOutputs (name: string<setupFunctionName>) (sources: setupSourceConfig list) : setupDataTypeConfig list =
+        if UMX.untag name = "" then [] else
+        FunctionCatalogs.setupOutputs name |> List.map (fun (dataType, keys) ->
+            let source = if FunctionConfiguration.requiresSource name dataType then sources |> List.tryFind (fun entry -> entry.DataType = dataType) |> Option.map (fun entry -> entry.SourceProjectId) |> Option.defaultValue (UMX.tag System.Guid.Empty) else UMX.tag System.Guid.Empty
+            { DataType = dataType; SourceProjectId = source; QueryParameterKeys = keys })
+    let resultsVersion (name: string<resultsFunctionName>) = if UMX.untag name = "" then "" else (FunctionCatalogs.requireResults name).Version
+    let setupVersion (name: string<setupFunctionName>) = if UMX.untag name = "" then "" else (FunctionCatalogs.requireSetup name).Version
+    let sources (entries: setupDataTypeConfig list) : setupSourceConfig list =
+        entries |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty)
+        |> List.map (fun entry -> { DataType = entry.DataType; SourceProjectId = entry.SourceProjectId })
 
     // Database names start on each project; the remaining defaults may come from modules.
     let root : rootProjectConfig = {
@@ -73,89 +74,88 @@ module Defaults =
         Results = {
             DatabaseName = UMX.tag "Results"
             FunctionName = UMX.tag ""
+            FunctionVersion = ""
             Outputs = []
             ParameterDefaults = [] } }
     let inheritRoot : rootDefaultOverrides = {
         Description = None
         ResultsDatabaseName = None
-        ResultsSortopiaDataTypes = None
-        ResultsQueryParameterKeys = None
         ResultsParameterDefaults = None }
     let localRoot (value: rootProjectConfig) : rootDefaultOverrides = {
         Description = Some value.Description
         ResultsDatabaseName = Some value.ResultsDatabaseName
-        ResultsSortopiaDataTypes = Some value.ResultsSortopiaDataTypes
-        ResultsQueryParameterKeys = Some value.ResultsQueryParameterKeys
         ResultsParameterDefaults = Some value.ResultsParameterDefaults }
     let resolveRoot (parent: rootProjectConfig) (local: rootDefaultOverrides) : rootProjectConfig = {
         Description = local.Description |> Option.defaultValue parent.Description
         Results = {
             DatabaseName = local.ResultsDatabaseName |> Option.defaultValue (UMX.tag "Results")
             FunctionName = parent.ResultsFunctionName
-            Outputs = resultOutputs parent.ResultsFunctionName (local.ResultsSortopiaDataTypes |> Option.defaultValue parent.ResultsSortopiaDataTypes) (local.ResultsQueryParameterKeys |> Option.defaultValue parent.ResultsQueryParameterKeys)
+            FunctionVersion = resultsVersion parent.ResultsFunctionName
+            Outputs = resultOutputs parent.ResultsFunctionName
             ParameterDefaults = mergeParameterDefaults parent.ResultsParameterDefaults (local.ResultsParameterDefaults |> Option.defaultValue []) } }
-    let validateRoot local =
-        // Validate supplied values without requiring an organizational module to supply functions.
-        let baseline = { root with Results = { root.Results with FunctionName = UMX.tag "unspecified" } }
-        resolveRoot baseline local |> ProjectConfiguration.validateRoot
+    let validateRoot (local: rootDefaultOverrides) =
+        local.Description |> Option.iter (fun value -> if isNull value then nullArg "description")
+        local.ResultsDatabaseName |> Option.iter (fun value -> if System.String.IsNullOrWhiteSpace (UMX.untag value) then invalidArg "databaseName" "Database name must not be blank.")
+        local.ResultsParameterDefaults |> Option.iter ParameterBinding.validateUnique
     let internal validateRootModule (value: rootProjectConfig) =
-        FunctionConfiguration.validateResults value.Results
+        if UMX.untag value.ResultsFunctionName <> "" then FunctionConfiguration.validateResults value.Results
         validateParameters (resultsRequirements value.ResultsFunctionName) value.ResultsParameterDefaults value.ResultsQueryParameterKeys
-        { value with Results = { value.Results with FunctionName = if value.ResultsFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.ResultsFunctionName } }
-        |> ProjectConfiguration.validateRoot
+        if isNull value.Description then nullArg "description"
+        ParameterBinding.validateUnique value.ResultsParameterDefaults
     let branch : branchProjectConfig = {
         Description = ""
         Results = {
             DatabaseName = UMX.tag "Results"
             FunctionName = UMX.tag ""
+            FunctionVersion = ""
             Outputs = []
             ParameterDefaults = [] }
         Setup = {
             DatabaseName = UMX.tag "Setup"
             FunctionName = UMX.tag ""
+            FunctionVersion = ""
             Outputs = []
             ParameterDefaults = [] } }
     let inheritBranch : branchDefaultOverrides = {
         Description = None
         ResultsDatabaseName = None
-        ResultsSortopiaDataTypes = None
-        ResultsQueryParameterKeys = None
         ResultsParameterDefaults = None
         SetupDatabaseName = None
-        SetupDataTypes = None
+        SetupSources = None
         SetupParameterDefaults = None }
     let localBranch (value: branchProjectConfig) : branchDefaultOverrides = {
         Description = Some value.Description
         ResultsDatabaseName = Some value.ResultsDatabaseName
-        ResultsSortopiaDataTypes = Some value.ResultsSortopiaDataTypes
-        ResultsQueryParameterKeys = Some value.ResultsQueryParameterKeys
         ResultsParameterDefaults = Some value.ResultsParameterDefaults
         SetupDatabaseName = Some value.SetupDatabaseName
-        SetupDataTypes = Some value.SetupDataTypes
+        SetupSources = Some (sources value.SetupDataTypes)
         SetupParameterDefaults = Some value.SetupParameterDefaults }
     let resolveBranch (parent: branchProjectConfig) (local: branchDefaultOverrides) : branchProjectConfig = {
         Description = local.Description |> Option.defaultValue parent.Description
         Results = {
             DatabaseName = local.ResultsDatabaseName |> Option.defaultValue (UMX.tag "Results")
             FunctionName = parent.ResultsFunctionName
-            Outputs = resultOutputs parent.ResultsFunctionName (local.ResultsSortopiaDataTypes |> Option.defaultValue parent.ResultsSortopiaDataTypes) (local.ResultsQueryParameterKeys |> Option.defaultValue parent.ResultsQueryParameterKeys)
+            FunctionVersion = resultsVersion parent.ResultsFunctionName
+            Outputs = resultOutputs parent.ResultsFunctionName
             ParameterDefaults = mergeParameterDefaults parent.ResultsParameterDefaults (local.ResultsParameterDefaults |> Option.defaultValue []) }
         Setup = {
             DatabaseName = local.SetupDatabaseName |> Option.defaultValue (UMX.tag "Setup")
             FunctionName = parent.SetupFunctionName
-            Outputs = setupOutputs parent.SetupFunctionName (local.SetupDataTypes |> Option.defaultValue parent.SetupDataTypes)
+            FunctionVersion = setupVersion parent.SetupFunctionName
+            Outputs = setupOutputs parent.SetupFunctionName (local.SetupSources |> Option.defaultValue (sources parent.SetupDataTypes))
             ParameterDefaults = mergeParameterDefaults parent.SetupParameterDefaults (local.SetupParameterDefaults |> Option.defaultValue []) } }
-    let validateBranch local =
-        // Validate supplied values without requiring an organizational module to supply functions.
-        let baseline = { branch with Results = { branch.Results with FunctionName = UMX.tag "unspecified" }; Setup = { branch.Setup with FunctionName = UMX.tag "unspecified" } }
-        resolveBranch baseline local |> ProjectConfiguration.validateBranch
+    let validateBranch (local: branchDefaultOverrides) =
+        validateRoot { Description = local.Description; ResultsDatabaseName = local.ResultsDatabaseName; ResultsParameterDefaults = local.ResultsParameterDefaults }
+        local.SetupDatabaseName |> Option.iter (fun value -> if System.String.IsNullOrWhiteSpace (UMX.untag value) then invalidArg "databaseName" "Database name must not be blank.")
+        local.SetupParameterDefaults |> Option.iter ParameterBinding.validateUnique
+        local.SetupSources |> Option.iter (fun sources ->
+            if (sources |> List.map (fun entry -> entry.DataType) |> List.distinct).Length <> sources.Length then invalidArg "setupSources" "Choose each source data type only once."
+            for entry in sources do SortopiaDataType.validate entry.DataType)
     let internal validateBranchModule (value: branchProjectConfig) =
-        FunctionConfiguration.validateResults value.Results
-        FunctionConfiguration.validateSetup false value.Setup
-        validateParameters (resultsRequirements value.ResultsFunctionName) value.ResultsParameterDefaults value.ResultsQueryParameterKeys
+        validateRootModule { Description = value.Description; Results = value.Results }
+        if UMX.untag value.SetupFunctionName <> "" then FunctionConfiguration.validateSetup false value.Setup
         validateParameters (setupRequirements value.SetupFunctionName) value.SetupParameterDefaults (value.SetupDataTypes |> List.collect (fun output -> output.QueryParameterKeys))
-        { value with Results = { value.Results with FunctionName = if value.ResultsFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.ResultsFunctionName }; Setup = { value.Setup with FunctionName = if value.SetupFunctionName = UMX.tag "" then UMX.tag "unspecified" else value.SetupFunctionName } }
-        |> ProjectConfiguration.validateBranch
+        ParameterBinding.validateUnique value.SetupParameterDefaults
     let configuration kindIsBranch = if kindIsBranch then BranchProjectConfig branch else RootProjectConfig root
     let inherited kindIsBranch = if kindIsBranch then BranchOverrides inheritBranch else RootOverrides inheritRoot
     let resolve parent local =

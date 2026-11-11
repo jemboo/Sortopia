@@ -25,16 +25,13 @@ module FunctionCatalogs =
             SetupFunctionNames.evaluationPrefix, SetupFunctions.evaluationPrefix
         ]
 
-    // Bump when a function's output semantics change. Names remain simple map keys.
-    let resultsFunctionVersions = resultsFunctionCatalog |> Map.map (fun _ _ -> "1")
-    let setupFunctionVersions = setupFunctionCatalog |> Map.map (fun _ _ -> "1")
-
+    let requireResults name =
+        resultsFunctionCatalog |> Map.tryFind name
+        |> Option.defaultWith (fun () -> invalidArg "resultsFunctionName" $"Unknown results function '{name}'. Choose a registered catalog function on the module.")
+    let requireSetup name =
+        setupFunctionCatalog |> Map.tryFind name
+        |> Option.defaultWith (fun () -> invalidArg "setupFunctionName" $"Unknown setup function '{name}'. Choose a registered catalog function on the module.")
     let resultsOutputs name =
-        resultsFunctionCatalog |> Map.tryFind name |> Option.map (fun definition ->
-            definition.DataTypes |> Map.toList |> List.map (fun (dataType, keys) ->
-                { DataType = dataType; QueryParameterKeys = keys } : resultsDataTypeConfig))
-
-    let setupOutputs name =
-        setupFunctionCatalog |> Map.tryFind name |> Option.map (fun definition ->
-            definition.DataTypes |> Map.toList |> List.map (fun (dataType, keys) ->
-                dataType, keys))
+        (requireResults name).DataTypes |> Map.toList |> List.map (fun (dataType, keys) ->
+            { DataType = dataType; QueryParameterKeys = keys } : resultsDataTypeConfig)
+    let setupOutputs name = (requireSetup name).DataTypes |> Map.toList

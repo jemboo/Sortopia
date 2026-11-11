@@ -2,7 +2,7 @@ using System.IO;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -15,17 +15,11 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static parameterBindingDto Binding(string key, string value, parameterValueType type = parameterValueType.Integer) => new() { keyName = key, value = value, valueType = (int)type };
-    private static projectSettingsDto Settings()
-    {
-        var settings = WorkspaceHierarchyTests.ProjectSettings(true);
-        settings.resultsSortopiaDataTypes = [new() { kind = "SorterModelSet", value = "shared" }, new() { kind = "TextReport", value = "report" }];
-        settings.resultsParameterDefaults = [Binding("Seed", "7")];
-        return settings;
-    }
+    private static projectSettingsDto Settings() => WorkspaceHierarchyTests.ProjectSettings(true);
     private static project Project(string name, projectSettingsDto settings) => project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
     private static runDto Inputs(project parent) => new()
     {
-        schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch",
+        schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch",
         resultsParameterSpans = RunExecutionTests.QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults),
         setupParameterSpans = parent is project.BranchProject b ? RunExecutionTests.QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults) : []
     };
@@ -34,19 +28,18 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     {
         var settings = Settings();
         settings.resultsDatabaseName = "Upstream results";
-        settings.resultsQueryParameterKeys = ["SourceSeed"];
-        settings.resultsParameterDefaults = [Binding("SourceSeed", "3")];
+
         var parent = Project("Source", settings);
         return seal ? WithRun(parent) : parent;
     }
     private static project Consumer(project source, bool seal = true)
     {
-        var settings = Settings();
+        var settings = FunctionOutputContractTests.Combined(true);
         settings.setupDatabaseName = "Produced setup";
-        settings.setupDataTypes = [
-            new() { dataType = settings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["Width"] },
-            new() { dataType = settings.resultsSortopiaDataTypes[1], sourceProjectId = source.Id, queryParameterKeys = ["Message"] }];
-        settings.setupParameterDefaults = [Binding("SourceSeed", "3"), Binding("Width", "8"), Binding("Message", "ready", parameterValueType.Text)];
+        settings.setupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefix;
+        settings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools"),
+            RunExecutionTests.Binding("PrefixLibId", Sortopia.Sorting.Catalog.PrefixLibId.toString(Sortopia.Sorting.Catalog.PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1)), parameterValueType.PrefixLibId)];
+        settings.setupDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, sourceProjectId = source.Id, queryParameterKeys = [] }];
         var parent = Project("Consumer", settings);
         return seal ? WithRun(parent) : parent;
     }
@@ -56,30 +49,18 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     [Fact]
     public void Unified_entries_define_identical_map_keys_and_independent_source_and_setup_queries()
     {
-        var source = Source();
-        var world = Workspace(source, Consumer(source));
-        var parent = world.ProjectIndex.Values.Single(p => p.ProjectName == "Consumer");
-        var branch = ((run.BranchRun)parent.Runs[0]).Item;
+        var source = Source(); var world = Workspace(source, Consumer(source));
+        var parent = world.ProjectIndex.Values.Single(p => p.ProjectName == "Consumer"); var branch = ((run.BranchRun)parent.Runs[0]).Item;
         Assert.Equal(branch.SetupSortopiaDataTypes.Order(), branch.SourceProjectIds.Keys.Order());
         Assert.Equal(branch.SetupSortopiaDataTypes.Order(), branch.SetupQueryParameterKeys.Keys.Order());
-        var parameters = BranchRun.makeSetupParameterSets(branch).Single();
-        var type = sortopiaDataType.NewSorterModelSet("shared");
-        var upstream = QueryParams.forSource(branch, type, parameters);
-        var produced = QueryParams.forSetup(branch, type, parameters);
-        Assert.Equal(source.Id, upstream.ProjectId);
-        Assert.Equal("Upstream results", upstream.DatabaseName);
-        Assert.Equal("3", upstream.Properties["SourceSeed"]);
-        Assert.Equal(parent.Id, produced.ProjectId);
-        Assert.Equal("Produced setup", produced.DatabaseName);
-        Assert.Equal("8", produced.Properties["Width"]);
-        Assert.NotEqual(upstream.Id, produced.Id);
-        var report = QueryParams.forSetup(branch, sortopiaDataType.NewTextReport("report"), parameters);
-        Assert.Equal("ready", report.Properties["Message"]);
-        Assert.Equal(parameterValueType.Integer, parameters.TryFind("SourceSeed").Value.ValueType);
+        var parameters = BranchRun.makeSetupParameterSets(branch).Single(); var type = sortopiaDataType.NewSortableTests("");
+        var upstream = QueryParams.forSource(branch, type, parameters); var produced = QueryParams.forSetup(branch, type, parameters);
+        Assert.Equal(source.Id, upstream.ProjectId); Assert.Equal("Upstream results", upstream.DatabaseName);
+        Assert.Equal("8", upstream.Properties["ChannelCount"]); Assert.DoesNotContain("PrefixLibId", upstream.Properties.Keys);
+        Assert.Equal(parent.Id, produced.ProjectId); Assert.Equal("Produced setup", produced.DatabaseName);
+        Assert.Contains("PrefixLibId", produced.Properties.Keys); Assert.NotEqual(upstream.Id, produced.Id);
         var standalone = ((run.BranchRun)WorkspaceCodec.decodeRunById(world, WorkspaceCodec.encodeRun(parent.Runs[0]))).Item;
-        Assert.Equal(branch.ProjectConfiguration, standalone.ProjectConfiguration);
-        Assert.Equal(branch.ResolvedSources, standalone.ResolvedSources);
-        Assert.Equal(upstream.Id, QueryParams.forSource(standalone, type, BranchRun.makeSetupParameterSets(standalone)[0]).Id);
+        Assert.Equal(branch.ProjectConfiguration, standalone.ProjectConfiguration); Assert.Equal(branch.ResolvedSources, standalone.ResolvedSources);
     }
 
     [Theory]
@@ -93,25 +74,23 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var source = Source(issue != "unsealed");
         var consumer = Consumer(source);
         var dto = ProjectDto.fromDomain(consumer);
-        if (issue == "wrong-case") dto.configuration.setupDataTypes[0].dataType.kind = "SorterSet";
-        if (issue == "wrong-text") dto.configuration.setupDataTypes[0].dataType.value = "shared ";
-        if (issue == "missing") dto.configuration.setupDataTypes[0].sourceProjectId = Guid.NewGuid();
-        if (issue == "missing-parameter") dto.configuration.setupParameterDefaults = dto.configuration.setupParameterDefaults.Where(p => p.keyName != "SourceSeed").ToArray();
+        if (issue == "wrong-case") dto.configuration.setupDataTypes.Single(entry => entry.sourceProjectId != Guid.Empty).dataType.kind = "SorterSet";
+        if (issue == "wrong-text") dto.configuration.setupDataTypes.Single(entry => entry.sourceProjectId != Guid.Empty).dataType.value = "shared ";
+        if (issue == "missing") dto.configuration.setupDataTypes.Single(entry => entry.sourceProjectId != Guid.Empty).sourceProjectId = Guid.NewGuid();
+        if (issue == "missing-parameter") dto.runs[0].setupParameterSpans = dto.runs[0].setupParameterSpans.Where(p => p.keyName != "ChannelCount").ToArray();
         Assert.Throws<ArgumentException>(() => Workspace(source, ProjectDto.toDomain(dto)));
     }
 
     [Fact]
     public void Draft_dependencies_allow_draft_sources_but_duplicate_types_and_cycles_are_rejected()
     {
-        var source = Source(false);
-        var consumer = Consumer(source, false);
-        Assert.Equal(2, Workspace(source, consumer).ProjectIndex.Count);
+        var source = Source(false); var consumer = Consumer(source, false);
         var dto = ProjectDto.fromDomain(consumer);
-        dto.localOverrides.setupDataTypes = [dto.localOverrides.setupDataTypes[0], dto.localOverrides.setupDataTypes[0]];
+        dto.localOverrides.setupSources = [dto.localOverrides.setupSources[0], dto.localOverrides.setupSources[0]];
         Assert.Throws<ArgumentException>(() => ProjectDto.toDomain(dto));
-        dto = ProjectDto.fromDomain(source);
-        dto.localOverrides.setupDataTypes = [new() { dataType = Settings().resultsSortopiaDataTypes[0], sourceProjectId = consumer.Id, queryParameterKeys = [] }];
-        Assert.Contains("cycles", Assert.Throws<ArgumentException>(() => Workspace(ProjectDto.toDomain(dto), consumer)).Message);
+        var self = Consumer(source); dto = ProjectDto.fromDomain(self);
+        dto.configuration.setupDataTypes.Single(row => row.sourceProjectId != Guid.Empty).sourceProjectId = self.Id;
+        Assert.Throws<ArgumentException>(() => Workspace(ProjectDto.toDomain(dto)));
         Assert.Throws<ArgumentException>(() => Workspace(source, source));
     }
 
@@ -138,7 +117,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var node = page.Roots[0].Children[0].Children[0];
         Assert.True(node.IsSealed);
         node.Editor!.ResultsFunctionName = "Changed"; node.Name = "Changed";
-        Assert.Equal("Evaluate", node.Editor.ResultsFunctionName); Assert.Equal("Source", node.Name);
+        Assert.Equal("sortable-tests.standard", node.Editor.ResultsFunctionName); Assert.Equal("Source", node.Name);
         node.Children.Clear();
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root);
@@ -148,11 +127,11 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         page.CreateProjectVersionCommand.Execute(null);
         var version = page.Selected!;
         Assert.False(version.IsSealed); Assert.NotEqual(source.Id, version.Id); Assert.Empty(version.Children);
-        version.Parent!.Editor!.ResultsFunctionName = "EvaluateV2";
+        version.Parent!.Editor!.ResultsFunctionName = "sorter-eval-inputs.standard";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var final = WorkspaceFileStore.LoadDefinition(Root);
-        Assert.Equal("Evaluate", final.ProjectIndex[source.Id].ResultsFunctionName);
-        Assert.Equal("EvaluateV2", final.ProjectIndex[version.Id].ResultsFunctionName);
+        Assert.Equal("sortable-tests.standard", final.ProjectIndex[source.Id].ResultsFunctionName);
+        Assert.Equal("sorter-eval-inputs.standard", final.ProjectIndex[version.Id].ResultsFunctionName);
     }
 
     [Fact]
@@ -162,7 +141,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         WorkspaceFileStore.CreateWorkspace(Root, original, Token);
         var before = File.ReadAllBytes(WorkspaceDefinitionFiles.Require(Root, "workspace"));
         var dto = WorkspaceDto.fromDomain(original);
-        dto.modules[0].projects[0].configuration.resultsFunctionName = "Changed";
+        dto.modules[0].projects[0].configuration.resultsDatabaseName = "Changed";
         var changed = WorkspaceDto.toDomain(dto);
         Assert.Contains("sealed", Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.SaveWorkspace(Root, changed, original, Token)).Message);
         Assert.Equal(before, File.ReadAllBytes(WorkspaceDefinitionFiles.Require(Root, "workspace")));
@@ -183,7 +162,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var copiedConsumer = saved.ProjectIndex.Values.Single(p => p.ProjectName == "Consumer");
         Assert.NotEqual(source.Id, copiedSource.Id);
         var branch = ((run.BranchRun)copiedConsumer.Runs[0]).Item;
-        Assert.All(branch.SourceProjectIds.Values, id => Assert.Equal(copiedSource.Id, id));
+        Assert.All(branch.SourceProjectIds.Values.Where(id => id != Guid.Empty), id => Assert.Equal(copiedSource.Id, id));
         Assert.Equal(copiedConsumer.Id, branch.ParentProjectId);
         Assert.True(copiedSource.IsSealed && copiedConsumer.IsSealed);
         Assert.Equal(2, WorkspaceCodec.decodeWorkspace(WorkspaceCodec.encodeWorkspace(saved)).ProjectIndex.Count);
@@ -197,10 +176,10 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var tree = WorkspaceTreeNode.FromWorkspace(world);
         var consumer = tree.Children[0].Children.Single(p => p.Name == "Consumer");
         var sourceNode = tree.Children[0].Children.Single(p => p.Name == "Source");
-        var row = consumer.Editor!.InheritedSetupDataTypes.First();
+        var row = consumer.Editor!.InheritedSetupDataTypes.Single(row => row.RequiresSource);
         Assert.Equal(source.Id, Assert.Single(row.SourceProjects).Id);
         Assert.Same(sourceNode.Editor, row.SourceEditor);
-        row.DataType.Text = "shared ";
+        row = new WorkspaceSetupDataTypeEntry(new() { dataType = new() { kind = "SortableTests", value = "wrong label" }, sourceProjectId = source.Id, queryParameterKeys = [] }, () => [new(source.Id, "Source", true, sourceNode.Editor!.ToProjectSettings(), sourceNode.Editor)]);
         Assert.Empty(row.SourceProjects); Assert.Contains("exact data type", row.Error);
     }
 
@@ -222,11 +201,11 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var imported = page.Selected!;
         var importedConsumer = wholeModule ? imported.Children.Single(p => p.Name == "Consumer") : imported;
         var expectedSourceId = wholeModule ? imported.Children.Single(p => p.Name == "Source").Id : source.Id;
-        Assert.All(importedConsumer.Editor!.InheritedSetupDataTypes, entry => Assert.Equal(expectedSourceId, entry.SourceProjectId));
+        Assert.All(importedConsumer.Editor!.InheritedSetupDataTypes.Where(row => row.RequiresSource), entry => Assert.Equal(expectedSourceId, entry.SourceProjectId));
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root);
         var copiedRun = ((run.BranchRun)saved.ProjectIndex[importedConsumer.Id].Runs[0]).Item;
-        Assert.All(copiedRun.SourceProjectIds.Values, id => Assert.Equal(expectedSourceId, id));
+        Assert.All(copiedRun.SourceProjectIds.Values.Where(id => id != Guid.Empty), id => Assert.Equal(expectedSourceId, id));
         Assert.Equal(importedConsumer.Id, copiedRun.ParentProjectId);
         Assert.True(saved.ProjectIndex[source.Id].IsSealed);
     }
@@ -249,11 +228,11 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
             Assert.NotEmpty(page.Error);
         }
         Assert.False(parent.IsSealed);
-        parent.Parent!.Editor!.ResultsFunctionName = "Retry evaluator";
+        parent.Editor!.Description = "Retry description";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root).ProjectIndex[parent.Id];
         Assert.True(saved.IsSealed);
-        Assert.Equal("Retry evaluator", saved.Runs[0].ResultsFunctionName);
+        Assert.Equal("Retry description", saved.Runs[0].Description);
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

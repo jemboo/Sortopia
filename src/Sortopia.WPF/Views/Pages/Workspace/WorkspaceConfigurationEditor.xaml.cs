@@ -48,7 +48,7 @@ public partial class WorkspaceConfigurationEditor : UserControl
         Show(DescriptionSection, "description");
         Show(ResultsSettingsSection, "resultsDatabase", "resultsTypes", "resultsQueryKeys");
         Show(ResultsDatabaseItem, "resultsDatabase");
-        Show(ResultsTypesItem, "resultsTypes"); Show(ResultsQueryKeysItem, "resultsQueryKeys");
+        Show(ResultsTypesItem, "resultsTypes");
         Show(ResultsDefaultsSection, "resultsDefaults"); Show(ResultsSpansSection, "resultsSpans"); Show(ResultsPreviewSection, "resultsPreview");
         Show(SetupSettingsSection, "setupDatabase", "setupOutputs");
         Show(SetupDatabaseItem, "setupDatabase"); Show(SetupOutputsItem, "setupOutputs");

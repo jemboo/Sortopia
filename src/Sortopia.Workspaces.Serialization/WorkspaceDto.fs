@@ -16,16 +16,38 @@ type resultsDataTypeConfigDto = { dataType: sortopiaDataTypeDto; queryParameterK
 [<CLIMutable>]
 type setupDataTypeConfigDto = { dataType: sortopiaDataTypeDto; sourceProjectId: Guid; queryParameterKeys: string array }
 [<CLIMutable>]
+type setupSourceConfigDto = { dataType: sortopiaDataTypeDto; sourceProjectId: Guid }
+[<CLIMutable>]
+type projectOverridesDto = {
+    description: string
+    resultsDatabaseName: string
+    resultsParameterDefaults: parameterBindingDto array
+    setupDatabaseName: string
+    setupSources: setupSourceConfigDto array
+    setupParameterDefaults: parameterBindingDto array
+}
+[<CLIMutable>]
+type moduleOverridesDto = {
+    description: string
+    resultsFunctionName: string
+    resultsParameterDefaults: parameterBindingDto array
+    setupFunctionName: string
+    setupSources: setupSourceConfigDto array
+    setupParameterDefaults: parameterBindingDto array
+}
+[<CLIMutable>]
 type projectSettingsDto = {
     description: string
     resultsDatabaseName: string
     resultsFunctionName: string
+    resultsFunctionVersion: string
     resultsDataTypes: resultsDataTypeConfigDto array
     resultsSortopiaDataTypes: sortopiaDataTypeDto array
     resultsQueryParameterKeys: string array
     resultsParameterDefaults: parameterBindingDto array
     setupDatabaseName: string
     setupFunctionName: string
+    setupFunctionVersion: string
     setupDataTypes: setupDataTypeConfigDto array
     setupParameterDefaults: parameterBindingDto array
 }
@@ -53,9 +75,9 @@ type runDto = {
     setupParameterSpans: parameterSpanDto array
 }
 [<CLIMutable>]
-type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; folderName: string; configuration: projectSettingsDto; localOverrides: projectSettingsDto; runs: runDto array }
+type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; folderName: string; configuration: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
 [<CLIMutable>]
-type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string; configuration: moduleSettingsDto; localOverrides: moduleSettingsDto; modules: moduleDto array; projects: projectDto array }
+type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string; configuration: moduleSettingsDto; localOverrides: moduleOverridesDto; modules: moduleDto array; projects: projectDto array }
 [<CLIMutable>]
 type workspaceDto = { schemaVersion: int; id: Guid; workspaceName: string; folderName: string; modules: moduleDto array }
 
@@ -69,7 +91,7 @@ module SortopiaDataTypeDto =
 
 module private Contract =
     let version value =
-        if value <> 13 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
+        if value <> 14 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
     let kind value =
         match value with
         | "root" -> hierarchyKind.Root
@@ -94,13 +116,19 @@ module SetupDataTypeConfigDto =
         { DataType = SortopiaDataTypeDto.toDomain value.dataType; SourceProjectId = UMX.tag value.sourceProjectId
           QueryParameterKeys = Contract.array "queryParameterKeys" value.queryParameterKeys |> Array.map UMX.tag<paramKeyName> |> Array.toList }
 
+module SetupSourceConfigDto =
+    let fromDomain (value: setupSourceConfig) : setupSourceConfigDto =
+        { dataType = SortopiaDataTypeDto.fromDomain value.DataType; sourceProjectId = UMX.untag value.SourceProjectId }
+    let toDomain (value: setupSourceConfigDto) : setupSourceConfig =
+        { DataType = SortopiaDataTypeDto.toDomain value.dataType; SourceProjectId = UMX.tag value.sourceProjectId }
+
 module RunDto =
     let fromDomain (value: run) : runDto =
         let description, setupSpans =
             match value with
             | run.RootRun r -> r.Configuration.DescriptionOverride, []
             | run.BranchRun r -> r.Configuration.DescriptionOverride, r.SetupParameterSpans
-        { schemaVersion = 13; runKind = if value.HasSetup then "branch" else "root"
+        { schemaVersion = 14; runKind = if value.HasSetup then "branch" else "root"
           parentProjectId = UMX.untag value.ParentProjectId; runName = UMX.untag value.RunName; id = UMX.untag value.Id
           descriptionOverride = description |> Option.toObj
           resultsParameterSpans = value.ResultsParameterSpans |> List.map Contract.spanFrom |> List.toArray
@@ -130,7 +158,7 @@ module RunDto =
                 BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans
                                      SetupParameterSpans = setupSpans } |> run.BranchRun
             | _ -> invalidArg "runKind" "A project can only contain runs of its own type."
-        FunctionConfiguration.validateRunInputs result
+        FunctionConfiguration.validateSavedRunInputs result
         result
 
 module ResultsDataTypeConfigDto =
@@ -144,32 +172,34 @@ module SettingsDto =
         description = value.Description
         resultsDatabaseName = UMX.untag value.ResultsDatabaseName
         resultsFunctionName = UMX.untag value.ResultsFunctionName
+        resultsFunctionVersion = value.Results.FunctionVersion
         resultsDataTypes = value.ResultsDataTypes |> List.map ResultsDataTypeConfigDto.fromDomain |> List.toArray
         resultsSortopiaDataTypes = value.ResultsSortopiaDataTypes |> List.map SortopiaDataTypeDto.fromDomain |> List.toArray
         resultsQueryParameterKeys = value.ResultsQueryParameterKeys |> List.map UMX.untag |> List.toArray
         resultsParameterDefaults = value.ResultsParameterDefaults |> List.map ParameterBindingDto.fromDomain |> List.toArray
         setupDatabaseName = ""
         setupFunctionName = ""
+        setupFunctionVersion = ""
         setupDataTypes = [||]
         setupParameterDefaults = [||] }
     let private fromBranch (value: branchProjectConfig) : projectSettingsDto = {
         description = value.Description
         resultsDatabaseName = UMX.untag value.ResultsDatabaseName
         resultsFunctionName = UMX.untag value.ResultsFunctionName
+        resultsFunctionVersion = value.Results.FunctionVersion
         resultsDataTypes = value.ResultsDataTypes |> List.map ResultsDataTypeConfigDto.fromDomain |> List.toArray
         resultsSortopiaDataTypes = value.ResultsSortopiaDataTypes |> List.map SortopiaDataTypeDto.fromDomain |> List.toArray
         resultsQueryParameterKeys = value.ResultsQueryParameterKeys |> List.map UMX.untag |> List.toArray
         resultsParameterDefaults = value.ResultsParameterDefaults |> List.map ParameterBindingDto.fromDomain |> List.toArray
         setupDatabaseName = UMX.untag value.SetupDatabaseName
         setupFunctionName = UMX.untag value.SetupFunctionName
+        setupFunctionVersion = value.Setup.FunctionVersion
         setupDataTypes = value.SetupDataTypes |> List.map SetupDataTypeConfigDto.fromDomain |> List.toArray
         setupParameterDefaults = value.SetupParameterDefaults |> List.map ParameterBindingDto.fromDomain |> List.toArray }
     let fromDomain = function RootProjectConfig v -> fromRoot v | BranchProjectConfig v -> fromBranch v
     let toDomain kind (value: projectSettingsDto) =
         if isNull (box value) then nullArg "configuration"
-        let outputs = Contract.array "resultsSortopiaDataTypes" value.resultsSortopiaDataTypes |> Array.map SortopiaDataTypeDto.toDomain |> Array.toList
-        let keys = Contract.array "resultsQueryParameterKeys" value.resultsQueryParameterKeys |> Array.map UMX.tag<paramKeyName> |> Array.toList
-        let resultTypes = if isNull value.resultsDataTypes then Defaults.resultOutputs (UMX.tag value.resultsFunctionName) outputs keys else value.resultsDataTypes |> Array.map ResultsDataTypeConfigDto.toDomain |> Array.toList
+        let resultTypes = Contract.array "resultsDataTypes" value.resultsDataTypes |> Array.map ResultsDataTypeConfigDto.toDomain |> Array.toList
         let setupTypes = Contract.array "setupDataTypes" value.setupDataTypes |> Array.map SetupDataTypeConfigDto.toDomain |> Array.toList
         let defaults = Contract.array "resultsParameterDefaults" value.resultsParameterDefaults |> Array.map ParameterBindingDto.toDomain |> Array.toList
         let setupDefaults = Contract.array "setupParameterDefaults" value.setupParameterDefaults |> Array.map ParameterBindingDto.toDomain |> Array.toList
@@ -178,65 +208,48 @@ module SettingsDto =
             if value.setupDatabaseName <> "" || value.setupFunctionName <> "" || not setupTypes.IsEmpty || not setupDefaults.IsEmpty then
                 invalidArg "configuration" "A root project cannot have setup settings."
             RootProjectConfig { Description = value.description
-                                Results = { DatabaseName = UMX.tag value.resultsDatabaseName; FunctionName = UMX.tag value.resultsFunctionName
+                                Results = { DatabaseName = UMX.tag value.resultsDatabaseName; FunctionName = UMX.tag value.resultsFunctionName; FunctionVersion = value.resultsFunctionVersion
                                             Outputs = resultTypes; ParameterDefaults = defaults } }
         | hierarchyKind.Branch ->
             BranchProjectConfig { Description = value.description
-                                  Results = { DatabaseName = UMX.tag value.resultsDatabaseName; FunctionName = UMX.tag value.resultsFunctionName
+                                  Results = { DatabaseName = UMX.tag value.resultsDatabaseName; FunctionName = UMX.tag value.resultsFunctionName; FunctionVersion = value.resultsFunctionVersion
                                               Outputs = resultTypes; ParameterDefaults = defaults }
-                                  Setup = { DatabaseName = UMX.tag value.setupDatabaseName; FunctionName = UMX.tag value.setupFunctionName
+                                  Setup = { DatabaseName = UMX.tag value.setupDatabaseName; FunctionName = UMX.tag value.setupFunctionName; FunctionVersion = value.setupFunctionVersion
                                             Outputs = setupTypes; ParameterDefaults = setupDefaults } }
         | _ -> invalidArg "kind" "Project kind must be root or branch."
 
 module OverridesDto =
-    let private fromRoot (value: rootDefaultOverrides) : projectSettingsDto = {
-        description = value.Description |> Option.toObj
-        resultsDatabaseName = value.ResultsDatabaseName |> Option.map UMX.untag |> Option.toObj
-        resultsFunctionName = null
-        resultsDataTypes = null
-        resultsSortopiaDataTypes = value.ResultsSortopiaDataTypes |> Option.map (List.map SortopiaDataTypeDto.fromDomain >> List.toArray) |> Option.toObj
-        resultsQueryParameterKeys = value.ResultsQueryParameterKeys |> Option.map (List.map UMX.untag >> List.toArray) |> Option.toObj
-        resultsParameterDefaults = value.ResultsParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj
-        setupDatabaseName = null
-        setupFunctionName = null
-        setupDataTypes = null
-        setupParameterDefaults = null }
-    let private fromBranch (value: branchDefaultOverrides) : projectSettingsDto = {
-        description = value.Description |> Option.toObj
-        resultsDatabaseName = value.ResultsDatabaseName |> Option.map UMX.untag |> Option.toObj
-        resultsFunctionName = null
-        resultsDataTypes = null
-        resultsSortopiaDataTypes = value.ResultsSortopiaDataTypes |> Option.map (List.map SortopiaDataTypeDto.fromDomain >> List.toArray) |> Option.toObj
-        resultsQueryParameterKeys = value.ResultsQueryParameterKeys |> Option.map (List.map UMX.untag >> List.toArray) |> Option.toObj
-        resultsParameterDefaults = value.ResultsParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj
-        setupDatabaseName = value.SetupDatabaseName |> Option.map UMX.untag |> Option.toObj
-        setupFunctionName = null
-        setupDataTypes = value.SetupDataTypes |> Option.map (List.map SetupDataTypeConfigDto.fromDomain >> List.toArray) |> Option.toObj
-        setupParameterDefaults = value.SetupParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj }
-    let fromDomain = function RootOverrides v -> fromRoot v | BranchOverrides v -> fromBranch v
-    let toDomain kind (value: projectSettingsDto) =
+    let fromDomain value : projectOverridesDto =
+        match value with
+        | RootOverrides value ->
+            { description = Option.toObj value.Description
+              resultsDatabaseName = value.ResultsDatabaseName |> Option.map UMX.untag |> Option.toObj
+              resultsParameterDefaults = value.ResultsParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj
+              setupDatabaseName = null; setupSources = null; setupParameterDefaults = null }
+        | BranchOverrides value ->
+            { description = Option.toObj value.Description
+              resultsDatabaseName = value.ResultsDatabaseName |> Option.map UMX.untag |> Option.toObj
+              resultsParameterDefaults = value.ResultsParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj
+              setupDatabaseName = value.SetupDatabaseName |> Option.map UMX.untag |> Option.toObj
+              setupSources = value.SetupSources |> Option.map (List.map SetupSourceConfigDto.fromDomain >> List.toArray) |> Option.toObj
+              setupParameterDefaults = value.SetupParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj }
+    let toDomain kind (value: projectOverridesDto) =
         if isNull (box value) then nullArg "localOverrides"
-        if not (isNull value.resultsFunctionName) || not (isNull value.setupFunctionName) then
-            invalidArg "localOverrides" "Functions are selected on modules; projects inherit their function selections."
         match kind with
         | hierarchyKind.Root ->
-            if not (isNull value.setupDatabaseName) || not (isNull value.setupFunctionName) || not (isNull value.setupDataTypes) || not (isNull value.setupParameterDefaults) then
+            if not (isNull value.setupDatabaseName) || not (isNull value.setupSources) || not (isNull value.setupParameterDefaults) then
                 invalidArg "localOverrides" "Root defaults cannot have setup settings."
             RootOverrides {
                 Description = Option.ofObj value.description
                 ResultsDatabaseName = Option.ofObj value.resultsDatabaseName |> Option.map UMX.tag<resultsDatabaseName>
-                ResultsSortopiaDataTypes = Option.ofObj value.resultsSortopiaDataTypes |> Option.map (Array.map SortopiaDataTypeDto.toDomain >> Array.toList)
-                ResultsQueryParameterKeys = Option.ofObj value.resultsQueryParameterKeys |> Option.map (Array.map UMX.tag<paramKeyName> >> Array.toList)
                 ResultsParameterDefaults = Option.ofObj value.resultsParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList) }
         | hierarchyKind.Branch ->
             BranchOverrides {
                 Description = Option.ofObj value.description
                 ResultsDatabaseName = Option.ofObj value.resultsDatabaseName |> Option.map UMX.tag<resultsDatabaseName>
-                ResultsSortopiaDataTypes = Option.ofObj value.resultsSortopiaDataTypes |> Option.map (Array.map SortopiaDataTypeDto.toDomain >> Array.toList)
-                ResultsQueryParameterKeys = Option.ofObj value.resultsQueryParameterKeys |> Option.map (Array.map UMX.tag<paramKeyName> >> Array.toList)
                 ResultsParameterDefaults = Option.ofObj value.resultsParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList)
                 SetupDatabaseName = Option.ofObj value.setupDatabaseName |> Option.map UMX.tag<setupDatabaseName>
-                SetupDataTypes = Option.ofObj value.setupDataTypes |> Option.map (Array.map SetupDataTypeConfigDto.toDomain >> Array.toList)
+                SetupSources = Option.ofObj value.setupSources |> Option.map (Array.map SetupSourceConfigDto.toDomain >> Array.toList)
                 SetupParameterDefaults = Option.ofObj value.setupParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList) }
         | _ -> invalidArg "kind" "Defaults must be root or branch."
 
@@ -254,11 +267,13 @@ module ModuleSettingsDto =
     let toProjectSettings (value: moduleSettingsDto) : projectSettingsDto = {
         description = value.description
         resultsFunctionName = value.resultsFunctionName
+        resultsFunctionVersion = Defaults.resultsVersion (UMX.tag value.resultsFunctionName)
         resultsDataTypes = value.resultsDataTypes
         resultsSortopiaDataTypes = value.resultsSortopiaDataTypes
         resultsQueryParameterKeys = value.resultsQueryParameterKeys
         resultsParameterDefaults = value.resultsParameterDefaults
         setupFunctionName = value.setupFunctionName
+        setupFunctionVersion = Defaults.setupVersion (UMX.tag value.setupFunctionName)
         setupDataTypes = value.setupDataTypes
         setupParameterDefaults = value.setupParameterDefaults
         resultsDatabaseName = null; setupDatabaseName = null }
@@ -269,16 +284,21 @@ module ModuleSettingsDto =
         |> SettingsDto.toDomain kind |> ModuleDefaults.fromProject
 
 module ModuleOverridesDto =
+    let fromProjectOverrides (value: projectOverridesDto) : moduleOverridesDto = {
+        description = value.description; resultsFunctionName = null; setupFunctionName = null
+        resultsParameterDefaults = value.resultsParameterDefaults; setupSources = value.setupSources; setupParameterDefaults = value.setupParameterDefaults }
+    let toProjectOverrides (value: moduleOverridesDto) : projectOverridesDto = {
+        description = value.description; resultsDatabaseName = null; setupDatabaseName = null
+        resultsParameterDefaults = value.resultsParameterDefaults; setupSources = value.setupSources; setupParameterDefaults = value.setupParameterDefaults }
     let fromDomain value =
-        let dto = value |> ModuleDefaults.toOverrides |> OverridesDto.fromDomain |> ModuleSettingsDto.fromProjectSettings
+        let dto = value |> ModuleDefaults.toOverrides |> OverridesDto.fromDomain |> fromProjectOverrides
         match value with
         | RootModuleOverrides local -> { dto with resultsFunctionName = local.ResultsFunctionName |> Option.map UMX.untag |> Option.toObj }
         | BranchModuleOverrides local ->
             { dto with resultsFunctionName = local.ResultsFunctionName |> Option.map UMX.untag |> Option.toObj
                        setupFunctionName = local.SetupFunctionName |> Option.map UMX.untag |> Option.toObj }
-    let toDomain kind (value: moduleSettingsDto) =
-        let settings = ModuleSettingsDto.toProjectSettings value
-        let local = { settings with resultsFunctionName = null; setupFunctionName = null } |> OverridesDto.toDomain kind |> ModuleDefaults.fromOverrides
+    let toDomain kind (value: moduleOverridesDto) =
+        let local = value |> toProjectOverrides |> OverridesDto.toDomain kind |> ModuleDefaults.fromOverrides
         match local with
         | RootModuleOverrides local ->
             if not (isNull value.setupFunctionName) then invalidArg "setupFunctionName" "Root modules cannot have a setup function."
@@ -291,7 +311,7 @@ module ProjectDto =
     let settingsFromDomain (value: project) = SettingsDto.fromDomain value.Configuration
     let settingsToDomain kind value = SettingsDto.toDomain kind value
     let fromDomain (value: project) : projectDto = {
-        schemaVersion = 13; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
+        schemaVersion = 14; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
         configuration = settingsFromDomain value; localOverrides = OverridesDto.fromDomain value.LocalOverrides
         runs = value.Runs |> Array.map RunDto.fromDomain }
     let internal read depth inherited (value: projectDto) =
@@ -316,7 +336,7 @@ module ProjectDto =
 
 module ModuleDto =
     let rec fromDomain (value: workspaceModule) : moduleDto = {
-        schemaVersion = 13; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
+        schemaVersion = 14; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
         configuration = ModuleSettingsDto.fromDomain value.Configuration; localOverrides = ModuleOverridesDto.fromDomain value.LocalOverrides
         modules = value.Modules |> Array.map fromDomain; projects = value.Projects |> Array.map ProjectDto.fromDomain }
     let rec internal read depth inherited (value: moduleDto) =
@@ -333,7 +353,7 @@ module ModuleDto =
 
 module WorkspaceDto =
     let fromDomain (value: workspace) : workspaceDto = {
-        schemaVersion = 13; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
+        schemaVersion = 14; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
         modules = value.Modules |> Array.map ModuleDto.fromDomain }
     let toDomain (value: workspaceDto) =
         Contract.version value.schemaVersion

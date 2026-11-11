@@ -5,7 +5,7 @@ using Sortopia.Core.Serialization;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -68,7 +68,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var descriptionOverride = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Override description", parent.Id, FSharpOption<string>.Some("Custom description"),
             template.ResultsParameterSpans, template.SetupParameterSpans));
         Assert.Equal("Setup", descriptionOverride.SetupDatabaseName);
-        Assert.Equal("Generate", descriptionOverride.SetupFunctionName);
+        Assert.Equal("sortable-tests-with-prefix.standard", descriptionOverride.SetupFunctionName);
         Assert.Equal("Custom description", descriptionOverride.Description);
         Assert.Null(typeof(branchRunConfig).GetProperty("SetupFunctionNameOverride"));
     }
@@ -95,14 +95,14 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         Assert.Equal("Project description", updated.Runs[0].Description);
         Assert.Equal("", updated.Runs[1].Description);
         Assert.All(updated.Runs, item => Assert.Equal("Results", item.ResultsDatabaseName));
-        Assert.All(updated.Runs, item => Assert.Equal("Evaluate", item.ResultsFunctionName));
+        Assert.All(updated.Runs, item => Assert.Equal("sortable-tests.standard", item.ResultsFunctionName));
         Assert.Equal(parent.Runs.Select(item => item.Id), updated.Runs.Select(item => item.Id));
         if (branch)
         {
             Assert.Equal("Setup", updated.Runs[0].SetupDatabaseName.Value);
-            Assert.Equal("Generate", updated.Runs[0].SetupFunctionName.Value);
+            Assert.Equal("sortable-tests-with-prefix.standard", updated.Runs[0].SetupFunctionName.Value);
             Assert.Equal("Setup", updated.Runs[1].SetupDatabaseName.Value);
-            Assert.Equal("Generate", updated.Runs[1].SetupFunctionName.Value);
+            Assert.Equal("sortable-tests-with-prefix.standard", updated.Runs[1].SetupFunctionName.Value);
         }
         var fileJson = JsonSerializer.SerializeToNode(RunDto.fromDomain(updated.Runs[0]))!.AsObject();
         Assert.False(fileJson.ContainsKey("resultsDatabaseName"));
@@ -115,40 +115,24 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     [Fact]
     public void Each_setup_output_uses_its_own_query_keys()
     {
-        var dto = ProjectDto.fromDomain(Parent(true));
-        dto.localOverrides.setupDataTypes = [WorkspaceHierarchyTests.SetupType("SorterModelSet", "", "Width"), WorkspaceHierarchyTests.SetupType("SorterSetEval")];
-        var parent = ProjectDto.toDomain(dto);
-        var inputs = Inputs(parent);
-        var run = ((run.BranchRun)RunDto.toDomain(parent, inputs)).Item;
-        var parameters = BranchRun.makeSetupParameterSets(run).First();
-        var first = QueryParams.forSetup(run, sortopiaDataType.NewSorterModelSet(""), parameters);
-        var second = QueryParams.forSetup(run, sortopiaDataType.NewSorterSetEval(""), parameters);
-        Assert.Equal("Setup", first.DatabaseName);
-        Assert.Equal("Width", first.Properties.Single().Key);
-        Assert.Equal("8", first.Properties.Single().Value);
-        Assert.Empty(second.Properties);
-        Assert.NotEqual(first.Id, second.Id);
-        var result = QueryParams.forResults(Sortopia.Runs.run.NewBranchRun(run), sortopiaDataType.NewSorterSetEval(""), BranchRun.makeResultsParameterSets(run).First());
-        Assert.Equal("Results", result.DatabaseName);
-        Assert.Equal("Seed", result.Properties.Single().Key);
+        var value = (run.BranchRun)RunExecutionTests.MakeRun(true, FunctionOutputContractTests.Combined(true));
+        var parameters = BranchRun.makeSetupParameterSets(value.Item)[0];
+        var tests = QueryParams.forSetup(value.Item, sortopiaDataType.NewSortableTests(""), parameters);
+        var models = QueryParams.forSetup(value.Item, sortopiaDataType.NewSorterModelSet(""), parameters);
+        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, tests.Properties.Keys);
+        Assert.Contains("Repl", models.Properties.Keys); Assert.DoesNotContain("Repl", tests.Properties.Keys);
+        Assert.NotEqual(tests.Id, models.Id);
     }
 
     [Fact]
     public void Run_parameters_must_satisfy_parent_query_keys_and_blank_setup_overrides_are_rejected()
     {
-        var config = ProjectDto.fromDomain(Parent(true));
-        config.localOverrides.setupDataTypes = [WorkspaceHierarchyTests.SetupType("SorterModelSet", "", "Width")];
-        var parent = ProjectDto.toDomain(config);
-        var inputs = Inputs(parent);
-        inputs.resultsParameterSpans = [];
-        Assert.Contains("Seed", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
-        inputs = Inputs(parent);
-        inputs.setupParameterSpans = [];
-        Assert.Contains("Width", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
+        var parent = Parent(true); var inputs = Inputs(parent); inputs.resultsParameterSpans = [];
+        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
+        inputs = Inputs(parent); inputs.setupParameterSpans = [];
+        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
         Assert.Null(typeof(runDto).GetProperty("setupFunctionNameOverride"));
-        var projectDto = ProjectDto.fromDomain(parent);
-        projectDto.localOverrides.setupDataTypes[0].queryParameterKeys = ["Width", "Width"];
-        Assert.Throws<ArgumentException>(() => ProjectDto.toDomain(projectDto));
+        Assert.Null(typeof(projectOverridesDto).GetProperty("setupDataTypes"));
     }
 
     [Theory]
@@ -199,7 +183,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         page.AddRunCommand.Execute(null);
         var run = page.Selected!;
         run.Editor!.LoadRun(Inputs(Parent(false)));
-        Assert.Equal("Evaluate", run.Editor.ResultsFunctionName);
+        Assert.Equal("sortable-tests.standard", run.Editor.ResultsFunctionName);
         page.EditProjectDefaultsCommand.Execute(null);
         Assert.Same(parent, page.Selected);
         parent.Editor!.Description = "Edited project description";
@@ -211,11 +195,11 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var before = File.ReadAllBytes(file);
         run = page.Roots[0].Children[0].Children[0].Children[0];
         run.Editor!.ResultsFunctionName = "Not an allowed run override";
-        Assert.Equal("Evaluate", run.Editor.ResultsFunctionName);
+        Assert.Equal("sortable-tests.standard", run.Editor.ResultsFunctionName);
         run.Editor.ResultsParameters.Clear();
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         await page.SaveWorkspaceAsync();
-        Assert.Contains("Seed", page.Error);
+        Assert.Contains("ChannelCount", page.Error);
         Assert.Equal(before, File.ReadAllBytes(file));
     }
 

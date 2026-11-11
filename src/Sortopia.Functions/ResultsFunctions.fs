@@ -19,24 +19,24 @@ module ResultsFunctions =
     let private modelsType = sortopiaDataType.SorterModelSet ""
     let private evalType = sortopiaDataType.SorterSetEval ""
 
-    let private generator dataType keys make =
-        FunctionDefinition.results keys [dataType, InputGenerators.queryKeys keys]
+    let private generator version dataType keys make =
+        FunctionDefinition.results version keys [dataType, InputGenerators.queryKeys keys]
             (fun host -> host.ResultsDb.SaveIfMissing(dataType, [], fun () -> make host.Parameters))
 
     let mergeSortableTests =
-        generator testsType InputGenerators.mergeKeys InputGenerators.mergeTests
+        generator "1" testsType InputGenerators.mergeKeys InputGenerators.mergeTests
 
     let prefixSortableTests =
-        generator testsType InputGenerators.prefixKeys InputGenerators.prefixTests
+        generator "1" testsType InputGenerators.prefixKeys InputGenerators.prefixTests
 
     let standardSortableTests =
-        generator testsType InputGenerators.standardKeys InputGenerators.standardTests
+        generator "1" testsType InputGenerators.standardKeys InputGenerators.standardTests
 
     let uniformSorterModels =
-        generator modelsType InputGenerators.modelKeys InputGenerators.uniformModels
+        generator "1" modelsType InputGenerators.modelKeys InputGenerators.uniformModels
 
     let standardEvaluationInputs =
-        FunctionDefinition.results
+        FunctionDefinition.results "1"
             (InputGenerators.standardKeys @ InputGenerators.modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys InputGenerators.modelKeys]
             (fun host ->
@@ -73,13 +73,13 @@ module ResultsFunctions =
 
     let evaluateSorters =
         let required = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
-        FunctionDefinition.resultsWithInputs required [modelsType; testsType]
+        FunctionDefinition.resultsWithInputs "1" required [modelsType; testsType]
             [evalType, InputGenerators.queryKeys required] evaluate
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
     let evaluateMutants =
-        FunctionDefinition.resultsWithInputs [ParamKey.describe ParamKeys.sorterEvalTypeKey] [modelsType; testsType]
+        FunctionDefinition.resultsWithInputs "1" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [modelsType; testsType]
             [evalType, [ParamKeys.sorterEvalTypeKey.Name]]
             (fun host -> saveEvaluation host (fun () ->
                 let parameters = host.Parameters

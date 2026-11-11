@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="WorkspaceFileSystem.fs" />
+    <Compile Include="WorkspaceDefinitionFiles.fs" />
+    <Compile Include="WorkspaceFolderCopy.fs" />
+    <Compile Include="WorkspaceFolderMove.fs" />
+    <Compile Include="WorkspaceImportIdentity.fs" />
+    <Compile Include="WorkspaceStorageTypes.fs" />
+    <Compile Include="WorkspaceDisk.fs" />
+    <Compile Include="WorkspaceSavePlan.fs" />
+    <Compile Include="WorkspaceCommit.fs" />
+    <Compile Include="WorkspaceFileStore.fs" />
+    <Compile Include="WorkspaceImport.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.Workspaces.Serialization/Sortopia.Workspaces.Serialization.fsproj" />
+  </ItemGroup>
+</Project>

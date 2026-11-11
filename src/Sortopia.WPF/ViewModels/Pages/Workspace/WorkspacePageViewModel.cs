@@ -1,7 +1,7 @@
 using System.IO;
 using System.Collections.ObjectModel;
 using Sortopia.WPF.Commands;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
@@ -320,23 +320,20 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
                 var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(selectedFolder));
                 var folderName = Sortopia.Runs.FolderName.validate(Path.GetFileName(folder));
                 var destination = Path.Combine(container, folderName);
-                var copy = await Task.Run(() => WorkspaceFolderCopy.Prepare(WorkspaceFolder, folder, destination, token), token);
+                WorkspaceFolderCopy? copy;
                 WorkspaceTreeNode child;
-                var identities = new WorkspaceImportIdentity();
                 if (kind == WorkspaceEntityKind.Module)
                 {
-                    var value = await Task.Run(() => WorkspaceFileStore.LoadModuleFolder(folder, token), token);
-                    if (copy is not null) { var dto = ModuleDto.fromDomain(value); identities.Reidentify(dto); value = ModuleDto.toDomain(dto); }
-                    child = WorkspaceTreeNode.FromModule(value);
+                    var import = await Task.Run(() => WorkspaceImport.PrepareModule(WorkspaceFolder, folder, destination, token), token);
+                    child = WorkspaceTreeNode.FromModule(import.Definition);
+                    copy = import.Copy;
                 }
                 else
                 {
-                    var value = await Task.Run(() => WorkspaceFileStore.LoadProjectFolder(folder, token), token);
-                    if (copy is not null) { var dto = ProjectDto.fromDomain(value); identities.Reidentify(dto); value = ProjectDto.toDomain(dto); }
-                    child = WorkspaceTreeNode.FromProject(value);
+                    var import = await Task.Run(() => WorkspaceImport.PrepareProject(WorkspaceFolder, folder, destination, token), token);
+                    child = WorkspaceTreeNode.FromProject(import.Definition);
+                    copy = import.Copy;
                 }
-                if (copy is not null) copy = copy.WithOriginalIds(identities.OriginalIds);
-                if (copy is not null) await Task.Run(() => copy.ValidateSource(token), token);
                 token.ThrowIfCancellationRequested();
                 child.PendingCopy = copy;
                 if (copy is not null) child.RememberImportLocations(copy.SourceFolder, copy.Id, copy.OriginalIds);
@@ -394,10 +391,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         {
             var origin = Roots.Single().DescendantsAndSelf().Select(item => item.PendingCopy).FirstOrDefault(copy => copy?.Id == originId)
                 ?? throw new IOException("Save or discard the pending import before moving this child.");
-            await Task.Run(() => origin.ValidateSource(token), token);
-            var copy = await Task.Run(() => WorkspaceFolderCopy.Prepare(WorkspaceFolder, source, destination, token), token)
-                ?? throw new IOException("A pending import cannot be moved back into its source folder.");
-            copy = copy.WithOriginalIds(origin.OriginalIds);
+            var copy = await Task.Run(() => origin.PrepareChild(WorkspaceFolder, source, destination, token), token);
             token.ThrowIfCancellationRequested();
             node.PendingCopy = copy;
             node.CopyOriginId = originId;

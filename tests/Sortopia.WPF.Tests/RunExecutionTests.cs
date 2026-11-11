@@ -47,7 +47,7 @@ public sealed class RunExecutionTests
         var parent = project.create(id, "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings ?? Settings(branch)), []);
         return RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 13, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
+            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
             resultsParameterSpans = QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults, results),
             setupParameterSpans = parent is project.BranchProject b ? QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
         });
@@ -123,12 +123,8 @@ public sealed class RunExecutionTests
     [InlineData(true)]
     public void Unknown_function_names_are_rejected_before_any_calls(bool setup)
     {
-        var settings = Settings(true);
-        if (setup) settings.setupFunctionName = "unregistered"; else settings.resultsFunctionName = "unregistered";
-        var report = Execute(MakeRun(true, settings), token: TestContext.Current.CancellationToken);
-        Assert.Equal(runExecutionStatus.Failed, report.Status);
-        Assert.Empty(report.Setup); Assert.Empty(report.Results);
-        Assert.Contains("unregistered", report.Error);
+        var settings = Settings(true); if (setup) settings.setupFunctionName = "unregistered"; else settings.resultsFunctionName = "unregistered";
+        Assert.Contains("Unknown", Assert.Throws<ArgumentException>(() => MakeRun(true, settings)).Message);
     }
 
     [Fact]

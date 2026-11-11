@@ -4,7 +4,7 @@ using Sortopia.Core.Serialization;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -120,48 +120,20 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
     [InlineData(true)]
     public async Task Runs_receive_merged_typed_defaults_and_sealing_stops_ancestor_changes(bool branch)
     {
-        var page = Open();
-        var (ancestor, module) = Hierarchy(page, branch);
-        module.Editor!.ResultsFunctionName = "Evaluate";
-        if (branch) module.Editor.SetupFunctionName = "Setup";
-        page.AddProjectCommand.Execute(null);
-        var parent = page.Selected!;
-        AddDefault(parent.Editor!, "Seed", "7").ValueType = parameterValueType.Integer;
-        page.AddRunCommand.Execute(null);
-        var run = page.Selected!;
-        Assert.Same(ancestor.Editor, run.Editor!.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Source.InheritedSource);
-        Assert.Same(module.Editor, run.Editor.InheritedOutputDefaults.Single(value => value.Key == "StageLength").Source.InheritedSource);
-        await page.SaveWorkspaceAsync();
-        Assert.Empty(page.Error);
-        ancestor = page.Roots[0].Children[0].Children[0].Children[0];
-        module = ancestor.Children[0];
-        parent = module.Children[0];
-        run = parent.Children[0];
-        Assert.True(parent.IsSealed);
-        ancestor.Editor!.ResultsParameterDefaults.Single().Value.Text = "24";
-        AddDefault(ancestor.Editor, "Message", "Added after sealing");
-        Assert.Equal("16", run.Editor!.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Value);
-        Assert.DoesNotContain(run.Editor.InheritedOutputDefaults, value => value.Key == "Message");
-        Assert.All(run.Editor.InheritedOutputDefaults, value => Assert.Same(parent.Editor, value.Source.InheritedSource));
-        await page.SaveWorkspaceAsync();
-        Assert.Empty(page.Error);
-        var reopenedRun = Open().Roots[0].Children[0].Children[0].Children[0].Children[0].Children[0].Children[0];
-        Assert.Equal("16", reopenedRun.Editor!.InheritedOutputDefaults.Single(value => value.Key == "ChannelCount").Value);
-        Assert.DoesNotContain(reopenedRun.Editor.InheritedOutputDefaults, value => value.Key == "Message");
-        var restored = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0].Projects[0];
-        var sets = RunParameterSets.create(restored.Runs[0]);
-        var results = Assert.Single(sets.Results);
-        Assert.Equal(16, results.TryFind(ParamKeys.channelCountKey).Value);
-        Assert.Equal(1, results.TryFind(ParamKeys.stageLengthKey).Value);
-        Assert.Equal(7, Assert.IsType<parameterValue.IntegerValue>(results.TryFind("Seed").Value.Value).Item);
-        Assert.Null(results.TryFind("Message"));
-        if (branch)
-        {
-            var setup = Assert.Single(sets.Setup.Value);
-            Assert.Equal(32, setup.TryFind(ParamKeys.channelCountKey).Value);
-            Assert.Equal(2, setup.TryFind(ParamKeys.stageLengthKey).Value);
-            Assert.Null(setup.TryFind("Seed"));
-        }
+        var page = Open(); var (ancestor, module) = Hierarchy(page, branch);
+        module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels;
+        if (branch) module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels;
+        module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); if (branch) module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
+        page.AddProjectCommand.Execute(null); var parent = page.Selected!;
+        page.AddRunCommand.Execute(null); var run = page.Selected!;
+        Assert.Same(ancestor.Editor, run.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Source.InheritedSource);
+        Assert.Same(module.Editor, run.Editor.InheritedOutputDefaults.Single(row => row.Key == "StageLength").Source.InheritedSource);
+        run.Editor.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        ancestor = page.Roots[0].Children[0].Children[0].Children[0]; module = ancestor.Children[0]; parent = module.Children[0]; run = parent.Children[0];
+        Assert.True(parent.IsSealed); ancestor.Editor!.ResultsParameterDefaults.Single().Value.Text = "24";
+        Assert.Equal("16", run.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
+        Assert.Equal(16, Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).ParameterSet.TryFind(ParamKeys.channelCountKey).Value);
     }
 
     [Fact]

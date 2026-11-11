@@ -24,6 +24,7 @@ type resultsDataTypeConfig = { DataType: sortopiaDataType; QueryParameterKeys: s
 type resultsConfig = {
     DatabaseName: string<resultsDatabaseName>
     FunctionName: string<resultsFunctionName>
+    FunctionVersion: string
     Outputs: resultsDataTypeConfig list
     ParameterDefaults: parameterBinding list
 }
@@ -31,6 +32,9 @@ with
     member this.DataTypes = this.Outputs |> List.map (fun entry -> entry.DataType, entry.QueryParameterKeys) |> Map.ofList
     member this.SortopiaDataTypes = this.Outputs |> List.map (fun entry -> entry.DataType)
     member this.QueryParameterKeys = this.Outputs |> List.collect (fun entry -> entry.QueryParameterKeys) |> List.distinct
+
+/// Editable source assignment; output contracts belong to the selected function.
+type setupSourceConfig = { DataType: sortopiaDataType; SourceProjectId: Guid<projectId> }
 
 type setupDataTypeConfig = {
     DataType: sortopiaDataType
@@ -42,6 +46,7 @@ type setupConfig =
     {
         DatabaseName: string<setupDatabaseName>
         FunctionName: string<setupFunctionName>
+        FunctionVersion: string
         Outputs: setupDataTypeConfig list
         ParameterDefaults: parameterBinding list
     }
@@ -116,6 +121,7 @@ module ProjectConfiguration =
         if isNull value.Description then nullArg "description"
         name "resultsDatabaseName" (UMX.untag value.ResultsDatabaseName)
         name "resultsFunctionName" (UMX.untag value.ResultsFunctionName)
+        name "resultsFunctionVersion" value.Results.FunctionVersion
         outputs "resultsSortopiaDataTypes" value.ResultsSortopiaDataTypes
         for entry in value.Results.Outputs do keys "resultsQueryParameterKeys" entry.QueryParameterKeys
         ParameterBinding.validateUnique value.ResultsParameterDefaults
@@ -128,6 +134,7 @@ module ProjectConfiguration =
         validateRoot { Description = value.Description; Results = value.Results }
         name "setupDatabaseName" (UMX.untag value.SetupDatabaseName)
         name "setupFunctionName" (UMX.untag value.SetupFunctionName)
+        name "setupFunctionVersion" value.Setup.FunctionVersion
         outputs "setupSortopiaDataTypes" value.SetupSortopiaDataTypes
         for entry in value.SetupDataTypes do
             keys "setupQueryParameterKeys" entry.QueryParameterKeys

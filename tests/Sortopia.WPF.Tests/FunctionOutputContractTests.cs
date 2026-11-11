@@ -7,7 +7,7 @@ using Sortopia.Sorting.Catalog;
 using Sortopia.Sorting.Inputs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
 
@@ -80,9 +80,9 @@ public sealed class FunctionOutputContractTests : IDisposable
         foreach (var node in new[] { module, child, project, run })
         {
             Assert.False(node.Editor!.OutputTypesOverride.CanOverride);
-            Assert.False(node.Editor.ResultsQueryKeysOverride.CanOverride);
+            Assert.Null(typeof(moduleOverridesDto).GetProperty("resultsQueryParameterKeys"));
             Assert.Equal(2, node.Editor.InheritedSetupDataTypes.Count());
-            Assert.All(node.Editor.InheritedSetupDataTypes, row => { Assert.False(row.CanEditContract); Assert.True(row.GeneratesData); Assert.Empty(row.Error); });
+            Assert.All(node.Editor.InheritedSetupDataTypes, row => { Assert.True(row.GeneratesData); Assert.Empty(row.Error); });
             Assert.Empty(node.Editor.FunctionCompatibilityError);
             Assert.Same(module.Editor, node.Editor.OutputTypesOverride.InheritedSource);
             Assert.Same(module.Editor, node.Editor.SetupDataTypesOverride.InheritedSource);

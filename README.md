@@ -1,6 +1,6 @@
 # Sortopia
 
-Sortopia has F# libraries targeting .NET 10 and a C# WPF desktop app for Windows. The migration covers the retained Core, Sorting, sorting-catalog, model and evaluation libraries and their tests. Open `Sortopia.sln` in Visual Studio with F# and .NET 10 support, or run these commands from the solution directory.
+Sortopia has F# domain, serialization, and persistence libraries targeting .NET 10, plus a C# WPF desktop app for Windows. The migration covers the retained Core, Sorting, sorting-catalog, model and evaluation libraries and their tests. Open `Sortopia.sln` in Visual Studio with F# and .NET 10 support, or run these commands from the solution directory.
 
 ```powershell
 dotnet build Sortopia.sln -c Release
@@ -49,6 +49,7 @@ Choose **Random Networks** for the separate random-generation and testing page. 
 | Sortopia.Runs | Run configurations, output categories, parameter generation and result-query definitions. |
 | Sortopia.Workspaces | Workspaces with root/branch modules and projects containing matching run types. |
 | Sortopia.Workspaces.Serialization | Versioned MessagePack definitions for workspaces, modules, projects and runs. |
+| Sortopia.Workspaces.Persistence | Workspace file discovery, loading, transactional saves, imports and moves; a .NET library with no WPF dependency. |
 | Sortopia.Functions | Independent results/setup function catalogs and the run execution loop. |
 | Sortopia.FileDb | Project-local compressed MessagePack data, stable typed query IDs, source resolution and persistent run execution. |
 | Sortopia.WPF | Windows desktop shell, MVVM page navigation, sorting-network visualization and trace playback. |
@@ -103,4 +104,4 @@ The serialization test projects include bytes written by GeneSort.Core.Mp for th
 | GeneSort.Eval | Migrate its higher-level evaluation orchestration after checking callers against the evaluation contracts. |
 | GeneSort.Project, FileDb, Dispatch and WPF | Sortopia has its own workspace hierarchy, function catalogs, file-based execution store and WPF editors. Existing GeneSort projects and histories are not imported. See [workspaces](docs/workspaces.md). |
 
-The ten test projects follow the library boundaries and cover the APIs retained for Dispatch. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.
+The test projects follow the library boundaries and cover the APIs retained for Dispatch. `Sortopia.Workspaces.Persistence.Tests` exercises workspace storage without loading WPF; UI workflows remain covered by `Sortopia.WPF.Tests`. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.

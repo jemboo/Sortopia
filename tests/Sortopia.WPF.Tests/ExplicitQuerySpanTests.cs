@@ -5,7 +5,7 @@ using Sortopia.Functions;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
@@ -21,7 +21,7 @@ public sealed class ExplicitQuerySpanTests
     {
         var required = List(ParamKey.describe(ParamKeys.channelCountKey), ParamKey.describe(ParamKeys.messageKey));
         var output = sortopiaDataType.NewSortableTests("");
-        var definition = FunctionDefinition.results(required, List(Tuple.Create(output, List("ChannelCount"))),
+        var definition = FunctionDefinition.results("1", required, List(Tuple.Create(output, List("ChannelCount"))),
             FuncConvert.FromFunc<runHost, Unit>(_ => null!));
         Assert.Equal(new[] { "ChannelCount", "Message" }, definition.RequiredParameters.Select(key => key.Name));
         Assert.Equal(new[] { "ChannelCount" }, definition.DataTypes[output]);
@@ -32,8 +32,8 @@ public sealed class ExplicitQuerySpanTests
         Assert.Equal(new[] { 8, 16 }, sets.Select(set => set.TryFind(ParamKeys.channelCountKey).Value));
         Assert.All(sets, set => { Assert.Equal(2, set.ParamMap.Count); Assert.Equal("fixed", set.TryFind(ParamKeys.messageKey).Value); });
         Assert.Contains("explicit", Assert.Throws<ArgumentException>(() => FunctionParameters.validateInputs(required, definition.DataTypes[output], defaults, List<parameterSpan>())).Message);
-        Assert.Throws<ArgumentException>(() => FunctionDefinition.results(required, List(Tuple.Create(output, List("Repl"))), definition.Execute));
-        Assert.Throws<ArgumentException>(() => FunctionDefinition.results(List(required.Head, required.Head), List(Tuple.Create(output, List("ChannelCount"))), definition.Execute));
+        Assert.Throws<ArgumentException>(() => FunctionDefinition.results("1", required, List(Tuple.Create(output, List("Repl"))), definition.Execute));
+        Assert.Throws<ArgumentException>(() => FunctionDefinition.results("1", List(required.Head, required.Head), List(Tuple.Create(output, List("ChannelCount"))), definition.Execute));
         Assert.Throws<ArgumentException>(() => FunctionParameters.validateInputs(required, definition.DataTypes[output], List(defaults.Head), spans));
         Assert.Throws<ArgumentException>(() => FunctionParameters.validateInputs(required, definition.DataTypes[output],
             ListModule.OfSeq(defaults.Append(ParameterBinding.create(ParamKeys.replKey, 0))), spans));

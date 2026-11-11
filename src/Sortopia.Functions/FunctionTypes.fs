@@ -66,6 +66,7 @@ type IRunHostFactory =
 
 /// Required inputs are independent of each saved output's query projection.
 type functionDefinition<'executor> = {
+    Version: string
     RequiredParameters: paramKeyDescriptor list
     DataTypes: Map<sortopiaDataType, string<paramKeyName> list>
     /// Setup: outputs read from source projects. Results: inputs consumed from setup.
@@ -125,7 +126,8 @@ module FunctionDefinition =
         let expected = types |> Map.toList |> List.map fst |> List.sort
         let actual = database.StoredOutputs |> List.map (fun output -> output.Reference.DataType) |> List.sort
         if expected <> actual then invalidOp "The function must save exactly its declared data types through its host database."
-    let private contract (required: paramKeyDescriptor list) entries =
+    let private contract version (required: paramKeyDescriptor list) entries =
+        if System.String.IsNullOrWhiteSpace version then invalidArg "version" "Function version must not be blank."
         let names = required |> List.map (fun key -> key.Name)
         if names.Length <> (Set.ofList names).Count then invalidArg "requiredParameters" "Declare each required parameter exactly once."
         for key in required do
@@ -141,9 +143,9 @@ module FunctionDefinition =
                 if not (List.contains key names) then invalidArg "dataTypes" $"Query key '{key}' is not a declared required parameter."
         types
 
-    let resultsWithInputs required inputs dataTypes (execute: resultsFunction) : functionDefinition<resultsFunction> =
-        let types = contract required dataTypes
-        { RequiredParameters = required; DataTypes = types; SourceDataTypes = inputs
+    let resultsWithInputs version required inputs dataTypes (execute: resultsFunction) : functionDefinition<resultsFunction> =
+        let types = contract version required dataTypes
+        { Version = version; RequiredParameters = required; DataTypes = types; SourceDataTypes = inputs
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
               host.CancellationToken.ThrowIfCancellationRequested()
@@ -151,13 +153,13 @@ module FunctionDefinition =
               execute host
               saved types host.ResultsDb }
 
-    let results required dataTypes execute = resultsWithInputs required [] dataTypes execute
+    let results version required dataTypes execute = resultsWithInputs version required [] dataTypes execute
 
-    let setupWithSources required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
-        let types = contract required dataTypes
+    let setupWithSources version required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
+        let types = contract version required dataTypes
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
-        { RequiredParameters = required; DataTypes = types; SourceDataTypes = sources
+        { Version = version; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
               host.CancellationToken.ThrowIfCancellationRequested()
@@ -168,4 +170,4 @@ module FunctionDefinition =
               execute host projects
               saved types host.SetupDb }
 
-    let setup required dataTypes execute = setupWithSources required dataTypes [] execute
+    let setup version required dataTypes execute = setupWithSources version required dataTypes [] execute

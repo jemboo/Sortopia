@@ -35,35 +35,6 @@
                 <local:WorkspaceValueSource x:Name="ValueSource" Margin="0,0,0,4" />
             </StackPanel>
         </DataTemplate>
-        <DataTemplate x:Key="DataTypeEntry">
-            <Border BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,10">
-                <StackPanel>
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}" Margin="6,0,0,4" AutomationProperties.Name="Remove output type" />
-                        <Label Content="Data type" Target="{Binding ElementName=DataTypeKindInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,4,0,4" />
-                    </DockPanel>
-                    <ComboBox x:Name="DataTypeKindInput" ItemsSource="{x:Static vm:WorkspaceDataTypeEntry.Kinds}" SelectedItem="{Binding Kind, Mode=TwoWay}" AutomationProperties.Name="Output data type" />
-                    <Label Content="Free-form text" Target="{Binding ElementName=DataTypeTextInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,10,0,4" />
-                    <TextBox x:Name="DataTypeTextInput" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="54" MaxHeight="150" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Output type free-form text" />
-                    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-        <DataTemplate x:Key="InheritedDataType">
-            <StackPanel Margin="0,0,0,10">
-                <TextBlock Text="{Binding kind}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock Text="Free-form text" Style="{StaticResource Help}" />
-                <TextBox Text="{Binding value, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="30" MaxHeight="150" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Inherited output type free-form text" />
-            </StackPanel>
-        </DataTemplate>
-        <DataTemplate x:Key="QueryKey">
-            <DockPanel Margin="0,0,0,6">
-                <Button DockPanel.Dock="Right" Content="×" Command="{Binding RemoveCommand}" Margin="6,0,0,0" MinWidth="32" ToolTip="Remove query key" AutomationProperties.Name="Remove query key" />
-                <ComboBox x:Name="QueryKeyInput" ItemsSource="{Binding KeyChoices}" IsEditable="True" IsTextSearchEnabled="False" MaxDropDownHeight="260"
-                          Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Query parameter key"
-                          ToolTip="Choose a required key for this function. The key determines its value editor and validation." />
-            </DockPanel>
-        </DataTemplate>
         <DataTemplate x:Key="SetupSourceLink">
             <TextBlock TextWrapping="Wrap" Margin="0,6,0,6">
                 <Hyperlink Command="{Binding DataContext.SelectValueSourceCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
@@ -75,9 +46,8 @@
         <DataTemplate x:Key="SetupDataTypeEntry">
             <Border BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,12">
                 <StackPanel>
-                    <ContentControl Content="{Binding DataType}" ContentTemplate="{StaticResource DataTypeEntry}" Visibility="{Binding CanEditContract, Converter={StaticResource VisibleWhen}}" />
-                    <TextBlock Text="{Binding DataType.Kind}" FontWeight="SemiBold" TextWrapping="Wrap" Visibility="{Binding IsContractFixed, Converter={StaticResource VisibleWhen}}" />
-                    <TextBlock Text="{Binding DataType.TextSummary}" TextWrapping="Wrap" Visibility="{Binding IsContractFixed, Converter={StaticResource VisibleWhen}}" />
+                    <TextBlock Text="{Binding DataType.Kind}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding DataType.TextSummary}" TextWrapping="Wrap" />
                     <TextBlock Text="Generated from parameters; no source project needed." TextWrapping="Wrap" Margin="0,6,0,6" Visibility="{Binding GeneratesData, Converter={StaticResource VisibleWhen}}" />
                     <StackPanel Visibility="{Binding RequiresSource, Converter={StaticResource VisibleWhen}}">
                     <Label Content="Source project" Target="{Binding ElementName=SetupSourceProjectInput}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
@@ -89,8 +59,6 @@
                     </StackPanel>
                     <TextBlock Text="Parameters for this saved output" FontWeight="SemiBold" Margin="0,8,0,6" />
                     <TextBlock Text="{Binding QueryKeysSummary}" TextWrapping="Wrap" />
-                    <ItemsControl x:Name="SetupQueryKeysList" ItemsSource="{Binding QueryKeys}" ItemTemplate="{StaticResource QueryKey}" Visibility="{Binding CanEditContract, Converter={StaticResource VisibleWhen}}" />
-                    <Button Content="Add setup query key" Command="{Binding AddQueryKeyCommand}" HorizontalAlignment="Left" Visibility="{Binding CanEditContract, Converter={StaticResource VisibleWhen}}" />
                     <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" />
                 </StackPanel>
             </Border>
@@ -153,7 +121,7 @@
                     </DockPanel>
                     <ComboBox x:Name="DefaultKeyInput" IsEditable="True" IsReadOnly="True" IsTextSearchEnabled="True" ItemsSource="{Binding KeyChoices}" MaxDropDownHeight="260"
                               Text="{Binding Key, Mode=OneWay}" SelectedItem="{Binding SelectedKey, Mode=TwoWay}" AutomationProperties.Name="Default parameter key"
-                              ToolTip="Choose a known key or a key from inherited or local defaults for this phase, or enter a custom key." />
+                              ToolTip="Choose one of the selected function’s required parameter keys." />
                     <Label Content="Value type" Target="{Binding ElementName=DefaultTypeInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,10,0,4" />
                     <ComboBox x:Name="DefaultTypeInput" ItemsSource="{x:Static vm:WorkspaceParameterBinding.ValueTypes}" DisplayMemberPath="Label" SelectedValuePath="Type"
                               SelectedValue="{Binding ValueType, Mode=TwoWay}" IsEnabled="{Binding IsCustomKey}" AutomationProperties.Name="Default parameter type" />
@@ -206,29 +174,13 @@
 <StackPanel x:Name="ResultsTypesItem">
         <TextBlock Text="{Binding ResultsContractHint}" Style="{StaticResource Help}" />
         <ContentControl x:Name="OutputTypesHeader" Content="{Binding OutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
-        <StackPanel Visibility="{Binding OutputTypesOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
-            <TextBlock Text="Each row pairs a data type with free-form text. Spaces, line breaks, and empty strings are preserved." Style="{StaticResource Help}" />
-            <ItemsControl x:Name="OutputTypesList" ItemsSource="{Binding OutputTypes}" ItemTemplate="{StaticResource DataTypeEntry}" />
-            <Button x:Name="AddOutputTypeButton" Content="Add results type" Command="{Binding AddOutputTypeCommand}" HorizontalAlignment="Left" />
-        </StackPanel>
         <StackPanel Visibility="{Binding OutputTypesOverride.ShowPreview, Converter={StaticResource VisibleWhen}}">
             <ItemsControl ItemsSource="{Binding ResultsOutputContracts}" ItemTemplate="{StaticResource OutputContract}" />
             <TextBlock Text="{Binding OutputTypesSummary}" />
         </StackPanel>
         <TextBlock Text="{Binding OutputTypesError}" Style="{StaticResource InlineError}" />
 </StackPanel>
-<StackPanel x:Name="ResultsQueryKeysItem">
-        <TextBlock Text="{Binding ResultsContractHint}" Style="{StaticResource Help}" />
-        <ContentControl Content="{Binding ResultsQueryKeysOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
-        <StackPanel Visibility="{Binding ResultsQueryKeysOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
-            <TextBlock Text="Every query key requires an explicit results span in each run, including fixed values." Style="{StaticResource Help}" />
-            <ItemsControl x:Name="ResultsQueryKeysList" ItemsSource="{Binding ResultsQueryKeys}" ItemTemplate="{StaticResource QueryKey}" />
-            <Button Content="Add query key" Command="{Binding AddResultsQueryKeyCommand}" HorizontalAlignment="Left" />
-        </StackPanel>
-        <TextBlock Text="{Binding ResultsQueryKeysSummary}" TextWrapping="Wrap" Visibility="{Binding ResultsQueryKeysOverride.ShowPreview, Converter={StaticResource VisibleWhen}}" />
-        <ItemsControl ItemsSource="{Binding ResultsOutputContracts}" ItemTemplate="{StaticResource OutputContract}" Visibility="{Binding HasResultsContract, Converter={StaticResource VisibleWhen}}" />
-        <TextBlock Text="{Binding ResultsQueryKeysError}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
-</StackPanel>
+
         </StackPanel>
         </Expander>
         <Expander x:Name="ResultsDefaultsSection" Header="Results parameter defaults" Tag="{Binding ResultsParameterDefaultsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsDefaults, Mode=TwoWay}">
@@ -282,10 +234,8 @@
 <StackPanel x:Name="SetupOutputsItem">
             <TextBlock Text="{Binding SetupContractHint}" Style="{StaticResource Help}" />
             <ContentControl Content="{Binding SetupDataTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
-            <TextBlock Text="Each row describes data saved by setup. Source projects must provide the same type and text; source lookups use that output's results query keys." Style="{StaticResource Help}" Visibility="{Binding CanAddSetupOutputs, Converter={StaticResource VisibleWhen}}" />
             <StackPanel Visibility="{Binding SetupDataTypesOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
                 <ItemsControl x:Name="SetupDataTypesList" ItemsSource="{Binding SetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypeEntry}" />
-                <Button x:Name="AddSetupDataTypeButton" Content="Add setup output" Command="{Binding AddSetupDataTypeCommand}" HorizontalAlignment="Left" Visibility="{Binding CanAddSetupOutputs, Converter={StaticResource VisibleWhen}}" />
             </StackPanel>
             <ItemsControl ItemsSource="{Binding InheritedSetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypePreview}"
                           Visibility="{Binding SetupDataTypesOverride.ShowPreview, Converter={StaticResource VisibleWhen}}" />

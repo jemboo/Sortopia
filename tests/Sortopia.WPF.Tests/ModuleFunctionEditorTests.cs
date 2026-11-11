@@ -40,8 +40,6 @@ public sealed class ModuleFunctionEditorTests
             Assert.Contains(page.InspectorItems, item => item.Key == "resultsDefaults");
             Assert.Contains(page.InspectorItems, item => item.Key == "resultsTypes");
             Assert.DoesNotContain(page.InspectorItems, item => item.Key == "resultsQueryKeys");
-            Assert.False(editor.AddOutputTypeCommand.CanExecute(null));
-            Assert.False(editor.AddResultsQueryKeyCommand.CanExecute(null));
             page.SelectConfigurationItem("resultsDefaults");
             editor.ResultsFunctionName = "";
             Assert.Equal(branch ? "setupFunction" : "resultsFunction", page.ActiveItemKey);

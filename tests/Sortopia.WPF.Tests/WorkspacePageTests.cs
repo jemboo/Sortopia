@@ -1,7 +1,7 @@
 using System.IO;
 using System.Runtime.ExceptionServices;
 using Sortopia.WPF.Settings;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.Workspaces;
 using Sortopia.WPF.ViewModels;
 using Sortopia.WPF.ViewModels.Pages.Home;

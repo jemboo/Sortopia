@@ -32,8 +32,7 @@ module WorkspaceData =
         if not (List.contains entry.DataType source.ResultsSortopiaDataTypes) then
             invalidOp $"Source project '{source.ProjectName}' does not provide '{entry.DataType}'."
         let settings = source.Snapshot.Results
-        let version = FunctionCatalogs.resultsFunctionVersions |> Map.tryFind settings.FunctionName
-                      |> Option.defaultWith (fun () -> invalidOp $"Unknown source results function '{settings.FunctionName}'.")
+        let version = settings.FunctionVersion
         let key = DataKey.create source.Id (string settings.DatabaseName) false (string settings.FunctionName) version
                     entry.DataType settings.DataTypes[entry.DataType] parameters []
         let store = openProject workspace workspaceRoot source.Id

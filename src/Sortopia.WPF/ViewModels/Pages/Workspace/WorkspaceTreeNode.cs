@@ -3,7 +3,7 @@ using System.IO;
 using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -47,7 +47,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
             if (moving && node.savedFolderPath is { } source && (Directory.Exists(source) || File.Exists(source)))
             {
                 var destination = node.GetFolderPath(rootFolder);
-                var inherited = enclosing is not null && WorkspaceFolderCopy.Inside(enclosing.SourceFolder, source)
+                var inherited = enclosing is not null && enclosing.ContainsSourcePath(source)
                     ? Path.Combine(enclosing.DestinationFolder, Path.GetRelativePath(enclosing.SourceFolder, source)) : source;
                 if (!string.Equals(destination, inherited, StringComparison.OrdinalIgnoreCase))
                 {
@@ -365,7 +365,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
     {
         var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id, value.Kind);
-        node.Editor!.LoadOverrides(ModuleSettingsDto.toProjectSettings(ModuleOverridesDto.fromDomain(value.LocalOverrides)));
+        node.Editor!.LoadModuleOverrides(ModuleOverridesDto.fromDomain(value.LocalOverrides));
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
         node.RememberSavedChildren();
@@ -395,7 +395,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     {
         CheckDepth(depth);
         ValidateChildren();
-        return WorkspaceModule.createInherited(Id, Name, FolderName, ModuleDefaults.fromProject(ParentConfiguration()), ModuleOverridesDto.toDomain(Family, ModuleSettingsDto.fromProjectSettings(Editor!.ToLocalOverrides())), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
+        return WorkspaceModule.createInherited(Id, Name, FolderName, ModuleDefaults.fromProject(ParentConfiguration()), ModuleOverridesDto.toDomain(Family, Editor!.ToModuleOverrides()), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private project ReadProject()

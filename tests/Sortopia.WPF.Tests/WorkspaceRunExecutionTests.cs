@@ -122,8 +122,8 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync(); SelectRun(page);
         Assert.False(page.ExecuteRunCommand.CanExecute(null));
-        Assert.Contains("missing", page.ExecuteHint);
-        Assert.Contains("catalog", page.ExecuteHint);
+        Assert.Contains("missing", page.Error);
+        Assert.Contains("registered", page.Error);
     }
     public void Dispose() => temporary.Delete(recursive: true);
 }

@@ -10,15 +10,15 @@ module SetupFunctions =
     let private modelsType = sortopiaDataType.SorterModelSet ""
 
     let standardTests =
-        FunctionDefinition.setup standardKeys [testsType, queryKeys standardKeys]
+        FunctionDefinition.setup "1" standardKeys [testsType, queryKeys standardKeys]
             (fun host _ -> host.SetupDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
 
     let uniformSorterModels =
-        FunctionDefinition.setup modelKeys [modelsType, queryKeys modelKeys]
+        FunctionDefinition.setup "1" modelKeys [modelsType, queryKeys modelKeys]
             (fun host _ -> host.SetupDb.SaveIfMissing(modelsType, [], fun () -> uniformModels host.Parameters))
 
-    let private prepareEvaluation testsKeys fromSource =
-        FunctionDefinition.setupWithSources
+    let private prepareEvaluation version testsKeys fromSource =
+        FunctionDefinition.setupWithSources version
             (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
             (if fromSource then [testsType] else [])
@@ -35,8 +35,8 @@ module SetupFunctions =
                     if fromSource then sourceTests host.Parameters [host.SourceResults.Load sources.Head]
                     else InputGenerators.standardTests host.Parameters))
 
-    let evaluationStandard = prepareEvaluation standardKeys false
+    let evaluationStandard = prepareEvaluation "1" standardKeys false
     // Source project IDs replace GeneSort's SortableTestsModule name. The library
     // key and format look up the source's exact result projection.
-    let evaluationMerge = prepareEvaluation mergeKeys true
-    let evaluationPrefix = prepareEvaluation prefixKeys true
+    let evaluationMerge = prepareEvaluation "1" mergeKeys true
+    let evaluationPrefix = prepareEvaluation "1" prefixKeys true

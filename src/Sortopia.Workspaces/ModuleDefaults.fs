@@ -14,8 +14,6 @@ type rootModuleConfig = {
 type rootModuleOverrides = {
     Description: string option
     ResultsFunctionName: string<resultsFunctionName> option
-    ResultsSortopiaDataTypes: sortopiaDataType list option
-    ResultsQueryParameterKeys: string<paramKeyName> list option
     ResultsParameterDefaults: parameterBinding list option
 }
 
@@ -35,11 +33,9 @@ type branchModuleConfig = {
 type branchModuleOverrides = {
     Description: string option
     ResultsFunctionName: string<resultsFunctionName> option
-    ResultsSortopiaDataTypes: sortopiaDataType list option
-    ResultsQueryParameterKeys: string<paramKeyName> list option
     ResultsParameterDefaults: parameterBinding list option
     SetupFunctionName: string<setupFunctionName> option
-    SetupDataTypes: setupDataTypeConfig list option
+    SetupSources: setupSourceConfig list option
     SetupParameterDefaults: parameterBinding list option
 }
 
@@ -56,21 +52,17 @@ module ModuleDefaults =
     }
     let toRootProject (value: rootModuleConfig) : rootProjectConfig = {
         Description = value.Description
-        Results = { DatabaseName = UMX.tag "Results"; FunctionName = value.ResultsFunctionName
-                    Outputs = Defaults.resultOutputs value.ResultsFunctionName value.ResultsSortopiaDataTypes value.ResultsQueryParameterKeys
+        Results = { DatabaseName = UMX.tag "Results"; FunctionName = value.ResultsFunctionName; FunctionVersion = Defaults.resultsVersion value.ResultsFunctionName
+                    Outputs = Defaults.resultOutputs value.ResultsFunctionName
                     ParameterDefaults = value.ResultsParameterDefaults }
     }
     let fromRootOverrides (value: rootDefaultOverrides) : rootModuleOverrides = {
         Description = value.Description
         ResultsFunctionName = None
-        ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
-        ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
     }
     let toRootOverrides (value: rootModuleOverrides) : rootDefaultOverrides = {
         Description = value.Description
-        ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
-        ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
         ResultsDatabaseName = None
     }
@@ -83,7 +75,7 @@ module ModuleDefaults =
         Defaults.resolveRoot (toRootProject parent) (toRootOverrides local) |> fromRootProject
     let validateRoot local =
         toRootOverrides local |> Defaults.validateRoot
-        local.ResultsFunctionName |> Option.iter (fun name -> if System.String.IsNullOrWhiteSpace (UMX.untag name) then invalidArg "resultsFunctionName" "Choose a results function on this module or inherit one.")
+        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.FunctionCatalogs.requireResults >> ignore)
     let validateRootConfiguration value = toRootProject value |> Defaults.validateRootModule
 
     let fromBranchProject (value: branchProjectConfig) : branchModuleConfig = {
@@ -98,28 +90,24 @@ module ModuleDefaults =
     }
     let toBranchProject (value: branchModuleConfig) : branchProjectConfig = {
         Description = value.Description
-        Results = { DatabaseName = UMX.tag "Results"; FunctionName = value.ResultsFunctionName
-                    Outputs = Defaults.resultOutputs value.ResultsFunctionName value.ResultsSortopiaDataTypes value.ResultsQueryParameterKeys
+        Results = { DatabaseName = UMX.tag "Results"; FunctionName = value.ResultsFunctionName; FunctionVersion = Defaults.resultsVersion value.ResultsFunctionName
+                    Outputs = Defaults.resultOutputs value.ResultsFunctionName
                     ParameterDefaults = value.ResultsParameterDefaults }
-        Setup = { DatabaseName = UMX.tag "Setup"; FunctionName = value.SetupFunctionName
-                  Outputs = Defaults.setupOutputs value.SetupFunctionName value.SetupDataTypes; ParameterDefaults = value.SetupParameterDefaults }
+        Setup = { DatabaseName = UMX.tag "Setup"; FunctionName = value.SetupFunctionName; FunctionVersion = Defaults.setupVersion value.SetupFunctionName
+                  Outputs = Defaults.setupOutputs value.SetupFunctionName (Defaults.sources value.SetupDataTypes); ParameterDefaults = value.SetupParameterDefaults }
     }
     let fromBranchOverrides (value: branchDefaultOverrides) : branchModuleOverrides = {
         Description = value.Description
         ResultsFunctionName = None
-        ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
-        ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
         SetupFunctionName = None
-        SetupDataTypes = value.SetupDataTypes
+        SetupSources = value.SetupSources
         SetupParameterDefaults = value.SetupParameterDefaults
     }
     let toBranchOverrides (value: branchModuleOverrides) : branchDefaultOverrides = {
         Description = value.Description
-        ResultsSortopiaDataTypes = value.ResultsSortopiaDataTypes
-        ResultsQueryParameterKeys = value.ResultsQueryParameterKeys
         ResultsParameterDefaults = value.ResultsParameterDefaults
-        SetupDataTypes = value.SetupDataTypes
+        SetupSources = value.SetupSources
         SetupParameterDefaults = value.SetupParameterDefaults
         ResultsDatabaseName = None
         SetupDatabaseName = None
@@ -135,8 +123,8 @@ module ModuleDefaults =
         Defaults.resolveBranch (toBranchProject parent) (toBranchOverrides local) |> fromBranchProject
     let validateBranch local =
         toBranchOverrides local |> Defaults.validateBranch
-        for name in [local.ResultsFunctionName |> Option.map UMX.untag; local.SetupFunctionName |> Option.map UMX.untag] do
-            name |> Option.iter (fun value -> if System.String.IsNullOrWhiteSpace value then invalidArg "functionName" "Choose a function on this module or inherit one.")
+        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.FunctionCatalogs.requireResults >> ignore)
+        local.SetupFunctionName |> Option.iter (Sortopia.Functions.FunctionCatalogs.requireSetup >> ignore)
     let validateBranchConfiguration value = toBranchProject value |> Defaults.validateBranchModule
 
     let fromProject = function RootProjectConfig value -> RootModuleConfig (fromRootProject value) | BranchProjectConfig value -> BranchModuleConfig (fromBranchProject value)

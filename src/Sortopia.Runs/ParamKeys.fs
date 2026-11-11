@@ -67,7 +67,6 @@ module ParamKeys =
     let ceLengthKey = ParamKey.integer "CeLength"
     let codeModKey = ParamKey.text "CodeModKey"
     let collectSortableTestsKey = ParamKey.boolean "CollectSortableTests"
-    let databaseNameKey = ParamKey.text "DatabaseName"
     let deletionRateKey = ParamKey.floating "DeletionRate"
     let distinctSorterHashesKey = ParamKey.boolean "DistinctSorterHashes"
     let elapsedTimeKey = ParamKey.text "ElapsedTime"
@@ -96,13 +95,11 @@ module ParamKeys =
     let partitionCountKey = ParamKey.integer "PartitionCount"
     let prefixLibIdKey = ParamKey.prefixLibraryId "PrefixLibId"
     let prioritizeNewMutantsKey = ParamKey.boolean "PrioritizeNewMutants"
-    let projectNameKey = ParamKey.text "ProjectName"
     let queryNameKey = ParamKey.text "QueryName"
     let replKey = ParamKey.integer "Repl"
     let replSpanKey = ParamKey.integer "ReplSpan"
     let rngTypeKey = ParamKey.text "RngType"
     let runFinishedKey = ParamKey.boolean "RunFinished"
-    let runNameKey = ParamKey.text "RunName"
     let seedModificationRateKey = ParamKey.floating "SeedModificationRate"
     let seedSorterPoolSelectionTypeKey = ParamKey.text "SeedPoolSorterSelectionType"
     let seedSossKey = ParamKey.unsigned64 "SeedSoss"
@@ -137,8 +134,6 @@ module ParamKeys =
     let sorterPoolMeasureKey = ParamKey.text "SorterPoolMeasure"
     let sorterPoolSelectionIntervalsKey = ParamKey.text "SorterPoolSelectionIntervals"
     let channelCountKey = ParamKey.integer "ChannelCount"
-    let sourceGenerationIntervalKey = ParamKey.integer "SourceGenerationInterval"
-    let sourceMutationModKey = ParamKey.integer "SourceMutationMod"
     let stageLengthKey = ParamKey.integer "StageLength"
     let startingReplKey = ParamKey.integer "StartingRepl"
     let textReportNameKey = ParamKey.text "TextReportName"
@@ -156,7 +151,6 @@ module ParamKeys =
         ParamKey.describe ceLengthKey
         ParamKey.describe codeModKey
         ParamKey.describe collectSortableTestsKey
-        ParamKey.describe databaseNameKey
         ParamKey.describe deletionRateKey
         ParamKey.describe distinctSorterHashesKey
         ParamKey.describe elapsedTimeKey
@@ -185,13 +179,11 @@ module ParamKeys =
         ParamKey.describe partitionCountKey
         ParamKey.describe prefixLibIdKey
         ParamKey.describe prioritizeNewMutantsKey
-        ParamKey.describe projectNameKey
         ParamKey.describe queryNameKey
         ParamKey.describe replKey
         ParamKey.describe replSpanKey
         ParamKey.describe rngTypeKey
         ParamKey.describe runFinishedKey
-        ParamKey.describe runNameKey
         ParamKey.describe seedModificationRateKey
         ParamKey.describe seedSorterPoolSelectionTypeKey
         ParamKey.describe seedSossKey
@@ -226,15 +218,8 @@ module ParamKeys =
         ParamKey.describe sorterPoolMeasureKey
         ParamKey.describe sorterPoolSelectionIntervalsKey
         ParamKey.describe channelCountKey
-        ParamKey.describe sourceGenerationIntervalKey
-        ParamKey.describe sourceMutationModKey
         ParamKey.describe stageLengthKey
         ParamKey.describe startingReplKey
         ParamKey.describe textReportNameKey ]
     let tryFind name = all |> List.tryFind (fun key -> key.Name = name)
     let valueType name = tryFind name |> Option.map (fun key -> key.ValueType) |> Option.defaultValue parameterValueType.Text
-
-    /// Resolve a persisted source-filter name to the corresponding source parameter name.
-    let sourceParameterKey = function
-        | name when name = sourceMutationModKey.Name -> mutationModKey.Name
-        | name -> name

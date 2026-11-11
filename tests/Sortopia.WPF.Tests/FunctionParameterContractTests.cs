@@ -69,7 +69,7 @@ public sealed class FunctionParameterContractTests
         Assert.Contains("MergeLibId", run.Editor.ResultsParametersError);
         run.Editor.AddMissingResultsParametersCommand.Execute(null);
         Assert.True(run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values.Count == 0);
-        Assert.Empty(project.Editor.ToLocalOverrides().resultsFunctionName ?? "");
+        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class FunctionParameterContractTests
         child.Editor.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
         local.RemoveCommand.Execute(null);
         var rootConfig = ModuleSettingsDto.toDomain(hierarchyKind.Root, ModuleSettingsDto.fromProjectSettings(parent.Editor.ToProjectSettings()));
-        var overrides = ModuleOverridesDto.toDomain(hierarchyKind.Root, ModuleSettingsDto.fromProjectSettings(child.Editor.ToLocalOverrides()));
+        var overrides = ModuleOverridesDto.toDomain(hierarchyKind.Root, child.Editor.ToModuleOverrides());
         var resolved = ModuleDefaults.resolve(rootConfig, overrides);
         Assert.Equal(child.Editor.ToProjectSettings().resultsParameterDefaults.Select(value => value.keyName),
             ModuleSettingsDto.fromDomain(resolved).resultsParameterDefaults.Select(value => value.keyName));
@@ -108,8 +108,7 @@ public sealed class FunctionParameterContractTests
     [Fact]
     public void Project_local_overrides_cannot_define_functions()
     {
-        var dto = new projectSettingsDto { resultsFunctionName = ResultsFunctionNames.mergeSortableTests };
-        Assert.Contains("modules", Assert.Throws<ArgumentException>(() => OverridesDto.toDomain(hierarchyKind.Root, dto)).Message);
+        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
         Assert.Null(typeof(rootDefaultOverrides).GetProperty("ResultsFunctionName"));
         Assert.Null(typeof(branchDefaultOverrides).GetProperty("SetupFunctionName"));
         Assert.Null(typeof(branchRunConfig).GetProperty("SetupFunctionNameOverride"));

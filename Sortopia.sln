@@ -65,6 +65,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Sortopia.Functions", "src\S
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Sortopia.FileDb", "src\Sortopia.FileDb\Sortopia.FileDb.fsproj", "{4CBE19E5-5740-474D-BC6B-A8556F6F76F6}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Sortopia.Workspaces.Persistence", "src\Sortopia.Workspaces.Persistence\Sortopia.Workspaces.Persistence.fsproj", "{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sortopia.Workspaces.Persistence.Tests", "tests\Sortopia.Workspaces.Persistence.Tests\Sortopia.Workspaces.Persistence.Tests.csproj", "{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -423,6 +427,30 @@ Global
 		{4CBE19E5-5740-474D-BC6B-A8556F6F76F6}.Release|x64.Build.0 = Release|Any CPU
 		{4CBE19E5-5740-474D-BC6B-A8556F6F76F6}.Release|x86.ActiveCfg = Release|Any CPU
 		{4CBE19E5-5740-474D-BC6B-A8556F6F76F6}.Release|x86.Build.0 = Release|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Debug|x64.Build.0 = Debug|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Debug|x86.Build.0 = Debug|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Release|x64.ActiveCfg = Release|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Release|x64.Build.0 = Release|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Release|x86.ActiveCfg = Release|Any CPU
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F}.Release|x86.Build.0 = Release|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Debug|x64.Build.0 = Debug|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Debug|x86.Build.0 = Debug|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Release|x64.ActiveCfg = Release|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Release|x64.Build.0 = Release|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Release|x86.ActiveCfg = Release|Any CPU
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -457,5 +485,7 @@ Global
 		{77125796-16EF-4542-8AB3-12D87E8FE155} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{9D859704-018B-4731-83B8-2AA3FA3D05DF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{4CBE19E5-5740-474D-BC6B-A8556F6F76F6} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{0F9B38C6-3FD6-4DB2-B786-3B51F909201F} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{F08EDED2-2A9A-4E7E-816C-AE6C03695E5A} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

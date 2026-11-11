@@ -1,5 +1,5 @@
 using System.IO;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 
 namespace Sortopia.WPF.Tests;
 

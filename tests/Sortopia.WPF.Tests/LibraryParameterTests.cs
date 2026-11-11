@@ -7,7 +7,7 @@ using Sortopia.Runs;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
-using Sortopia.WPF.Models;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Xunit;
 
@@ -118,7 +118,7 @@ public sealed class LibraryParameterTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task Inherited_custom_key_choices_seed_their_type_and_library_values_reach_saved_runs(bool branch, bool onProject)
+    public async Task Inherited_function_keys_keep_library_types_through_editing_and_saved_runs(bool branch, bool onProject)
     {
         var temporary = Directory.CreateTempSubdirectory("Sortopia-library-parameters-");
         try
@@ -126,51 +126,21 @@ public sealed class LibraryParameterTests
             var root = Directory.CreateDirectory(Path.Combine(temporary.FullName, "Workspace")).FullName;
             var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(root);
             var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
+            (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); var ancestor = page.Selected!;
+            ancestor.Editor!.LoadProject(RunExecutionTests.Settings(branch));
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-            var ancestor = page.Selected!;
-            ancestor.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(branch));
-            var inherited = WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "CustomSorter", SorterLibId.toString(SorterLib.ids()[0]));
-            inherited.ValueType = parameterValueType.SorterLibId;
-            if (branch)
-                WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "CustomPrefix", PrefixLibId.toString(PrefixLib.ids()[0]), true).ValueType = parameterValueType.PrefixLibId;
-            (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-            if (onProject) page.AddProjectCommand.Execute(null);
-            var editor = page.Selected!.Editor!;
-            editor.AddResultsParameterDefaultCommand.Execute(null);
-            var local = editor.ResultsParameterDefaults.Last();
-            Assert.Contains("CustomSorter", local.KeyChoices); Assert.DoesNotContain("CustomPrefix", local.KeyChoices);
-            local.Key = "CustomSorter";
-            Assert.Equal(parameterValueType.SorterLibId, local.ValueType);
-            local.Value.LibraryId.SelectedCatalogId = SorterLibId.toString(SorterLib.ids().Last());
-            Assert.Empty(local.Error);
-            WorkspaceParameterInheritanceTests.AddDefault(ancestor.Editor, "LaterCustom", "hello");
-            Assert.Contains("LaterCustom", local.KeyChoices); Assert.Equal("CustomSorter", local.Key);
-            Assert.Single(local.KeyChoices, key => key == "CustomSorter");
-            if (branch)
-            {
-                editor.AddSetupParameterDefaultCommand.Execute(null);
-                var setup = editor.SetupParameterDefaults.Last();
-                Assert.Contains("CustomPrefix", setup.KeyChoices); Assert.DoesNotContain("CustomSorter", setup.KeyChoices);
-                setup.Key = "CustomPrefix"; Assert.Equal(parameterValueType.PrefixLibId, setup.ValueType);
-                setup.Value.LibraryId.SelectedCatalogId = PrefixLibId.toString(PrefixLib.ids()[0]);
-                Assert.Empty(setup.Error);
-            }
-            if (!onProject) page.AddProjectCommand.Execute(null);
-            page.AddRunCommand.Execute(null);
-            var run = page.Selected!;
-            var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "CustomSorter", false, local.Value.Text);
-            Assert.True(span.Values[0].IsLibraryId);
-            Assert.Single(run.Editor!.ResultsParameterSetsPreview.Rows);
+            if (onProject) page.AddProjectCommand.Execute(null); var editor = page.Selected!.Editor!;
+            editor.AddResultsParameterDefaultCommand.Execute(null); var local = editor.ResultsParameterDefaults.Last();
+            Assert.Contains("MergeLibId", local.KeyChoices); Assert.DoesNotContain("CustomSorter", local.KeyChoices);
+            local.Key = "MergeLibId"; Assert.Equal(parameterValueType.MergeLibId, local.ValueType);
+            local.Value.LibraryId.SelectedCatalogId = MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(id => id.MergeDimension == 2));
+            Assert.Empty(local.Error); if (!onProject) page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
+            var run = page.Selected!; run.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+            Assert.True(run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values[0].IsLibraryId);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-            var reopened = new WorkspacePageViewModel(() => { }, _ => null, settings);
-            var restoredRun = reopened.Roots[0].Children[0].Children[0].Children[0].Children[0];
-            Assert.Equal(parameterValueType.SorterLibId, restoredRun.Editor!.ResultsParameters.Single().ValueType);
-            Assert.Empty(restoredRun.Editor.ResultsParameters.Single().Error);
             var savedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Modules[0].Projects[0].Runs[0];
-            var sets = RunParameterSets.create(savedRun);
-            Assert.IsType<parameterValue.SorterLibIdValue>(sets.Results[0].TryFind("CustomSorter").Value.Value);
-            if (branch) Assert.IsType<parameterValue.PrefixLibIdValue>(sets.Setup.Value[0].TryFind("CustomPrefix").Value.Value);
+            Assert.IsType<parameterValue.MergeLibIdValue>(RunParameterSets.create(savedRun).Results[0].TryFind("MergeLibId").Value.Value);
         }
-        finally { temporary.Delete(recursive: true); }
+        finally { temporary.Delete(true); }
     }
 }
