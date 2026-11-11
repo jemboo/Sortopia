@@ -70,6 +70,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
         ExecuteRunCommand = new RelayCommand(async () => await ExecuteRunAsync(), () => CanExecuteRun);
+        InitializePreparedRunCommands();
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasEditErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         try
@@ -143,6 +144,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             SetProperty(ref selected, value);
             if (selected is not null) selected.IsSelected = true;
             InspectorSelectionChanged();
+            RefreshPreparations();
             OnPropertyChanged(nameof(SelectedFolderPath));
             NotifyCommands();
         }
@@ -479,6 +481,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(ExecuteHint));
         OnPropertyChanged(nameof(ExecutionInstructions));
         ExecuteRunCommand.RaiseCanExecuteChanged();
+        NotifyPreparedRunCommands();
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
         foreach (var command in new[] { ReturnHomeCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,

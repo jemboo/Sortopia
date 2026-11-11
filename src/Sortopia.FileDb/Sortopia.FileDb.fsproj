@@ -6,6 +6,8 @@
     <Compile Include="WorkspaceData.fs" />
     <Compile Include="FileRunHost.fs" />
     <Compile Include="FileRunExecution.fs" />
+    <Compile Include="PreparedRunFiles.fs" />
+    <Compile Include="PreparedRunExecution.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Functions/Sortopia.Functions.fsproj" />

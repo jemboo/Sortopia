@@ -45,7 +45,7 @@ type executionReceiptDto = {
 }
 
 module FileRunExecution =
-    let private saveReceipt folder (value: run) started (report: runExecutionReport) =
+    let internal saveReceipt folder (value: run) started (report: runExecutionReport) =
         let references (output: storedOutput) = {
             ProjectId = UMX.untag output.Reference.ProjectId; Id = UMX.untag output.Reference.Id; QueryId = UMX.untag output.Reference.QueryId
             IsSetup = output.Reference.IsSetup; Kind = SortopiaDataType.kindName output.Reference.DataType

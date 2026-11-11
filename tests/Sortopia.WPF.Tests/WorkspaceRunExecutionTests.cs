@@ -125,5 +125,50 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         Assert.Contains("missing", page.Error);
         Assert.Contains("registered", page.Error);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UI_prepares_without_results_and_reopens_saved_preparations_for_results_only_execution(bool branch)
+    {
+        var page = Create(temporary.FullName, branch);
+        SupplyQuerySpans(page);
+        Assert.False(page.PrepareRunCommand.CanExecute(null));
+        Assert.False(page.ExecutePreparedRunCommand.CanExecute(null));
+        await page.SaveWorkspaceAsync(); SelectRun(page);
+        await ExecuteSourceAsync(page);
+        var runId = page.Selected!.Id;
+        Assert.True(page.PrepareRunCommand.CanExecute(null));
+        await page.PrepareRunAsync();
+        Assert.Empty(page.Error);
+        Assert.Empty(page.SelectedExecution!.Report!.Results);
+        Assert.Contains("Results have not been executed", page.SelectedExecution.Summary);
+        var choice = Assert.Single(page.Preparations);
+        Assert.Equal(runId, choice.Preparation.RunId);
+        Assert.True(page.ExecutePreparedRunCommand.CanExecute(null));
+        Assert.Contains(choice.Id.ToString(), page.PreparedCommand);
+        Assert.Contains("execute-results", page.PreparedCommand);
+        Assert.False(page.HasUnsavedChanges);
+
+        var reopened = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
+        SelectRun(reopened);
+        Assert.Equal(choice.Id, Assert.Single(reopened.Preparations).Id);
+        Assert.Equal(choice.Id, reopened.SelectedPreparation!.Id);
+        await reopened.ExecutePreparedRunAsync();
+        Assert.Empty(reopened.Error);
+        Assert.Equal(runExecutionStatus.Completed, reopened.SelectedExecution!.Report!.Status);
+        Assert.Empty(reopened.SelectedExecution.Report.Setup);
+        Assert.Single(reopened.SelectedExecution.Report.Results);
+        await reopened.ExecutePreparedRunAsync();
+        Assert.All(reopened.SelectedExecution.Report.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
+
+        reopened.Selected!.Editor!.DescriptionOverride.IsOverridden = true;
+        reopened.Selected.Editor.DescriptionOverride.EffectiveValue = "Changed";
+        Assert.False(reopened.PrepareRunCommand.CanExecute(null));
+        Assert.False(reopened.ExecutePreparedRunCommand.CanExecute(null));
+        reopened.Selected = reopened.Selected.Parent;
+        Assert.Empty(reopened.Preparations);
+        Assert.False(reopened.ExecutePreparedRunCommand.CanExecute(null));
+    }
     public void Dispose() => temporary.Delete(recursive: true);
 }

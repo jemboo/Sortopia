@@ -19,6 +19,8 @@ The home page displays the Sortopia fisherman artwork with navigation buttons on
 
 The Workspace page edits modules, projects, and runs, saves them in typed folders, and imports existing modules/projects from disk. Save or discard edits with the controls beside the workspace name. See [workspace hierarchy and saving](docs/workspaces.md) for the layout and workflow.
 
+Runs can **Prepare for execution** locally, then **Execute prepared results** from their saved parameter files. Copy the complete prepared project folder to another machine and run `sortopia execute-results --project <folder> --preparation <id>` using the `Sortopia.Cli` build. Results execution needs no workspace or upstream source folders. See [prepared projects and CLI commands](docs/workspaces.md#copy-a-prepared-project-and-execute-from-the-command-line).
+
 The WPF shell uses MVVM. `MainWindowViewModel.CurrentPage` selects a page through typed XAML data templates. `HomePageViewModel` and `WorkspacePageViewModel` expose navigation commands; their views contain no navigation logic. The shell retains the page view models when switching pages. Shared appearance lives in `Styles/WorkspaceTheme.xaml`.
 
 `src/Sortopia.WPF/Views` and `ViewModels` follow the same Pages → SubPages → Controls hierarchy. Top-level pages own their subpages, and reusable controls live in a shared location:
@@ -52,6 +54,7 @@ Choose **Random Networks** for the separate random-generation and testing page. 
 | Sortopia.Workspaces.Persistence | Workspace file discovery, loading, transactional saves, imports and moves; a .NET library with no WPF dependency. |
 | Sortopia.Functions | Independent results/setup function catalogs and the run execution loop. |
 | Sortopia.FileDb | Project-local compressed MessagePack data, stable typed query IDs, source resolution and persistent run execution. |
+| Sortopia.Cli | Local preparation and standalone results execution from a project folder; plain .NET 10 with no WPF dependency. |
 | Sortopia.WPF | Windows desktop shell, MVVM page navigation, sorting-network visualization and trace playback. |
 | Sortopia.Core | Arrays, collections, stable IDs, random sources, sampling, combinatorics and computation builders. Core has no project references. |
 | Sortopia.Permutations | Permutations, involutions, orbits, merge lattices, unfolders and their generation and mutation rates. These types refer to one another and share mathematical invariants. |
@@ -104,4 +107,4 @@ The serialization test projects include bytes written by GeneSort.Core.Mp for th
 | GeneSort.Eval | Migrate its higher-level evaluation orchestration after checking callers against the evaluation contracts. |
 | GeneSort.Project, FileDb, Dispatch and WPF | Sortopia has its own workspace hierarchy, function catalogs, file-based execution store and WPF editors. Existing GeneSort projects and histories are not imported. See [workspaces](docs/workspaces.md). |
 
-The test projects follow the library boundaries and cover the APIs retained for Dispatch. `Sortopia.Workspaces.Persistence.Tests` exercises workspace storage without loading WPF; UI workflows remain covered by `Sortopia.WPF.Tests`. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.
+The test projects follow the library boundaries and cover the APIs retained for Dispatch. `Sortopia.Workspaces.Persistence.Tests` exercises workspace storage without loading WPF. `Sortopia.FileDb.Tests` covers preparation, copied-project execution, retries, cancellation and CLI commands on plain .NET 10; UI workflows remain covered by `Sortopia.WPF.Tests`. The solution builds from its own source tree. Port callers by changing their project references and opening the namespace that owns each type. The .NET types in the two solutions have distinct assembly identities.

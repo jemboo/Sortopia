@@ -204,8 +204,12 @@
                               Foreground="{StaticResource Workspace.TextPrimary}"
                               Visibility="{Binding DataContext.ShowExecutionEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <StackPanel Margin="0,8,0,8" DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}">
-                            <Button x:Name="ExecuteRunButton" Content="Execute" Command="{Binding ExecuteRunCommand}" HorizontalAlignment="Left" MinWidth="100"
-                                    AutomationProperties.Name="Execute run" ToolTip="Execute every generated parameter set using the saved run settings." />
+                            <WrapPanel>
+                                <Button x:Name="PrepareRunButton" Content="Prepare for execution" Command="{Binding PrepareRunCommand}" Margin="0,0,8,6"
+                                        AutomationProperties.Name="Prepare run for execution" ToolTip="Run setup locally and save immutable results parameter files." />
+                                <Button x:Name="ExecuteRunButton" Content="Prepare and execute locally" Command="{Binding ExecuteRunCommand}" Margin="0,0,0,6"
+                                        AutomationProperties.Name="Execute run" ToolTip="Prepare this run, then execute all its saved work items on this machine." />
+                            </WrapPanel>
                             <TextBlock Text="{Binding ExecuteHint}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,0">
                                 <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
                                     <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger>
@@ -213,6 +217,22 @@
                             </TextBlock>
                             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,8"
                                        Text="{Binding ExecutionInstructions}" />
+                            <TextBlock Text="Saved preparations" FontWeight="SemiBold" Margin="0,8,0,4" />
+                            <ComboBox x:Name="PreparedRunsInput" ItemsSource="{Binding Preparations}" SelectedItem="{Binding SelectedPreparation}"
+                                      DisplayMemberPath="Label" AutomationProperties.Name="Saved run preparation" IsEnabled="{Binding CanEdit}" />
+                            <TextBlock Text="{Binding PreparationLoadError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding PreparedExecutionHint}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,8" />
+                            <WrapPanel>
+                                <Button x:Name="ExecutePreparedRunButton" Content="Execute prepared results" Command="{Binding ExecutePreparedRunCommand}" Margin="0,0,8,6" />
+                                <Button Content="Refresh" Command="{Binding RefreshPreparationsCommand}" Margin="0,0,8,6" />
+                                <Button Content="Open project folder" Command="{Binding OpenPreparedProjectFolderCommand}" Margin="0,0,0,6" />
+                            </WrapPanel>
+                            <Expander Header="Command line" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,2,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Use the Sortopia CLI on the destination machine. Change --project to the copied folder's path." TextWrapping="Wrap" Margin="0,6" />
+                                    <TextBox Text="{Binding PreparedCommand, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AutomationProperties.Name="Prepared results command" />
+                                </StackPanel>
+                            </Expander>
                             <StackPanel DataContext="{Binding SelectedExecution}">
                                 <TextBlock x:Name="RunExecutionSummary" Text="{Binding Summary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                                 <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" />
@@ -237,7 +257,7 @@
                                     </StackPanel>
                                 </Expander>
                             </StackPanel>
-                            <TextBlock Text="Data is saved as compressed MessagePack in the producing project's data folder. Matching data is reused. Source projects must be executed before their data can be loaded."
+                            <TextBlock Text="Preparation and parameter files are compressed MessagePack. Copy the entire project folder, including data, preparations and runParameters. Prepared results need no source project folders. Matching saved data is reused on retry."
                                        TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>

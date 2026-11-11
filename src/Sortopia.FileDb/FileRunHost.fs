@@ -7,7 +7,7 @@ open Sortopia.Runs
 open Sortopia.Functions
 open Sortopia.Workspaces
 
-module private HostStorage =
+module internal HostStorage =
     let require = function Ok value -> value | Error message -> invalidOp message
     let unavailableDatabase reason = {
         new IRunDatabase with
@@ -50,6 +50,36 @@ type FileRunDatabase(store: ISortopiaDb, projectId: Guid<projectId>, databaseNam
             let value, reused = store.GetOrCreate(key, make, token) |> HostStorage.require
             saved.Add { Reference = value.Reference; Reused = reused }
 
+/// Results execution needs only a project folder, a frozen configuration and exact
+/// setup references. It deliberately has no workspace or upstream-project access.
+module FileResultsHost =
+    let create folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
+        let definition = FunctionCatalogs.requireResults config.FunctionName
+        if config.FunctionVersion <> definition.Version then
+            invalidOp $"Results function '{config.FunctionName}' requires version {config.FunctionVersion}; installed version is {definition.Version}."
+        FunctionConfiguration.validateOutputs definition config.DataTypes
+        FunctionParameters.validate definition.RequiredParameters parameters
+        let store = SortopiaFileDb(folder, projectId) :> ISortopiaDb
+        let find dataType =
+            if not (List.contains dataType definition.SourceDataTypes) then
+                invalidArg "dataType" "The results function does not declare this setup input."
+            match outputs |> List.filter (fun output -> output.Reference.DataType = dataType) with
+            | [output] when output.Reference.ProjectId = projectId && output.Reference.IsSetup -> output.Reference
+            | _ -> invalidOp $"The setup batch must provide exactly one project-local '{dataType}' input."
+        let dependencies = definition.SourceDataTypes |> List.map find |> Set.ofList
+        let setup = {
+            new IRunDatabase with
+                member _.Reference dataType = token.ThrowIfCancellationRequested(); find dataType
+                member _.Load dataType = (store.Load(find dataType, token) |> HostStorage.require).Value
+                member _.SaveIfMissing(_, _, _) = invalidOp "The setup database is read-only during results execution."
+                member _.StoredOutputs = outputs }
+        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token
+          SetupDb = setup
+          ResultsDb = FileRunDatabase(store, projectId, string config.DatabaseName, false, string config.FunctionName,
+                                     config.FunctionVersion, config.DataTypes, parameters,
+                                     (fun reference -> Set.contains reference dependencies), token)
+          SourceResults = HostStorage.noSources }
+
 type private SourceResults(workspace, root, entries: setupDataTypeConfig list, token: CancellationToken) =
     let loaded = Collections.Generic.Dictionary<storedDataReference, storedData>()
     member _.Allows reference = loaded.ContainsKey reference
@@ -80,19 +110,6 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
     let store = SortopiaFileDb(folder, parent.Id) :> ISortopiaDb
     let writer database isSetup name version outputs parameters allowed =
         FileRunDatabase(store, parent.Id, database, isSetup, name, version, outputs, parameters, allowed, token) :> IRunDatabase
-    let readSetup (required: sortopiaDataType list) (outputs: storedOutput list) =
-        let references = outputs |> List.map (fun output -> output.Reference)
-        let find dataType =
-            if not (List.contains dataType required) then invalidArg "dataType" "The results function does not declare this setup input."
-            match references |> List.filter (fun reference -> reference.DataType = dataType && reference.ProjectId = parent.Id && reference.IsSetup) with
-            | [reference] -> reference
-            | _ -> invalidOp $"The setup batch must provide exactly one '{dataType}' input."
-        required |> List.iter (find >> ignore)
-        { new IRunDatabase with
-            member _.Reference dataType = token.ThrowIfCancellationRequested(); find dataType
-            member _.Load dataType = (store.Load(find dataType, token) |> HostStorage.require).Value
-            member _.SaveIfMissing(_, _, _) = invalidOp "The setup database is read-only during results execution."
-            member _.StoredOutputs = outputs }
     member _.Run = value
     member _.ProjectFolder = folder
     member _.CancellationToken = token
@@ -108,15 +125,7 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
               ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
               SourceResults = sources }
     member _.ForResults(parameters, setupOutputs) =
-        let required = FunctionCatalogs.resultsFunctionCatalog[value.ResultsFunctionName].SourceDataTypes
-        let setup = readSetup required setupOutputs
-        let dependencies = required |> List.map setup.Reference |> Set.ofList
-        let outputs = value.ResultsDataTypes |> List.map (fun entry -> entry.DataType, entry.QueryParameterKeys) |> Map.ofList
-        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token
-          SetupDb = setup
-          ResultsDb = writer (string value.ResultsDatabaseName) false (string value.ResultsFunctionName) parent.Snapshot.Results.FunctionVersion
-                             outputs parameters (fun reference -> Set.contains reference dependencies)
-          SourceResults = HostStorage.noSources }
+        FileResultsHost.create folder parent.Id parent.Snapshot.Results parameters setupOutputs token
     interface IRunHostFactory with
         member this.Run = this.Run
         member this.CancellationToken = this.CancellationToken

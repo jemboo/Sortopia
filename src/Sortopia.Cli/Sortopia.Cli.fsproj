@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sortopia</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="Program.fs" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sortopia.FileDb/Sortopia.FileDb.fsproj" />
+    <ProjectReference Include="../Sortopia.Workspaces.Persistence/Sortopia.Workspaces.Persistence.fsproj" />
+  </ItemGroup>
+</Project>

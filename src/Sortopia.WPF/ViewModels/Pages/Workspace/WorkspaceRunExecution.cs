@@ -48,8 +48,8 @@ public sealed partial class WorkspacePageViewModel
     }
     private bool CanExecuteRun => CanEdit && ExecuteHint.Length == 0;
     public string ExecutionInstructions => (Selected?.IsBranch == true
-        ? "Prepare all setup sets, then process every results set for each setup output. Matching saved data is reused. "
-        : "Process every generated parameter set, reusing matching saved data. ")
+        ? "Prepare runs setup locally and creates one work item for each setup × results pairing. Execute prepared results reads those saved inputs. "
+        : "Prepare creates one work item for every generated results parameter set. Execute prepared results reads those saved inputs. ")
         + "Cancel operation stops at database operations and between function calls.";
 
     public Task ExecuteRunAsync()
@@ -72,9 +72,21 @@ public sealed partial class WorkspacePageViewModel
             }));
             try
             {
-                var report = await Task.Run(() => FileRunExecution.execute(definition, folder, value, progress, token));
+                Guid? preparationId = null;
+                var report = await Task.Run(() =>
+                {
+                    var prepared = PreparedRunExecution.prepare(definition, folder, value, progress, token);
+                    if (prepared.Preparation is null) return prepared.Execution;
+                    preparationId = prepared.Preparation.Value.Id;
+                    var projectFolder = WorkspaceData.projectFolder(definition, folder, value.ParentProjectId);
+                    var results = PreparedRunExecution.executePreparation(projectFolder, prepared.Preparation.Value.Id, progress, token);
+                    return new runExecutionReport(results.Status, prepared.Execution.Setup, results.Results, results.Error);
+                });
                 acceptingProgress = false;
                 state.Finish(report);
+                RefreshPreparations();
+                if (preparationId is { } preparedId)
+                    SelectedPreparation = Preparations.FirstOrDefault(item => item.Id == preparedId);
                 Status = $"Run '{value.RunName}': {state.Summary}";
                 Error = report.Error;
             }
@@ -120,11 +132,11 @@ public sealed class WorkspaceRunExecution : ViewModelBase
     public IReadOnlyList<WorkspaceExecutionRow> Rows { get; private set; } = [];
     public string RowsHint { get; private set; } = "";
 
-    internal void Begin()
+    internal void Begin(string summary = "Preparing and executing…")
     {
         HasAttempt = IsRunning = true;
         Report = null; Rows = []; RowsHint = ""; Percent = 0; total = 0;
-        Summary = "Executing…"; Detail = "Generating parameter sets…";
+        Summary = summary; Detail = "Generating parameter sets…";
         OnPropertyChanged("");
     }
     internal void Update(runExecutionProgress progress)
@@ -150,5 +162,15 @@ public sealed class WorkspaceRunExecution : ViewModelBase
                 $"{(output.Reused ? "Reused" : "Saved")} {output.Reference.DataType}: {output.Reference.Id}")))).ToArray();
         RowsHint = count > 100 ? $"Showing the first 100 of {count:N0} processed parameter sets." : $"{count:N0} processed parameter sets.";
         OnPropertyChanged("");
+    }
+
+    internal void FinishPreparation(runPreparationReport report)
+    {
+        Finish(report.Execution);
+        if (report.Preparation is { } ready)
+        {
+            Summary = $"Prepared · {ready.Value.WorkItemIds.Length:N0} results work items ready. Results have not been executed.";
+            OnPropertyChanged("");
+        }
     }
 }

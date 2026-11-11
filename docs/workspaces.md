@@ -93,13 +93,47 @@ The wrappers verify that the function saved exactly its declared types and label
 
 ### Execute a run
 
-Save the workspace, select a run, and choose **Execute** in its Execution section. Execution uses the saved run's fixed project defaults and local spans, expanding all parameter sets (not just the first 50 shown in the preview). Unsaved changes, input errors, missing saved components, and unknown catalog names disable Execute with an explanation.
+Save the workspace, select a run, and choose **Prepare for execution** in its Execution section. Preparation uses the saved run's fixed project defaults and local spans, expanding all parameter sets (not just the first 50 shown in the preview). It runs setup locally and saves immutable results work items; it does not execute results. Unsaved changes, input errors, missing saved components, and unknown catalog names disable preparation with an explanation.
 
 Root runs process each results parameter set. Branch runs first prepare every setup parameter set. Source-dependent outputs resolve projects with `workspace.FindProject` and load their saved results; pure generators need no source project. After all setup sets succeed, each setup output batch is paired with every results parameter set: 2 setup sets × 3 results sets means 2 setup sets followed by 6 results sets. Both phases reuse each saved output independently, including partial cache hits, without invoking that output's generator. A setup failure prevents all results processing; any other failure stops remaining work and identifies the function and parameter set.
 
 Execution runs off the UI thread and disables editing and duplicate execution. **Cancel operation** is checked between function calls, during database operations, and between mutant-evaluation chunks. Other synchronous computation finishes before the next cancellation check. Progress counts processed parameter sets. The Execution section retains the last attempt for each run while the workspace is open, including completed setup/results sets and their stored output references, even after a failure or cancellation. The expandable output summary shows the first 100 sets, with data types, saved/reused indicators and data IDs. Executing again replaces that run's displayed report.
 
-Execute uses `FileRunExecution.execute` in `Sortopia.FileDb`, which creates the `FileRunHost` and calls `RunExecution.execute`. Published data remains available after closing the app, for subsequent runs and downstream projects. Run definitions are unchanged. Callers of the shared execution loop supply an `IRunHostFactory`; the catalogs and execution loop have no filesystem dependency.
+Choose a **Saved preparation**, then **Execute prepared results** to execute those exact inputs locally. Preparations are listed again when the workspace reopens. **Prepare and execute locally** performs both steps. The UI also provides **Open project folder** and a selectable command line. Editing a run does not change its existing preparations; prepare again to use the new spans. Save edits before using the execution controls.
+
+The UI uses `PreparedRunExecution.prepare` and `executePreparation` in `Sortopia.FileDb`. The local preparation host resolves source projects; `FileResultsHost` uses only a project folder, frozen results configuration, typed parameters and exact local setup references. The original `FileRunExecution.execute`/`RunExecution.execute` APIs remain available to callers who need immediate execution. Catalog functions still return `unit` and save through the host. Published data remains available after closing the app, for subsequent runs and downstream projects. Run definitions are unchanged.
+
+### Copy a prepared project and execute from the command line
+
+Copy the **entire project folder**, preserving its IDs and relative layout. A prepared project contains:
+
+```text
+<Project>/
+  <project-id>.msgpack
+  runs/<run-id>.msgpack
+  preparations/<preparation-id>.msgpack
+  runParameters/<work-item-id>.msgpack
+  data/setup/<query-id>/<data-id>.msgpack
+  data/results/<query-id>/<data-id>.msgpack
+  executions/<receipt-id>.msgpack
+```
+
+Preparation writes one `runParameters` file per results invocation. A branch run has one for every setup × results pairing. Files contain the complete typed results parameter set, fixed function name/version, database and output contracts, project/run IDs, set numbers, and exact setup input references. Shared setup data is stored once. No absolute paths or live parent settings are needed. Upstream source IDs in data provenance are not runtime dependencies: preparation materializes the consumed setup data inside the consumer project.
+
+Work-item IDs hash the complete invocation, including all typed values and exact setup references. They are distinct from the data IDs derived from per-output query projections. Preparing identical inputs reuses parameter files and setup data. Metadata uses versioned, checksummed MessagePack with LZ4 block-array compression and a 64 MiB bound. Files are published atomically; the preparation manifest is published last. A cancelled/failed preparation may leave reusable data and parameter files, but they cannot execute unless a completed manifest includes them.
+
+The `Sortopia.Cli` project targets plain .NET 10, with no WPF dependency or new packages. Build it with `dotnet build src/Sortopia.Cli/Sortopia.Cli.fsproj`. Deploy its complete output (or `dotnet publish` output for the destination platform), with a compatible .NET 10 runtime. Use the same catalog function versions on both machines. The executable is named `sortopia`; `dotnet sortopia.dll` also works.
+
+```text
+sortopia prepare --workspace <workspace-folder> --run <run-id>
+sortopia list-preparations --project <copied-project-folder>
+sortopia execute-results --project <copied-project-folder> --preparation <preparation-id>
+sortopia execute-results --project <copied-project-folder> --parameters <work-item-id>
+```
+
+`--parameters` also accepts a path to a file in that project's `runParameters` folder. `--preparation` runs all of a batch's work items sequentially. `execute-results` never runs setup or looks up the workspace/source projects. It checks the selected work files, installed function contracts/versions, and all required setup payloads before writing any results. Each attempted invocation receives a separate receipt with its work-item/preparation IDs, status and outputs. Retry safely reuses published outputs; receipts never modify the parameter files. Cancellation is cooperative. Exit codes are 0 for success, 1 for failure, 2 for invalid command syntax, and 130 for cancellation.
+
+This first workflow executes sequentially. The existing project-wide data writer lock serializes generation when multiple processes share the same project directory; distributed scheduling and merging outputs from independent project copies are not implemented. Copying for execution preserves IDs. The UI's **import** operation intentionally assigns new IDs and is not the way to deploy a prepared project.
 
 ### File-based data storage
 

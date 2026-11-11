@@ -2193,13 +2193,19 @@ public sealed class RandomNetworkTests
             }
             Layout();
             var button = (Button)page.FindName("ExecuteRunButton");
+            var prepareButton = (Button)page.FindName("PrepareRunButton");
+            var preparedButton = (Button)page.FindName("ExecutePreparedRunButton");
             Assert.False(button.IsEnabled);
+            Assert.False(prepareButton.IsEnabled);
+            Assert.False(preparedButton.IsEnabled);
             CompleteRun(vm.SaveWorkspaceAsync);
             WorkspaceRunExecutionTests.SelectRun(vm);
             CompleteRun(() => WorkspaceRunExecutionTests.ExecuteSourceAsync(vm));
             Layout();
             Assert.True(button.IsEnabled);
             Assert.Same(vm.ExecuteRunCommand, button.Command);
+            Assert.Same(vm.PrepareRunCommand, prepareButton.Command);
+            Assert.Same(vm.ExecutePreparedRunCommand, preparedButton.Command);
             CompleteRun(async () =>
             {
                 button.Command.Execute(null);
@@ -2215,6 +2221,10 @@ public sealed class RandomNetworkTests
             Assert.False(vm.HasUnsavedChanges);
             Layout();
             Assert.Contains("2 setup, 6 results", ((TextBlock)page.FindName("RunExecutionSummary")).Text);
+            Assert.True(preparedButton.IsEnabled);
+            var choices = (ComboBox)page.FindName("PreparedRunsInput");
+            Assert.Single(choices.Items.Cast<object>());
+            Assert.Same(vm.SelectedPreparation, choices.SelectedItem);
             var outputs = (Expander)page.FindName("RunOutputsExpander");
             Assert.Equal(Visibility.Visible, outputs.Visibility);
             Assert.Equal(((SolidColorBrush)page.FindResource("Workspace.TextPrimary")).Color, ((SolidColorBrush)outputs.Foreground).Color);
