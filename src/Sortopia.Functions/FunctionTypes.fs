@@ -74,6 +74,9 @@ type functionDefinition<'executor> = {
     SourceDataTypes: sortopiaDataType list
     /// Exact input types contributing to each output's stable identity.
     OutputDependencies: Map<sortopiaDataType, sortopiaDataType list>
+    /// Validate the supplied values, including relationships between keys.
+    /// Missing keys are allowed here so module/project defaults can be checked too.
+    InputError: parameterBinding list -> parameterSpan list -> string
     Execute: 'executor
 }
 with
@@ -125,6 +128,20 @@ module FunctionParameters =
         parameters.TryFind key
         |> Option.defaultWith (fun () -> invalidArg "parameters" $"Missing or incorrectly typed parameter: {key.Name}.")
 
+module FunctionValidation =
+    let require error = if error <> "" then invalidArg "parameters" error
+
+    let validateDefaults (definition: functionDefinition<'executor>) defaults =
+        definition.InputError defaults [] |> require
+
+    let validateInputs (definition: functionDefinition<'executor>) queryKeys defaults spans =
+        FunctionParameters.validateInputs definition.RequiredParameters queryKeys defaults spans
+        definition.InputError defaults spans |> require
+
+    let validate (definition: functionDefinition<'executor>) (parameters: parameterSet) =
+        FunctionParameters.validate definition.RequiredParameters parameters
+        parameters.ParamMap |> Map.toList |> List.map snd |> validateDefaults definition
+
 module FunctionDefinition =
     let private saved types (database: IRunDatabase) =
         let expected = types |> Map.toList |> List.map fst |> List.sort
@@ -156,18 +173,26 @@ module FunctionDefinition =
             inputs |> List.iter SortopiaDataType.validate
         dependencies, (entries |> List.collect snd |> List.distinct |> List.sort)
 
-    let resultsWithInputs version required inputs dataTypes (execute: resultsFunction) : functionDefinition<resultsFunction> =
+    let private resultsWithValidation version required inputs dataTypes inputError (execute: resultsFunction) : functionDefinition<resultsFunction> =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types inputs
         { Version = version; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+          InputError = inputError
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
               host.CancellationToken.ThrowIfCancellationRequested()
               FunctionParameters.validate required host.Parameters
+              inputError (host.Parameters.ParamMap |> Map.toList |> List.map snd) [] |> FunctionValidation.require
               execute host
               saved types host.ResultsDb }
 
+    let resultsWithInputs version required inputs dataTypes execute =
+        resultsWithValidation version required inputs dataTypes (fun _ _ -> "") execute
+
     let results version required dataTypes execute = resultsWithInputs version required (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) dataTypes execute
+
+    let resultsValidated version required dataTypes inputError execute =
+        resultsWithValidation version required (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) dataTypes inputError execute
 
     let setupWithSources version required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
         let types = contract version required dataTypes
@@ -175,6 +200,7 @@ module FunctionDefinition =
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
         { Version = version; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+          InputError = fun _ _ -> ""
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
               host.CancellationToken.ThrowIfCancellationRequested()

@@ -43,6 +43,9 @@ internal static class WorkspaceParameterInitialValues
             "CollectSortableTests" => "false",
             "SortableDataFormat" => "Bools",
             "SimpleSorterModelType" => "Mssi",
+            "SorterModelType" => "Simple",
+            "AMax" => "1",
+            "ActivationProbability" => "0.5",
             "RngType" => "SplitMix64",
             "SorterEvalType" => "V1",
             _ => ForType(key, channels)

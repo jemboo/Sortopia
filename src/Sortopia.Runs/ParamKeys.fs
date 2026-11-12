@@ -115,6 +115,7 @@ module ParamKeys =
     let setupSorterSetEvalIdKey = ParamKey.guid "SetupSorterSetEvalId"
     let setupSorterSetIdKey = ParamKey.guid "SetupSorterSetId"
     let simpleSorterModelTypeKey = ParamKey.text "SimpleSorterModelType"
+    let sorterModelTypeKey = ParamKey.text "SorterModelType"
     let sortableCountKey = ParamKey.integer "SortableCount"
     let sortableDataFormatKey = ParamKey.text "SortableDataFormat"
     let sortedFractionKey = ParamKey.floating "SortedFraction"
@@ -199,6 +200,7 @@ module ParamKeys =
         ParamKey.describe setupSorterSetEvalIdKey
         ParamKey.describe setupSorterSetIdKey
         ParamKey.describe simpleSorterModelTypeKey
+        ParamKey.describe sorterModelTypeKey
         ParamKey.describe sortableCountKey
         ParamKey.describe sortableDataFormatKey
         ParamKey.describe sortedFractionKey

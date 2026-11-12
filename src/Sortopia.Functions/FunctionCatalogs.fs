@@ -12,6 +12,7 @@ module FunctionCatalogs =
             ResultsFunctionNames.sorterEval, ResultsFunctions.evaluateSorters
             ResultsFunctionNames.standardSortableTests, ResultsFunctions.standardSortableTests
             ResultsFunctionNames.uniformSorterModels, ResultsFunctions.uniformSorterModels
+            ResultsFunctionNames.prefixSorterModels, ResultsFunctions.prefixSorterModels
             ResultsFunctionNames.standardEvaluationInputs, ResultsFunctions.standardEvaluationInputs
             ResultsFunctionNames.mutantEval, ResultsFunctions.evaluateMutants
         ]

@@ -33,6 +33,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     [InlineData("RngType", "SplitMix64", "NET")]
     [InlineData("SortableDataFormat", "Bools", "BoolArray")]
     [InlineData("SimpleSorterModelType", "Mssi", "unknown")]
+    [InlineData("SorterModelType", "SimpleR", "MssiR")]
     [InlineData("SorterEvalType", "V2", "V4")]
     [InlineData("MergeSuffixType", "NoSuffix", "unknown")]
     public void Named_choices_use_the_domain_contract_and_validate_unknown_values(string key, string valid, string invalid)
@@ -50,6 +51,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     [InlineData("SorterCount", "0", "1")]
     [InlineData("StageLength", "-1", "0")]
     [InlineData("Repl", "-1", "0")]
+    [InlineData("AMax", "-1", "0")]
     public void Numeric_keys_enforce_their_own_limits_without_replacing_invalid_text(string key, string invalid, string valid)
     {
         var row = Span(key, invalid); var value = row.Values.Single();

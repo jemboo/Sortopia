@@ -61,13 +61,13 @@ module RunExecution =
             for i = 0 to sets.Results.Length - 1 do
                 context <- $"Validating results set {i + 1} · {value.ResultsFunctionName}"
                 cancellation.ThrowIfCancellationRequested()
-                FunctionParameters.validate resultsFunction.RequiredParameters sets.Results[i]
+                FunctionValidation.validate resultsFunction sets.Results[i]
             match setupFunction, sets.Setup with
             | Some definition, Some parameters ->
                 for i = 0 to parameters.Length - 1 do
                     context <- $"Validating setup set {i + 1} · {value.SetupFunctionName.Value}"
                     cancellation.ThrowIfCancellationRequested()
-                    FunctionParameters.validate definition.RequiredParameters parameters[i]
+                    FunctionValidation.validate definition parameters[i]
             | _ -> ()
             let setupCount = sets.Setup |> Option.map Array.length |> Option.defaultValue 0
             let resultsCount = int64 sets.Results.Length * (if setupFunction.IsSome then int64 setupCount else 1L)

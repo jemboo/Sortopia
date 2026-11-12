@@ -1,4 +1,5 @@
 using Sortopia.Functions;
+using Microsoft.FSharp.Collections;
 using Sortopia.Runs;
 using Sortopia.Workspaces.Serialization;
 
@@ -6,6 +7,30 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed partial class WorkspaceConfigurationViewModel
 {
+    private string FunctionInputsError(bool setup, bool includeSpans)
+    {
+        if (!PhaseVersionCurrent(setup)) return "";
+        var validate = setup
+            ? FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.InputError : null
+            : FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.InputError : null;
+        if (validate is null) return "";
+        try
+        {
+            var bindings = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
+            var inputs = (includeSpans ? ActiveParameters(setup) : []).ToArray();
+            if (DefaultsError(bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0)) return "";
+            var defaults = ListModule.OfSeq(bindings.Select(ParameterBindingDto.toDomain));
+            var spans = ListModule.OfSeq(inputs.Select(span =>
+                ParameterSpan.fromTexts(span.Key, span.ValueType, ListModule.OfSeq(span.Values.Select(value => value.Text)))));
+            return validate.Invoke(defaults).Invoke(spans);
+        }
+        catch (ArgumentException error) { return error.Message; }
+    }
+
+    public string ResultsInputGuidance => ResultsFunctionName == ResultsFunctionNames.prefixSorterModels
+        ? "SorterModelType selects Simple, SimpleR, or SimpleS; SimpleSorterModelType selects the underlying algorithm. AMax controls SimpleR's bounded activators; ActivationProbability controls SimpleS's active fraction. These controls are unused by the other model types. Unknown cannot generate models. Channel count comes from PrefixLibId. StageLength controls the random suffix capacity; the fixed prefix is always added. Repl selects a reproducible batch of SorterCount models. Every algorithm/prefix combination must be compatible."
+        : "";
+    public bool HasResultsInputGuidance => ResultsInputGuidance.Length > 0;
     public bool HasResultsContract => FunctionCatalogs.resultsFunctionCatalog.ContainsKey(ResultsFunctionName);
     public bool HasSetupContract => FunctionCatalogs.setupFunctionCatalog.ContainsKey(SetupFunctionName);
     public bool SetupGeneratesAllOutputs => FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;

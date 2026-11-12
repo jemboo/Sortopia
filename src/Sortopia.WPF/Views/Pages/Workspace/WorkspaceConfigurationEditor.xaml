@@ -243,6 +243,7 @@
         <Expander x:Name="ResultsDefaultsSection" Header="Results parameter defaults" Tag="{Binding ResultsParameterDefaultsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsDefaults, Mode=TwoWay}">
         <StackPanel Margin="4,6,0,0">
         <TextBlock Text="{Binding ResultsRequirementsHint}" Style="{StaticResource Help}" />
+        <TextBlock Text="{Binding ResultsInputGuidance}" Style="{StaticResource Help}" Visibility="{Binding HasResultsInputGuidance, Converter={StaticResource VisibleWhen}}" />
         <StackPanel Visibility="{Binding IsModule, Converter={StaticResource VisibleWhen}}" Margin="0,0,0,8">
             <Button x:Name="AddRequiredResultsDefaultsButton" Content="Add missing required defaults" Command="{Binding AddRequiredResultsDefaultsCommand}" HorizontalAlignment="Left" AutomationProperties.Name="Add missing required results defaults" />
             <TextBlock Text="{Binding RequiredResultsDefaultsHint}" Style="{StaticResource Help}" />
@@ -268,6 +269,7 @@
             <Expander x:Name="ResultsSpansSection" Header="Results parameter spans" Tag="{Binding ResultsParametersError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsSpans, Mode=TwoWay}">
             <StackPanel Margin="4,6,0,0">
             <ContentControl x:Name="ResultsRequiredInputsSummary" Content="{Binding ResultsRequiredInputs}" ContentTemplate="{StaticResource RequiredInputs}" />
+            <TextBlock Text="{Binding ResultsInputGuidance}" Style="{StaticResource Help}" Visibility="{Binding HasResultsInputGuidance, Converter={StaticResource VisibleWhen}}" />
             <TextBlock Text="{Binding ResultsProjectionNotice}" Style="{StaticResource InlineError}" Margin="0,0,0,8" />
             <TextBlock Text="Enter spans only for required parameters that have no default. Then choose each output's query projection below." Style="{StaticResource Help}" />
             <TextBlock Text="{Binding RetainedResultsSpansHint}" Style="{StaticResource Help}" />

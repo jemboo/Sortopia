@@ -386,7 +386,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         var outside = required is null ? null : values.FirstOrDefault(value => !required.Any(key => key.Name == value.keyName));
         return localError.Length > 0 ? localError : outside is not null
             ? $"Parameter ‘{outside.keyName}’ is not required by function ‘{(setup ? SetupFunctionName : ResultsFunctionName)}’. Remove its local default or choose a required key."
-            : DefaultsError(values);
+            : FirstError(DefaultsError(values), FunctionInputsError(setup, false));
     }
     public string ResultsParameterDefaultsError => ParameterDefaultsError(false);
     public string SetupParameterDefaultsError => ParameterDefaultsError(true);
@@ -504,8 +504,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         var required = Requirements(setup)?.Select(key => key.Name) ?? QueryKeys(setup).Concat(defaults.Select(value => value.keyName)).Concat(rows.Select(row => row.Key));
         return rows.Where(row => row.Error.Length > 0).Select(row => $"Parameter ‘{(string.IsNullOrWhiteSpace(row.Key) ? "unnamed" : row.Key)}’: {row.Error}").FirstOrDefault()
             ?? (rows.Select(row => row.Key).Distinct(StringComparer.Ordinal).Count() != rows.Length ? "Parameter keys must be unique."
-            : ParameterSets.inputKeysError(ListModule.OfSeq(required), ListModule.OfArray(QueryKeys(setup)),
-                ListModule.OfSeq(defaults.Select(value => value.keyName)), ListModule.OfSeq(rows.Select(row => row.Key))));
+            : FirstError(ParameterSets.inputKeysError(ListModule.OfSeq(required), ListModule.OfArray(QueryKeys(setup)),
+                ListModule.OfSeq(defaults.Select(value => value.keyName)), ListModule.OfSeq(rows.Select(row => row.Key))), FunctionInputsError(setup, true)));
     }
     private string QueryContractError(bool setup, string[] keys)
     {

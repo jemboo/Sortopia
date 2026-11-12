@@ -69,14 +69,14 @@ module RunParameterExecution =
             if resultsCount = 0L || resultsCount > int64 Array.MaxLength then invalidOp "The run must generate a nonempty, supported number of results work items. Reduce the parameter spans if the product is too large."
             for parameters in sets.Results do
                 token.ThrowIfCancellationRequested()
-                FunctionParameters.validate resultsDefinition.RequiredParameters parameters
+                FunctionValidation.validate resultsDefinition parameters
             match value, sets.Setup with
             | run.BranchRun branch, Some parameters ->
                 let definition = FunctionCatalogs.requireSetup branch.SetupFunctionName
                 FunctionConfiguration.validateSetup true branch.ProjectConfiguration.Setup
                 for set in parameters do
                     token.ThrowIfCancellationRequested()
-                    FunctionParameters.validate definition.RequiredParameters set
+                    FunctionValidation.validate definition set
                 let sources = branch.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType definition.SourceDataTypes)
                 for i = 0 to parameters.Length - 1 do
                     token.ThrowIfCancellationRequested()

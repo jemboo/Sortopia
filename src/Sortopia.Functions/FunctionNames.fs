@@ -9,6 +9,7 @@ module ResultsFunctionNames =
     let sorterEval : string<resultsFunctionName> = UMX.tag "sorter-eval.evaluate"
     let standardSortableTests : string<resultsFunctionName> = UMX.tag "sortable-tests.standard"
     let uniformSorterModels : string<resultsFunctionName> = UMX.tag "sorter-model-set.uniform"
+    let prefixSorterModels : string<resultsFunctionName> = UMX.tag "sorter-model-set.prefix"
     let standardEvaluationInputs : string<resultsFunctionName> = UMX.tag "sorter-eval-inputs.standard"
     let mutantEval : string<resultsFunctionName> = UMX.tag "sorter-mutants.evaluate"
 

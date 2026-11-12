@@ -30,11 +30,20 @@ module SimpleSorterModelType =
 
     /// Match the channel-count constraints of the uniform model generators.
     let supportsChannelCount channelCount model =
+        let powerOfTwo value = value > 0 && (value &&& (value - 1)) = 0
         match model with
         | Msce -> channelCount >= 1
-        | Mssi | Msrs -> channelCount >= 2
-        | Msuf4 -> channelCount > 0 && (channelCount &&& (channelCount - 1)) = 0
-        | Msuf6 -> channelCount >= 6 && channelCount % 2 = 0
+        | Mssi -> channelCount >= 2
+        | Msrs -> channelCount >= 2 && channelCount % 2 = 0
+        | Msuf4 -> channelCount >= 4 && powerOfTwo channelCount
+        | Msuf6 -> channelCount >= 6 && channelCount % 6 = 0 && powerOfTwo (channelCount / 6)
+
+    let channelCountRequirement = function
+        | Msce -> "at least one channel"
+        | Mssi -> "at least two channels"
+        | Msrs -> "an even channel count of at least two"
+        | Msuf4 -> "a power-of-two channel count of at least four"
+        | Msuf6 -> "six times a power of two channels (6, 12, 24, 48, ...)"
 
     let withMsuf4 () : simpleSorterModelType list =
         [ Msce; Mssi; Msrs; Msuf4 ]
@@ -51,6 +60,17 @@ type sorterModelType =
 
 
 module SorterModelType =
+
+    /// The outer model case is selected independently of the underlying algorithm.
+    let caseNames = [ "Simple"; "SimpleR"; "SimpleS"; "Unknown" ]
+
+    let fromCaseName name simpleType : sorterModelType =
+        match name with
+        | "Simple" -> Simple simpleType
+        | "SimpleR" -> SimpleR simpleType
+        | "SimpleS" -> SimpleS simpleType
+        | "Unknown" -> Unknown
+        | _ -> invalidArg "SorterModelType" "Choose Simple, SimpleR, SimpleS, or Unknown."
 
     let toString (model:sorterModelType) : string =
         match model with

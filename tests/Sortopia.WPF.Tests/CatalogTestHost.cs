@@ -29,7 +29,8 @@ internal sealed class CatalogTestHost(run? value = null, CancellationToken token
             if (contract is null) throw new InvalidOperationException("Read-only database.");
             if (saved.Any(output => Equals(output.Reference.DataType, type))) throw new InvalidOperationException("Output already saved.");
             var keys = contract[type];
-            var key = DataKey.create(owner.projectId, setup ? "Setup" : "Results", setup, name, "1", type, keys, parameters, dependencies);
+            var version = setup ? FunctionCatalogs.requireSetup(name).Version : FunctionCatalogs.requireResults(name).Version;
+            var key = DataKey.create(owner.projectId, setup ? "Setup" : "Results", setup, name, version, type, keys, parameters, dependencies);
             var reused = owner.data.ContainsKey(key.Reference);
             if (!reused)
             {

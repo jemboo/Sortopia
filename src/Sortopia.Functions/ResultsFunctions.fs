@@ -35,6 +35,11 @@ module ResultsFunctions =
     let uniformSorterModels =
         generator "1" modelsType InputGenerators.modelKeys InputGenerators.uniformModels
 
+    let prefixSorterModels =
+        FunctionDefinition.resultsValidated "2" InputGenerators.prefixModelKeys
+            [modelsType, InputGenerators.queryKeys InputGenerators.prefixModelKeys] InputGenerators.prefixModelInputError
+            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> InputGenerators.prefixModels host.Parameters))
+
     let standardEvaluationInputs =
         FunctionDefinition.results "1"
             (InputGenerators.standardKeys @ InputGenerators.modelKeys |> List.distinctBy (fun key -> key.Name))

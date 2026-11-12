@@ -55,7 +55,7 @@ module FileResultsHost =
         if config.FunctionVersion <> definition.Version then
             invalidOp $"Results function '{config.FunctionName}' requires version {config.FunctionVersion}; installed version is {definition.Version}."
         FunctionConfiguration.validateOutputs definition config.DataTypes
-        FunctionParameters.validate definition.RequiredParameters parameters
+        FunctionValidation.validate definition parameters
         if inputs |> List.exists (fun reference -> reference.ProjectId <> projectId || not reference.IsSetup) then
             invalidArg "inputs" "Results inputs must be project-local setup references."
         OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
