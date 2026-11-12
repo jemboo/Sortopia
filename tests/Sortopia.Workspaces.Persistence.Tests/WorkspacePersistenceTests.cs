@@ -23,9 +23,9 @@ public sealed class WorkspacePersistenceTests : IDisposable
             description = "Persistence fixture", resultsDatabaseName = "Results",
             resultsFunctionName = "sortable-tests.standard", resultsFunctionVersion = "1",
             resultsDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }],
-            resultsParameterDefaults = defaults,
+            resultsParameterDefaults = [],
             setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : "",
-            setupFunctionVersion = branch ? "1" : "", setupParameterDefaults = branch ? defaults : [],
+            setupFunctionVersion = branch ? "1" : "", setupParameterDefaults = [],
             setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }] : []
         };
         var parent = project.create(Guid.NewGuid(), "Search", "search", SettingsDto.toDomain(kind, settings), []);

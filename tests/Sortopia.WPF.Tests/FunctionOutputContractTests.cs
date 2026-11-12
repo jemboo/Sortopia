@@ -66,11 +66,11 @@ public sealed class FunctionOutputContractTests : IDisposable
         dto.resultsDataTypes[0].dataType.value = "";
         dto.resultsDataTypes[0].queryParameterKeys = [];
         edited = (projectConfiguration.RootProjectConfig)SettingsDto.toDomain(hierarchyKind.Root, dto);
-        Assert.Contains("keys", Assert.Throws<ArgumentException>(() => FunctionConfiguration.validateResults(edited.Item.Results)).Message);
+        FunctionConfiguration.validateResults(edited.Item.Results);
     }
 
     [Fact]
-    public void Module_contracts_flow_to_descendants_and_keep_output_labels_and_keys_read_only()
+    public void Module_contracts_keep_output_labels_fixed_and_project_query_keys_editable()
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
         module.Editor!.LoadProject(Combined(true));
@@ -87,10 +87,10 @@ public sealed class FunctionOutputContractTests : IDisposable
             Assert.Same(module.Editor, node.Editor.OutputTypesOverride.InheritedSource);
             Assert.Same(module.Editor, node.Editor.SetupDataTypesOverride.InheritedSource);
         }
-        var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "Repl", true, "1", "2");
-        Assert.Contains("SortableDataFormat", span.KeyChoices);
+        var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "1", "2");
+        Assert.DoesNotContain("SortableDataFormat", span.KeyChoices);
         Assert.DoesNotContain("CollectSortableTests", span.KeyChoices);
-        run.Editor!.UseSetupDefaultsAsSpansCommand.Execute(null);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         Assert.Equal(2, run.Editor!.SetupParameterSetsPreview.Rows.Count());
         module.Editor.SetupFunctionName = SetupFunctionNames.standardTests;
         Assert.Contains("SorterModelSet", run.Editor.FunctionCompatibilityError);

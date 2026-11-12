@@ -47,16 +47,16 @@ public sealed class FunctionParameterContractTests
         Assert.Equal(ResultsFunctionNames.mergeSortableTests, run.Editor.ResultsFunctionName);
         Assert.Equal(SetupFunctionNames.standardTests, run.Editor.SetupFunctionName);
 
-        var results = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor, "SortableDataFormat", false, "Bools");
-        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor, "ChannelCount", true, "8");
-        Assert.Equal(new[] { "MergeLibId", "SortableDataFormat" }, results.KeyChoices);
-        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, setup.KeyChoices);
+        var results = WorkspaceParameterSetsPreviewTests.AddSpan(run, "SortableDataFormat", false, "Bools");
+        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", true, "8");
+        Assert.Equal(new[] { "SortableDataFormat" }, results.KeyChoices);
+        Assert.Equal(new[] { "ChannelCount" }, setup.KeyChoices);
         Assert.True(results.HasRestrictedKeys);
         results.Key = "ChannelCount";
         Assert.Contains("not required", results.Error);
         Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows);
         results.Key = "SortableDataFormat";
-        run.Editor.UseResultsDefaultsAsSpansCommand.Execute(null);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false);
         Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows);
 
         var extra = WorkspaceParameterInheritanceTests.AddDefault(project.Editor, "Repl", "1");

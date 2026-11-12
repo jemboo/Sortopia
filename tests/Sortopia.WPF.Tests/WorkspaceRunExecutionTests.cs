@@ -26,15 +26,15 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         if (branch)
         {
             // Complete the first run while constructing the rest of this workspace.
-            run.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null);
-            run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false);
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
             page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null);
             page.Selected!.Name = "Source module";
             page.Selected.Editor!.LoadProject(RunExecutionTests.Settings(false));
             page.AddProjectCommand.Execute(null);
             var source = page.Selected!; source.Name = "Source";
             page.AddRunCommand.Execute(null);
-            page.Selected!.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null);
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false);
             configuration.setupDataTypes = [new() { dataType = configuration.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }];
             run.Parent!.Editor!.LoadProject(configuration);
             page.Selected = run;
@@ -47,8 +47,20 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     {
         foreach (var node in page.Roots.SelectMany(root => root.DescendantsAndSelf()).Where(node => node.IsRun))
         {
-            node.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null);
-            node.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+            var editor = node.Editor!;
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(node, false);
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(node, true);
+            foreach (var setup in new[] { false, true }) {
+                if (setup && !node.IsBranch || setup && !editor.HasSetupContract || !setup && !editor.HasResultsContract) continue;
+                var required = setup ? FunctionCatalogs.requireSetup(editor.SetupFunctionName).RequiredParameters : FunctionCatalogs.requireResults(editor.ResultsFunctionName).RequiredParameters;
+                var spans = setup ? editor.SetupParameters : editor.ResultsParameters;
+                var defaults = setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults;
+                foreach (var key in required.Where(key => !spans.Any(span => span.Key == key.Name) && !defaults.Any(value => value.Key == key.Name))) {
+                    var source = node.Parent!.Children.Where(sibling => !ReferenceEquals(sibling, node)).SelectMany(sibling => setup ? sibling.Editor!.SetupParameters : sibling.Editor!.ResultsParameters).FirstOrDefault(span => span.Key == key.Name);
+                    if (source is not null) WorkspaceParameterSetsPreviewTests.AddSpan(node, key.Name, setup, source.Values.Take(1).Select(value => value.Text).ToArray());
+                }
+            }
+            foreach (var key in editor.ResultsQueryOutputs.Concat(editor.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
         }
     }
     internal static async Task ExecuteSourceAsync(WorkspacePageViewModel page)
@@ -68,8 +80,8 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     public async Task Execution_persists_outputs_without_changing_saved_definitions(bool branch)
     {
         var page = Create(temporary.FullName, branch);
-        WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!.Editor!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
-        if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected.Editor!, "SortableDataFormat", true, "Bools", "Bools");
+        WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
+        if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "SortableDataFormat", true, "Bools", "Bools");
         SupplyQuerySpans(page);
         Assert.False(page.ExecuteRunCommand.CanExecute(null));
         Assert.Contains("Save", page.ExecuteHint);
@@ -112,6 +124,8 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         Assert.False(page.ExecuteRunCommand.CanExecute(null));
         await page.ExecuteRunAsync();
         Assert.Same(state.Report, page.SelectedExecution!.Report);
+        await page.RefreshRunParameterFilesAsync(); await reopened.RefreshRunParameterFilesAsync();
+        page.Cancel(); reopened.Cancel();
     }
 
     [Fact]
@@ -170,6 +184,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         reopened.Selected = reopened.Selected.Parent;
         await reopened.RefreshRunParameterFilesAsync();
         Assert.Empty(reopened.ResultsExecution.Runs);
+        page.Cancel(); reopened.Cancel();
     }
     public void Dispose() => temporary.Delete(recursive: true);
 }

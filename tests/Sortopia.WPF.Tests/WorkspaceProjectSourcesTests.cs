@@ -16,21 +16,12 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static parameterBindingDto Binding(string key, string value, parameterValueType type = parameterValueType.Integer) => new() { keyName = key, value = value, valueType = (int)type };
     private static projectSettingsDto Settings() => WorkspaceHierarchyTests.ProjectSettings(true);
-    private static project Project(string name, projectSettingsDto settings) => project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
-    private static runDto Inputs(project parent) => new()
-    {
-        schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = "branch",
-        resultsParameterSpans = RunExecutionTests.QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults),
-        setupParameterSpans = parent is project.BranchProject b ? RunExecutionTests.QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults) : []
-    };
-    private static project WithRun(project parent) => project.withRuns(parent, [RunDto.toDomain(parent, Inputs(parent))]);
     private static project Source(bool seal = true)
     {
         var settings = Settings();
         settings.resultsDatabaseName = "Upstream results";
 
-        var parent = Project("Source", settings);
-        return seal ? WithRun(parent) : parent;
+        return RunExecutionTests.MakeProject("Source", true, settings, seal: seal);
     }
     private static project Consumer(project source, bool seal = true)
     {
@@ -40,8 +31,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         settings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools"),
             RunExecutionTests.Binding("PrefixLibId", Sortopia.Sorting.Catalog.PrefixLibId.toString(Sortopia.Sorting.Catalog.PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1)), parameterValueType.PrefixLibId)];
         settings.setupDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, sourceProjectId = source.Id, queryParameterKeys = [] }];
-        var parent = Project("Consumer", settings);
-        return seal ? WithRun(parent) : parent;
+        return RunExecutionTests.MakeProject("Consumer", true, settings, seal: seal);
     }
     private static workspace Workspace(params project[] projects) => workspace.create(Guid.NewGuid(), "Research", "Workspace",
         [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Library", "Library", [], projects)]);

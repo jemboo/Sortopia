@@ -15,6 +15,7 @@ type rootModuleOverrides = {
     Description: string option
     ResultsFunctionName: string<resultsFunctionName> option
     ResultsParameterDefaults: parameterBinding list option
+    ExcludedResultsDefaults: string<paramKeyName> list
 }
 
 type branchModuleConfig = {
@@ -34,9 +35,11 @@ type branchModuleOverrides = {
     Description: string option
     ResultsFunctionName: string<resultsFunctionName> option
     ResultsParameterDefaults: parameterBinding list option
+    ExcludedResultsDefaults: string<paramKeyName> list
     SetupFunctionName: string<setupFunctionName> option
     SetupSources: setupSourceConfig list option
     SetupParameterDefaults: parameterBinding list option
+    ExcludedSetupDefaults: string<paramKeyName> list
 }
 
 type moduleConfiguration = RootModuleConfig of rootModuleConfig | BranchModuleConfig of branchModuleConfig
@@ -60,10 +63,13 @@ module ModuleDefaults =
         Description = value.Description
         ResultsFunctionName = None
         ResultsParameterDefaults = value.ResultsParameterDefaults
+        ExcludedResultsDefaults = value.ExcludedResultsDefaults
     }
     let toRootOverrides (value: rootModuleOverrides) : rootDefaultOverrides = {
         Description = value.Description
         ResultsParameterDefaults = value.ResultsParameterDefaults
+        ExcludedResultsDefaults = value.ExcludedResultsDefaults
+        ResultsQueries = None
         ResultsDatabaseName = None
     }
     let root = fromRootProject Defaults.root
@@ -100,16 +106,22 @@ module ModuleDefaults =
         Description = value.Description
         ResultsFunctionName = None
         ResultsParameterDefaults = value.ResultsParameterDefaults
+        ExcludedResultsDefaults = value.ExcludedResultsDefaults
         SetupFunctionName = None
         SetupSources = value.SetupSources
         SetupParameterDefaults = value.SetupParameterDefaults
+        ExcludedSetupDefaults = value.ExcludedSetupDefaults
     }
     let toBranchOverrides (value: branchModuleOverrides) : branchDefaultOverrides = {
         Description = value.Description
         ResultsParameterDefaults = value.ResultsParameterDefaults
+        ExcludedResultsDefaults = value.ExcludedResultsDefaults
         SetupSources = value.SetupSources
         SetupParameterDefaults = value.SetupParameterDefaults
+        ExcludedSetupDefaults = value.ExcludedSetupDefaults
+        ResultsQueries = None
         ResultsDatabaseName = None
+        SetupQueries = None
         SetupDatabaseName = None
     }
     let branch = fromBranchProject Defaults.branch

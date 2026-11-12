@@ -64,10 +64,11 @@ type IRunHostFactory =
     abstract ForSetup: parameterSet -> runHost
     abstract ForResults: parameterSet * storedOutput list -> runHost
 
-/// Required inputs are independent of each saved output's query projection.
+/// Required inputs are independent of the project's chosen query projections.
 type functionDefinition<'executor> = {
     Version: string
     RequiredParameters: paramKeyDescriptor list
+    /// Catalog metadata: parameters contributing to each output, not fixed query keys.
     DataTypes: Map<sortopiaDataType, string<paramKeyName> list>
     /// Setup: outputs read from source projects. Results: inputs consumed from setup.
     SourceDataTypes: sortopiaDataType list
@@ -115,6 +116,7 @@ module FunctionParameters =
             if binding.ValueType <> descriptor.ValueType then invalidArg "parameterDefaults" $"Parameter '{binding.KeyName}' must have type {ParameterValue.label descriptor.ValueType}."
         for span in spans do
             let descriptor = required |> List.find (fun key -> key.Name = span.KeyName)
+            if span.ValueType <> descriptor.ValueType then invalidArg "parameterSpans" $"Parameter '{span.KeyName}' must have type {ParameterValue.label descriptor.ValueType}."
             for text in span.Values do
                 let error = ParameterValue.validationError descriptor.ValueType text
                 if error <> "" then invalidArg "parameterSpans" $"Parameter '{span.KeyName}': {error}"
@@ -140,9 +142,9 @@ module FunctionDefinition =
         if (Set.ofList kinds).Count <> kinds.Length then invalidArg "dataTypes" "Current executors support one output of each data kind."
         for dataType, keys in entries do
             SortopiaDataType.validate dataType
-            if (List.distinct keys).Length <> keys.Length then invalidArg "dataTypes" "Each output's query parameter keys must be unique."
+            if (List.distinct keys).Length <> keys.Length then invalidArg "dataTypes" "Each output's contributing parameter keys must be unique."
             for key in keys do
-                if not (List.contains key names) then invalidArg "dataTypes" $"Query key '{key}' is not a declared required parameter."
+                if not (List.contains key names) then invalidArg "dataTypes" $"Output parameter '{key}' is not a declared required parameter."
         types
 
     let private dependencies types entries =

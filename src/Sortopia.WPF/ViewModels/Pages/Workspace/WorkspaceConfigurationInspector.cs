@@ -31,11 +31,13 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!IsModule) yield return Field("resultsDatabase", "Results", ResultsDatabaseOverride);
         if (!IsModule && IsBranch) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
         if (!ShowFunctionConfiguration) yield break;
-        yield return List("resultsTypes", "Results", OutputTypesOverride, Types(EffectiveOutputs), FirstError(OutputTypesError, ResultsQueryKeysError));
+        yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
+            : Summary(EffectiveResultsDataTypes.Select(output => $"{output.dataType.kind} · query keys: {(output.queryParameterKeys.Length == 0 ? "none" : string.Join(", ", output.queryParameterKeys))}")), FirstError(OutputTypesError, ResultsQueryKeysError))
+            with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : CanEditQuerySelection ? "Project query choices" : "Fixed · sealed project" };
         yield return Defaults(false);
         if (IsRun)
         {
-            yield return new("resultsSpans", "Results", "Parameter spans", Spans(ActiveResultsParameters), "Local run inputs", ResultsParametersError);
+            yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
             yield return new("resultsPreview", "Results", "Generated parameter sets", ResultsParameterSetsPreview.Summary, "Preview", ResultsParameterSetsPreview.Error);
         }
         if (!IsBranch) yield break;
@@ -46,7 +48,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         yield return Defaults(true);
         if (IsRun)
         {
-            yield return new("setupSpans", "Setup", "Parameter spans", Spans(ActiveSetupParameters), "Local run inputs", SetupParametersError);
+            yield return new("setupSpans", "Setup", "Required parameters and spans", Spans(ActiveSetupParameters), SetupRequiredInputs.Summary, SetupParametersError);
             yield return new("setupPreview", "Setup", "Generated parameter sets", SetupParameterSetsPreview.Summary, "Preview", SetupParameterSetsPreview.Error);
         }
     }

@@ -125,6 +125,8 @@ module ProjectConfiguration =
         outputs "resultsSortopiaDataTypes" value.ResultsSortopiaDataTypes
         for entry in value.Results.Outputs do keys "resultsQueryParameterKeys" entry.QueryParameterKeys
         ParameterBinding.validateUnique value.ResultsParameterDefaults
+        let conflict = ParameterSets.overlapError (value.ResultsParameterDefaults |> List.map _.KeyName) value.ResultsQueryParameterKeys
+        if conflict <> "" then invalidArg "resultsQueryParameterKeys" ("Results query keys require spans. " + conflict)
     let validateBranch (value: branchProjectConfig) =
         if isNull (box value) then nullArg "configuration"
         if isNull (box value.Setup) then nullArg "setup"
@@ -139,6 +141,8 @@ module ProjectConfiguration =
         for entry in value.SetupDataTypes do
             keys "setupQueryParameterKeys" entry.QueryParameterKeys
         ParameterBinding.validateUnique value.SetupParameterDefaults
+        let conflict = ParameterSets.overlapError (value.SetupParameterDefaults |> List.map _.KeyName) (value.SetupDataTypes |> List.collect _.QueryParameterKeys)
+        if conflict <> "" then invalidArg "setupQueryParameterKeys" ("Setup query keys require spans. " + conflict)
 
 module private RunConfiguration =
     let identity (id: Guid<runId>) (projectName: string<projectName>) (runName: string<runName>) =

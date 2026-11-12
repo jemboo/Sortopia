@@ -96,9 +96,9 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     {
         var page = Open(true); var run = page.Selected!;
         run.Parent!.Parent!.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
-        var results = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "ChannelCount", false, "8");
-        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", true, "3");
-        Assert.Contains("SorterEvalType", results.KeyChoices); Assert.DoesNotContain("StageLength", results.KeyChoices);
+        var results = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", false, "8");
+        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", true, "3");
+        Assert.DoesNotContain("SorterEvalType", results.KeyChoices); Assert.DoesNotContain("StageLength", results.KeyChoices);
         Assert.Contains("StageLength", setup.KeyChoices); Assert.DoesNotContain("SorterEvalType", setup.KeyChoices);
         Assert.Equal(parameterValueType.Integer, results.ValueType); Assert.Equal(parameterValueType.Integer, setup.ValueType);
     }
@@ -109,9 +109,9 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     public async Task Invalid_choices_block_save_and_preview_then_round_trip_after_correction(bool setup)
     {
         var page = Open(setup); var editor = page.Selected!.Editor!;
-        editor.UseResultsDefaultsAsSpansCommand.Execute(null); if (setup) editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); if (setup) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
         (setup ? editor.SetupParameters : editor.ResultsParameters).Single(row => row.Key == "RngType").RemoveCommand.Execute(null);
-        var row = WorkspaceParameterSetsPreviewTests.AddSpan(editor, "RngType", setup, "invalid");
+        var row = WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "RngType", setup, "invalid");
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Contains("RngType", page.SaveHint);
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         row.Values[0].Text = "SplitMix64";

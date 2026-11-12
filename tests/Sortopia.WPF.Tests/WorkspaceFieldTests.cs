@@ -26,8 +26,8 @@ public sealed class WorkspaceFieldTests : IDisposable
     private static WorkspaceTreeNode CreateRun(WorkspacePageViewModel page)
     {
         page.AddRunCommand.Execute(null);
-        var run = page.Selected!; run.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null);
-        if (run.IsBranch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        var run = page.Selected!; WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false);
+        if (run.IsBranch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         return run;
     }
     [Theory] [InlineData(false)] [InlineData(true)]

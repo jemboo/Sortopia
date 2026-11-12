@@ -73,7 +73,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         var local = WorkspaceParameterInheritanceTests.AddDefault(project.Editor!, "StageLength", "5", setup);
         page.AddRunCommand.Execute(null); var run = page.Selected!;
-        var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", setup, "2", "3");
+        var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", setup, "2", "3");
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         void Change(bool standard)
         {
@@ -85,7 +85,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         Assert.DoesNotContain(setup ? run.Editor!.ActiveSetupParameters : run.Editor!.ActiveResultsParameters, row => row.Key == "StageLength");
         Assert.Contains("editing session", setup ? run.Editor.RetainedSetupSpansHint : run.Editor.RetainedResultsSpansHint);
         Change(false);
-        Assert.Contains(local, setup ? project.Editor.LocalSetupParameterDefaults : project.Editor.LocalResultsParameterDefaults);
+        Assert.DoesNotContain(local, setup ? project.Editor.LocalSetupParameterDefaults : project.Editor.LocalResultsParameterDefaults);
         Assert.Contains(span, setup ? run.Editor.ActiveSetupParameters : run.Editor.ActiveResultsParameters);
         Assert.Equal("5", local.Value.Text);
         Assert.Equal(new[] { "2", "3" }, span.Values.Select(value => value.Text));

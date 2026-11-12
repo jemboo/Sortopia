@@ -36,7 +36,7 @@ public sealed class LibraryParameterTests
         Assert.Same(merge, parameters.TryFind(ParamKeys.mergeLibIdKey).Value);
         Assert.Null(parameters.TryFind(ParamKey.text("MergeLibId")));
         var spans = ListModule.OfArray(new[] { ParameterSpan.create(ParamKeys.mergeLibIdKey, ListModule.OfArray(new[] { merge, mergeLibId.create(16, 4, sorterLibVariant.VariantB) })) });
-        var sets = ParameterSets.create(ListModule.OfArray(bindings), spans);
+        var sets = ParameterSets.create(ListModule.OfSeq(bindings.Where(binding => binding.KeyName != "MergeLibId")), spans);
         Assert.Equal(2, sets.Length);
         Assert.Equal(2, sets[0].TryFind(ParamKeys.mergeLibIdKey).Value.MergeDimension);
         Assert.Equal(4, sets[1].TryFind(ParamKeys.mergeLibIdKey).Value.MergeDimension);
@@ -135,8 +135,8 @@ public sealed class LibraryParameterTests
             local.Key = "MergeLibId"; Assert.Equal(parameterValueType.MergeLibId, local.ValueType);
             local.Value.LibraryId.SelectedCatalogId = MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(id => id.MergeDimension == 2));
             Assert.Empty(local.Error); if (!onProject) page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
-            var run = page.Selected!; run.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
-            Assert.True(run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values[0].IsLibraryId);
+            var run = page.Selected!; WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
+            Assert.True(run.Editor!.ResultsParameters.Single(row => row.Key == "MergeLibId").Values[0].IsLibraryId);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
             var savedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Modules[0].Projects[0].Runs[0];
             Assert.IsType<parameterValue.MergeLibIdValue>(RunParameterSets.create(savedRun).Results[0].TryFind("MergeLibId").Value.Value);

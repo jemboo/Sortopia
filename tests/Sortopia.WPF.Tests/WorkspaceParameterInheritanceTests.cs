@@ -128,7 +128,6 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         page.AddRunCommand.Execute(null); var run = page.Selected!;
         Assert.Same(ancestor.Editor, run.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Source.InheritedSource);
         Assert.Same(module.Editor, run.Editor.InheritedOutputDefaults.Single(row => row.Key == "StageLength").Source.InheritedSource);
-        run.Editor.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         ancestor = page.Roots[0].Children[0].Children[0].Children[0]; module = ancestor.Children[0]; parent = module.Children[0]; run = parent.Children[0];
         Assert.True(parent.IsSealed); ancestor.Editor!.ResultsParameterDefaults.Single().Value.Text = "24";

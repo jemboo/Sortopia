@@ -37,7 +37,7 @@ public sealed record WorkspaceParameterSetsPreview(
         try
         {
             var bindings = ListModule.OfSeq(defaults.Select(ParameterBindingDto.toDomain));
-            var candidates = ListModule.OfSeq(inputs.Select(span => ParameterSpan.create(ParamKey.text(span.Key), ListModule.OfSeq(span.Values.Select(value => value.Text)))));
+            var candidates = ListModule.OfSeq(inputs.Select(span => ParameterSpan.fromTexts(span.Key, span.ValueType, ListModule.OfSeq(span.Values.Select(value => value.Text)))));
             var sets = ParameterSets.preview(MaximumRows, bindings, candidates);
             var varied = inputs.Select(span => span.Key).ToHashSet(StringComparer.Ordinal);
             var columns = sets[0].ParamMap.Values.Select(binding => new WorkspaceParameterSetColumn(binding.KeyName,

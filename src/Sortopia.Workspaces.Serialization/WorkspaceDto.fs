@@ -8,7 +8,7 @@ open Sortopia.Workspaces
 open Sortopia.Core.Serialization
 
 [<CLIMutable>]
-type parameterSpanDto = { keyName: string; values: string array }
+type parameterSpanDto = { keyName: string; values: string array; valueType: Nullable<int> }
 [<CLIMutable>]
 type sortopiaDataTypeDto = { kind: string; value: string }
 [<CLIMutable>]
@@ -19,21 +19,27 @@ type setupDataTypeConfigDto = { dataType: sortopiaDataTypeDto; sourceProjectId: 
 type setupSourceConfigDto = { dataType: sortopiaDataTypeDto; sourceProjectId: Guid }
 [<CLIMutable>]
 type projectOverridesDto = {
+    resultsQueries: resultsDataTypeConfigDto array
+    setupQueries: resultsDataTypeConfigDto array
     description: string
     resultsDatabaseName: string
     resultsParameterDefaults: parameterBindingDto array
+    excludedResultsDefaults: string array
     setupDatabaseName: string
     setupSources: setupSourceConfigDto array
     setupParameterDefaults: parameterBindingDto array
+    excludedSetupDefaults: string array
 }
 [<CLIMutable>]
 type moduleOverridesDto = {
     description: string
     resultsFunctionName: string
     resultsParameterDefaults: parameterBindingDto array
+    excludedResultsDefaults: string array
     setupFunctionName: string
     setupSources: setupSourceConfigDto array
     setupParameterDefaults: parameterBindingDto array
+    excludedSetupDefaults: string array
 }
 [<CLIMutable>]
 type projectSettingsDto = {
@@ -102,8 +108,9 @@ module private Contract =
         if isNull value then invalidArg name "Required collection is missing."
         value
     let spanTo (value: parameterSpanDto) =
-        ParameterSpan.create (ParamKey.text value.keyName) (array "values" value.values |> Array.toList)
-    let spanFrom (value: parameterSpan) = { keyName = UMX.untag value.KeyName; values = List.toArray value.Values }
+        let kind = if value.valueType.HasValue then enum<parameterValueType> value.valueType.Value else ParamKeys.valueType (UMX.tag value.keyName)
+        ParameterSpan.fromTexts (UMX.tag value.keyName) kind (array "values" value.values |> Array.toList)
+    let spanFrom (value: parameterSpan) = { keyName = UMX.untag value.KeyName; values = List.toArray value.Values; valueType = Nullable(int value.ValueType) }
     let depth value =
         if value > 64 then invalidArg "hierarchy" "Workspace nesting must not exceed 64 levels."
 
@@ -224,32 +231,44 @@ module OverridesDto =
         | RootOverrides value ->
             { description = Option.toObj value.Description
               resultsDatabaseName = value.ResultsDatabaseName |> Option.map UMX.untag |> Option.toObj
+              excludedResultsDefaults = value.ExcludedResultsDefaults |> List.map UMX.untag |> List.toArray
+              resultsQueries = value.ResultsQueries |> Option.map (List.map ResultsDataTypeConfigDto.fromDomain >> List.toArray) |> Option.toObj
               resultsParameterDefaults = value.ResultsParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj
-              setupDatabaseName = null; setupSources = null; setupParameterDefaults = null }
+              setupDatabaseName = null; setupSources = null; setupParameterDefaults = null; excludedSetupDefaults = [||]; setupQueries = null }
         | BranchOverrides value ->
             { description = Option.toObj value.Description
               resultsDatabaseName = value.ResultsDatabaseName |> Option.map UMX.untag |> Option.toObj
+              excludedResultsDefaults = value.ExcludedResultsDefaults |> List.map UMX.untag |> List.toArray
+              resultsQueries = value.ResultsQueries |> Option.map (List.map ResultsDataTypeConfigDto.fromDomain >> List.toArray) |> Option.toObj
               resultsParameterDefaults = value.ResultsParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj
               setupDatabaseName = value.SetupDatabaseName |> Option.map UMX.untag |> Option.toObj
               setupSources = value.SetupSources |> Option.map (List.map SetupSourceConfigDto.fromDomain >> List.toArray) |> Option.toObj
+              excludedSetupDefaults = value.ExcludedSetupDefaults |> List.map UMX.untag |> List.toArray
+              setupQueries = value.SetupQueries |> Option.map (List.map ResultsDataTypeConfigDto.fromDomain >> List.toArray) |> Option.toObj
               setupParameterDefaults = value.SetupParameterDefaults |> Option.map (List.map ParameterBindingDto.fromDomain >> List.toArray) |> Option.toObj }
     let toDomain kind (value: projectOverridesDto) =
         if isNull (box value) then nullArg "localOverrides"
         match kind with
         | hierarchyKind.Root ->
-            if not (isNull value.setupDatabaseName) || not (isNull value.setupSources) || not (isNull value.setupParameterDefaults) then
+            if not (isNull value.setupQueries) || (not (isNull value.excludedSetupDefaults) && value.excludedSetupDefaults.Length > 0) || not (isNull value.setupDatabaseName) || not (isNull value.setupSources) || not (isNull value.setupParameterDefaults) then
                 invalidArg "localOverrides" "Root defaults cannot have setup settings."
             RootOverrides {
                 Description = Option.ofObj value.description
                 ResultsDatabaseName = Option.ofObj value.resultsDatabaseName |> Option.map UMX.tag<resultsDatabaseName>
+                ExcludedResultsDefaults = (if isNull value.excludedResultsDefaults then [||] else value.excludedResultsDefaults) |> Array.map UMX.tag |> Array.toList
+                ResultsQueries = Option.ofObj value.resultsQueries |> Option.map (Array.map ResultsDataTypeConfigDto.toDomain >> Array.toList)
                 ResultsParameterDefaults = Option.ofObj value.resultsParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList) }
         | hierarchyKind.Branch ->
             BranchOverrides {
                 Description = Option.ofObj value.description
                 ResultsDatabaseName = Option.ofObj value.resultsDatabaseName |> Option.map UMX.tag<resultsDatabaseName>
+                ExcludedResultsDefaults = (if isNull value.excludedResultsDefaults then [||] else value.excludedResultsDefaults) |> Array.map UMX.tag |> Array.toList
+                ResultsQueries = Option.ofObj value.resultsQueries |> Option.map (Array.map ResultsDataTypeConfigDto.toDomain >> Array.toList)
                 ResultsParameterDefaults = Option.ofObj value.resultsParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList)
                 SetupDatabaseName = Option.ofObj value.setupDatabaseName |> Option.map UMX.tag<setupDatabaseName>
                 SetupSources = Option.ofObj value.setupSources |> Option.map (Array.map SetupSourceConfigDto.toDomain >> Array.toList)
+                ExcludedSetupDefaults = (if isNull value.excludedSetupDefaults then [||] else value.excludedSetupDefaults) |> Array.map UMX.tag |> Array.toList
+                SetupQueries = Option.ofObj value.setupQueries |> Option.map (Array.map ResultsDataTypeConfigDto.toDomain >> Array.toList)
                 SetupParameterDefaults = Option.ofObj value.setupParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList) }
         | _ -> invalidArg "kind" "Defaults must be root or branch."
 
@@ -286,9 +305,11 @@ module ModuleSettingsDto =
 module ModuleOverridesDto =
     let fromProjectOverrides (value: projectOverridesDto) : moduleOverridesDto = {
         description = value.description; resultsFunctionName = null; setupFunctionName = null
+        excludedResultsDefaults = value.excludedResultsDefaults; excludedSetupDefaults = value.excludedSetupDefaults
         resultsParameterDefaults = value.resultsParameterDefaults; setupSources = value.setupSources; setupParameterDefaults = value.setupParameterDefaults }
     let toProjectOverrides (value: moduleOverridesDto) : projectOverridesDto = {
-        description = value.description; resultsDatabaseName = null; setupDatabaseName = null
+        description = value.description; resultsDatabaseName = null; setupDatabaseName = null; resultsQueries = null; setupQueries = null
+        excludedResultsDefaults = value.excludedResultsDefaults; excludedSetupDefaults = value.excludedSetupDefaults
         resultsParameterDefaults = value.resultsParameterDefaults; setupSources = value.setupSources; setupParameterDefaults = value.setupParameterDefaults }
     let fromDomain value =
         let dto = value |> ModuleDefaults.toOverrides |> OverridesDto.fromDomain |> fromProjectOverrides

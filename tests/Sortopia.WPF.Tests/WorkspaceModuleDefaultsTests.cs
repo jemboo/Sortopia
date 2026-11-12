@@ -35,6 +35,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var parent = project.createInherited(Guid.NewGuid(), "P", "P", config, Defaults.inherited(branch), []);
         var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
         inputs.parentProjectId = parent.Id;
+        inputs.resultsParameterSpans = []; inputs.setupParameterSpans = [];
         parent = project.createInherited(parent.Id, parent.ProjectName, parent.FolderName, config, parent.LocalOverrides, [RunDto.toDomain(parent, inputs)]);
         var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", "Nested", ModuleDefaults.fromProject(config), ModuleDefaults.fromOverrides(Defaults.inherited(branch)), [], [parent]);
         var moduleLocal = ModuleOverridesDto.fromDomain(ModuleDefaults.fromOverrides(local));
@@ -73,8 +74,8 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         child.Editor!.Description = "Local description";
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;
-        run.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
-        Assert.Same(top.Editor, run.Editor.OutputTypesOverride.InheritedSource);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
+        Assert.Same(top.Editor, run.Editor!.OutputTypesOverride.InheritedSource);
         Assert.Same(child.Editor, run.Editor.DescriptionOverride.InheritedSource);
         Assert.False(project.Editor!.OutputTypesOverride.CanOverride);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);

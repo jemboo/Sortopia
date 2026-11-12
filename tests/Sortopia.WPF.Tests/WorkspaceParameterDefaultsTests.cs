@@ -50,11 +50,11 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Defaults_fill_each_combination_and_spans_replace_matching_values(bool branch)
+    public void Disjoint_inputs_fill_each_combination(bool branch)
     {
         var value = RunExecutionTests.MakeRun(branch, ModelSettings(branch), [Span("StageLength", "11", "13"), Span("ChannelCount", "4", "6", "8")]);
         var expanded = RunParameterSets.create(value); Assert.Equal(branch, expanded.Setup is not null);
-        Assert.Equal("3", value.ResultsParameterDefaults.Single(row => row.KeyName == "StageLength").FormattedValue);
+        Assert.DoesNotContain(value.ResultsParameterDefaults, row => row.KeyName == "StageLength");
         Assert.Equal(new[] { "11:4", "11:6", "11:8", "13:4", "13:6", "13:8" }, expanded.Results.Select(set => $"{set.TryFindText("StageLength").Value}:{set.TryFindText("ChannelCount").Value}"));
         Assert.All(expanded.Results, set => Assert.Equal("Mssi", set.TryFind(ParamKeys.simpleSorterModelTypeKey).Value));
         if (branch) Assert.Equal(16, Assert.Single(expanded.Setup!.Value).TryFind(ParamKeys.channelCountKey).Value);
@@ -81,7 +81,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
                 Default("SeedSoss", parameterValueType.Unsigned64, ulong.MaxValue.ToString(CultureInfo.InvariantCulture)),
                 Default("ActivationProbability", parameterValueType.Floating, "2.5e-1"), Default("SetupCompleted", parameterValueType.Boolean, "true"),
                 Default("Id", parameterValueType.Guid, id.ToString("B")), Default("Message", parameterValueType.Text, "")];
-            var value = Assert.Single(Expand(defaults, Span("Seed", "+007")));
+            var value = Assert.Single(Expand(defaults));
             Assert.Equal("7", value.TryFindText("Seed").Value);
             Assert.Equal(8, value.TryFind(ParamKeys.channelCountKey).Value);
             Assert.Equal(ulong.MaxValue, value.TryFind(ParamKeys.seedSossKey).Value);
@@ -89,7 +89,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
             Assert.True(value.TryFind(ParamKeys.setupCompletedKey).Value);
             Assert.Equal(id, value.TryFind(ParamKeys.idKey).Value);
             Assert.Equal("", value.TryFind(ParamKeys.messageKey).Value);
-            var sets = Expand(defaults, Span("ActivationProbability", "0.5", "1e-1"), Span("SetupCompleted", "false"), Span("Seed", "7"));
+            var sets = Expand(defaults.Where(binding => binding.keyName is not ("ActivationProbability" or "SetupCompleted")).ToArray(), Span("ActivationProbability", "0.5", "1e-1"), Span("SetupCompleted", "false"));
             Assert.Equal(new[] { "0.5", "0.1" }, sets.Select(set => set.TryFindText("ActivationProbability").Value));
             Assert.All(sets, set => Assert.Equal("False", set.TryFindText("SetupCompleted").Value));
         }
@@ -144,7 +144,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal(new[] { 10, 12, 14 }, expanded.Setup.Value.Select(set => set.TryFind(ParamKeys.replKey).Value));
         Assert.All(expanded.Results, set => Assert.Equal(8, set.TryFind(ParamKeys.channelCountKey).Value));
         Assert.All(expanded.Setup.Value, set => Assert.Equal(16, set.TryFind(ParamKeys.channelCountKey).Value));
-        var dto = ProjectDto.fromDomain(restored); dto.localOverrides.setupParameterDefaults[0].value = "invalid integer";
+        var dto = ProjectDto.fromDomain(restored); dto.runs[0].setupParameterSpans.Single(span => span.keyName == "Repl").values[0] = "invalid integer";
         Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeProject(MessagePackSetup.serialize(dto)));
     }
 
@@ -156,14 +156,14 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var page = Open(); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); var module = page.Selected!;
         module.Editor!.LoadProject(ModelSettings(branch)); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         page.AddProjectCommand.Execute(null); var parent = page.Selected!; page.AddRunCommand.Execute(null); var run = page.Selected!;
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Same(module.Editor, run.Editor!.ResultsParameterDefaultsOverride.InheritedSource);
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Same(module.Editor, run.Editor!.ResultsParameterDefaultsOverride.InheritedSource);
         parent.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").OverrideCommand!.Execute(null);
         parent.Editor.ResultsParameterDefaults.Single().Value.Text = "4";
         module.Editor.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "16";
         Assert.Equal("4", run.Editor.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
         parent.Editor.ResultsParameterDefaults.Single().RemoveCommand.Execute(null);
         Assert.Equal("16", run.Editor.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
-        run.Editor.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Projects[0];
         Assert.Equal(16, Assert.Single(Sets(saved.Runs[0])).TryFind(ParamKeys.channelCountKey).Value);
@@ -217,7 +217,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         row.Value.Text = "invalid RNG"; Assert.True(row.Value.HasChoices); Assert.NotEmpty(row.Error); Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         row.Value.Text = "SplitMix64"; Assert.Empty(row.Error);
         page.Selected = project; page.AddRunCommand.Execute(null); var editor = page.Selected!.Editor!;
-        editor.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var sets = RunParameterSets.create(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0]);
         Assert.Equal("SplitMix64", Assert.Single(setup ? sets.Setup.Value : sets.Results).TryFind(ParamKeys.rngTypeKey).Value);

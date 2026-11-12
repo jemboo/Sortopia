@@ -44,13 +44,31 @@ public sealed class RunExecutionTests
     internal static run MakeRun(bool branch, projectSettingsDto? settings = null, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
         var id = Guid.NewGuid();
-        var parent = project.create(id, "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings ?? Settings(branch)), []);
+        settings = SettingsDto.fromDomain(SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings ?? Settings(branch)));
+        var definition = FunctionCatalogs.requireResults(settings.resultsFunctionName);
+        settings.resultsDataTypes = definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.ToArray() }).ToArray();
+        results = QuerySpans(settings.resultsDataTypes.SelectMany(output => output.queryParameterKeys), settings.resultsParameterDefaults.Select(ParameterBindingDto.toDomain), results);
+        settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
+        if (branch) {
+            var setupDefinition = FunctionCatalogs.requireSetup(settings.setupFunctionName);
+            settings.setupDataTypes = setupDefinition.DataTypes.Select(entry => new setupDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.ToArray(), sourceProjectId = settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.sourceProjectId ?? Guid.Empty }).ToArray();
+            setup = QuerySpans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
+            settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
+        }
+        var parent = project.create(id, "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
         return RunDto.toDomain(parent, new runDto
         {
             schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
             resultsParameterSpans = QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults, results),
             setupParameterSpans = parent is project.BranchProject b ? QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
         });
+    }
+    internal static project MakeProject(string name, bool branch, projectSettingsDto settings, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null, bool seal = true)
+    {
+        var value = MakeRun(branch, settings, results, setup);
+        var config = value is run.RootRun root ? projectConfiguration.NewRootProjectConfig(root.Item.ProjectConfiguration) : projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration);
+        var parent = project.create(value.ParentProjectId, name, name, config, []);
+        return seal ? project.withRuns(parent, [RunDto.toDomain(parent, RunDto.fromDomain(value))]) : parent;
     }
     private sealed class Progress(Action<runExecutionProgress> action) : IProgress<runExecutionProgress>
     { public void Report(runExecutionProgress value) => action(value); }

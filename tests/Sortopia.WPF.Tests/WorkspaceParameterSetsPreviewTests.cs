@@ -20,8 +20,31 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         settings.Save(Root);
         return new(() => { }, _ => null, settings);
     }
-    internal static WorkspaceParameterSpan AddSpan(WorkspaceConfigurationViewModel editor, string key, bool setup, params string[] values)
+    // Test-fixture setup only: configure which inputs are spans before exercising the UI.
+    internal static void ConfigureExplicitInputs(WorkspaceTreeNode run, bool setup)
     {
+        if (setup && !run.IsBranch || run.Parent?.Editor is not { IsEditable: true }) return;
+        var editor = run.Editor!;
+        var values = (setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults).ToArray();
+        foreach (var value in values)
+            if (!(setup ? editor.SetupParameters : editor.ResultsParameters).Any(span => span.Key == value.Key))
+                AddSpan(run, value.Key, setup, value.Value);
+    }
+    internal static WorkspaceParameterSpan AddSpan(WorkspaceTreeNode run, string key, bool setup, params string[] values)
+    {
+        var editor = run.Editor!;
+        if (run.Parent?.Editor is { IsEditable: true } project)
+        {
+            var overrides = project.ToLocalOverrides();
+            if (setup) {
+                overrides.excludedSetupDefaults = (overrides.excludedSetupDefaults ?? []).Append(key).Distinct().ToArray();
+                overrides.setupParameterDefaults = overrides.setupParameterDefaults?.Where(value => value.keyName != key).ToArray();
+            } else {
+                overrides.excludedResultsDefaults = (overrides.excludedResultsDefaults ?? []).Append(key).Distinct().ToArray();
+                overrides.resultsParameterDefaults = overrides.resultsParameterDefaults?.Where(value => value.keyName != key).ToArray();
+            }
+            project.LoadOverrides(overrides);
+        }
         (setup ? editor.AddSetupParameterCommand : editor.AddResultsParameterCommand).Execute(null);
         var span = (setup ? editor.SetupParameters : editor.ResultsParameters).Last();
         span.Key = key;
@@ -51,11 +74,11 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         var page = Open();
         WorkspaceParameterInheritanceTests.Hierarchy(page, branch);
         var run = AddRun(page, branch);
-        AddSpan(run.Editor!, "StageLength", false, "1", "2");
-        AddSpan(run.Editor!, "ChannelCount", false, "+004", "8");
-        if (branch) AddSpan(run.Editor!, "StageLength", true, "3", "4", "5");
-        run.Editor!.UseResultsDefaultsAsSpansCommand.Execute(null); if (branch) run.Editor.UseSetupDefaultsAsSpansCommand.Execute(null);
-        var results = run.Editor.ResultsParameterSetsPreview;
+        AddSpan(run, "StageLength", false, "1", "2");
+        AddSpan(run, "ChannelCount", false, "+004", "8");
+        if (branch) AddSpan(run, "StageLength", true, "3", "4", "5");
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
+        var results = run.Editor!.ResultsParameterSetsPreview;
         Assert.Equal(new BigInteger(4), results.TotalCount);
         Assert.Equal(new[] { "1:4", "1:8", "2:4", "2:8" }, results.Rows.Select(row => $"{row.ParameterSet.TryFind(ParamKeys.stageLengthKey).Value}:{row.ParameterSet.TryFind(ParamKeys.channelCountKey).Value}"));
         Assert.All(results.Columns.Where(column => column.Key is "StageLength" or "ChannelCount"), column => { Assert.Equal("Integer", column.TypeLabel); Assert.Equal("run span", column.Source); });
@@ -80,7 +103,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
     public void Preview_refreshes_span_edits_and_preserves_explicit_values_after_default_changes()
     {
         var page = Open(); var (ancestor, _) = WorkspaceParameterInheritanceTests.Hierarchy(page, true);
-        var editor = AddRun(page, true).Editor!; editor.UseResultsDefaultsAsSpansCommand.Execute(null); editor.UseSetupDefaultsAsSpansCommand.Execute(null);
+        var run = AddRun(page, true); var editor = run.Editor!; WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         var original = editor.ResultsParameterSetsPreview; Assert.Same(original, editor.ResultsParameterSetsPreview);
         ancestor.Editor!.ResultsParameterDefaults.Single().Value.Text = "24";
         Assert.NotSame(original, editor.ResultsParameterSetsPreview);
@@ -88,19 +111,19 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         var span = editor.ResultsParameters.Single(row => row.Key == "ChannelCount"); span.Values[0].Text = "bad";
         Assert.NotEmpty(editor.ResultsParameterSetsPreview.Error); Assert.Empty(editor.ResultsParameterSetsPreview.Rows); Assert.True(editor.SetupParameterSetsPreview.HasRows);
         span.Values[0].Text = "12"; Assert.Equal(12, editor.ResultsParameterSetsPreview.Rows[0].ParameterSet.TryFind(ParamKeys.channelCountKey).Value);
-        var duplicate = AddSpan(editor, "ChannelCount", false, "16"); Assert.Contains("unique", editor.ResultsParameterSetsPreview.Error);
-        duplicate.RemoveCommand.Execute(null); span.RemoveCommand.Execute(null); Assert.Contains("explicit", editor.ResultsParameterSetsPreview.Error);
+        var duplicate = AddSpan(run, "ChannelCount", false, "16"); Assert.Contains("unique", editor.ResultsParameterSetsPreview.Error);
+        duplicate.RemoveCommand.Execute(null); span.RemoveCommand.Execute(null); Assert.Contains("Missing values", editor.ResultsParameterSetsPreview.Error);
     }
 
     [Fact]
-    public void Preview_requires_explicit_query_spans_even_when_defaults_exist()
+    public void Default_only_preview_is_valid_until_query_spans_are_selected()
     {
         var page = Open(); page.AddModuleCommand.Execute(null); var module = page.Selected!;
         module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
-        var editor = AddRun(page, false).Editor!;
-        Assert.Empty(editor.ResultsParameterSetsPreview.Rows);
-        Assert.Contains("ChannelCount", editor.ResultsParameterSetsPreview.Error);
-        editor.UseResultsDefaultsAsSpansCommand.Execute(null);
+        var run = AddRun(page, false); var editor = run.Editor!;
+        Assert.Single(editor.ResultsParameterSetsPreview.Rows);
+        Assert.Empty(editor.ResultsParameterSetsPreview.Error);
+        WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false);
         var set = Assert.Single(editor.ResultsParameterSetsPreview.Rows).ParameterSet;
         Assert.Equal(8, set.TryFind(ParamKeys.channelCountKey).Value);
         Assert.Equal("Bools", set.TryFind(ParamKeys.sortableDataFormatKey).Value);

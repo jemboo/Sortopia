@@ -111,7 +111,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         page.Selected!.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(false)); page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
         var editor = page.Selected!.Editor!;
-        WorkspaceParameterSetsPreviewTests.AddSpan(editor, "ChannelCount", false, "not an integer");
+        WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "ChannelCount", false, "not an integer");
         var issue = Assert.Single(page.SaveIssues);
         Assert.Equal("Results parameter spans", issue.Section);
         Assert.Contains("ChannelCount", issue.Message); Assert.Contains("Whole number", issue.Message, StringComparison.OrdinalIgnoreCase);

@@ -20,12 +20,12 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     internal static projectSettingsDto ProjectSettings(bool branch = false) => new()
     {
         description = "Keep every setting: α", resultsDatabaseName = "Results", resultsFunctionName = "sortable-tests.standard", resultsFunctionVersion = "1",
-        resultsDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }],
-        resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "" }], resultsQueryParameterKeys = ["ChannelCount", "SortableDataFormat"],
+        resultsDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = [] }],
+        resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "" }], resultsQueryParameterKeys = [],
         resultsParameterDefaults = [RunExecutionTests.Binding("ChannelCount", "8", parameterValueType.Integer), RunExecutionTests.Binding("SortableDataFormat", "Bools")],
         setupParameterDefaults = branch ? [RunExecutionTests.Binding("ChannelCount", "8", parameterValueType.Integer), RunExecutionTests.Binding("SortableDataFormat", "Bools")] : [],
         setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : "", setupFunctionVersion = branch ? "1" : "",
-        setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }] : []
+        setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = [] }] : []
     };
     internal static projectSettingsDto EditorSettings(bool branch)
     {
@@ -35,11 +35,23 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     }
     internal static project MakeProject(hierarchyKind kind, Guid id, string name, string folder, run[] runs)
     {
-        var parent = project.create(id, name, folder, ProjectDto.settingsToDomain(kind, ProjectSettings(kind == hierarchyKind.Branch)), []);
+        var settings = ProjectSettings(kind == hierarchyKind.Branch);
+        var resultKeys = runs.SelectMany(run => run.ResultsParameterSpans).Select(span => span.KeyName).ToHashSet();
+        var setupKeys = runs.SelectMany(run => run.SetupParameterSpans?.Value ?? Microsoft.FSharp.Collections.ListModule.Empty<parameterSpan>()).Select(span => span.KeyName).ToHashSet();
+        settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !resultKeys.Contains(binding.keyName)).ToArray();
+        settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setupKeys.Contains(binding.keyName)).ToArray();
+        foreach (var output in settings.resultsDataTypes) output.queryParameterKeys = resultKeys.ToArray();
+        foreach (var output in settings.setupDataTypes) output.queryParameterKeys = setupKeys.ToArray();
+        var parent = project.create(id, name, folder, ProjectDto.settingsToDomain(kind, settings), []);
         return project.withRuns(parent, runs.Select(value => { var dto = RunDto.fromDomain(value); dto.parentProjectId = id; return RunDto.toDomain(parent, dto); }).ToArray());
     }
-    internal static run FromRunDto(runDto value, string projectName = "Project") => RunDto.toDomain(
-        MakeProject(value.runKind == "branch" ? hierarchyKind.Branch : hierarchyKind.Root, value.parentProjectId, projectName, "project", []), value);
+    internal static run FromRunDto(runDto value, string projectName = "Project")
+    {
+        var settings = ProjectSettings(value.runKind == "branch");
+        settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !value.resultsParameterSpans.Any(span => span.keyName == binding.keyName)).ToArray();
+        settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !value.setupParameterSpans.Any(span => span.keyName == binding.keyName)).ToArray();
+        return RunDto.toDomain(project.create(value.parentProjectId, projectName, "project", SettingsDto.toDomain(value.runKind == "branch" ? hierarchyKind.Branch : hierarchyKind.Root, settings), []), value);
+    }
     internal static setupDataTypeConfigDto SetupType(string kind, string text = "", params string[] keys) => new()
     { dataType = new() { kind = kind, value = text }, sourceProjectId = WorkspaceTestFiles.Id("source"), queryParameterKeys = keys };
     internal static run DecodeRun(byte[] bytes) => FromRunDto(MessagePackSetup.deserialize<runDto>(bytes));
@@ -54,7 +66,11 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var module = node.Kind == WorkspaceEntityKind.Module ? node : node.Parent!;
         module.Editor!.ResultsFunctionName = "sortable-tests.standard";
         if (node.IsBranch) module.Editor.SetupFunctionName = "sortable-tests-with-prefix.standard";
-        node.Editor!.LoadProject(ProjectSettings(node.IsBranch));
+        var settings = ProjectSettings(node.IsBranch);
+        settings.resultsParameterDefaults = []; settings.setupParameterDefaults = [];
+        foreach (var output in settings.resultsDataTypes) output.queryParameterKeys = ["ChannelCount", "SortableDataFormat"];
+        foreach (var output in settings.setupDataTypes) output.queryParameterKeys = ["ChannelCount", "SortableDataFormat"];
+        node.Editor!.LoadProject(settings);
     }
     // Hierarchy fixtures use registered functions and explicit query spans.
     internal static WorkspaceModule MakeModule(hierarchyKind kind, Guid id, string name, string folder, WorkspaceModule[] modules, project[] projects)

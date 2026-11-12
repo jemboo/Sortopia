@@ -9,8 +9,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     public bool HasResultsContract => FunctionCatalogs.resultsFunctionCatalog.ContainsKey(ResultsFunctionName);
     public bool HasSetupContract => FunctionCatalogs.setupFunctionCatalog.ContainsKey(SetupFunctionName);
     public bool SetupGeneratesAllOutputs => FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;
-    public string ResultsContractHint => HasResultsContract ? "Saved data types, their text, and each output’s parameter keys are defined by the results function." : "";
-    public string SetupContractHint => HasSetupContract ? "Saved data types, their text, and parameter keys are defined by the setup function. Choose source projects only for outputs that consume source data." : "";
+    public string ResultsContractHint => HasResultsContract ? "Saved data types and their text are defined by the results function. Query keys are chosen on the project from explicit run spans." : "";
+    public string SetupContractHint => HasSetupContract ? "Saved data types and their text are defined by the setup function. Query keys are chosen on the project from explicit run spans. Choose source projects only for outputs that consume source data." : "";
     public string[] CompatibleResultsFunctions => FunctionCatalogs.resultsFunctionCatalog
         .Where(entry => IsBranch ? HasSetupContract && entry.Value.SourceDataTypes.All(input =>
             FunctionCatalogs.setupFunctionCatalog[SetupFunctionName].SortopiaDataTypes.Contains(input)) : entry.Value.SourceDataTypes.IsEmpty)
@@ -60,22 +60,22 @@ public sealed partial class WorkspaceConfigurationViewModel
         }
     }
     private resultsDataTypeConfigDto[]? DeclaredResults => FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var definition)
-        ? definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.ToArray() }).ToArray() : null;
+        ? definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = [] }).ToArray() : null;
     private resultsDataTypeConfigDto[]? DeclaredSetup => FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition)
-        ? definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.ToArray() }).ToArray() : null;
+        ? definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = [] }).ToArray() : null;
     private static bool SameType(sortopiaDataTypeDto left, sortopiaDataTypeDto right) => left.kind == right.kind && left.value == right.value;
     private bool NeedsSource(sortopiaDataTypeDto dataType) => !PhaseVersionCurrent(true)
         ? EffectiveSetupDataTypes.Any(entry => SameType(entry.dataType, dataType) && entry.sourceProjectId != Guid.Empty)
         : FunctionConfiguration.requiresSource(SetupFunctionName, SortopiaDataTypeDto.toDomain(dataType));
-    private resultsDataTypeConfigDto[] EffectiveResultsDataTypes => (IsRun ? Parent?.EffectiveResultsDataTypes : null) ?? frozenSettings?.resultsDataTypes ?? DeclaredResults
-        ?? [];
+    private resultsDataTypeConfigDto[] EffectiveResultsDataTypes => (IsRun ? Parent?.EffectiveResultsDataTypes : null) ?? frozenSettings?.resultsDataTypes
+        ?? (DeclaredResults ?? []).Select(entry => new resultsDataTypeConfigDto { dataType = entry.dataType, queryParameterKeys = SelectedQueryKeys(entry.dataType, false) }).ToArray();
     public IEnumerable<WorkspaceOutputContractPreview> ResultsOutputContracts => EffectiveResultsDataTypes.Select(entry =>
-        new WorkspaceOutputContractPreview(entry.dataType.kind, entry.dataType.value, string.Join(", ", entry.queryParameterKeys)));
+        new WorkspaceOutputContractPreview(entry.dataType.kind, entry.dataType.value, IsModule ? "Configured on each project" : string.Join(", ", entry.queryParameterKeys)));
     private setupDataTypeConfigDto[] ResolveSetupTypes(setupDataTypeConfigDto[] local)
     {
         if (DeclaredSetup is not { } outputs) return [];
         return outputs.Select(output => new setupDataTypeConfigDto {
-            dataType = output.dataType, queryParameterKeys = output.queryParameterKeys,
+            dataType = output.dataType, queryParameterKeys = SelectedQueryKeys(output.dataType, true),
             sourceProjectId = NeedsSource(output.dataType) ? local.FirstOrDefault(entry => SameType(entry.dataType, output.dataType))?.sourceProjectId ?? Guid.Empty : Guid.Empty
         }).ToArray();
     }
@@ -86,7 +86,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!local.Select(entry => (entry.dataType.kind, entry.dataType.value)).SequenceEqual(outputs.Select(entry => (entry.dataType.kind, entry.dataType.value))))
             Quietly(() => LoadSetupDataTypes(ResolveSetupTypes(SetupDataTypesOverride.IsOverridden ? local : Parent?.EffectiveSetupDataTypes ?? [])));
         Quietly(() => { foreach (var row in SetupDataTypes) row.SetContract(NeedsSource(row.DataType.ToDto()), IsModule,
-            outputs.First(output => SameType(output.dataType, row.DataType.ToDto())).queryParameterKeys, Requirements(true)?.Select(key => key.Name).ToArray()); });
+            SelectedQueryKeys(row.DataType.ToDto(), true), Requirements(true)?.Select(key => key.Name).ToArray()); });
     }
 }
 

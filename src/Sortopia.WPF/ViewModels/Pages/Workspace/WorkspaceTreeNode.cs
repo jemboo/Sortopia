@@ -79,7 +79,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         };
         if (kind != WorkspaceEntityKind.Workspace)
         {
-            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name, SourceProjects);
+            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name, SourceProjects, () => Children.Where(node => node.IsRun).Select(node => node.Editor!));
             Editor.Changed += ConfigurationChanged;
         }
     }
@@ -117,7 +117,12 @@ public sealed class WorkspaceTreeNode : ViewModelBase
 
     internal event Action? Changed;
     internal event Action? ValidationChanged;
-    private void ChildChanged() => Changed?.Invoke();
+    private void ChildChanged()
+    {
+        Editor?.RefreshQueryChoices();
+        foreach (var child in Children) child.Editor?.RefreshQueryChoices();
+        Changed?.Invoke();
+    }
     private void ChildValidationChanged() => ValidationChanged?.Invoke();
     public hierarchyKind Family { get; }
     public bool IsBranch => Family == hierarchyKind.Branch;

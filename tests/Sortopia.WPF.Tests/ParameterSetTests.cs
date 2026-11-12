@@ -67,7 +67,7 @@ public sealed class ParameterSetTests
     {
         var id = Guid.NewGuid();
         var fixedBinding = ParameterBinding.fromValue("Fixed", parameterValue.NewUnsigned64Value(42));
-        var bindings = ListModule.OfArray(new[] { fixedBinding, ParameterBinding.fromValue("CustomInteger", parameterValue.NewIntegerValue(1)) });
+        var bindings = ListModule.OfArray(new[] { fixedBinding });
         var spans = ListModule.OfArray(new[]
         {
             ParameterSpan.create(ParamKey.integer("CustomInteger"), ListModule.OfArray(new[] { 2, 3 })),

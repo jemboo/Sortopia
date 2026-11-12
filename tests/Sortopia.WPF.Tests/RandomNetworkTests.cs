@@ -2181,8 +2181,8 @@ public sealed class RandomNetworkTests
         try
         {
             var vm = WorkspaceRunExecutionTests.Create(temporary.FullName, true);
-            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!.Editor!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
-            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected.Editor!, "SortableDataFormat", true, "Bools", "Bools");
+            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
+            WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!, "SortableDataFormat", true, "Bools", "Bools");
             WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
             vm.SelectConfigurationItem("execution");
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
@@ -2375,17 +2375,17 @@ public sealed class RandomNetworkTests
             vm.SelectConfigurationItem("resultsDefaults");
             run.Editor.Sections.ResultsDefaults = true;
             Layout();
-            var copyDefault = (Button)FindSgdElement(fields, "UseDefaultAsSpanButton");
-            Assert.True(copyDefault.IsEnabled);
-            Assert.Equal("Use default as single-value span", copyDefault.Content);
-            var copiedKey = ((WorkspaceParameterBindingPreview)copyDefault.DataContext).Key;
-            copyDefault.Command.Execute(null); Layout();
-            Assert.Single(run.Editor.ResultsParameters, row => row.Key == copiedKey);
+            Assert.Null(fields.FindName("MoveDefaultToSpanButton"));
+            Assert.Null(fields.FindName("MoveResultsDefaultsToSpansButton"));
+            Assert.Null(fields.FindName("MoveSetupDefaultsToSpansButton"));
+            var originalDefaults = run.Editor.InheritedOutputDefaults.Select(value => (value.Key, value.Value)).ToArray();
+            run.Editor.AddMissingResultsParametersCommand.Execute(null); Layout();
+            Assert.Empty(run.Editor.ResultsParameters);
+            Assert.Equal(originalDefaults, run.Editor.InheritedOutputDefaults.Select(value => (value.Key, value.Value)));
+            // Explicit span fixture setup is separate from the UI's default controls.
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false);
             vm.SelectConfigurationItem("resultsSpans"); run.Editor.Sections.ResultsSpans = true; Layout();
-            var copyQueries = (Button)FindWorkspaceField(fields, "UseResultsDefaultsAsSpansButton");
-            Assert.True(copyQueries.IsEnabled);
-            copyQueries.Command.Execute(null); Layout();
-            Assert.False(copyQueries.IsEnabled); Assert.Empty(run.Editor.ResultsParametersError);
+            Assert.Empty(run.Editor.ResultsParametersError);
             var spanImage = new System.Windows.Media.Imaging.RenderTargetBitmap(1000, 1000, 96, 96, PixelFormats.Pbgra32);
             spanImage.Render(page);
             var spanEncoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
@@ -2441,8 +2441,8 @@ public sealed class RandomNetworkTests
                 vm.Selected = project;
                 vm.AddRunCommand.Execute(null);
                 var run = vm.Selected!;
-                var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", false, "1", "2", "3");
-                if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", true, "4", "5");
+                var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", false, "1", "2", "3");
+                if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", true, "4", "5");
                 WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
                 var sections = run.Editor!.Sections;
                 sections.Description = sections.ResultsSettings = sections.ResultsDefaults = sections.ResultsSpans = false;
@@ -2579,8 +2579,8 @@ public sealed class RandomNetworkTests
             module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
             vm.AddProjectCommand.Execute(null); vm.Selected!.Name = "Single-stage evaluation";
             vm.AddRunCommand.Execute(null); var run = vm.Selected!; run.Name = "Stage sweep";
-            var span = WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "StageLength", false, "1", "2", "3");
-            WorkspaceParameterSetsPreviewTests.AddSpan(run.Editor!, "ChannelCount", true, "8", "16");
+            var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", false, "1", "2", "3");
+            WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", true, "8", "16");
             WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
             void Layout(int width = 1440, int height = 980)
@@ -3042,7 +3042,13 @@ public sealed class RandomNetworkTests
             vm.SelectInspectorSourceCommand.Execute(resultFunction); LayoutWorkspace();
             Assert.Same(branchModule, vm.Selected);
             vm.Selected = branchRun;
-            WorkspaceRunExecutionTests.SupplyQuerySpans(vm); LayoutWorkspace();
+            // Keep one local default while making the other inputs explicit spans.
+            foreach (var value in branchRun.Editor.InheritedOutputDefaults.Where(value => value.Key != "CollectSortableTests").ToArray())
+                WorkspaceParameterSetsPreviewTests.AddSpan(branchRun, value.Key, false, value.Value);
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(branchRun, true);
+            foreach (var output in branchRun.Editor.ResultsQueryOutputs.Concat(branchRun.Editor.SetupQueryOutputs).ToArray())
+                foreach (var key in output.Keys) key.Selected = true;
+            LayoutWorkspace();
             Assert.True(save.IsEnabled);
             var typedSpans = (ItemsControl)FindWorkspaceField(fields, "ResultsParametersList");
             var channelSpan = branchRun.Editor.ResultsParameters.Single(row => row.Key == "ChannelCount");

@@ -22,6 +22,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.description = description;
+        settings.resultsParameterDefaults = []; settings.setupParameterDefaults = [];
         return project.create(Guid.NewGuid(), name, name, ProjectDto.settingsToDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
     private static runDto Inputs(project parent, string name = "R")

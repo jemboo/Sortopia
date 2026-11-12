@@ -12,11 +12,11 @@ module FunctionConfiguration =
     let validateOutputs (definition: functionDefinition<'executor>) (outputs: Map<sortopiaDataType, string<paramKeyName> list>) =
         if (outputs |> Map.toList |> List.map fst) <> definition.SortopiaDataTypes then
             invalidArg "dataTypes" "Saved data types, including their text, must exactly match the selected function."
-        for dataType, keys in definition.DataTypes |> Map.toList do
-            let required = Set.ofList keys
+        let required = definition.RequiredParameters |> List.map (fun key -> key.Name) |> Set.ofList
+        for dataType in definition.SortopiaDataTypes do
             let actual = outputs[dataType]
-            if Set.ofList actual <> required || actual.Length <> required.Count then
-                invalidArg "queryParameterKeys" $"The keys for '{dataType}' must exactly match the selected function's output contract."
+            if not (Set.isSubset (Set.ofList actual) required) || actual.Length <> (Set.ofList actual).Count then
+                invalidArg "queryParameterKeys" $"Query keys for '{dataType}' must be unique required parameters of the selected function."
 
     // A sealed snapshot remains readable when the installed implementation changes.
     let validateResults (config: resultsConfig) =

@@ -23,7 +23,7 @@ public sealed class PreparedExecutionTests : IDisposable
 
     private static project Project(string name, projectConfiguration configuration, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
-        var parent = project.create(Guid.NewGuid(), name, name, configuration, []);
+
         parameterSpanDto[] Spans(IEnumerable<string> keys, IEnumerable<parameterBinding> defaults, parameterSpanDto[]? supplied)
         {
             var spans = (supplied ?? []).ToList();
@@ -31,6 +31,12 @@ public sealed class PreparedExecutionTests : IDisposable
                 spans.Add(new() { keyName = key, values = [defaults.Single(binding => binding.KeyName == key).FormattedValue] });
             return spans.ToArray();
         }
+        var settings = SettingsDto.fromDomain(configuration);
+        results = Spans(settings.resultsDataTypes.SelectMany(output => output.queryParameterKeys), settings.resultsParameterDefaults.Select(ParameterBindingDto.toDomain), results);
+        setup = Spans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
+        settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
+        settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
+        var parent = project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
         var run = RunDto.toDomain(parent, new runDto
         {
             schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = parent.IsBranchProject ? "branch" : "root",
@@ -69,6 +75,44 @@ public sealed class PreparedExecutionTests : IDisposable
         if (branch) Completed(FileRunExecution.execute(world, Root, world.ProjectIndex[source.Id].Runs[0], null!, Token));
         return (world, world.ProjectIndex[target.Id]);
     }
+    [Fact]
+    public void Configurable_projections_reuse_outputs_with_disjoint_defaults_and_spans()
+    {
+        var testsType = sortopiaDataType.NewSortableTests("");
+        var modelsType = sortopiaDataType.NewSorterModelSet("");
+        var evalType = sortopiaDataType.NewSorterSetEval("");
+        var setup = new setupConfig("Setup", SetupFunctionNames.evaluationStandard, "1",
+            ListModule.OfArray(new[] {
+                new setupDataTypeConfig(testsType, Guid.Empty, ListModule.Empty<string>()),
+                new setupDataTypeConfig(modelsType, Guid.Empty, ListModule.OfArray(new[] { "Repl" })) }),
+            ListModule.OfArray<parameterBinding>([.. Models, Bind("SortableDataFormat", "Bools", parameterValueType.Text)]));
+        var results = new resultsConfig("Results", ResultsFunctionNames.sorterEval, "1",
+            ListModule.OfArray(new[] { new resultsDataTypeConfig(evalType, ListModule.Empty<string>()) }),
+            ListModule.OfArray(new[] { Bind("ChannelCount", "4"), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) }));
+        var target = Project("Subsets", projectConfiguration.NewBranchProjectConfig(new("Subsets", results, setup)),
+            [new() { keyName = "CollectSortableTests", values = ["false", "true"] }], [new() { keyName = "Repl", values = ["0", "1"] }]);
+        var module = workspaceModule.createInherited(Guid.NewGuid(), "Module", "Module", ModuleDefaults.configuration(true),
+            ModuleOverridesDto.toDomain(hierarchyKind.Branch, new moduleOverridesDto { setupFunctionName = SetupFunctionNames.evaluationStandard, resultsFunctionName = ResultsFunctionNames.sorterEval }), [], [target]);
+        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [module]);
+        Directory.CreateDirectory(Root); WorkspaceFileStore.CreateWorkspace(Root, world, Token);
+        world = WorkspaceFileStore.LoadDefinition(Root);
+        var value = world.ProjectIndex[target.Id].Runs[0];
+        Assert.DoesNotContain(value.ResultsParameterDefaults, binding => binding.KeyName == "CollectSortableTests");
+        Assert.DoesNotContain(value.SetupParameterDefaults.Value, binding => binding.KeyName == "Repl");
+        var report = FileRunExecution.execute(world, Root, value, null!, Token);
+        Completed(report);
+        var folder = Path.Combine(Root, "modules", "Module", "projects", "Subsets");
+        Assert.Single(Directory.GetFiles(Path.Combine(folder, "data", "setup", "SortableTests"), "*.msgpack"));
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data", "setup", "SorterModelSet"), "*.msgpack").Length);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data", "results", "SorterSetEval"), "*.msgpack").Length);
+        var generation = RunParameterExecution.generate(world, Root, value, null!, Token);
+        Completed(generation.Execution);
+        var copied = Isolate(folder);
+        var rerun = RunParameterExecution.executeFolder(Path.Combine(copied, "runParameters"), null!, null!, Token);
+        Completed(rerun);
+        Assert.All(rerun.Results, call => Assert.All(call.StoredOutputs, output => Assert.True(output.Reused)));
+    }
+
     private static void Completed(runExecutionReport report) => Assert.True(report.Status == runExecutionStatus.Completed, report.Error);
     private static string[] DataFiles(string folder, string phase) => Directory.Exists(Path.Combine(folder, "data", phase))
         ? Directory.GetFiles(Path.Combine(folder, "data", phase), "*.msgpack", SearchOption.AllDirectories) : [];

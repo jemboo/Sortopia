@@ -151,7 +151,7 @@ public sealed class FunctionCatalogTests
             await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
             var fixedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, fixedRun.ResultsFunctionName);
-            Assert.Contains(fixedRun.ResultsParameterDefaults, value => value.KeyName == "MergeLibId");
+            Assert.Contains(fixedRun.ResultsParameterSpans, value => value.KeyName == "MergeLibId");
         }
         finally { temporary.Delete(recursive: true); }
     }

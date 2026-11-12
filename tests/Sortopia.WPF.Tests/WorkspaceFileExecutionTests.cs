@@ -17,18 +17,8 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static parameterBindingDto Binding(string key, string value, parameterValueType type = parameterValueType.Integer) =>
         new() { keyName = key, value = value, valueType = (int)type };
-    private static project Project(string name, hierarchyKind kind, projectSettingsDto settings, parameterSpanDto[]? setup = null)
-    {
-        var parent = project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(kind, settings), []);
-        var value = RunDto.toDomain(parent, new runDto
-        {
-            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
-            runKind = kind == hierarchyKind.Root ? "root" : "branch",
-            resultsParameterSpans = RunExecutionTests.QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults),
-            setupParameterSpans = parent is project.BranchProject b ? RunExecutionTests.QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
-        });
-        return project.withRuns(parent, [value]);
-    }
+    private static project Project(string name, hierarchyKind kind, projectSettingsDto settings, parameterSpanDto[]? setup = null) =>
+        RunExecutionTests.MakeProject(name, kind == hierarchyKind.Branch, settings, setup: setup);
     private workspace Create(bool failSecondSetup = false)
     {
         var sourceSettings = RunExecutionTests.Settings(false);
@@ -96,7 +86,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var testsDefinition = FunctionCatalogs.resultsFunctionCatalog[testsProject.ResultsFunctionName];
         var modelsDefinition = FunctionCatalogs.resultsFunctionCatalog[modelsProject.ResultsFunctionName];
         var required = ListModule.OfSeq(testsDefinition.RequiredParameters.Concat(modelsDefinition.RequiredParameters).DistinctBy(key => key.Name));
-        var parameters = parameterSet.fromBindings(testsProject.ResultsParameterDefaults.Concat(modelsProject.ResultsParameterDefaults).DistinctBy(binding => binding.KeyName));
+        var parameters = parameterSet.fromBindings(RunParameterSets.create(testsProject.Runs[0]).Results.Single().ParamMap.Values.Concat(RunParameterSets.create(modelsProject.Runs[0]).Results.Single().ParamMap.Values).DistinctBy(binding => binding.KeyName));
         var sourceTypes = ListModule.OfArray(new[] { testsType, modelsType });
         var projects = MapModule.OfArray(new[] { Tuple.Create(testsType, testsProject.Id), Tuple.Create(modelsType, modelsProject.Id) });
         var copies = 0;
@@ -212,7 +202,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var unsaved = RunDto.toDomain(source, new runDto
         {
             schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = source.Id, runName = "Unsaved", runKind = "root",
-            resultsParameterSpans = RunExecutionTests.QuerySpans(source.ResultsQueryParameterKeys, source.ResultsParameterDefaults), setupParameterSpans = []
+            resultsParameterSpans = RunDto.fromDomain(source.Runs[0]).resultsParameterSpans, setupParameterSpans = []
         });
         Assert.Contains("saved run", Assert.Throws<InvalidOperationException>(() => new FileRunHost(world, temporary.FullName, unsaved, Token)).Message);
     }

@@ -190,7 +190,7 @@ public sealed class FileDataStoreTests : IDisposable
         var testCalls = 0; var modelCalls = 0;
         foreach (var stage in new[] { 3, 4, 4 })
         {
-            var parameters = parameterSet.fromBindings(branch.SetupParameterDefaults).WithBinding(ParameterBinding.create(ParamKeys.stageLengthKey, stage));
+            var parameters = BranchRun.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.stageLengthKey, stage));
             var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
                 setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardEvaluationInputs, "1",
                 branch.ProjectConfiguration.Setup.DataTypes, FunctionCatalogs.requireSetup(branch.SetupFunctionName).OutputDependencies,
