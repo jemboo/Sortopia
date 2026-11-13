@@ -83,7 +83,7 @@ module RunParameterExecution =
             let projectFolder = factory.ProjectFolder
             RunParameterStorage.requireProject projectFolder value.ParentProjectId
             let sets = RunParameterSets.create value
-            let resultsDefinition = FunctionCatalogs.requireResults value.ResultsFunctionName
+            let resultsDefinition = ResultsFunctionCatalog.require value.ResultsFunctionName
             let config = match value with run.RootRun root -> root.ProjectConfiguration.Results | run.BranchRun branch -> branch.ProjectConfiguration.Results
             FunctionConfiguration.validateResults config
             let setupCount = sets.Setup |> Option.map Array.length |> Option.defaultValue 0
@@ -94,7 +94,7 @@ module RunParameterExecution =
                 FunctionValidation.validate resultsDefinition parameters
             match value, sets.Setup with
             | run.BranchRun branch, Some parameters ->
-                let definition = FunctionCatalogs.requireSetup branch.SetupFunctionName
+                let definition = SetupFunctionCatalog.require branch.SetupFunctionName
                 FunctionConfiguration.validateSetup true branch.ProjectConfiguration.Setup
                 for set in parameters do
                     token.ThrowIfCancellationRequested()
@@ -198,7 +198,7 @@ module RunParameterExecution =
                         | _ ->
                             let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
                             let host = FileResultsHost.createWithParallelism evaluationParallelism folder item.ProjectId item.Results item.Parameters inputs token
-                            (FunctionCatalogs.requireResults item.Results.FunctionName).Execute host
+                            (ResultsFunctionCatalog.require item.Results.FunctionName).Execute host
                             host.ResultsDb.StoredOutputs
                     results[index] <- Some { Phase = runExecutionPhase.Results; FunctionName = string item.Results.FunctionName
                                              SetupSetNumber = item.SetupSetNumber; SetNumber = item.SetNumber; Parameters = item.Parameters; StoredOutputs = outputs }

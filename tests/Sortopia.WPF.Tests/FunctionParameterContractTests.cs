@@ -13,8 +13,8 @@ public sealed class FunctionParameterContractTests
     [Fact]
     public void Every_catalog_definition_declares_unique_typed_keys_and_rejects_extras()
     {
-        foreach (var keys in FunctionCatalogs.resultsFunctionCatalog.Values.Select(value => value.RequiredParameters)
-            .Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => value.RequiredParameters)))
+        foreach (var keys in ResultsFunctionCatalog.functions.Values.Select(value => value.RequiredParameters)
+            .Concat(SetupFunctionCatalog.functions.Values.Select(value => value.RequiredParameters)))
         {
             Assert.NotEmpty(keys);
             Assert.Equal(keys.Count(), keys.Select(key => key.Name).Distinct().Count());

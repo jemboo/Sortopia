@@ -6,7 +6,8 @@
     <Compile Include="InputGenerators.fs" />
     <Compile Include="SetupFunctions.fs" />
     <Compile Include="ResultsFunctions.fs" />
-    <Compile Include="FunctionCatalogs.fs" />
+    <Compile Include="SetupFunctionCatalog.fs" />
+    <Compile Include="ResultsFunctionCatalog.fs" />
     <Compile Include="FunctionConfiguration.fs" />
     <Compile Include="RunExecution.fs" />
   </ItemGroup>

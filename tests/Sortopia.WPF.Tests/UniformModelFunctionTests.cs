@@ -49,9 +49,9 @@ public sealed class UniformModelFunctionTests
     {
         var editor = Module(setup, model);
         var values = Parameters(editor, setup).WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family));
-        Assert.False(FunctionCatalogs.resultsFunctionCatalog.ContainsKey("sorter-model-set.uniform"));
-        Assert.False(FunctionCatalogs.setupFunctionCatalog.ContainsKey("sorter-model-set.uniform"));
-        var results = FunctionCatalogs.requireResults(Function(model)); var preparation = FunctionCatalogs.requireSetup(Function(model));
+        Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.uniform"));
+        Assert.False(SetupFunctionCatalog.functions.ContainsKey("sorter-model-set.uniform"));
+        var results = ResultsFunctionCatalog.require(Function(model)); var preparation = SetupFunctionCatalog.require(Function(model));
         Assert.Equal(results.RequiredParameters, preparation.RequiredParameters);
         Assert.Equal(results.DataTypes, preparation.DataTypes);
         Assert.Empty(results.SourceDataTypes); Assert.Empty(preparation.SourceDataTypes);

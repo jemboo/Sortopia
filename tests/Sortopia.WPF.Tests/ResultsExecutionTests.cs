@@ -55,8 +55,48 @@ public sealed class ResultsExecutionTests : IDisposable
         await model.ExecuteAsync(); Assert.Empty(model.Error);
         Assert.Equal(3, model.LastReport!.Results.Length);
         Assert.All(model.Rows, row => Assert.Equal("Complete", row.Status));
+        Assert.All(model.Rows, row => Assert.NotNull(row.Elapsed));
+        Assert.Equal(3, model.ExecutionProgress.Total); Assert.Equal(3, model.ExecutionProgress.Finished);
+        Assert.Equal(0, model.ExecutionProgress.Running); Assert.Equal(100, model.ExecutionProgress.Percent);
         using var reopened = new ResultsExecutionPageViewModel(() => { }, _ => null, settings.Load, settings.Save);
         Assert.Equal("2", reopened.ParallelJobs);
+        workspace.Cancel();
+    }
+
+    [Fact]
+    public async Task Successful_timings_survive_refresh_and_only_the_retried_row_resets()
+    {
+        var workspace = await GenerateFiles();
+        var clock = new ResultsExecutionProgressTests.Clock();
+        using var model = new ResultsExecutionPageViewModel(() => { }, _ => null, timeProvider: clock);
+        await model.SetFolderAsync(workspace.RunParametersFolder);
+        Assert.All(model.Rows, row => Assert.Null(row.Elapsed));
+        foreach (var row in model.Rows) row.PropertyChanged += (_, change) => {
+            if (change.PropertyName != nameof(row.Status) || row.Status != "Running") return;
+            Assert.Equal(1, model.ExecutionProgress.Running); Assert.Equal(3, model.ExecutionProgress.Total);
+            clock.Advance(TimeSpan.FromSeconds(3));
+            model.RefreshElapsedTimes();
+            Assert.Equal("00:00:03.0", row.ElapsedText);
+        };
+        model.SelectAllCommand.Execute(null); await model.ExecuteAsync(); Assert.Empty(model.Error);
+        Assert.All(model.Rows, row => Assert.Equal(TimeSpan.FromSeconds(3), row.Elapsed));
+        clock.Advance(TimeSpan.FromHours(1));
+        await model.RefreshAsync();
+        Assert.All(model.Rows, row => Assert.Equal(TimeSpan.FromSeconds(3), row.Elapsed));
+        model.ClearSelectionCommand.Execute(null);
+        var retry = model.Rows[0]; retry.IsSelected = true;
+        retry.PropertyChanged += (_, change) => {
+            if (change.PropertyName != nameof(retry.Status) || retry.Status != "Running") return;
+            Assert.Equal(TimeSpan.Zero, retry.Elapsed); Assert.Equal(1, model.ExecutionProgress.Total);
+            clock.Advance(TimeSpan.FromSeconds(1));
+        };
+        await model.ExecuteAsync(); Assert.Empty(model.Error);
+        Assert.Equal(TimeSpan.FromSeconds(1), model.Rows.Single(row => row.Path == retry.Path).Elapsed);
+        Assert.All(model.Rows.Where(row => row.Path != retry.Path), row => Assert.Equal(TimeSpan.FromSeconds(3), row.Elapsed));
+        await model.SetFolderAsync(Path.Combine(temporary.FullName, "Another", "runParameters"));
+        Assert.False(model.ExecutionProgress.HasWork);
+        await model.SetFolderAsync(workspace.RunParametersFolder);
+        Assert.All(model.Rows, row => { Assert.Equal("Complete", row.Status); Assert.Null(row.Elapsed); });
         workspace.Cancel();
     }
 
@@ -128,22 +168,39 @@ public sealed class ResultsExecutionTests : IDisposable
                 }
                 var updates = new List<(string File, string Status)>();
                 var uiThread = Environment.CurrentManagedThreadId;
+                var timerPanel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
+                timerPanel.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                var elapsedTicks = 0;
                 foreach (var row in model.Rows) row.PropertyChanged += (_, change) => {
+                    if (change.PropertyName == nameof(WorkItemStatusRow.ElapsedText) && row.Status == "Running")
+                    { Assert.Equal(uiThread, Environment.CurrentManagedThreadId); elapsedTicks++; }
                     if (change.PropertyName != nameof(WorkItemStatusRow.Status)) return;
                     Assert.Equal(uiThread, Environment.CurrentManagedThreadId);
                     updates.Add((row.FileName, row.Status));
+                    if (row == first && row.Status == "Running")
+                    {
+                        var deadline = DateTime.UtcNow.AddSeconds(3);
+                        while (elapsedTicks == 0 && DateTime.UtcNow < deadline) { Layout(); Thread.Sleep(1); }
+                        Assert.True(elapsedTicks > 0, "Running elapsed time must refresh without another worker event.");
+                        Assert.Contains("1 running", ((TextBlock)timerPanel.FindName("BatchProgressSummary")).Text);
+                    }
                     if (row == failing && row.Status == "Running") Directory.CreateDirectory(blockedOutput);
                 };
                 Layout(); model.SelectAllCommand.Execute(null); Wait(model.ExecuteAsync());
                 Assert.Equal(runExecutionStatus.Failed, model.LastReport!.Status); Assert.Equal(2, model.LastReport.Results.Length);
+                Assert.Equal(0, model.ExecutionProgress.Running); Assert.Equal(3, model.ExecutionProgress.Finished);
+                Assert.Equal(1, model.ExecutionProgress.Failed); Assert.Equal(100, model.ExecutionProgress.Percent);
+                Assert.Equal(100, ((ProgressBar)timerPanel.FindName("BatchProgressBar")).Value);
                 Assert.Equal(new[] { (first.FileName, "Running"), (first.FileName, "Complete"), (failing.FileName, "Running"), (failing.FileName, "Failed"), (unstarted.FileName, "Running"), (unstarted.FileName, "Complete") }, updates);
                 Assert.Equal("Complete", model.Rows.Single(row => row.Path == first.Path).Status);
                 Assert.Equal("Complete", model.Rows.Single(row => row.Path == unstarted.Path).Status);
                 var failedRow = model.Rows.Single(row => row.Path == failing.Path);
                 Assert.Equal("Failed", failedRow.Status); Assert.Contains(blockedOutput, failedRow.Error); Assert.True(failedRow.HasError);
+                var elapsed = failedRow.Elapsed; Assert.NotNull(elapsed);
                 Wait(model.RefreshAsync());
                 failedRow = model.Rows.Single(row => row.Path == failing.Path);
                 Assert.Equal("Failed", failedRow.Status); Assert.Contains(blockedOutput, failedRow.Error);
+                Assert.Equal(elapsed, failedRow.Elapsed);
                 model.ClearSelectionCommand.Execute(null); failedRow.IsSelected = true; Layout();
                 var panel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
                 var grid = (DataGrid)panel.FindName("RunParametersGrid");
@@ -168,6 +225,7 @@ public sealed class ResultsExecutionTests : IDisposable
                 var repaired = model.Rows.Single(row => row.Path == failing.Path);
                 Assert.Equal("Complete", repaired.Status); Assert.False(repaired.HasError);
                 Assert.Equal("Complete", model.Rows.Single(row => row.Path == unstarted.Path).Status);
+                timerPanel.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
             }
             catch (Exception exception) { failure = exception; }
         });
@@ -196,6 +254,8 @@ public sealed class ResultsExecutionTests : IDisposable
         Assert.Equal(3, model.Rows.Count);
         var failed = model.Rows.Single(row => row.Path == missing.Path);
         Assert.Equal("Failed", failed.Status); Assert.Contains(missing.FileName, failed.Error); Assert.False(failed.CanExecute);
+        Assert.Null(failed.Elapsed);
+        Assert.Equal(1, model.ExecutionProgress.Finished); Assert.Equal(2, model.ExecutionProgress.NotStarted);
         Assert.All(model.Rows.Where(row => row != failed), row => Assert.Equal("Pending", row.Status));
         File.WriteAllBytes(missing.Path, bytes); await model.RefreshAsync();
         model.ClearSelectionCommand.Execute(null); model.Rows.Single(row => row.Path == missing.Path).IsSelected = true;
@@ -221,12 +281,17 @@ public sealed class ResultsExecutionTests : IDisposable
         model.SelectAllCommand.Execute(null); await model.ExecuteAsync(); await navigation;
         if (navigate) {
             Assert.Empty(model.Rows); Assert.Null(model.LastReport); Assert.Empty(model.Error);
+            Assert.False(model.ExecutionProgress.HasWork); Assert.Equal(0, model.ExecutionProgress.Running);
         }
         else {
             Assert.Equal(runExecutionStatus.Cancelled, model.LastReport!.Status); Assert.Equal("Cancelled", row.Status);
             Assert.All(model.Rows.Skip(1), other => Assert.Equal("Pending", other.Status));
             Assert.DoesNotContain(model.Rows, other => other.Status is "Running" or "Failed");
+            Assert.Equal(0, model.ExecutionProgress.Running); Assert.Equal(1, model.ExecutionProgress.Cancelled);
+            Assert.Equal(1, model.ExecutionProgress.Finished); Assert.Equal(2, model.ExecutionProgress.NotStarted);
+            var elapsed = row.Elapsed; Assert.NotNull(elapsed);
             await model.RefreshAsync(); Assert.Equal("Cancelled", model.Rows.Single(other => other.Path == row.Path).Status);
+            Assert.Equal(elapsed, model.Rows.Single(other => other.Path == row.Path).Elapsed);
             model.SelectAllCommand.Execute(null); await model.ExecuteAsync(); Assert.Empty(model.Error);
             Assert.All(model.Rows, other => Assert.Equal("Complete", other.Status));
         }
@@ -271,7 +336,8 @@ public sealed class ResultsExecutionTests : IDisposable
                 Layout();
                 var panel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
                 var grid = (DataGrid)panel.FindName("RunParametersGrid");
-                Assert.Equal(new[] { "File name", "Status", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
+                Assert.Equal(new[] { "File name", "Status", "Elapsed", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
+                Assert.Equal(3, grid.FrozenColumnCount);
                 Assert.Equal(24, grid.Items.Count); Assert.True(grid.IsReadOnly); Assert.True(grid.EnableRowVirtualization);
                 Assert.Null(grid.ItemContainerGenerator.ContainerFromItem(model.Rows[^1]));
                 grid.SelectedItems.Add(model.Rows[0]); grid.SelectedItems.Add(model.Rows[^1]); Layout();

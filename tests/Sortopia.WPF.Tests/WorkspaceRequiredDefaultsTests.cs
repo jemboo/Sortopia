@@ -91,8 +91,8 @@ public sealed class WorkspaceRequiredDefaultsTests
     [Fact]
     public void Every_catalog_function_gets_valid_nonblank_initial_parameters()
     {
-        var functions = FunctionCatalogs.resultsFunctionCatalog.Select(entry => (Setup: false, Name: entry.Key, Keys: entry.Value.RequiredParameters))
-            .Concat(FunctionCatalogs.setupFunctionCatalog.Select(entry => (Setup: true, Name: entry.Key, Keys: entry.Value.RequiredParameters)));
+        var functions = ResultsFunctionCatalog.functions.Select(entry => (Setup: false, Name: entry.Key, Keys: entry.Value.RequiredParameters))
+            .Concat(SetupFunctionCatalog.functions.Select(entry => (Setup: true, Name: entry.Key, Keys: entry.Value.RequiredParameters)));
         foreach (var function in functions)
         {
             var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch).Editor!;

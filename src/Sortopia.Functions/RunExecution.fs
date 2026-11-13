@@ -45,10 +45,10 @@ module RunExecution =
             cancellation.ThrowIfCancellationRequested()
             // Resolve both names before generating data or calling either function.
             let resultsFunction =
-                FunctionCatalogs.resultsFunctionCatalog |> Map.tryFind value.ResultsFunctionName
+                ResultsFunctionCatalog.functions |> Map.tryFind value.ResultsFunctionName
                 |> Option.defaultWith (fun () -> invalidOp $"Unknown results function '{value.ResultsFunctionName}'.")
             let setupFunction = value.SetupFunctionName |> Option.map (fun name ->
-                FunctionCatalogs.setupFunctionCatalog |> Map.tryFind name
+                SetupFunctionCatalog.functions |> Map.tryFind name
                 |> Option.defaultWith (fun () -> invalidOp $"Unknown setup function '{name}'."))
             FunctionConfiguration.validateRunInputs value
             let sets = RunParameterSets.create value

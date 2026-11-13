@@ -87,14 +87,14 @@ public sealed class ConfigurationCleanupTests : IDisposable
         var payload = CatalogTestHost.Invoke(false, config.FunctionName, parameters).Head;
         var store = WorkspaceData.openProject(world, temporary.FullName, parent.Id);
         var plan = OutputPlan.create(parent.Id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, FunctionCatalogs.requireResults(config.FunctionName).OutputDependencies, parameters, ListModule.Empty<storedDataReference>());
+            config.DataTypes, ResultsFunctionCatalog.require(config.FunctionName).OutputDependencies, parameters, ListModule.Empty<storedDataReference>());
         var writer = (IRunDatabase)new FileRunDatabase(store, plan, Token);
         writer.SaveIfMissing(dataType, ListModule.Empty<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => payload));
         var source = WorkspaceData.loadSource(world, temporary.FullName,
             new setupDataTypeConfig(dataType, parent.Id, ListModule.Empty<string>()), parameters, Token);
         Assert.Equal(writer.StoredOutputs.Head.Reference, source.Reference);
         var currentKey = DataKey.create(parent.Id, config.DatabaseName, false, config.FunctionName,
-            FunctionCatalogs.requireResults(config.FunctionName).Version, dataType, config.DataTypes[dataType], parameters, ListModule.Empty<storedDataReference>());
+            ResultsFunctionCatalog.require(config.FunctionName).Version, dataType, config.DataTypes[dataType], parameters, ListModule.Empty<storedDataReference>());
         Assert.NotEqual(currentKey.Id, source.Reference.Id);
         Assert.IsType<functionData.SortableTests>(source.Value);
     }
@@ -111,8 +111,8 @@ public sealed class ConfigurationCleanupTests : IDisposable
         Assert.Equal(new[] { "DataType", "SourceProjectId" }, typeof(setupSourceConfig).GetProperties().Select(p => p.Name));
         foreach (var name in new[] { "SourceGenerationInterval", "SourceMutationMod", "DatabaseName", "ProjectName", "RunName" })
             Assert.DoesNotContain(ParamKeys.all, key => key.Name == name);
-        Assert.All(FunctionCatalogs.resultsFunctionCatalog.Values, definition => Assert.False(string.IsNullOrWhiteSpace(definition.Version)));
-        Assert.All(FunctionCatalogs.setupFunctionCatalog.Values, definition => Assert.False(string.IsNullOrWhiteSpace(definition.Version)));
+        Assert.All(ResultsFunctionCatalog.functions.Values, definition => Assert.False(string.IsNullOrWhiteSpace(definition.Version)));
+        Assert.All(SetupFunctionCatalog.functions.Values, definition => Assert.False(string.IsNullOrWhiteSpace(definition.Version)));
     }
 
     public void Dispose() => temporary.Delete(true);

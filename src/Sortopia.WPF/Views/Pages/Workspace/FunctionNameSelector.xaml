@@ -1,0 +1,118 @@
+<UserControl x:Class="Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Workspace"
+             x:Name="Selector" Focusable="False">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <HierarchicalDataTemplate DataType="{x:Type vm:FunctionNameNode}" ItemsSource="{Binding Children}">
+                <TextBlock Text="{Binding Segment}" ToolTip="{Binding Hint}" Margin="2,4" />
+            </HierarchicalDataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid>
+        <Button x:Name="OpenPicker" Style="{StaticResource NavigationButtonStyle}" Click="OpenPicker_Click"
+                HorizontalContentAlignment="Stretch" MinHeight="36"
+                AutomationProperties.Name="{Binding Title}" ToolTip="Browse function names by expanding each part. Only a complete function name can be chosen.">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock x:Name="CurrentName" TextWrapping="Wrap" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="▾" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </Grid>
+        </Button>
+        <Popup x:Name="PickerPopup" PlacementTarget="{Binding ElementName=OpenPicker}" Placement="Bottom"
+               StaysOpen="False" AllowsTransparency="True" Opened="PickerPopup_Opened">
+            <Border Width="{Binding ActualWidth, ElementName=Selector}" MinWidth="680" MaxWidth="900" Padding="12"
+                    Background="{DynamicResource Workspace.Surface}" BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="{Binding Title, StringFormat={}{0} catalog}" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <TextBlock Text="Expand a group and highlight a function to preview it before choosing." Foreground="{DynamicResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <Grid Height="340">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="1*" /><ColumnDefinition Width="21" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
+                    <TreeView x:Name="FunctionTree" Background="{DynamicResource Workspace.Surface}" BorderThickness="0"
+                              Foreground="{DynamicResource Workspace.TextPrimary}" SelectedItemChanged="FunctionTree_SelectedItemChanged"
+                              PreviewKeyDown="FunctionTree_PreviewKeyDown" MouseDoubleClick="FunctionTree_MouseDoubleClick"
+                              AutomationProperties.Name="{Binding Title, StringFormat={}{0} hierarchy}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Workspace.TextPrimary}" />
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Path}" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="TreeViewItem">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="22" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                <ToggleButton x:Name="Expander" IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
+                                                              Focusable="False" Width="22" Height="28" VerticalAlignment="Top" ClickMode="Press">
+                                                    <ToggleButton.Template>
+                                                        <ControlTemplate TargetType="ToggleButton">
+                                                            <Border Background="Transparent">
+                                                                <Path x:Name="Arrow" Data="M 0 0 L 4 4 L 0 8" Stroke="{DynamicResource Workspace.TextSecondary}" StrokeThickness="1.5"
+                                                                      HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5" />
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsChecked" Value="True"><Setter TargetName="Arrow" Property="RenderTransform"><Setter.Value><RotateTransform Angle="90" /></Setter.Value></Setter></Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </ToggleButton.Template>
+                                                </ToggleButton>
+                                                <Border x:Name="HeaderBorder" Grid.Column="1" Padding="3,0" CornerRadius="3" BorderThickness="1" BorderBrush="Transparent" Background="Transparent">
+                                                    <ContentPresenter x:Name="PART_Header" ContentSource="Header" HorizontalAlignment="Left" />
+                                                </Border>
+                                                <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1" Visibility="Collapsed" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsExpanded" Value="True"><Setter TargetName="ItemsHost" Property="Visibility" Value="Visible" /></Trigger>
+                                                <Trigger Property="HasItems" Value="False"><Setter TargetName="Expander" Property="Visibility" Value="Hidden" /></Trigger>
+                                                <Trigger Property="IsSelected" Value="True"><Setter TargetName="HeaderBorder" Property="Background" Value="{DynamicResource Workspace.Selection}" /></Trigger>
+                                                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="HeaderBorder" Property="BorderBrush" Value="{DynamicResource Workspace.Focus}" /></Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                    </TreeView>
+                        <Border Grid.Column="1" Width="1" Background="{DynamicResource Workspace.StrokeSubtle}" />
+                        <ScrollViewer x:Name="DetailsViewport" Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <Grid>
+                                <TextBlock x:Name="PreviewPlaceholder" Foreground="{DynamicResource Workspace.TextSecondary}" TextWrapping="Wrap" />
+                                <StackPanel x:Name="FunctionDetails" Visibility="Collapsed" Margin="0,0,8,0">
+                                    <TextBlock Text="Description" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                    <TextBlock x:Name="FunctionDescription" Text="{Binding Description}" Foreground="{DynamicResource Workspace.TextSecondary}" TextWrapping="Wrap" />
+                                    <TextBlock Text="Output SortopiaDataTypes" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" Margin="0,14,0,5" />
+                                    <ItemsControl x:Name="OutputDataTypes" ItemsSource="{Binding Outputs}">
+                                        <ItemsControl.ItemTemplate><DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="{DynamicResource Workspace.TextPrimary}" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                        </DataTemplate></ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="Required parameters" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" Margin="0,14,0,5" />
+                                    <ItemsControl x:Name="RequiredParameters" ItemsSource="{Binding RequiredParameters}">
+                                        <ItemsControl.ItemTemplate><DataTemplate>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="1.6*" /><ColumnDefinition Width="1*" /></Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Workspace.TextPrimary}" TextWrapping="Wrap" Margin="0,0,8,0" />
+                                                <TextBlock Grid.Column="1" Text="{Binding ValueType}" Foreground="{DynamicResource Workspace.TextSecondary}" TextWrapping="Wrap" />
+                                            </Grid>
+                                        </DataTemplate></ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                    </Grid>
+                    <TextBlock x:Name="CandidateName" Foreground="{DynamicResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,8,0,8" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Style="{StaticResource NavigationButtonStyle}" Click="Cancel_Click" Margin="0,0,8,0" />
+                        <Button x:Name="ChooseFunction" Content="Choose function" Style="{StaticResource NavigationButtonStyle}" IsEnabled="False" Click="ChooseFunction_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

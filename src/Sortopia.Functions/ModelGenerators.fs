@@ -18,6 +18,17 @@ open FunctionParameters
 type internal modelInputSource = PrefixInput | ChannelCountInput
 
 module internal ModelGenerators =
+    let algorithmDescription = function
+        | simpleSorterModelType.Msce -> "compare-exchange (MSCE)"
+        | simpleSorterModelType.Mssi -> "self-inverse (MSSI)"
+        | simpleSorterModelType.Msrs -> "reflection-symmetric (MSRS)"
+        | simpleSorterModelType.Msuf4 -> "4-channel seed unfolding (MSUF4)"
+        | simpleSorterModelType.Msuf6 -> "6-channel seed unfolding (MSUF6)"
+
+    let description source modelType =
+        let prefix = match source with PrefixInput -> "with a fixed library prefix and a generated suffix" | ChannelCountInput -> "with no fixed prefix"
+        $"Generate {algorithmDescription modelType} sorter models {prefix}. SorterModelType selects Simple, SimpleR, or SimpleS; Repl selects a reproducible batch."
+
     let private commonKeys source = [
         ParamKey.describe ParamKeys.sorterModelTypeKey
         (match source with PrefixInput -> ParamKey.describe ParamKeys.prefixLibIdKey | ChannelCountInput -> ParamKey.describe ParamKeys.channelCountKey)

@@ -45,8 +45,8 @@ public sealed class FunctionOutputContractTests : IDisposable
     [Fact]
     public void Catalog_maps_define_output_text_and_query_subsets_of_required_parameters()
     {
-        var contracts = FunctionCatalogs.resultsFunctionCatalog.Values.Select(value => (value.DataTypes, value.RequiredParameters))
-            .Concat(FunctionCatalogs.setupFunctionCatalog.Values.Select(value => (value.DataTypes, value.RequiredParameters)));
+        var contracts = ResultsFunctionCatalog.functions.Values.Select(value => (value.DataTypes, value.RequiredParameters))
+            .Concat(SetupFunctionCatalog.functions.Values.Select(value => (value.DataTypes, value.RequiredParameters)));
         foreach (var (outputs, required) in contracts)
         {
             Assert.NotEmpty(outputs);
@@ -138,7 +138,7 @@ public sealed class FunctionOutputContractTests : IDisposable
         var reused = Assert.IsType<functionData.SortableTests>(generated.Single(value => value.IsSortableTests));
         Assert.Same(sourceTests.Item1, reused.Item1); Assert.Same(sourceTests.Item2, reused.Item2);
         Assert.Equal(3, Assert.IsType<functionData.SorterModelSet>(generated.Single(value => value.IsSorterModelSet)).Item.Count);
-        Assert.Single(FunctionCatalogs.setupFunctionCatalog[name].SourceDataTypes);
+        Assert.Single(SetupFunctionCatalog.functions[name].SourceDataTypes);
         var wrongChannels = parameters.WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 6));
         Assert.Contains("ChannelCount", Assert.ThrowsAny<Exception>(() => Invoke(true, name, wrongChannels, source)).Message);
     }

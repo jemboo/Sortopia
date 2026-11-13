@@ -28,11 +28,10 @@
                 </Style>
             </TextBox.Style>
         </TextBox>
-        <ComboBox x:Name="FunctionNameInput" ItemsSource="{Binding Choices}" Text="{Binding EffectiveValue, Mode=OneWay}"
-                  SelectedItem="{Binding SelectedChoice, Mode=TwoWay}"
-                  IsEditable="True" IsReadOnly="True" IsEnabled="{Binding CanSelectValue}"
-                  Visibility="{Binding ShowCatalogPicker, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Title}"
-                  ToolTip="Choose a function by its catalog name. Enable the local override to change an inherited value." />
+        <local:FunctionNameSelector x:Name="FunctionNameInput" Choices="{Binding Choices}" SelectedFunction="{Binding EffectiveValue, Mode=TwoWay}"
+                                    IsSetupCatalog="{Binding IsSetupCatalog}"
+                                    IsEnabled="{Binding CanSelectValue}"
+                                    Visibility="{Binding ShowCatalogPicker, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Title}" />
         <local:WorkspaceValueSource x:Name="ValueSource" />
         <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
     </StackPanel>

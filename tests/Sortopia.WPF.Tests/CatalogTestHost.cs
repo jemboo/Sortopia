@@ -29,7 +29,7 @@ internal sealed class CatalogTestHost(run? value = null, CancellationToken token
             if (contract is null) throw new InvalidOperationException("Read-only database.");
             if (saved.Any(output => Equals(output.Reference.DataType, type))) throw new InvalidOperationException("Output already saved.");
             var keys = contract[type];
-            var version = setup ? FunctionCatalogs.requireSetup(name).Version : FunctionCatalogs.requireResults(name).Version;
+            var version = setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version;
             var key = DataKey.create(owner.projectId, setup ? "Setup" : "Results", setup, name, version, type, keys, parameters, dependencies);
             var reused = owner.data.ContainsKey(key.Reference);
             if (!reused)
@@ -51,7 +51,7 @@ internal sealed class CatalogTestHost(run? value = null, CancellationToken token
 
     private runHost Context(bool setup, string name, parameterSet parameters, IEnumerable<storedOutput> inputs)
     {
-        var contract = setup ? FunctionCatalogs.setupFunctionCatalog[name].DataTypes : FunctionCatalogs.resultsFunctionCatalog[name].DataTypes;
+        var contract = setup ? SetupFunctionCatalog.functions[name].DataTypes : ResultsFunctionCatalog.functions[name].DataTypes;
         var target = new Database(this, setup, name, parameters, contract);
         var reader = new Database(this, true, "read", parameters, null, inputs);
         return new(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameters,
@@ -71,11 +71,11 @@ internal sealed class CatalogTestHost(run? value = null, CancellationToken token
         var host = owner.Context(setup, name, parameters, references);
         if (setup)
         {
-            var definition = FunctionCatalogs.setupFunctionCatalog[name];
+            var definition = SetupFunctionCatalog.functions[name];
             var projects = MapModule.OfSeq(definition.SourceDataTypes.Select(type => Tuple.Create(type, owner.sourceId)));
             definition.Execute.Invoke(host).Invoke(projects);
         }
-        else FunctionCatalogs.resultsFunctionCatalog[name].Execute.Invoke(host);
+        else ResultsFunctionCatalog.functions[name].Execute.Invoke(host);
         var database = setup ? host.SetupDb : host.ResultsDb;
         return ListModule.OfSeq(database.StoredOutputs.Select(output => owner.Load(output.Reference)));
     }

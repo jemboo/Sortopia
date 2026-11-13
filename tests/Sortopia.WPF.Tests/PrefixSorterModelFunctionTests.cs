@@ -92,7 +92,7 @@ public sealed class PrefixSorterModelFunctionTests
         var values = Parameters(type, width);
         var error = Assert.Throws<ArgumentException>(() => Generate(values, type));
         Assert.Contains(type, error.Message); Assert.Contains("PrefixLibId", error.Message); Assert.Contains(reason, error.Message);
-        var config = new resultsConfig("Results", Function(type), FunctionCatalogs.requireResults(Function(type)).Version,
+        var config = new resultsConfig("Results", Function(type), ResultsFunctionCatalog.require(Function(type)).Version,
             [new resultsDataTypeConfig(sortopiaDataType.NewSorterModelSet(""), ["PrefixLibId"])], []);
         Assert.Contains(reason, Assert.Throws<ArgumentException>(() => FileResultsHost.plan(Guid.NewGuid(), config, values, [])).Message);
     }
@@ -120,7 +120,7 @@ public sealed class PrefixSorterModelFunctionTests
     [Fact]
     public void Domain_validation_checks_partial_defaults_and_all_span_values_beyond_the_preview_limit()
     {
-        var definition = FunctionCatalogs.requireResults(ResultsFunctionNames.prefixMsuf4SorterModels);
+        var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf4SorterModels);
         Assert.Empty(definition.SourceDataTypes);
         Assert.Equal(new[] { "ActivationProbability", "AMax", "PrefixLibId", "Repl", "RngType", "Seed4Weights", "SorterCount", "SorterModelType", "StageLength", "UnfoldingWeights" }, definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.True(Assert.Single(definition.SortopiaDataTypes).IsSorterModelSet);

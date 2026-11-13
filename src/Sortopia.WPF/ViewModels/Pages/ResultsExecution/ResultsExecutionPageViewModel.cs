@@ -7,10 +7,13 @@ namespace Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 
 public sealed record RunFileChoice(Guid? Id, string Label);
 
-public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? inspection, string error = "") : ViewModelBase
+public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? inspection, string error = "", TimeProvider? timeProvider = null) : ViewModelBase
 {
     private bool selected;
     private workItemExecutionProgress? execution;
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private long? started;
+    private TimeSpan? elapsed;
     public string Path => path;
     public string FileName => System.IO.Path.GetFileName(path);
     public runParameters? Parameters => parameters;
@@ -18,6 +21,8 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     public string FunctionName => parameters?.Results.FunctionName ?? "Unreadable";
     public outputState State => execution?.State == workItemExecutionState.Complete ? outputState.Complete : inspection?.Outputs.State ?? outputState.Invalid;
     public string Status => execution?.State.ToString() ?? State.ToString();
+    public TimeSpan? Elapsed => started is { } timestamp ? clock.GetElapsedTime(timestamp) : elapsed;
+    public string ElapsedText => Elapsed is { } value ? $"{(long)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}.{value.Milliseconds / 100}" : "—";
     public string OutputSummary => inspection is null ? "" : $"{(State == outputState.Complete ? inspection.Outputs.ExpectedCount : inspection.Outputs.Available.Length)}/{inspection.Outputs.ExpectedCount} outputs";
     public string Error => execution is { Error.Length: > 0 } ? execution.Error : error.Length > 0 ? error : inspection?.Outputs.Error ?? "";
     public bool HasError => Error.Length > 0;
@@ -27,9 +32,23 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     internal event Action? SelectionChanged;
     internal void UpdateExecution(workItemExecutionProgress update)
     {
+        if (update.State == workItemExecutionState.Running)
+        {
+            if (started is null) started = clock.GetTimestamp();
+            elapsed = null;
+        }
+        else
+        {
+            // Validation failures have no running interval. Do not invent a duration.
+            elapsed = started is { } timestamp ? clock.GetElapsedTime(timestamp) : null;
+            started = null;
+        }
         execution = update;
         foreach (var property in new[] { nameof(Status), nameof(State), nameof(OutputSummary), nameof(Error), nameof(HasError), nameof(CanExecute) }) OnPropertyChanged(property);
+        RefreshElapsed();
     }
+    internal void RestoreElapsed(TimeSpan value) { elapsed = value; RefreshElapsed(); }
+    internal void RefreshElapsed() { OnPropertyChanged(nameof(Elapsed)); OnPropertyChanged(nameof(ElapsedText)); }
     internal void SetColumns(IEnumerable<string> keys)
     {
         Cells = keys.Select(key => parameters?.Parameters.TryFind(key)?.Value.FormattedValue ?? "—").ToArray();
@@ -43,6 +62,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     private readonly Func<string?, string?> pickFolder;
     private Action goBack;
     private readonly Action<int>? saveParallelJobs;
+    private readonly TimeProvider clock;
     private string parallelJobs;
     private CancellationTokenSource? cancellation;
     private string folder = "", status = "Choose a project's runParameters folder.", error = "", returnLabel = "← Back to Sortopia";
@@ -53,11 +73,15 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     private WorkItemStatusRow[] files = [];
     // Keep failed/cancelled attempts inspectable during this folder session; no tracking files.
     private readonly Dictionary<Guid, workItemExecutionProgress> outcomes = [];
+    private readonly Dictionary<Guid, TimeSpan> elapsedTimes = [];
+    private readonly HashSet<WorkItemStatusRow> runningRows = [];
+    private ResultsExecutionProgress executionProgress = new(0);
     private bool changingSelection;
-    public ResultsExecutionPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<int>? loadParallelJobs = null, Action<int>? saveParallelJobs = null)
+    public ResultsExecutionPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<int>? loadParallelJobs = null, Action<int>? saveParallelJobs = null, TimeProvider? timeProvider = null)
     {
         this.goBack = goBack; this.pickFolder = pickFolder;
         this.saveParallelJobs = saveParallelJobs;
+        clock = timeProvider ?? TimeProvider.System;
         parallelJobs = Math.Max(1, loadParallelJobs?.Invoke() ?? 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
         ReturnCommand = new RelayCommand(() => { Cancel(); this.goBack(); });
         BrowseCommand = new RelayCommand(async () =>
@@ -110,6 +134,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     public bool CanChooseRun => !IsBusy;
     public bool CanExecute => !IsBusy && ParallelJobsError.Length == 0 && SelectedCount > 0 && Rows.Where(row => row.IsSelected).All(row => row.CanExecute);
     public runExecutionReport? LastReport { get; private set; }
+    public ResultsExecutionProgress ExecutionProgress { get => executionProgress; private set => SetProperty(ref executionProgress, value); }
     public RelayCommand ReturnCommand { get; }
     public RelayCommand BrowseCommand { get; }
     public RelayCommand RefreshCommand { get; }
@@ -126,6 +151,8 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     {
         Cancel();
         outcomes.Clear();
+        elapsedTimes.Clear(); runningRows.Clear();
+        ExecutionProgress = new(0);
         foreach (var row in files) row.SelectionChanged -= Notify;
         files = []; Rows = []; Runs = []; ParameterColumns = [];
         selectedRun = null; OnPropertyChanged(nameof(SelectedRun));
@@ -155,7 +182,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         Rows = files.Where(row => SelectedRun?.Id is not { } id || row.RunId == id).ToArray();
         ParameterColumns = Rows.Where(row => row.Parameters is not null).SelectMany(row =>
         {
-            var definition = FunctionCatalogs.resultsFunctionCatalog.TryGetValue(row.FunctionName, out var known) ? known : null;
+            var definition = ResultsFunctionCatalog.functions.TryGetValue(row.FunctionName, out var known) ? known : null;
             return (definition?.RequiredParameters.Select(key => key.Name) ?? []).Concat(row.Parameters!.Parameters.ParamMap.Keys);
         }).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         foreach (var row in Rows) row.SetColumns(ParameterColumns);
@@ -183,10 +210,10 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
                 try
                 {
                     parameters = RunParameterFiles.loadFile(file);
-                    return new WorkItemStatusRow(file, parameters, RunParameterExecution.inspectFile(file, token));
+                    return new WorkItemStatusRow(file, parameters, RunParameterExecution.inspectFile(file, token), timeProvider: clock);
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception e) { return new WorkItemStatusRow(file, parameters, null, e.GetBaseException().Message); }
+                catch (Exception e) { return new WorkItemStatusRow(file, parameters, null, e.GetBaseException().Message, clock); }
             }).ToArray();
         }, token);
         token.ThrowIfCancellationRequested();
@@ -194,10 +221,13 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var loadedPaths = loaded.Select(row => row.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
         loaded = [.. loaded, .. files.Where(row => !loadedPaths.Contains(row.Path) && row.Parameters is not null
                 && outcomes.TryGetValue(row.Parameters.Id, out var outcome) && outcome.State == workItemExecutionState.Failed)
-            .Select(row => new WorkItemStatusRow(row.Path, row.Parameters, null, "The parameter file no longer exists."))];
+            .Select(row => new WorkItemStatusRow(row.Path, row.Parameters, null, "The parameter file no longer exists.", clock))];
         foreach (var row in loaded)
-            if (Guid.TryParse(System.IO.Path.GetFileNameWithoutExtension(row.Path), out var id) && outcomes.TryGetValue(id, out var outcome))
-                row.UpdateExecution(outcome);
+            if (Guid.TryParse(System.IO.Path.GetFileNameWithoutExtension(row.Path), out var id))
+            {
+                if (outcomes.TryGetValue(id, out var outcome)) row.UpdateExecution(outcome);
+                if (elapsedTimes.TryGetValue(id, out var elapsed)) row.RestoreElapsed(elapsed);
+            }
         foreach (var row in files) row.SelectionChanged -= Notify;
         files = loaded;
         Runs = [new(null, $"All runs · {files.Length:N0} files"), .. files.Where(row => row.RunId is not null).GroupBy(row => row.RunId)
@@ -216,6 +246,8 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var paths = SelectedPaths(); var runId = SelectedRun?.Id;
         var options = new resultsExecutionOptions(int.Parse(ParallelJobs));
         var selectedRows = Rows.Where(row => row.IsSelected).ToDictionary(row => row.Parameters!.Id);
+        ExecutionProgress = new(paths.Length);
+        var batch = ExecutionProgress;
         Status = $"Executing {paths.Length:N0} selected files…";
         var acceptingProgress = true;
         var progress = new Progress<runExecutionProgress>(value =>
@@ -223,9 +255,17 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var rowProgress = new RowProgress(SynchronizationContext.Current, update =>
         {
             if (cancellation?.Token != token || !selectedRows.TryGetValue(update.Id, out var row)) return;
+            batch.Record(update.Id, update.State);
+            if (cancellation?.Token != token) return;
             if (update.State is workItemExecutionState.Failed or workItemExecutionState.Cancelled) outcomes[update.Id] = update;
             else outcomes.Remove(update.Id);
+            if (update.State == workItemExecutionState.Running) runningRows.Add(row);
+            else runningRows.Remove(row);
             row.UpdateExecution(update);
+            // A row notification can navigate to another folder. Do not restore old state there.
+            if (cancellation?.Token != token) return;
+            if (update.State != workItemExecutionState.Running && row.Elapsed is { } elapsed) elapsedTimes[update.Id] = elapsed;
+            else elapsedTimes.Remove(update.Id);
         });
         runExecutionReport report;
         try { report = await Task.Run(() => RunParameterExecution.executeFilesWithOptions(paths, options, progress, rowProgress, token), token); }
@@ -242,6 +282,10 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         if (report.Status != runExecutionStatus.Completed)
         { Error = report.Error; Status = $"{report.Status}: {report.Results.Length:N0} selected files processed. {Status}"; }
     }) : Task.CompletedTask;
+    internal void RefreshElapsedTimes()
+    {
+        foreach (var row in runningRows.ToArray()) row.RefreshElapsed();
+    }
     private sealed class RowProgress(SynchronizationContext? context, Action<workItemExecutionProgress> receive) : IProgress<workItemExecutionProgress>
     {
         private readonly object sync = new();

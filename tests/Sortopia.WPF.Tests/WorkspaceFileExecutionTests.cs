@@ -83,8 +83,8 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var publishedTests = Execute(world, "Tests source"); Completed(publishedTests);
         var publishedModels = Execute(world, "Models source"); Completed(publishedModels);
 
-        var testsDefinition = FunctionCatalogs.resultsFunctionCatalog[testsProject.ResultsFunctionName];
-        var modelsDefinition = FunctionCatalogs.resultsFunctionCatalog[modelsProject.ResultsFunctionName];
+        var testsDefinition = ResultsFunctionCatalog.functions[testsProject.ResultsFunctionName];
+        var modelsDefinition = ResultsFunctionCatalog.functions[modelsProject.ResultsFunctionName];
         var required = ListModule.OfSeq(testsDefinition.RequiredParameters.Concat(modelsDefinition.RequiredParameters).DistinctBy(key => key.Name));
         var parameters = parameterSet.fromBindings(RunParameterSets.create(testsProject.Runs[0]).Results.Single().ParamMap.Values.Concat(RunParameterSets.create(modelsProject.Runs[0]).Results.Single().ParamMap.Values).DistinctBy(binding => binding.KeyName));
         var sourceTypes = ListModule.OfArray(new[] { testsType, modelsType });
@@ -161,7 +161,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Equal(sourceReference, setup.SourceResults.Find(source.Id, testsType, setup.Parameters));
         var sourceTests = Assert.IsType<functionData.SortableTests>(setup.SourceResults.Load(sourceReference));
 
-        var definition = FunctionCatalogs.setupFunctionCatalog[branch.SetupFunctionName];
+        var definition = SetupFunctionCatalog.functions[branch.SetupFunctionName];
         var projects = MapModule.OfSeq(branch.SourceProjectIds.Where(pair => definition.SourceDataTypes.Contains(pair.Key))
             .Select(pair => Tuple.Create(pair.Key, pair.Value)));
         Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
@@ -180,7 +180,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Throws<ArgumentException>(() => results.SetupDb.Load(sortopiaDataType.NewSortableTests("other")));
         Assert.Throws<InvalidOperationException>(() => results.SourceResults.Find(source.Id, testsType, setup.Parameters));
         Assert.Throws<ArgumentException>(() => results.ResultsDb.SaveIfMissing(resultType, ListModule.Singleton(sourceReference), never));
-        FunctionCatalogs.resultsFunctionCatalog[value.ResultsFunctionName].Execute.Invoke(results);
+        ResultsFunctionCatalog.functions[value.ResultsFunctionName].Execute.Invoke(results);
         var output = Assert.Single(results.ResultsDb.StoredOutputs);
         Assert.False(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId);
         var evaluation = Assert.IsType<functionData.SorterSetEval>(results.ResultsDb.Load(resultType));

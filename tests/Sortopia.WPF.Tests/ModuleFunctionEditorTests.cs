@@ -62,7 +62,7 @@ public sealed class ModuleFunctionEditorTests
         Assert.Same(parent.Editor, editor.ResultsFunctionOverride.InheritedSource);
         Assert.Same(parent.Editor, editor.SetupFunctionOverride.InheritedSource);
         editor.AddSetupParameterDefaultCommand.Execute(null);
-        Assert.Equal(FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.evaluationStandardMssi].RequiredParameters.Select(key => key.Name)
+        Assert.Equal(SetupFunctionCatalog.functions[SetupFunctionNames.evaluationStandardMssi].RequiredParameters.Select(key => key.Name)
                 .Where(key => key is not ("AMax" or "ActivationProbability")).Order(StringComparer.Ordinal),
             editor.SetupParameterDefaults.Single().KeyChoices);
         editor.SetupFunctionName = SetupFunctionNames.standardTests;

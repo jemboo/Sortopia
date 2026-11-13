@@ -20,18 +20,18 @@ module FunctionConfiguration =
 
     // A sealed snapshot remains readable when the installed implementation changes.
     let validateResults (config: resultsConfig) =
-        let definition = FunctionCatalogs.requireResults config.FunctionName
+        let definition = ResultsFunctionCatalog.require config.FunctionName
         if String.IsNullOrWhiteSpace config.FunctionVersion then invalidArg "resultsFunctionVersion" "A results function version is required."
         if config.FunctionVersion = definition.Version then
             validateOutputs definition config.DataTypes
             FunctionValidation.validateDefaults definition config.ParameterDefaults
 
     let requiresSource name dataType =
-        let definition = FunctionCatalogs.requireSetup name
+        let definition = SetupFunctionCatalog.require name
         List.contains dataType definition.SourceDataTypes
 
     let validateSetup requireSources (config: setupConfig) =
-        let definition = FunctionCatalogs.requireSetup config.FunctionName
+        let definition = SetupFunctionCatalog.require config.FunctionName
         if String.IsNullOrWhiteSpace config.FunctionVersion then invalidArg "setupFunctionVersion" "A setup function version is required."
         if config.FunctionVersion = definition.Version then
             validateOutputs definition config.DataTypes
@@ -42,7 +42,7 @@ module FunctionConfiguration =
                         invalidArg "sourceProjectId" $"Choose a source project for '{dataType}'; the selected setup function consumes this input."
 
     let private validateInputs executable (value: run) =
-        let results = FunctionCatalogs.requireResults value.ResultsFunctionName
+        let results = ResultsFunctionCatalog.require value.ResultsFunctionName
         let config = match value with run.RootRun r -> r.ProjectConfiguration.Results | run.BranchRun r -> r.ProjectConfiguration.Results
         if executable then version (string config.FunctionName) config.FunctionVersion results.Version
         if config.FunctionVersion = results.Version then
@@ -51,7 +51,7 @@ module FunctionConfiguration =
         | run.RootRun _ ->
             if executable && not results.SourceDataTypes.IsEmpty then invalidArg "resultsFunctionName" "This results function requires a branch run with setup data."
         | run.BranchRun branch ->
-            let setup = FunctionCatalogs.requireSetup branch.SetupFunctionName
+            let setup = SetupFunctionCatalog.require branch.SetupFunctionName
             if executable then version (string branch.SetupFunctionName) branch.ProjectConfiguration.Setup.FunctionVersion setup.Version
             if branch.ProjectConfiguration.Setup.FunctionVersion = setup.Version then
                 FunctionValidation.validateInputs setup

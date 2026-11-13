@@ -2,18 +2,21 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Threading;
 using Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 namespace Sortopia.WPF.Views.Pages.ResultsExecution;
 public partial class ResultsExecutionPanel : UserControl
 {
     private ResultsExecutionPageViewModel? model;
     private bool synchronizingSelection;
+    private readonly DispatcherTimer elapsedTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
     public ResultsExecutionPanel()
     {
         InitializeComponent();
+        elapsedTimer.Tick += (_, _) => model?.RefreshElapsedTimes();
         DataContextChanged += (_, _) => Attach();
-        Loaded += (_, _) => Attach();
-        Unloaded += (_, _) => { if (model is not null) model.PropertyChanged -= Changed; model = null; };
+        Loaded += (_, _) => { Attach(); elapsedTimer.Start(); };
+        Unloaded += (_, _) => { elapsedTimer.Stop(); if (model is not null) model.PropertyChanged -= Changed; model = null; };
     }
     private void Attach()
     {
@@ -33,6 +36,9 @@ public partial class ResultsExecutionPanel : UserControl
         RunParametersGrid.Columns.Clear();
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "File name", Binding = new Binding("FileName"), Width = 325, MinWidth = 180 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new Binding("Status"), Width = 90 });
+        var elapsedStyle = new Style(typeof(TextBlock));
+        elapsedStyle.Setters.Add(new Setter(ToolTipProperty, "Elapsed time for the latest attempt in this folder session (hours:minutes:seconds). Updates while running."));
+        RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Elapsed", Binding = new Binding("ElapsedText"), Width = 110, ElementStyle = elapsedStyle });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Outputs", Binding = new Binding("OutputSummary"), Width = 100 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Executor", Binding = new Binding("FunctionName"), Width = 230 });
         if (model is null) return;

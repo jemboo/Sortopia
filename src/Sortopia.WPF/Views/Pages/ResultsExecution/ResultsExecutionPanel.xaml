@@ -30,6 +30,11 @@
   </WrapPanel>
   <StackPanel Grid.Row="2" Margin="0,0,0,8">
    <TextBlock Text="{Binding SelectionSummary}" FontWeight="SemiBold" TextWrapping="Wrap" />
+   <StackPanel Visibility="{Binding ExecutionProgress.HasWork, Converter={StaticResource ErrorVisibility}}" Margin="0,6,0,2">
+    <TextBlock x:Name="BatchProgressSummary" Text="{Binding ExecutionProgress.Summary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <ProgressBar x:Name="BatchProgressBar" Minimum="0" Maximum="100" Value="{Binding ExecutionProgress.Percent, Mode=OneWay}" Height="6" Margin="0,5,0,0"
+                 ToolTip="Finished includes complete, failed, and cancelled attempts. Jobs that have not started are excluded." AutomationProperties.Name="Results execution overall progress" />
+   </StackPanel>
    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,4,0,0" />
    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
    <TextBlock Text="Select rows with Ctrl/Shift, or use Select all. Complete outputs are reused. Each selected file must have distinct outputs. Failed jobs do not stop other selected jobs."
@@ -39,7 +44,7 @@
   </StackPanel>
   <DataGrid x:Name="RunParametersGrid" Grid.Row="3" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True"
             IsEnabled="{Binding CanChooseRun}" CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Extended" SelectionUnit="FullRow"
-            SelectionChanged="SelectionChanged" HeadersVisibility="All" FrozenColumnCount="2" MinHeight="140"
+            SelectionChanged="SelectionChanged" HeadersVisibility="All" FrozenColumnCount="3" MinHeight="140"
             AreRowDetailsFrozen="True" RowDetailsVisibilityMode="VisibleWhenSelected"
             EnableRowVirtualization="True" EnableColumnVirtualization="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
             AutomationProperties.Name="Run parameter files and output status">

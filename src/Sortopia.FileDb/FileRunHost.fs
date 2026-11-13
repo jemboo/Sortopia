@@ -51,7 +51,7 @@ type FileRunDatabase(store: ISortopiaDb, plan: Map<sortopiaDataType, plannedOutp
 /// setup references. It deliberately has no workspace or upstream-project access.
 module FileResultsHost =
     let plan projectId (config: resultsConfig) parameters (inputs: storedDataReference list) =
-        let definition = FunctionCatalogs.requireResults config.FunctionName
+        let definition = ResultsFunctionCatalog.require config.FunctionName
         if config.FunctionVersion <> definition.Version then
             invalidOp $"Results function '{config.FunctionName}' requires version {config.FunctionVersion}; installed version is {definition.Version}."
         FunctionConfiguration.validateOutputs definition config.DataTypes
@@ -63,7 +63,7 @@ module FileResultsHost =
 
     let createWithParallelism evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
         if evaluationParallelism < 1 then invalidArg "evaluationParallelism" "Evaluation parallelism must be positive."
-        let definition = FunctionCatalogs.requireResults config.FunctionName
+        let definition = ResultsFunctionCatalog.require config.FunctionName
         // Setup can produce more types than results consumes; freeze only those needed.
         let inputs = outputs |> List.map _.Reference |> List.filter (fun reference -> List.contains reference.DataType definition.SourceDataTypes)
         let plan = plan projectId config parameters inputs
@@ -124,7 +124,7 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
         | run.BranchRun branch ->
             let entries = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
             let sources = SourceResults(workspace, workspaceRoot, entries, token)
-            let definition = FunctionCatalogs.requireSetup branch.SetupFunctionName
+            let definition = SetupFunctionCatalog.require branch.SetupFunctionName
             let inputs = entries |> List.map (fun entry -> (sources :> ISourceResults).Find(entry.SourceProjectId, entry.DataType, parameters))
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
                                         branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes

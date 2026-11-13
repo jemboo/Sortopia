@@ -36,10 +36,10 @@ public sealed class PrefixModelWeightsTests
     [InlineData("msuf6", "Seed6Weights,UnfoldingWeights")]
     public void Each_function_exposes_only_its_algorithm_inputs_with_valid_initial_values(string model, string extras)
     {
-        var editor = Module(model); var definition = FunctionCatalogs.requireResults(Function(model));
+        var editor = Module(model); var definition = ResultsFunctionCatalog.require(Function(model));
         string[] common = ["SorterModelType", "PrefixLibId", "AMax", "ActivationProbability", "RngType", "StageLength", "SorterCount", "Repl"];
         Assert.Equal(common.Concat(extras.Split(',', StringSplitOptions.RemoveEmptyEntries)).Order(), definition.RequiredParameters.Select(key => key.Name).Order());
-        Assert.False(FunctionCatalogs.resultsFunctionCatalog.ContainsKey("sorter-model-set.prefix"));
+        Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
         Assert.Equal("1", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = Parameters(editor); FunctionValidation.validate(definition, parameters);
         var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;

@@ -2252,22 +2252,21 @@ public sealed class RandomNetworkTests
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
             var resultsEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             var setupEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "SetupFunctionOverrideEditor");
-            var results = (ComboBox)resultsEditor.FindName("FunctionNameInput");
-            var setup = (ComboBox)setupEditor.FindName("FunctionNameInput");
+            var results = (Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector)resultsEditor.FindName("FunctionNameInput");
+            var setup = (Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector)setupEditor.FindName("FunctionNameInput");
             void Choose(Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor editor, string name)
             {
                 ((CheckBox)editor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
                 Layout();
-                var picker = (ComboBox)editor.FindName("FunctionNameInput");
+                var picker = (Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector)editor.FindName("FunctionNameInput");
                 Assert.True(picker.IsEnabled);
-                Assert.True(picker.IsReadOnly);
-                picker.SetCurrentValue(ComboBox.SelectedItemProperty, name);
+                picker.SetCurrentValue(Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector.SelectedFunctionProperty, name);
                 Layout();
-                Assert.Equal(name, picker.Text);
+                Assert.Equal(name, picker.SelectedFunction);
             }
             Assert.Equal(Visibility.Collapsed, ((TextBox)resultsEditor.FindName("OverrideValueInput")).Visibility);
             Assert.False(results.IsEnabled);
-            Assert.Empty(results.Items);
+            Assert.Empty(results.Choices);
             Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("FunctionsSection")).Visibility);
             Assert.Equal(Visibility.Visible, ((FrameworkElement)fields.FindName("SetupFunctionItem")).Visibility);
             Assert.Equal(Visibility.Visible, ((FrameworkElement)fields.FindName("ResultsFunctionItem")).Visibility);
@@ -2284,9 +2283,9 @@ public sealed class RandomNetworkTests
                 encoder.Save(stream);
             }
             Snapshot("workspace-module-functions-empty");
-            Assert.Equal(Sortopia.Functions.FunctionCatalogs.setupFunctionCatalog.Keys, setup.Items.Cast<string>());
+            Assert.Equal(Sortopia.Functions.SetupFunctionCatalog.functions.Keys, setup.Choices);
             Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.standardTests);
-            Assert.DoesNotContain(Sortopia.Functions.ResultsFunctionNames.sorterEval, results.Items.Cast<string>());
+            Assert.DoesNotContain(Sortopia.Functions.ResultsFunctionNames.sorterEval, results.Choices);
             Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.mergeSortableTests);
             Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, module.Editor!.ResultsFunctionName);
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, module.Editor.SetupFunctionName);
@@ -2311,21 +2310,21 @@ public sealed class RandomNetworkTests
             Layout();
             Assert.False(results.IsEnabled);
             Assert.False(setup.IsEnabled);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.Text);
-            Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, setup.Text);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.SelectedFunction);
+            Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, setup.SelectedFunction);
             Assert.False(project.Editor!.ResultsFunctionOverride.CanOverride);
             Assert.False(project.Editor.SetupFunctionOverride.CanOverride);
             vm.AddRunCommand.Execute(null);
             var run = vm.Selected!;
             Layout();
             Assert.False(results.IsEnabled);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.Text);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.SelectedFunction);
             Assert.False(setup.IsEnabled);
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, project.Editor!.SetupFunctionName);
             Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, run.Editor!.SetupFunctionName);
             ((CheckBox)setupEditor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
             Layout();
-            Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, setup.Text);
+            Assert.Equal(Sortopia.Functions.SetupFunctionNames.standardTests, setup.SelectedFunction);
             Assert.False(run.Editor.SetupFunctionOverride.CanOverride);
             vm.SelectConfigurationItem("setupFunction");
             run.Editor.Sections.Description = run.Editor.Sections.ResultsDefaults = run.Editor.Sections.ResultsSpans = run.Editor.Sections.ResultsPreview = false;
@@ -2371,7 +2370,7 @@ public sealed class RandomNetworkTests
             Assert.True(vm.Selected.IsSealed);
             Assert.False(results.IsEnabled);
             Assert.False(setup.IsEnabled);
-            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.Text);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionNames.mergeSortableTests, results.SelectedFunction);
         }
         finally { temporary.Delete(recursive: true); }
     }
@@ -2984,7 +2983,7 @@ public sealed class RandomNetworkTests
                 var row = (ContentPresenter)defaults.ItemContainerGenerator.ContainerFromIndex(defaults.Items.Count - 1);
                 var keyInput = (ComboBox)defaults.ItemTemplate.FindName("DefaultKeyInput", row);
                 Assert.True(keyInput.IsReadOnly);
-                Assert.Equal(Sortopia.Functions.FunctionCatalogs.resultsFunctionCatalog[Sortopia.Functions.ResultsFunctionNames.sorterEval].RequiredParameters.Select(key => key.Name).Order(), keyInput.Items.Cast<string>());
+                Assert.Equal(Sortopia.Functions.ResultsFunctionCatalog.functions[Sortopia.Functions.ResultsFunctionNames.sorterEval].RequiredParameters.Select(key => key.Name).Order(), keyInput.Items.Cast<string>());
                 keyInput.SetCurrentValue(ComboBox.SelectedItemProperty, key); LayoutWorkspace();
                 Assert.False(((ComboBox)defaults.ItemTemplate.FindName("DefaultTypeInput", row)).IsEnabled);
                 return (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)defaults.ItemTemplate.FindName("DefaultValueEditor", row);
@@ -3010,7 +3009,7 @@ public sealed class RandomNetworkTests
             Assert.True(executeInput.IsReadOnly);
             Assert.Equal(Visibility.Visible, executeInput.Visibility);
             Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, executeInput.Text);
-            Assert.False(((ComboBox)executeEditor.FindName("FunctionNameInput")).IsVisible);
+            Assert.False(((Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector)executeEditor.FindName("FunctionNameInput")).IsVisible);
             RenderWorkspaceState("run-inherited-functions", 1400, 900);
             var resultFunction = vm.InspectorItems.Single(item => item.Key == "resultsFunction");
             vm.SelectInspectorSourceCommand.Execute(resultFunction); LayoutWorkspace();

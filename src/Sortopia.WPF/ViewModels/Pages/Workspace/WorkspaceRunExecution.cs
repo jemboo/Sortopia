@@ -39,9 +39,9 @@ public sealed partial class WorkspacePageViewModel
             if (HasUnsavedChanges || SelectedSavedRun is null || !HasSavedWorkspace || HasMissingComponents)
                 return "Save the workspace before generating parameters for this run.";
             var value = SelectedSavedRun!;
-            if (!FunctionCatalogs.resultsFunctionCatalog.ContainsKey(value.ResultsFunctionName))
+            if (!ResultsFunctionCatalog.functions.ContainsKey(value.ResultsFunctionName))
                 return $"Results function '{value.ResultsFunctionName}' is not in the catalog.";
-            if (value.SetupFunctionName is { } setup && !FunctionCatalogs.setupFunctionCatalog.ContainsKey(setup.Value))
+            if (value.SetupFunctionName is { } setup && !SetupFunctionCatalog.functions.ContainsKey(setup.Value))
                 return $"Setup function '{setup.Value}' is not in the catalog.";
             return "";
         }

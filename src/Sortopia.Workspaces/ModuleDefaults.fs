@@ -81,7 +81,7 @@ module ModuleDefaults =
         Defaults.resolveRoot (toRootProject parent) (toRootOverrides local) |> fromRootProject
     let validateRoot local =
         toRootOverrides local |> Defaults.validateRoot
-        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.FunctionCatalogs.requireResults >> ignore)
+        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.ResultsFunctionCatalog.require >> ignore)
     let validateRootConfiguration value = toRootProject value |> Defaults.validateRootModule
 
     let fromBranchProject (value: branchProjectConfig) : branchModuleConfig = {
@@ -135,8 +135,8 @@ module ModuleDefaults =
         Defaults.resolveBranch (toBranchProject parent) (toBranchOverrides local) |> fromBranchProject
     let validateBranch local =
         toBranchOverrides local |> Defaults.validateBranch
-        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.FunctionCatalogs.requireResults >> ignore)
-        local.SetupFunctionName |> Option.iter (Sortopia.Functions.FunctionCatalogs.requireSetup >> ignore)
+        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.ResultsFunctionCatalog.require >> ignore)
+        local.SetupFunctionName |> Option.iter (Sortopia.Functions.SetupFunctionCatalog.require >> ignore)
     let validateBranchConfiguration value = toBranchProject value |> Defaults.validateBranchModule
 
     let fromProject = function RootProjectConfig value -> RootModuleConfig (fromRootProject value) | BranchProjectConfig value -> BranchModuleConfig (fromBranchProject value)

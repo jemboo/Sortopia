@@ -28,17 +28,21 @@ module ResultsFunctions =
 
     let mergeSortableTests =
         generator "1" testsType InputGenerators.mergeKeys InputGenerators.mergeTests
+        |> FunctionDefinition.describe "Generate sortable tests for a merge library entry, saving the tests and their generating prefix in the results database."
 
     let prefixSortableTests =
         generator "1" testsType InputGenerators.prefixKeys InputGenerators.prefixTests
+        |> FunctionDefinition.describe "Generate sortable tests for a prefix library entry, saving the tests and their generating prefix in the results database."
 
     let standardSortableTests =
         generator "1" testsType InputGenerators.standardKeys InputGenerators.standardTests
+        |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format, with an empty prefix. Save the tests in the results database."
 
     let private modelGenerator source modelType keys make =
         FunctionDefinition.resultsValidated "1" keys
             [modelsType, InputGenerators.queryKeys keys] (ModelGenerators.inputError source modelType)
             (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> make host.Parameters))
+        |> FunctionDefinition.describe (ModelGenerators.description source modelType + " Save the models in the results database.")
 
     let prefixMsceSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msce (ModelGenerators.msceKeys PrefixInput) (ModelGenerators.msce PrefixInput)
     let prefixMssiSorterModels = modelGenerator PrefixInput simpleSorterModelType.Mssi (ModelGenerators.mssiKeys PrefixInput) (ModelGenerators.mssi PrefixInput)
@@ -60,6 +64,7 @@ module ResultsFunctions =
             (fun host ->
                 host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> makeModels host.Parameters)
                 host.ResultsDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
+        |> FunctionDefinition.describe ($"Generate full binary sortable tests and {ModelGenerators.algorithmDescription modelType} sorter models with no fixed prefix. Save both outputs in the results database for use by other projects.")
 
     let standardMsceEvaluationInputs = standardInputs simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
     let standardMssiEvaluationInputs = standardInputs simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
@@ -99,6 +104,7 @@ module ResultsFunctions =
         let required = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
         FunctionDefinition.resultsWithInputs "1" required [evalType, [modelsType; testsType]]
             [evalType, InputGenerators.queryKeys required] evaluate
+        |> FunctionDefinition.describe "Evaluate the sorter models against the tests and prefix already saved in the setup database. Save the evaluations in the results database; optionally collect new sortable tests within the evaluations."
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
@@ -120,3 +126,4 @@ module ResultsFunctions =
                     let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None group
                     SorterSetEval.makeSorterEvalsWithOptions (evaluationOptions host) sorters.Sorters prefix tests evalType (UMX.tag false))
                 sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> functionData.SorterSetEval))
+        |> FunctionDefinition.describe "Evaluate the prepared sorter models against setup tests in batches of 1,000, saving evaluations in the results database. Does not generate mutations or collect new sortable tests."

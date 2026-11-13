@@ -194,7 +194,7 @@ public sealed class FileDataStoreTests : IDisposable
             var parameters = BranchRun.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.stageLengthKey, stage));
             var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
                 setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardMssiEvaluationInputs, "1",
-                branch.ProjectConfiguration.Setup.DataTypes, FunctionCatalogs.requireSetup(branch.SetupFunctionName).OutputDependencies,
+                branch.ProjectConfiguration.Setup.DataTypes, SetupFunctionCatalog.require(branch.SetupFunctionName).OutputDependencies,
                 parameters, List<storedDataReference>());
             IRunDatabase context = new FileRunDatabase(store, plan, Token);
             context.SaveIfMissing(sortopiaDataType.NewSortableTests(""), List<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => { testCalls++; return Tests(); }));
@@ -212,7 +212,7 @@ public sealed class FileDataStoreTests : IDisposable
         var parameters = Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"));
         var outputs = MapModule.OfArray(new[] { Tuple.Create(type, List("ChannelCount", "SortableDataFormat")) });
         var plan = OutputPlan.create(projectId, "Setup", true, SetupFunctionNames.standardTests, "1", outputs,
-            FunctionCatalogs.requireSetup(SetupFunctionNames.standardTests).OutputDependencies, parameters, List<storedDataReference>());
+            SetupFunctionCatalog.require(SetupFunctionNames.standardTests).OutputDependencies, parameters, List<storedDataReference>());
         IRunDatabase database = new FileRunDatabase(Open(), plan, Token);
         var make = FuncConvert.FromFunc<Unit, functionData>(_ => Tests());
         Assert.Throws<ArgumentException>(() => database.SaveIfMissing(sortopiaDataType.NewSortableTests("other"), List<storedDataReference>(), make));

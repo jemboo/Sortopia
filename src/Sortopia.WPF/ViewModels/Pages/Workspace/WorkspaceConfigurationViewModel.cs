@@ -139,18 +139,9 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
     internal Func<bool>? SelectionEnabled { get; set; }
     public string[] Choices => AvailableChoices?.Invoke() ?? catalogChoices;
     public bool HasChoices => catalogChoices.Length > 0;
+    public bool IsSetupCatalog { get; internal set; }
     public bool ShowCatalogPicker => HasChoices && CanOverride;
     public bool CanSelectValue => CanEditValue && SelectionEnabled?.Invoke() != false;
-    public string? SelectedChoice
-    {
-        get => Choices.Contains(EffectiveValue, StringComparer.Ordinal) ? EffectiveValue : null;
-        set
-        {
-            // A filtered ComboBox clears its selection when an item disappears. Keep that
-            // draft value until the user chooses a replacement or restores inheritance.
-            if (value is not null && Choices.Contains(value, StringComparer.Ordinal)) EffectiveValue = value;
-        }
-    }
     public bool IsMultiline => !required;
     protected override void SeedOverride() => value = inherited();
     public string EffectiveValue
@@ -221,12 +212,13 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         DescriptionOverride = Field(nameof(Description), "Description", false, () => Parent?.Description ?? "");
         ResultsDatabaseOverride = Field(nameof(ResultsDatabaseName), "Results database", !IsModule, () => IsRun ? Parent?.ResultsDatabaseName ?? "" : "Results", false, projectValue: IsProject);
         ResultsFunctionOverride = Field(nameof(ResultsFunctionName), "Results function", true, () => Parent?.ResultsFunctionName ?? "", IsModule,
-            FunctionCatalogs.resultsFunctionCatalog.Keys.ToArray());
+            ResultsFunctionCatalog.functions.Keys.ToArray());
         SetupDatabaseOverride = Field(nameof(SetupDatabaseName), "Setup database", !IsModule, () => IsRun ? Parent?.SetupDatabaseName ?? "" : "Setup", false, projectValue: IsProject);
         if (IsProject) { ResultsDatabaseOverride.Load("Results"); if (IsBranch) SetupDatabaseOverride.Load("Setup"); }
         SetupFunctionOverride = Field(nameof(SetupFunctionName), "Setup function", true, () => Parent?.SetupFunctionName ?? "", IsModule, choices:
-            FunctionCatalogs.setupFunctionCatalog.Keys.ToArray());
-        ResultsFunctionOverride.AvailableChoices = () => IsModule ? CompatibleResultsFunctions : FunctionCatalogs.resultsFunctionCatalog.Keys.ToArray();
+            SetupFunctionCatalog.functions.Keys.ToArray());
+        SetupFunctionOverride.IsSetupCatalog = true;
+        ResultsFunctionOverride.AvailableChoices = () => IsModule ? CompatibleResultsFunctions : ResultsFunctionCatalog.functions.Keys.ToArray();
         ResultsFunctionOverride.SelectionEnabled = () => !IsModule || !IsBranch || HasSetupContract;
         WorkspaceListOverride List(string key, string title, Action seed)
         {
@@ -282,8 +274,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupFunctionName { get => frozenSettings?.setupFunctionName ?? SetupFunctionOverride.EffectiveValue; set { if (IsModule) SetupFunctionOverride.SetLocal(value); } }
 
     private paramKeyDescriptor[]? Requirements(bool setup) => !PhaseVersionCurrent(setup) ? null : setup
-        ? FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.RequiredParameters.ToArray() : null
-        : FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.RequiredParameters.ToArray() : null;
+        ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.RequiredParameters.ToArray() : null
+        : ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.RequiredParameters.ToArray() : null;
     public string ResultsRequirementsHint => RequirementsHint(false);
     public string SetupRequirementsHint => RequirementsHint(true);
     private string RequirementsHint(bool setup) => Requirements(setup) is { } required
@@ -660,13 +652,13 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         return value;
     }
     private bool PhaseVersionCurrent(bool setup) => setup
-        ? !FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition) || definition.Version == SetupFunctionVersion
-        : !FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var results) || results.Version == ResultsFunctionVersion;
+        ? !SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) || definition.Version == SetupFunctionVersion
+        : !ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var results) || results.Version == ResultsFunctionVersion;
     private bool FunctionVersionsCurrent => PhaseVersionCurrent(false) && (!IsBranch || PhaseVersionCurrent(true));
     private string ResultsFunctionVersion => frozenSettings?.resultsFunctionVersion ?? (!IsModule ? Parent?.ResultsFunctionVersion : null)
-        ?? (FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var definition) ? definition.Version : "");
+        ?? (ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var definition) ? definition.Version : "");
     private string SetupFunctionVersion => frozenSettings?.setupFunctionVersion ?? (!IsModule ? Parent?.SetupFunctionVersion : null)
-        ?? (FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition) ? definition.Version : "");
+        ?? (SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) ? definition.Version : "");
     internal runDto ToRunInputs(Guid id, string name, Guid parentProjectId) => new()
     {
         schemaVersion = 14, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",

@@ -34,7 +34,7 @@ public sealed class EvaluationInputFunctionTests
     {
         if (!HasSource(group)) return [];
         var name = group.EndsWith(".merge") ? ResultsFunctionNames.mergeSortableTests : ResultsFunctionNames.prefixSortableTests;
-        var keys = FunctionCatalogs.requireResults(name).RequiredParameters.Select(key => key.Name).ToHashSet();
+        var keys = ResultsFunctionCatalog.require(name).RequiredParameters.Select(key => key.Name).ToHashSet();
         return CatalogTestHost.Invoke(false, name, parameterSet.fromBindings(parameters.ParamMap.Values.Where(binding => keys.Contains(binding.KeyName)))).ToArray();
     }
     private static simpleSorterModel Simple(sorterModel model) => model switch {
@@ -54,12 +54,12 @@ public sealed class EvaluationInputFunctionTests
         var setup = IsSetup(group); var name = $"{group}.{model}";
         var editor = Module(group, model);
         var parameters = Parameters(editor, setup).WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family));
-        var required = setup ? FunctionCatalogs.requireSetup(name).RequiredParameters : FunctionCatalogs.requireResults(name).RequiredParameters;
-        var dataTypes = setup ? FunctionCatalogs.requireSetup(name).DataTypes : FunctionCatalogs.requireResults(name).DataTypes;
-        var sourceTypes = setup ? FunctionCatalogs.requireSetup(name).SourceDataTypes : FunctionCatalogs.requireResults(name).SourceDataTypes;
-        Assert.False(FunctionCatalogs.setupFunctionCatalog.ContainsKey(group));
-        Assert.False(FunctionCatalogs.resultsFunctionCatalog.ContainsKey(group));
-        Assert.Equal("1", setup ? FunctionCatalogs.requireSetup(name).Version : FunctionCatalogs.requireResults(name).Version);
+        var required = setup ? SetupFunctionCatalog.require(name).RequiredParameters : ResultsFunctionCatalog.require(name).RequiredParameters;
+        var dataTypes = setup ? SetupFunctionCatalog.require(name).DataTypes : ResultsFunctionCatalog.require(name).DataTypes;
+        var sourceTypes = setup ? SetupFunctionCatalog.require(name).SourceDataTypes : ResultsFunctionCatalog.require(name).SourceDataTypes;
+        Assert.False(SetupFunctionCatalog.functions.ContainsKey(group));
+        Assert.False(ResultsFunctionCatalog.functions.ContainsKey(group));
+        Assert.Equal("1", setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
         Assert.DoesNotContain(required, key => key.Name == "SimpleSorterModelType");
         Assert.Equal(model == "msce", required.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", required.Any(key => key.Name == "StageWeights"));
@@ -69,7 +69,7 @@ public sealed class EvaluationInputFunctionTests
         var testsType = sortopiaDataType.NewSortableTests(""); var modelsType = sortopiaDataType.NewSorterModelSet("");
         Assert.Equal(new[] { testsType, modelsType }.Order(), dataTypes.Keys.Order());
         Assert.Equal(HasSource(group) ? new[] { testsType } : [], sourceTypes);
-        Assert.Equal(FunctionCatalogs.requireResults($"sorter-model-set.uniform.{model}").DataTypes[modelsType], dataTypes[modelsType]);
+        Assert.Equal(ResultsFunctionCatalog.require($"sorter-model-set.uniform.{model}").DataTypes[modelsType], dataTypes[modelsType]);
         var libraryKey = group.EndsWith(".merge") ? "MergeLibId" : group.EndsWith(".prefix") ? "PrefixLibId" : "ChannelCount";
         Assert.Equal(new[] { libraryKey, "SortableDataFormat" }.Order(), dataTypes[testsType].Order());
         Assert.Equal(model == "msuf6" ? 12 : 8, parameters.TryFind(ParamKeys.channelCountKey).Value);
@@ -143,7 +143,7 @@ public sealed class EvaluationInputFunctionTests
         Assert.Contains($"must match {key}", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true, $"{group}.mssi", parameters)).Message);
         editor.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "12";
         Assert.Contains($"must match {key}", editor.SetupParameterDefaultsError);
-        var definition = FunctionCatalogs.requireSetup($"{group}.mssi");
+        var definition = SetupFunctionCatalog.require($"{group}.mssi");
         var defaults = ListModule.OfSeq(parameters.ParamMap.Values.Where(binding => binding.KeyName != "ChannelCount"));
         var span = ParameterSpan.create(ParamKeys.channelCountKey, ListModule.OfSeq(Enumerable.Repeat(8, 50).Append(12)));
         Assert.Contains($"must match {key}", definition.InputError.Invoke(defaults).Invoke(ListModule.OfArray(new[] { span })));

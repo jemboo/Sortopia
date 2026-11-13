@@ -69,6 +69,8 @@ type IRunHostFactory =
 /// Required inputs are independent of the project's chosen query projections.
 type functionDefinition<'executor> = {
     Version: string
+    /// Human-readable catalog guidance; does not affect execution or stored identities.
+    Description: string
     RequiredParameters: paramKeyDescriptor list
     /// Catalog metadata: parameters contributing to each output, not fixed query keys.
     DataTypes: Map<sortopiaDataType, string<paramKeyName> list>
@@ -154,6 +156,10 @@ module FunctionValidation =
         parameters.ParamMap |> Map.toList |> List.map snd |> validateDefaults definition
 
 module FunctionDefinition =
+    let describe description (definition: functionDefinition<'executor>) =
+        if System.String.IsNullOrWhiteSpace description then invalidArg "description" "A function description must not be blank."
+        { definition with Description = description }
+
     let private saved types (database: IRunDatabase) =
         let expected = types |> Map.toList |> List.map fst |> List.sort
         let actual = database.StoredOutputs |> List.map (fun output -> output.Reference.DataType) |> List.sort
@@ -187,7 +193,7 @@ module FunctionDefinition =
     let private resultsWithValidation version required inputs dataTypes inputError (execute: resultsFunction) : functionDefinition<resultsFunction> =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types inputs
-        { Version = version; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = inputError
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
@@ -210,7 +216,7 @@ module FunctionDefinition =
         let dependencies, sources = dependencies types sources
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
-        { Version = version; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = fun _ _ -> ""
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."

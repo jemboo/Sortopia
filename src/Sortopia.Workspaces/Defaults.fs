@@ -32,8 +32,8 @@ type configurationOverrides =
     | BranchOverrides of branchDefaultOverrides
 
 module Defaults =
-    let private resultsRequirements name = FunctionCatalogs.resultsFunctionCatalog |> Map.tryFind name |> Option.map (fun value -> value.RequiredParameters)
-    let private setupRequirements name = FunctionCatalogs.setupFunctionCatalog |> Map.tryFind name |> Option.map (fun value -> value.RequiredParameters)
+    let private resultsRequirements name = ResultsFunctionCatalog.functions |> Map.tryFind name |> Option.map (fun value -> value.RequiredParameters)
+    let private setupRequirements name = SetupFunctionCatalog.functions |> Map.tryFind name |> Option.map (fun value -> value.RequiredParameters)
     let private inheritedFor requirements values =
         match requirements with
         | None -> values
@@ -73,14 +73,14 @@ module Defaults =
         merged @ (local |> List.filter (fun binding -> not (Set.contains binding.KeyName inheritedKeys)))
 
     let resultOutputs (name: string<resultsFunctionName>) =
-        if UMX.untag name = "" then [] else FunctionCatalogs.resultsOutputs name |> List.map (fun output -> { output with QueryParameterKeys = [] })
+        if UMX.untag name = "" then [] else ResultsFunctionCatalog.outputs name |> List.map (fun output -> { output with QueryParameterKeys = [] })
     let setupOutputs (name: string<setupFunctionName>) (sources: setupSourceConfig list) : setupDataTypeConfig list =
         if UMX.untag name = "" then [] else
-        FunctionCatalogs.setupOutputs name |> List.map (fun (dataType, keys) ->
+        SetupFunctionCatalog.outputs name |> List.map (fun (dataType, keys) ->
             let source = if FunctionConfiguration.requiresSource name dataType then sources |> List.tryFind (fun entry -> entry.DataType = dataType) |> Option.map (fun entry -> entry.SourceProjectId) |> Option.defaultValue (UMX.tag System.Guid.Empty) else UMX.tag System.Guid.Empty
             { DataType = dataType; SourceProjectId = source; QueryParameterKeys = [] })
-    let resultsVersion (name: string<resultsFunctionName>) = if UMX.untag name = "" then "" else (FunctionCatalogs.requireResults name).Version
-    let setupVersion (name: string<setupFunctionName>) = if UMX.untag name = "" then "" else (FunctionCatalogs.requireSetup name).Version
+    let resultsVersion (name: string<resultsFunctionName>) = if UMX.untag name = "" then "" else (ResultsFunctionCatalog.require name).Version
+    let setupVersion (name: string<setupFunctionName>) = if UMX.untag name = "" then "" else (SetupFunctionCatalog.require name).Version
     let sources (entries: setupDataTypeConfig list) : setupSourceConfig list =
         entries |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty)
         |> List.map (fun entry -> { DataType = entry.DataType; SourceProjectId = entry.SourceProjectId })

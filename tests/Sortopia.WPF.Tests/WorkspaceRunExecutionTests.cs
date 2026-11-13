@@ -53,7 +53,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(node, true);
             foreach (var setup in new[] { false, true }) {
                 if (setup && !node.IsBranch || setup && !editor.HasSetupContract || !setup && !editor.HasResultsContract) continue;
-                var required = setup ? FunctionCatalogs.requireSetup(editor.SetupFunctionName).RequiredParameters : FunctionCatalogs.requireResults(editor.ResultsFunctionName).RequiredParameters;
+                var required = setup ? SetupFunctionCatalog.require(editor.SetupFunctionName).RequiredParameters : ResultsFunctionCatalog.require(editor.ResultsFunctionName).RequiredParameters;
                 var spans = setup ? editor.SetupParameters : editor.ResultsParameters;
                 var defaults = setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults;
                 foreach (var key in required.Where(key => !spans.Any(span => span.Key == key.Name) && !defaults.Any(value => value.Key == key.Name))) {

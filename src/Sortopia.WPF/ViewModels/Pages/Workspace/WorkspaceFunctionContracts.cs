@@ -11,8 +11,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     {
         if (!PhaseVersionCurrent(setup)) return "";
         var validate = setup
-            ? FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.InputError : null
-            : FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.InputError : null;
+            ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.InputError : null
+            : ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.InputError : null;
         if (validate is null) return "";
         try
         {
@@ -46,14 +46,14 @@ public sealed partial class WorkspaceConfigurationViewModel
     public string SetupInputGuidance => HasSetupContract ? ModelInputGuidance(SetupFunctionName) : "";
     public bool HasResultsInputGuidance => ResultsInputGuidance.Length > 0;
     public bool HasSetupInputGuidance => SetupInputGuidance.Length > 0;
-    public bool HasResultsContract => FunctionCatalogs.resultsFunctionCatalog.ContainsKey(ResultsFunctionName);
-    public bool HasSetupContract => FunctionCatalogs.setupFunctionCatalog.ContainsKey(SetupFunctionName);
-    public bool SetupGeneratesAllOutputs => FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;
+    public bool HasResultsContract => ResultsFunctionCatalog.functions.ContainsKey(ResultsFunctionName);
+    public bool HasSetupContract => SetupFunctionCatalog.functions.ContainsKey(SetupFunctionName);
+    public bool SetupGeneratesAllOutputs => SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;
     public string ResultsContractHint => HasResultsContract ? "Saved data types and their text are defined by the results function. Query keys are chosen on the project from explicit run spans." : "";
     public string SetupContractHint => HasSetupContract ? "Saved data types and their text are defined by the setup function. Query keys are chosen on the project from explicit run spans. Choose source projects only for outputs that consume source data." : "";
-    public string[] CompatibleResultsFunctions => FunctionCatalogs.resultsFunctionCatalog
+    public string[] CompatibleResultsFunctions => ResultsFunctionCatalog.functions
         .Where(entry => IsBranch ? HasSetupContract && entry.Value.SourceDataTypes.All(input =>
-            FunctionCatalogs.setupFunctionCatalog[SetupFunctionName].SortopiaDataTypes.Contains(input)) : entry.Value.SourceDataTypes.IsEmpty)
+            SetupFunctionCatalog.functions[SetupFunctionName].SortopiaDataTypes.Contains(input)) : entry.Value.SourceDataTypes.IsEmpty)
         .Select(entry => entry.Key).ToArray();
     public bool FunctionsReady => HasResultsContract && (!IsBranch || HasSetupContract) && FunctionCompatibilityError.Length == 0;
     public bool ShowFunctionConfiguration => FunctionsReady;
@@ -92,16 +92,16 @@ public sealed partial class WorkspaceConfigurationViewModel
         get
         {
             if (!FunctionVersionsCurrent) return "";
-            if (!FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var results) || results.SourceDataTypes.IsEmpty) return "";
+            if (!ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var results) || results.SourceDataTypes.IsEmpty) return "";
             if (!IsBranch) return "This results function consumes setup data. Select it on a branch module, or choose a results function that generates its own data for this root module.";
             if (!HasSetupContract) return IsModule ? "" : "Select a setup function on the module that provides the results function’s input data.";
             var missing = results.SourceDataTypes.Where(required => !EffectiveSetupOutputs.Any(output => Equals(SortopiaDataTypeDto.toDomain(output), required))).ToArray();
             return missing.Length == 0 ? "" : $"The results function needs setup outputs: {string.Join(", ", missing.Select(value => value.ToString()))}. Choose a setup function on the module that saves these exact data types.";
         }
     }
-    private resultsDataTypeConfigDto[]? DeclaredResults => FunctionCatalogs.resultsFunctionCatalog.TryGetValue(ResultsFunctionName, out var definition)
+    private resultsDataTypeConfigDto[]? DeclaredResults => ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var definition)
         ? definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = [] }).ToArray() : null;
-    private resultsDataTypeConfigDto[]? DeclaredSetup => FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition)
+    private resultsDataTypeConfigDto[]? DeclaredSetup => SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition)
         ? definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = [] }).ToArray() : null;
     private static bool SameType(sortopiaDataTypeDto left, sortopiaDataTypeDto right) => left.kind == right.kind && left.value == right.value;
     private bool NeedsSource(sortopiaDataTypeDto dataType) => !PhaseVersionCurrent(true)

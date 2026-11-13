@@ -20,7 +20,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     private static parameterBinding[] Models => [Bind("ChannelCount", "4"), Bind("StageLength", "3"), Bind("SorterCount", "3"), Bind("Repl", "0"),
         Bind("SorterModelType", "Simple", parameterValueType.Text), Bind("AMax", "1"), Bind("ActivationProbability", "0.5", parameterValueType.Floating),
         Bind("RngType", "SplitMix64", parameterValueType.Text)];
-    private static resultsConfig Results(string name, parameterBinding[] defaults) => new("Results", name, "1", FunctionCatalogs.resultsOutputs(name), ListModule.OfArray(defaults));
+    private static resultsConfig Results(string name, parameterBinding[] defaults) => new("Results", name, "1", ResultsFunctionCatalog.outputs(name), ListModule.OfArray(defaults));
 
     private static project Project(string name, projectConfiguration configuration, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
@@ -61,7 +61,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var target = source;
         if (branch)
         {
-            var definition = FunctionCatalogs.setupFunctionCatalog[setupName];
+            var definition = SetupFunctionCatalog.functions[setupName];
             var outputs = ListModule.OfSeq(definition.DataTypes.Select(entry => new setupDataTypeConfig(entry.Key, entry.Key.IsSortableTests ? source.Id : Guid.Empty, entry.Value)));
             var setup = new setupConfig("Setup", setupName, "1", outputs, ListModule.OfArray<parameterBinding>([.. models, merge, format]));
             var results = Results(ResultsFunctionNames.sorterEval, [ParameterBinding.create(ParamKeys.channelCountKey, width), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]);
@@ -558,7 +558,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var (world, project) = Create(true);
         var value = project.Runs[0];
         var config = ((run.BranchRun)value).Item.ProjectConfiguration.Setup;
-        var definition = FunctionCatalogs.requireSetup(config.FunctionName);
+        var definition = SetupFunctionCatalog.require(config.FunctionName);
         var parameters = RunParameterSets.create(value).Setup.Value[0];
         var host = new FileRunHost(world, Root, value, Token).ForSetup(parameters);
         var source = config.Outputs.Single(output => output.DataType.IsSortableTests);
