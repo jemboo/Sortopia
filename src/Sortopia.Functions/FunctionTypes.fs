@@ -128,6 +128,15 @@ module FunctionParameters =
         parameters.TryFind key
         |> Option.defaultWith (fun () -> invalidArg "parameters" $"Missing or incorrectly typed parameter: {key.Name}.")
 
+    /// Distinct candidates for validating partial defaults and every span value without expanding the product.
+    let inputValues (key: paramKey<'value>) (defaults: parameterBinding list) (spans: parameterSpan list) =
+        let read value = value |> Option.defaultWith (fun () -> invalidArg "parameters" $"Invalid value for {key.Name}.")
+        [ for binding in defaults do
+              if binding.KeyName = key.Name then yield ParameterValue.tryGet<'value> binding.Value |> read
+          for span in spans do
+              if span.KeyName = key.Name then
+                  for text in span.Values do yield key.TryParse text |> read ] |> List.distinct
+
 module FunctionValidation =
     let require error = if error <> "" then invalidArg "parameters" error
 
@@ -212,3 +221,12 @@ module FunctionDefinition =
               saved types host.SetupDb }
 
     let setup version required dataTypes execute = setupWithSources version required dataTypes (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) execute
+
+    let setupWithSourcesValidated version required dataTypes sources inputError (execute: setupFunction) =
+        let definition = setupWithSources version required dataTypes sources (fun host projects ->
+            inputError (host.Parameters.ParamMap |> Map.toList |> List.map snd) [] |> FunctionValidation.require
+            execute host projects)
+        { definition with InputError = inputError }
+
+    let setupValidated version required dataTypes inputError execute =
+        setupWithSourcesValidated version required dataTypes (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) inputError execute

@@ -101,6 +101,15 @@ type msrsRandGen =
 
 module MsrsRandGen =
 
+    /// One OPS probability distribution is reused for every suffix stage.
+    let create rngFactory channelCount prefix stageLength (stageProbabilities: opsGenRates) =
+        GenerationValidation.dimensions simpleSorterModelType.Msrs channelCount stageLength
+        GenerationValidation.ops "stageProbabilities" stageProbabilities
+        msrsRandGen.create rngFactory channelCount prefix stageProbabilities stageLength
+
+    let createUniform rngFactory channelCount prefix stageLength =
+        create rngFactory channelCount prefix stageLength (opsGenRates.createUniform())
+
     /// Returns a string representation of the MsrsRandGen configuration.
     let toString (msrsGen: msrsRandGen) : string =
         sprintf "MsrsRandGen(RngType=%A, Width=%d, StageLength=%d, OpActionRatesArray=%s)"

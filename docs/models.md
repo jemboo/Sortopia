@@ -18,6 +18,36 @@ Sorting models retain CE, self-inverse permutation, reflection-symmetric permuta
 
 Input models retain full binary datasets, permutation orbits, merge inputs and prefix-reduced inputs, including their original supported scalar/SIMD formats and partitioning entry point. The prefix-input model returns its reduced dataset directly in Boolean or BitVector512 form. Unsupported format combinations remain explicit failures; this migration does not add a sortable-model DTO contract.
 
+## Configurable generation
+
+Each generator module in `Sortopia.Models.Sorting.Simple` has its own typed initializer, shared by SGD and non-UI callers. All take an RNG factory, channel count, fixed prefix, and suffix stage length, followed by the options specific to that model:
+
+- `MsceRandGen.create`: an `excludeSelfCe` flag.
+- `MssiRandGen.create`: no additional probability settings.
+- `MsrsRandGen.create`: one `opsGenRates` value for Ortho, Para, and SelfReflection probabilities.
+- `Msuf4RandGen.create`: an `opsGenRates` seed and an `opsGenRates list` for the unfolding levels.
+- `Msuf6RandGen.create`: a `seed6GenRates` seed (Ortho 1–2, Para 1–4, SelfReflection) and an `opsGenRates list` for the unfolding levels.
+
+Each initializer returns its concrete generator type. A single probability configuration is reused unchanged in every suffix stage. UF4 and UF6 keep separate controls for each unfolding level *within* a stage; their `unfoldingWidths` functions describe those levels in generation order. For example, UF6 at width 24 needs levels 6 → 12 and 12 → 24, regardless of the number of stages.
+
+Use `opsGenRates.create` and `seed6GenRates.create` for normalized probabilities. For relative weights, `OpsGenerationProbabilities.fromWeights ortho para selfReflection` and `Seed6GenerationProbabilities.fromWeights ortho1 ortho2 para1 para2 para3 para4 selfReflection` normalize named modes independently for each distribution. Zero excludes a mode. Weights must be finite and nonnegative, with at least one positive value; finite weights whose sum would overflow are supported. The initializers validate typed probability values, unfolding-level counts, channel counts, prefixes, positive suffix stage lengths, and suffix-size overflow before generation.
+
+For example, this generates UF6 suffixes with Para 4 seeds, an entirely para first unfolding, and an entirely ortho second unfolding:
+
+```fsharp
+let seed = seed6GenRates.create(0., 0., 0., 0., 0., 1., 0.)
+let firstUnfolding = opsGenRates.create(0., 1., 0.)
+let secondUnfolding = opsGenRates.create(1., 0., 0.)
+let generator =
+    Msuf6RandGen.create rngFactory.SmxFactory 24<channelCount> [||]
+        5<stageLength> seed [firstUnfolding; secondUnfolding]
+let model = generator.MakeSorterModelFromIndex (UMX.tag 0)
+```
+
+All five stages use that same seed and pair of unfolding distributions. RNG choice, suffix stages, and fixed prefixes work across all five representations. Wrap a concrete generator in its `simpleSorterModelGen` case to use it with `simpleSorterModelRGen.create` or `simpleSorterModelSGen.create`. `SimpleSorterModelGen.makeUniform` remains a convenience dispatcher to the model-specific initializers with equal probabilities; existing valid uniform configurations retain their generator IDs and seeded output.
+
+SGD's `SimpleGenerationSettings` uses typed OPS and six-channel seed editors, preserves existing unfolding controls when width changes, and calls the appropriate model-specific initializer. Weight normalization lives in the model library. Its sliders, RNG labels, prefix picker, seeded replay, and sampling snapshots retain their existing behavior. Invalid weights or RNG selections disable sampling. The UI explicitly labels the controls as weights shared by every stage.
+
 ## Fixed prefixes
 
 Each concrete simple model (`msce`, `mssi`, `msrs`, `msuf4`, `msuf6`) and generator owns a `prefix: ce array`. Constructors take it immediately after the channel count, for example `msce.create id channelCount prefix ceCodes` and `SimpleSorterModelGen.makeUniform rng channelCount prefix stages modelType excludeSelfCe`. Empty prefixes are allowed; null arrays and endpoints outside the model width are rejected. Inputs and exposed `Prefix` arrays are copied. Prefix contents participate in model and generator equality. SimpleR/S and their generators expose the underlying prefix without storing another copy.

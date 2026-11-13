@@ -28,15 +28,17 @@ public abstract class WorkspaceFormItem : ViewModelBase
 public sealed class WorkspaceParameterSpan : WorkspaceFormItem
 {
     private readonly Func<paramKeyDescriptor[]?> requirements;
+    private readonly Func<string, bool> keyVisible;
     private string key;
     private readonly Func<string, parameterBindingDto?> defaultValue;
     private readonly Func<IEnumerable<string>> suggestedKeys;
     private string[] keyChoices = [];
     public WorkspaceParameterSpan(string key, IEnumerable<string> values, Action<WorkspaceParameterSpan> remove, Func<string, parameterBindingDto?> defaultValue,
-        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null)
+        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<string, bool>? keyVisible = null)
     {
         this.key = key; this.defaultValue = defaultValue; this.suggestedKeys = suggestedKeys ?? (() => []);
         this.requirements = requirements ?? (() => null);
+        this.keyVisible = keyVisible ?? (_ => true);
         Watch(Values, ValuesChanged);
         foreach (var value in values) AddValue(value);
         AddValueCommand = new RelayCommand(() => AddValue(""));
@@ -71,7 +73,7 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
     internal void RefreshInherited()
     {
         var choices = (requirements() is { } required ? required.Select(value => value.Name) : WorkspaceParameterBinding.KnownKeys.Concat(suggestedKeys()).Append(Key))
-            .Where(value => !string.IsNullOrWhiteSpace(value) && defaultValue(value) is null).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            .Where(value => !string.IsNullOrWhiteSpace(value) && defaultValue(value) is null && keyVisible(value)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (!keyChoices.SequenceEqual(choices)) keyChoices = choices;
         foreach (var value in Values) value.RefreshType();
         OnPropertyChanged("");
@@ -328,8 +330,10 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         var missing = MissingDefaultParameters(setup);
         var channels = WorkspaceParameterInitialValues.ChannelCount(setup ? EffectiveSetupDefaults : EffectiveOutputDefaults);
         if (channels == 0) channels = WorkspaceParameterInitialValues.ChannelCount(setup ? EffectiveOutputDefaults : EffectiveSetupDefaults);
+        if (missing.Any(key => key.Name is "ChannelCount" or "PrefixLibId"))
+            channels = WorkspaceParameterInitialValues.SuggestedChannelCount(channels, setup ? SetupFunctionName : ResultsFunctionName);
         var additions = missing.Select(key => new parameterBindingDto {
-            keyName = key.Name, valueType = (int)key.ValueType, value = WorkspaceParameterInitialValues.For(key, channels)
+            keyName = key.Name, valueType = (int)key.ValueType, value = WorkspaceParameterInitialValues.For(key, channels, setup ? SetupFunctionName : ResultsFunctionName)
         }).ToArray();
         Quietly(() =>
         {
@@ -572,7 +576,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         rows.Add(new(key, values, item => rows.Remove(item), name => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults : EffectiveOutputDefaults).FirstOrDefault(value => value.keyName == name),
             () => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults.Select(value => value.keyName).Concat(RequiredSetupKeys)
                 : EffectiveOutputDefaults.Select(value => value.keyName).Concat(EffectiveOutputKeys)).Concat(rows.Select(row => row.Key)),
-            () => Requirements(ReferenceEquals(rows, SetupParameters))));
+            () => Requirements(ReferenceEquals(rows, SetupParameters)), name => ModelParameterVisible(name, ReferenceEquals(rows, SetupParameters))));
     private void AddMissing(ObservableCollection<WorkspaceParameterSpan> rows, IEnumerable<string>? keys)
     { foreach (var key in MissingKeys(rows, keys)) AddSpan(rows, key, []); }
     private void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value) =>
@@ -580,7 +584,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
             () => (ReferenceEquals(rows, SetupParameterDefaults) ? EffectiveSetupDefaults : EffectiveOutputDefaults).Select(binding => binding.keyName),
             key => (ReferenceEquals(rows, SetupParameterDefaults) ? Parent?.EffectiveSetupDefaults : Parent?.EffectiveOutputDefaults)?.FirstOrDefault(binding => binding.keyName == key),
             () => Requirements(ReferenceEquals(rows, SetupParameterDefaults)),
-            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : []));
+            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : [],
+            key => ModelParameterVisible(key, ReferenceEquals(rows, SetupParameterDefaults))));
     private void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }
     public void LoadProject(projectSettingsDto value)

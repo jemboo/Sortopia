@@ -26,16 +26,16 @@ public sealed class FunctionOutputContractTests : IDisposable
         var settings = RunExecutionTests.Settings(branch);
         if (branch)
         {
-            settings.setupFunctionName = SetupFunctionNames.evaluationStandard;
-            settings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(), Format];
+            settings.setupFunctionName = SetupFunctionNames.evaluationStandardMssi;
+            settings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), Format];
             settings.setupDataTypes = [];
             settings.resultsFunctionName = ResultsFunctionNames.sorterEval;
             settings.resultsParameterDefaults = EvaluationDefaults;
         }
         else
         {
-            settings.resultsFunctionName = ResultsFunctionNames.standardEvaluationInputs;
-            settings.resultsParameterDefaults = [.. RunExecutionTests.ModelDefaults(), Format];
+            settings.resultsFunctionName = ResultsFunctionNames.standardMssiEvaluationInputs;
+            settings.resultsParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), Format];
         }
         return settings;
     }
@@ -53,7 +53,7 @@ public sealed class FunctionOutputContractTests : IDisposable
             Assert.All(outputs.Keys, type => Assert.Equal("", SortopiaDataType.text(type)));
             Assert.All(outputs.Values.SelectMany(keys => keys), key => Assert.Contains(required, descriptor => descriptor.Name == key));
         }
-        var function = SetupFunctions.evaluationStandard;
+        var function = SetupFunctions.evaluationStandardMssi;
         Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, function.DataTypes[sortopiaDataType.NewSortableTests("")]);
         Assert.DoesNotContain(function.DataTypes[sortopiaDataType.NewSortableTests("")], key => key == "Repl");
         Assert.Contains(function.DataTypes[sortopiaDataType.NewSorterModelSet("")], key => key == "Repl");
@@ -95,7 +95,7 @@ public sealed class FunctionOutputContractTests : IDisposable
         module.Editor.SetupFunctionName = SetupFunctionNames.standardTests;
         Assert.Contains("SorterModelSet", run.Editor.FunctionCompatibilityError);
         Assert.Contains("not required", span.Error);
-        module.Editor.SetupFunctionName = SetupFunctionNames.evaluationMerge;
+        module.Editor.SetupFunctionName = SetupFunctionNames.evaluationMergeMssi;
         Assert.Single(project.Editor!.InheritedSetupDataTypes, row => row.RequiresSource);
         Assert.Contains("source project", project.Editor.SetupDataTypesError);
         Assert.Empty(module.Editor.SetupDataTypesError);
@@ -107,16 +107,16 @@ public sealed class FunctionOutputContractTests : IDisposable
         var tests = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(false, ResultsFunctionNames.standardSortableTests,
             Parameters([RunExecutionTests.Binding("ChannelCount", "4", parameterValueType.Integer), Format]))));
         Assert.Equal(16, SortableTests.getSortableCount(tests.Item1));
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(false, ResultsFunctionNames.uniformSorterModels, Parameters(RunExecutionTests.ModelDefaults()))));
+        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(false, ResultsFunctionNames.uniformMssiSorterModels, Parameters(RunExecutionTests.UniformModelDefaults()))));
         Assert.Equal(3, models.Item.Count);
-        var combined = Invoke(false, ResultsFunctionNames.standardEvaluationInputs, Parameters(Combined(false).resultsParameterDefaults));
+        var combined = Invoke(false, ResultsFunctionNames.standardMssiEvaluationInputs, Parameters(Combined(false).resultsParameterDefaults));
         Assert.Equal(2, combined.Length);
         var normal = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval, Parameters(EvaluationDefaults), combined.ToArray())));
         var mutants = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.mutantEval,
             Parameters([RunExecutionTests.Binding("SorterEvalType", "V1")]), combined.ToArray())));
         Assert.Equal(normal.Item.SorterEvals, mutants.Item.SorterEvals);
-        var manyModels = Invoke(false, ResultsFunctionNames.uniformSorterModels,
-            Parameters(RunExecutionTests.ModelDefaults()).WithBinding(ParameterBinding.create(ParamKeys.sorterCountKey, 1001)));
+        var manyModels = Invoke(false, ResultsFunctionNames.uniformMssiSorterModels,
+            Parameters(RunExecutionTests.UniformModelDefaults()).WithBinding(ParameterBinding.create(ParamKeys.sorterCountKey, 1001)));
         var multipleChunks = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.mutantEval,
             Parameters([RunExecutionTests.Binding("SorterEvalType", "V1")]), [tests, .. manyModels])));
         Assert.Equal(1001, multipleChunks.Item.SorterEvals.Length);
@@ -131,8 +131,8 @@ public sealed class FunctionOutputContractTests : IDisposable
             : ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(4).First(id => id.MergeDimension == 2));
         var sourceParameters = parameterSet.fromBindings([ParameterBindingDto.toDomain(Format), library]);
         var source = Assert.Single(Invoke(false, prefix ? ResultsFunctionNames.prefixSortableTests : ResultsFunctionNames.mergeSortableTests, sourceParameters));
-        var parameters = Parameters([.. RunExecutionTests.ModelDefaults(prefix ? 8 : 4), Format]).WithBinding(library);
-        var name = prefix ? SetupFunctionNames.evaluationPrefix : SetupFunctionNames.evaluationMerge;
+        var parameters = Parameters([.. RunExecutionTests.UniformModelDefaults(prefix ? 8 : 4), Format]).WithBinding(library);
+        var name = prefix ? SetupFunctionNames.evaluationPrefixMssi : SetupFunctionNames.evaluationMergeMssi;
         var generated = Invoke(true, name, parameters, source);
         var sourceTests = Assert.IsType<functionData.SortableTests>(source);
         var reused = Assert.IsType<functionData.SortableTests>(generated.Single(value => value.IsSortableTests));

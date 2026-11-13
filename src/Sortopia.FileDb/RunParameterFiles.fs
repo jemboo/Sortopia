@@ -92,7 +92,8 @@ module internal RunParameterCodec =
             | FloatingValue v -> MessagePackSetup.serialize v
             | BooleanValue v -> MessagePackSetup.serialize v
             | GuidValue v -> MessagePackSetup.serialize v
-            | SorterLibIdValue _ | PrefixLibIdValue _ | MergeLibIdValue _ -> MessagePackSetup.serialize value.FormattedValue
+            | SorterLibIdValue _ | PrefixLibIdValue _ | MergeLibIdValue _
+            | OpsWeightsValue _ | Seed6WeightsValue _ | UnfoldingWeightsValue _ -> MessagePackSetup.serialize value.FormattedValue
         { Key = string value.KeyName; Type = int value.ValueType; Value = bytes }
     let readBinding (value: preparedBindingDto) =
         let typed =
@@ -103,7 +104,8 @@ module internal RunParameterCodec =
             | parameterValueType.Floating -> MessagePackSetup.deserialize<float> value.Value |> FloatingValue
             | parameterValueType.Boolean -> MessagePackSetup.deserialize<bool> value.Value |> BooleanValue
             | parameterValueType.Guid -> MessagePackSetup.deserialize<Guid> value.Value |> GuidValue
-            | parameterValueType.SorterLibId | parameterValueType.PrefixLibId | parameterValueType.MergeLibId as kind ->
+            | parameterValueType.SorterLibId | parameterValueType.PrefixLibId | parameterValueType.MergeLibId
+            | parameterValueType.OpsWeights | parameterValueType.Seed6Weights | parameterValueType.UnfoldingWeights as kind ->
                 MessagePackSetup.deserialize<string> value.Value |> ParameterValue.parse kind
             | _ -> invalidOp "Unknown prepared parameter value type."
         ParameterBinding.fromValue (UMX.tag value.Key) typed

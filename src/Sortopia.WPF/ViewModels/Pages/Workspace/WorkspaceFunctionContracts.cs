@@ -27,10 +27,25 @@ public sealed partial class WorkspaceConfigurationViewModel
         catch (ArgumentException error) { return error.Message; }
     }
 
-    public string ResultsInputGuidance => ResultsFunctionName == ResultsFunctionNames.prefixSorterModels
-        ? "SorterModelType selects Simple, SimpleR, or SimpleS; SimpleSorterModelType selects the underlying algorithm. AMax controls SimpleR's bounded activators; ActivationProbability controls SimpleS's active fraction. These controls are unused by the other model types. Unknown cannot generate models. Channel count comes from PrefixLibId. StageLength controls the random suffix capacity; the fixed prefix is always added. Repl selects a reproducible batch of SorterCount models. Every algorithm/prefix combination must be compatible."
-        : "";
+    private static string ModelInputGuidance(string functionName)
+    {
+        bool prefix = functionName.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal);
+        if (!WorkspaceParameterInitialValues.IsModelFunction(functionName)) return "";
+        var dimensions = prefix ? "Channel count comes from PrefixLibId. StageLength controls the random suffix capacity; the fixed prefix is always added. "
+            : "ChannelCount sets the width and StageLength sets the model's stage capacity. The generated models have no fixed prefix. ";
+        var tests = functionName.StartsWith("sorter-eval.merge.", StringComparison.Ordinal)
+            ? "MergeLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
+            : functionName.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal)
+                ? "PrefixLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
+                : functionName.StartsWith("sorter-eval.standard.", StringComparison.Ordinal) || functionName.StartsWith("sorter-eval-inputs.standard.", StringComparison.Ordinal)
+                    ? "Generates full sortable tests using ChannelCount and SortableDataFormat. Tests and models have separate output projections. " : "";
+        return "The function fixes the model algorithm. SorterModelType selects Simple, SimpleR, or SimpleS. AMax is shown for SimpleR; ActivationProbability is shown for SimpleS. Spans containing both families show both controls. Hidden inputs retain their values; use ‘Show inputs for other model families’ to inspect or correct them. "
+            + dimensions + tests + "Repl selects a reproducible batch of SorterCount models. Mode weights are shared by every stage; UF4/UF6 have separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
+    }
+    public string ResultsInputGuidance => HasResultsContract ? ModelInputGuidance(ResultsFunctionName) : "";
+    public string SetupInputGuidance => HasSetupContract ? ModelInputGuidance(SetupFunctionName) : "";
     public bool HasResultsInputGuidance => ResultsInputGuidance.Length > 0;
+    public bool HasSetupInputGuidance => SetupInputGuidance.Length > 0;
     public bool HasResultsContract => FunctionCatalogs.resultsFunctionCatalog.ContainsKey(ResultsFunctionName);
     public bool HasSetupContract => FunctionCatalogs.setupFunctionCatalog.ContainsKey(SetupFunctionName);
     public bool SetupGeneratesAllOutputs => FunctionCatalogs.setupFunctionCatalog.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;

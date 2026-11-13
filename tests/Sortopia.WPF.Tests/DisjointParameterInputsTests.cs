@@ -59,7 +59,7 @@ public sealed class DisjointParameterInputsTests
     [Fact]
     public void Outputs_have_independent_query_subsets_and_empty_subsets_are_valid()
     {
-        var definition = SetupFunctions.evaluationStandard;
+        var definition = SetupFunctions.evaluationStandardMssi;
         var outputs = MapModule.OfSeq(definition.SortopiaDataTypes.Select(type => Tuple.Create(type, ListModule.OfArray(type.IsSorterModelSet ? new[] { "Repl" } : Array.Empty<string>()))));
         FunctionConfiguration.validateOutputs(definition, outputs);
         var invalid = MapModule.OfSeq(definition.SortopiaDataTypes.Select(type => Tuple.Create(type, ListModule.OfArray(new[] { "NotRequired" }))));

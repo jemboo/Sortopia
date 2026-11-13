@@ -81,11 +81,11 @@
                                     <CheckBox Content="Exclude self CEs" IsChecked="{Binding GenerationOptions.ExcludeSelf}" Height="{StaticResource SetupSamplingControlHeight}" VerticalContentAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3" Visibility="{Binding GenerationOptions.CanExcludeSelf, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource Workspace.TextPrimary}" />
                                 </WrapPanel>
                                 <StackPanel Visibility="{Binding GenerationOptions.HasDistributions, Converter={StaticResource BoolVisibility}}">
-                                    <TextBlock Text="Relative weights" Style="{StaticResource SectionTitle}" Margin="0,4" />
+                                    <TextBlock Text="Weights shared by every stage" Style="{StaticResource SectionTitle}" Margin="0,4" />
                                     <ItemsControl x:Name="GenerationWeightTables" ItemsSource="{Binding GenerationOptions.WeightTables}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <controls:ParamEditor2d Margin="0,0,0,5" AutomationProperties.Name="Generator weights" ToolTip="Weights in each row are normalized to probabilities. Zero excludes a mode." />
+                                                <controls:ParamEditor2d Margin="0,0,0,5" AutomationProperties.Name="Generator weights" ToolTip="Each row is normalized to probabilities. Zero excludes a mode. Seed and unfolding-level probabilities are reused unchanged in every generated stage." />
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>

@@ -250,13 +250,15 @@
             <TextBlock Text="{Binding RetainedResultsDefaultsHint}" Style="{StaticResource Help}" />
         </StackPanel>
         <TextBlock Text="Defaults inherit by key. Local values replace matching keys and add new ones; other inherited values remain. Remove a local override to use its parent's value again." Style="{StaticResource Help}" Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}" />
-        <StackPanel Visibility="{Binding HasInheritedOutputDefaults, Converter={StaticResource VisibleWhen}}">
+        <CheckBox Content="Show inputs for other model families" IsChecked="{Binding ShowOtherResultsModelInputs}" Visibility="{Binding HasResultsModelInputs, Converter={StaticResource VisibleWhen}}"
+                  Foreground="{DynamicResource Workspace.TextPrimary}" Margin="0,4,0,8" ToolTip="Hidden values are retained and remain part of the function's required inputs. Show them to inspect or correct stored values." />
+        <StackPanel Visibility="{Binding HasVisibleInheritedOutputDefaults, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="{Binding ParameterDefaultsPreviewTitle}" FontWeight="SemiBold" Margin="0,4,0,6" />
-            <ItemsControl x:Name="InheritedResultsParameterDefaultsList" ItemsSource="{Binding InheritedOutputDefaults}" ItemTemplate="{StaticResource InheritedParameterDefault}" />
+            <ItemsControl x:Name="InheritedResultsParameterDefaultsList" ItemsSource="{Binding VisibleInheritedOutputDefaults}" ItemTemplate="{StaticResource InheritedParameterDefault}" />
         </StackPanel>
         <StackPanel Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Local defaults" FontWeight="SemiBold" Margin="0,10,0,6" />
-            <ItemsControl x:Name="ResultsParameterDefaultsList" ItemsSource="{Binding LocalResultsParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
+            <ItemsControl x:Name="ResultsParameterDefaultsList" ItemsSource="{Binding VisibleResultsParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
             <Button x:Name="AddResultsParameterDefaultButton" Content="Add default parameter" Command="{Binding AddResultsParameterDefaultCommand}" HorizontalAlignment="Left" />
         </StackPanel>
         <TextBlock Text="{Binding RetainedResultsDefaultsHint}" Style="{StaticResource Help}" />
@@ -273,7 +275,9 @@
             <TextBlock Text="{Binding ResultsProjectionNotice}" Style="{StaticResource InlineError}" Margin="0,0,0,8" />
             <TextBlock Text="Enter spans only for required parameters that have no default. Then choose each output's query projection below." Style="{StaticResource Help}" />
             <TextBlock Text="{Binding RetainedResultsSpansHint}" Style="{StaticResource Help}" />
-            <ItemsControl x:Name="ResultsParametersList" ItemsSource="{Binding ActiveResultsParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
+            <CheckBox Content="Show inputs for other model families" IsChecked="{Binding ShowOtherResultsModelInputs}" Visibility="{Binding HasResultsModelInputs, Converter={StaticResource VisibleWhen}}"
+                      Foreground="{DynamicResource Workspace.TextPrimary}" Margin="0,4,0,8" ToolTip="Hidden spans keep their values and still contribute to the parameter sets. Show them to inspect or correct required inputs." />
+            <ItemsControl x:Name="ResultsParametersList" ItemsSource="{Binding VisibleResultsParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
             <WrapPanel>
                 <Button Content="Add parameter" Command="{Binding AddResultsParameterCommand}" Margin="0,0,8,6" />
                 <Button x:Name="AddRequiredResultsParametersButton" Content="Add missing span rows" Command="{Binding AddMissingResultsParametersCommand}" Margin="0,0,8,6" Visibility="{Binding HasMissingResultsParameters, Converter={StaticResource VisibleWhen}}" />
@@ -318,18 +322,21 @@
             <Expander x:Name="SetupDefaultsSection" Header="Setup parameter defaults" Tag="{Binding SetupParameterDefaultsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.SetupDefaults, Mode=TwoWay}">
             <StackPanel Margin="4,6,0,0">
             <TextBlock Text="{Binding SetupRequirementsHint}" Style="{StaticResource Help}" />
+            <TextBlock Text="{Binding SetupInputGuidance}" Style="{StaticResource Help}" Visibility="{Binding HasSetupInputGuidance, Converter={StaticResource VisibleWhen}}" />
             <StackPanel Visibility="{Binding IsModule, Converter={StaticResource VisibleWhen}}" Margin="0,0,0,8">
                 <Button x:Name="AddRequiredSetupDefaultsButton" Content="Add missing required defaults" Command="{Binding AddRequiredSetupDefaultsCommand}" HorizontalAlignment="Left" AutomationProperties.Name="Add missing required setup defaults" />
                 <TextBlock Text="{Binding RequiredSetupDefaultsHint}" Style="{StaticResource Help}" />
             </StackPanel>
             <TextBlock Text="Setup defaults inherit by key, independently of results defaults. Local overrides replace only the matching key." Style="{StaticResource Help}" Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}" />
-            <StackPanel Visibility="{Binding HasInheritedSetupDefaults, Converter={StaticResource VisibleWhen}}">
+            <CheckBox Content="Show inputs for other model families" IsChecked="{Binding ShowOtherSetupModelInputs}" Visibility="{Binding HasSetupModelInputs, Converter={StaticResource VisibleWhen}}"
+                      Foreground="{DynamicResource Workspace.TextPrimary}" Margin="0,4,0,8" ToolTip="Hidden values are retained and remain part of the function's required inputs. Show them to inspect or correct stored values." />
+            <StackPanel Visibility="{Binding HasVisibleInheritedSetupDefaults, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="{Binding ParameterDefaultsPreviewTitle}" FontWeight="SemiBold" Margin="0,4,0,6" />
-                <ItemsControl x:Name="InheritedSetupParameterDefaultsList" ItemsSource="{Binding InheritedSetupDefaults}" ItemTemplate="{StaticResource InheritedParameterDefault}" />
+                <ItemsControl x:Name="InheritedSetupParameterDefaultsList" ItemsSource="{Binding VisibleInheritedSetupDefaults}" ItemTemplate="{StaticResource InheritedParameterDefault}" />
             </StackPanel>
             <StackPanel Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="Local defaults" FontWeight="SemiBold" Margin="0,10,0,6" />
-                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding LocalSetupParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
+                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding VisibleSetupParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
                 <Button Content="Add default parameter" Command="{Binding AddSetupParameterDefaultCommand}" HorizontalAlignment="Left" />
             </StackPanel>
             <TextBlock Text="{Binding RetainedSetupDefaultsHint}" Style="{StaticResource Help}" />
@@ -342,10 +349,13 @@
                 <Expander x:Name="SetupSpansSection" Header="Setup parameter spans" Tag="{Binding SetupParametersError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.SetupSpans, Mode=TwoWay}">
                 <StackPanel Margin="4,6,0,0">
                 <ContentControl x:Name="SetupRequiredInputsSummary" Content="{Binding SetupRequiredInputs}" ContentTemplate="{StaticResource RequiredInputs}" />
+                <TextBlock Text="{Binding SetupInputGuidance}" Style="{StaticResource Help}" Visibility="{Binding HasSetupInputGuidance, Converter={StaticResource VisibleWhen}}" />
                 <TextBlock Text="{Binding SetupProjectionNotice}" Style="{StaticResource InlineError}" Margin="0,0,0,8" />
                 <TextBlock Text="Enter spans only for required parameters that have no setup default. Then choose each setup output's query projection below." Style="{StaticResource Help}" />
                 <TextBlock Text="{Binding RetainedSetupSpansHint}" Style="{StaticResource Help}" />
-            <ItemsControl x:Name="SetupParametersList" ItemsSource="{Binding ActiveSetupParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
+            <CheckBox Content="Show inputs for other model families" IsChecked="{Binding ShowOtherSetupModelInputs}" Visibility="{Binding HasSetupModelInputs, Converter={StaticResource VisibleWhen}}"
+                      Foreground="{DynamicResource Workspace.TextPrimary}" Margin="0,4,0,8" ToolTip="Hidden spans keep their values and still contribute to the parameter sets. Show them to inspect or correct required inputs." />
+            <ItemsControl x:Name="SetupParametersList" ItemsSource="{Binding VisibleSetupParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
                 <WrapPanel>
                     <Button Content="Add parameter" Command="{Binding AddSetupParameterCommand}" Margin="0,0,8,6" />
                     <Button x:Name="AddRequiredSetupParametersButton" Content="Add missing span rows" Command="{Binding AddMissingSetupParametersCommand}" Margin="0,0,8,6" Visibility="{Binding HasMissingSetupParameters, Converter={StaticResource VisibleWhen}}" />

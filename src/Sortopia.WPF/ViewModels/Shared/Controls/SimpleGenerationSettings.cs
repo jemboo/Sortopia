@@ -1,3 +1,4 @@
+using Microsoft.FSharp.Collections;
 using Sortopia.Core;
 using Sortopia.Models.Sorting.Simple;
 using Sortopia.Models.Sorting.Simple.Ce;
@@ -6,7 +7,6 @@ using Sortopia.Models.Sorting.Simple.Si;
 using Sortopia.Models.Sorting.Simple.Uf4;
 using Sortopia.Models.Sorting.Simple.Uf6;
 using Sortopia.Permutations;
-using Sortopia.Sorting;
 using Sortopia.Sorting.Networks;
 
 namespace Sortopia.WPF.ViewModels.Shared.Controls;
@@ -18,60 +18,95 @@ public sealed class GenerationWeight(string name) : ViewModelBase, IParameterVal
     public double Value { get => value; set => SetProperty(ref this.value, Math.Clamp(value, 0, 1)); }
 }
 
-public sealed class GenerationDistribution(string name, params string[] modes)
+public abstract class GenerationDistribution(string name)
 {
     public string Name => name;
-    public GenerationWeight[] Weights { get; } = modes.Select(mode => new GenerationWeight(mode)).ToArray();
-    internal bool IsValid => Weights.Any(w => w.Value > 0);
-    internal double[] Probabilities()
+    public abstract GenerationWeight[] Weights { get; }
+    protected abstract void Validate();
+    internal string Error
     {
-        var sum = Weights.Sum(w => w.Value);
-        return Weights.Select(w => w.Value / sum).ToArray();
+        get { try { Validate(); return ""; } catch (ArgumentException error) { return $"{Name}: {error.Message}"; } }
     }
+}
 
-    internal opsGenRates OpsRates()
-    {
-        var p = Probabilities();
-        return opsGenRates.create(p[0], p[1], p[2]);
-    }
+public sealed class OpsGenerationDistribution : GenerationDistribution
+{
+    public OpsGenerationDistribution(string name) : base(name) => Weights = [Ortho, Para, SelfReflection];
+    public GenerationWeight Ortho { get; } = new("Ortho");
+    public GenerationWeight Para { get; } = new("Para");
+    public GenerationWeight SelfReflection { get; } = new("SR");
+    public override GenerationWeight[] Weights { get; }
+    internal opsGenRates ToProbabilities() => OpsGenerationProbabilities.fromWeights(Ortho.Value, Para.Value, SelfReflection.Value);
+    protected override void Validate() => ToProbabilities();
+}
+
+public sealed class Seed6GenerationDistribution : GenerationDistribution
+{
+    public Seed6GenerationDistribution(string name) : base(name) => Weights = [Ortho1, Ortho2, Para1, Para2, Para3, Para4, SelfReflection];
+    public GenerationWeight Ortho1 { get; } = new("Ortho 1");
+    public GenerationWeight Ortho2 { get; } = new("Ortho 2");
+    public GenerationWeight Para1 { get; } = new("Para 1");
+    public GenerationWeight Para2 { get; } = new("Para 2");
+    public GenerationWeight Para3 { get; } = new("Para 3");
+    public GenerationWeight Para4 { get; } = new("Para 4");
+    public GenerationWeight SelfReflection { get; } = new("SR");
+    public override GenerationWeight[] Weights { get; }
+    internal seed6GenRates ToProbabilities() => Seed6GenerationProbabilities.fromWeights(
+        Ortho1.Value, Ortho2.Value, Para1.Value, Para2.Value, Para3.Value, Para4.Value, SelfReflection.Value);
+    protected override void Validate() => ToProbabilities();
 }
 
 public sealed class SimpleGenerationSettings : ViewModelBase
 {
     private string method = "";
     private int width;
+    private string randomSource = "SplitMix64";
+    private bool excludeSelf = true;
+    private OpsGenerationDistribution? stage, seed4;
+    private Seed6GenerationDistribution? seed6;
+    private OpsGenerationDistribution[] unfolding = [];
     public string[] RandomSources { get; } = ["SplitMix64", "LCG", ".NET"];
-    public string RandomSource { get; set; } = "SplitMix64";
-    public bool ExcludeSelf { get; set; } = true;
+    private rngType RandomType => RngType.fromString(RandomSource == ".NET" ? "Net" : RandomSource);
+    public string RandomSource { get => randomSource; set { if (SetProperty(ref randomSource, value)) OnPropertyChanged(nameof(Error)); } }
+    public bool ExcludeSelf { get => excludeSelf; set => SetProperty(ref excludeSelf, value); }
     public bool CanExcludeSelf => method == "msce";
     public IReadOnlyList<GenerationDistribution> Distributions { get; private set; } = [];
     public bool HasDistributions => Distributions.Count != 0;
     public IReadOnlyList<ParameterArrayViewModel> WeightTables { get; private set; } = [];
-    public string Error => Distributions.FirstOrDefault(d => !d.IsValid) is { } invalid
-        ? $"Set at least one positive weight for {invalid.Name}." : "";
+    public string Error
+    {
+        get
+        {
+            try { _ = RandomType; return Distributions.Select(row => row.Error).FirstOrDefault(error => error.Length > 0) ?? ""; }
+            catch (Exception exception) when (exception is ArgumentException || exception.GetType() == typeof(Exception)) { return exception.Message; }
+        }
+    }
 
     internal void Configure(string kind, int channels)
     {
         if (method == kind && width == channels) return;
         var previous = method == kind ? Distributions : [];
-        method = kind;
-        width = channels;
+        method = kind; width = channels;
+        OpsGenerationDistribution Ops(string name) => previous.OfType<OpsGenerationDistribution>().FirstOrDefault(row => row.Name == name) ?? new(name);
+        stage = kind == "msrs" ? Ops("Stage") : null;
+        seed4 = kind == "msuf4" ? Ops("Seed") : null;
+        seed6 = kind == "msuf6" ? previous.OfType<Seed6GenerationDistribution>().FirstOrDefault() ?? new("Seed") : null;
+        IEnumerable<int> levels = kind switch {
+            "msuf4" => Msuf4RandGen.unfoldingWidths(channels),
+            "msuf6" => Msuf6RandGen.unfoldingWidths(channels),
+            _ => []
+        };
+        unfolding = levels.Select(from => Ops($"Unfold {from} → {2 * from}")).ToArray();
         var groups = new List<GenerationDistribution>();
-        void Add(string name, params string[] modes) =>
-            groups.Add(previous.FirstOrDefault(d => d.Name == name) ?? new(name, modes));
-        string[] ops = ["Ortho", "Para", "SR"];
-        if (kind == "msrs") Add("Stage", ops);
-        if (kind is "msuf4" or "msuf6")
-        {
-            int seedWidth = kind == "msuf4" ? 4 : 6;
-            Add("Seed", kind == "msuf4" ? ops : ["Ortho 1", "Ortho 2", "Para 1", "Para 2", "Para 3", "Para 4", "SR"]);
-            for (int from = seedWidth; from < channels; from *= 2) Add($"Unfold {from} → {2 * from}", ops);
-        }
+        if (stage is not null) groups.Add(stage);
+        if (seed4 is not null) groups.Add(seed4);
+        if (seed6 is not null) groups.Add(seed6);
+        groups.AddRange(unfolding);
         foreach (var weight in Distributions.SelectMany(d => d.Weights)) weight.PropertyChanged -= WeightChanged;
         Distributions = groups;
         foreach (var weight in groups.SelectMany(d => d.Weights)) weight.PropertyChanged += WeightChanged;
-        // A UF6 seed has seven modes, while its unfolding rows share the three OPS modes.
-        WeightTables = groups.GroupBy(group => kind == "msuf6" && group.Name == "Seed")
+        // Only presentation groups differ: the seed6 editor has seven named modes.
+        WeightTables = groups.GroupBy(group => group is Seed6GenerationDistribution)
             .Select(group => WeightTable(group.ToArray())).ToArray();
         OnPropertyChanged(nameof(Distributions));
         OnPropertyChanged(nameof(WeightTables));
@@ -88,32 +123,15 @@ public sealed class SimpleGenerationSettings : ViewModelBase
 
     internal simpleSorterModelGen CreateGenerator(int stages, ce[]? prefix = null)
     {
-        prefix ??= [];
-        var rng = RandomSource switch
-        {
-            "SplitMix64" => rngFactory.SmxFactory,
-            "LCG" => rngFactory.LcgFactory,
-            ".NET" => rngFactory.NetFactory,
-            _ => throw new InvalidOperationException("Choose a random source.")
+        var rng = RngFactory.create(RandomType); prefix ??= [];
+        FSharpList<opsGenRates> UnfoldingProbabilities() => ListModule.OfSeq(unfolding.Select(row => row.ToProbabilities()));
+        return method switch {
+            "msce" => simpleSorterModelGen.NewSmmMsceRandGen(MsceRandGen.create(rng, width, prefix, stages, ExcludeSelf)),
+            "mssi" => simpleSorterModelGen.NewSmmMssiRandGen(MssiRandGen.create(rng, width, prefix, stages)),
+            "msrs" => simpleSorterModelGen.NewSmmMsrsRandGen(MsrsRandGen.create(rng, width, prefix, stages, stage!.ToProbabilities())),
+            "msuf4" => simpleSorterModelGen.NewSmmMsuf4RandGen(Msuf4RandGen.create(rng, width, prefix, stages, seed4!.ToProbabilities(), UnfoldingProbabilities())),
+            "msuf6" => simpleSorterModelGen.NewSmmMsuf6RandGen(Msuf6RandGen.create(rng, width, prefix, stages, seed6!.ToProbabilities(), UnfoldingProbabilities())),
+            _ => throw new InvalidOperationException("Choose a simple sorter model.")
         };
-        opsGenRatesArray UnfoldingRates() => opsGenRatesArray.create(Distributions.Skip(1).Select(d => d.OpsRates()).ToArray());
-        switch (method)
-        {
-            case "msce":
-                return simpleSorterModelGen.NewSmmMsceRandGen(msceRandGen.create(rng, width, prefix, ExcludeSelf, StageLength.toCeLength(width, stages)));
-            case "mssi":
-                return simpleSorterModelGen.NewSmmMssiRandGen(mssiRandGen.create(rng, width, prefix, stages));
-            case "msrs":
-                return simpleSorterModelGen.NewSmmMsrsRandGen(msrsRandGen.create(rng, width, prefix, Distributions[0].OpsRates(), stages));
-            case "msuf4":
-                var uf4 = uf4GenRates.create(width, Distributions[0].OpsRates(), UnfoldingRates());
-                return simpleSorterModelGen.NewSmmMsuf4RandGen(msuf4RandGen.create(rng, width, prefix, stages, uf4));
-            case "msuf6":
-                var p = Distributions[0].Probabilities();
-                var seed = seed6GenRates.create(p[0], p[1], p[2], p[3], p[4], p[5], p[6]);
-                var uf6 = uf6GenRates.create(width, seed, UnfoldingRates());
-                return simpleSorterModelGen.NewSmmMsuf6RandGen(msuf6RandGen.create(rng, width, prefix, stages, uf6));
-            default: throw new InvalidOperationException("Choose a simple sorter model.");
-        }
     }
 }

@@ -27,8 +27,6 @@ internal static class WorkspaceParameterRules
         [ParamKeys.rngTypeKey.Name] = Choice([rngType.Lcg, rngType.Net, rngType.Smx], RngType.toString, RngType.fromString),
         [ParamKeys.sortableDataFormatKey.Name] = Choice([sortableDataFormat.BoolArray, sortableDataFormat.IntArray, sortableDataFormat.PackedIntArray,
             sortableDataFormat.BitVector256, sortableDataFormat.BitVector512, sortableDataFormat.Int8Vector256, sortableDataFormat.Int8Vector512], SortableDataFormat.toString, SortableDataFormat.fromString),
-        [ParamKeys.simpleSorterModelTypeKey.Name] = Choice([simpleSorterModelType.Msce, simpleSorterModelType.Mssi, simpleSorterModelType.Msrs,
-            simpleSorterModelType.Msuf4, simpleSorterModelType.Msuf6], SimpleSorterModelType.toString, SimpleSorterModelType.fromString),
         [ParamKeys.sorterModelTypeKey.Name] = new(SorterModelType.caseNames.ToArray(),
             "Choose Simple, SimpleR, or SimpleS to generate models. Unknown is a placeholder.",
             text => { SorterModelType.fromCaseName(text, simpleSorterModelType.Msce); return true; }),

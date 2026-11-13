@@ -46,6 +46,31 @@
                 <TextBox Text="{Binding Identifier, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="100" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Library identifier" />
             </StackPanel>
         </StackPanel>
+        <StackPanel x:Name="GenerationWeightFields" Visibility="{Binding IsWeights, Converter={StaticResource VisibleWhen}}">
+            <StackPanel DataContext="{Binding Weights}">
+                <TextBlock Text="{Binding Hint}" TextWrapping="Wrap" Foreground="{DynamicResource Workspace.TextSecondary}" FontSize="12" Margin="0,4,0,8" />
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate><DataTemplate>
+                        <StackPanel Margin="0,0,0,8">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <ItemsControl ItemsSource="{Binding Modes}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <StackPanel Width="100" Margin="0,0,8,4">
+                                        <Label Content="{Binding Name}" Target="{Binding ElementName=ModeWeightInput}" Padding="0,0,0,3" />
+                                        <TextBox x:Name="ModeWeightInput" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="{Binding Name}" />
+                                    </StackPanel>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <WrapPanel Visibility="{Binding IsUnfolding, Converter={StaticResource VisibleWhen}}">
+                    <Button Content="Add unfolding level" Command="{Binding AddLevelCommand}" Margin="0,0,8,4" />
+                    <Button Content="Remove last level" Command="{Binding RemoveLevelCommand}" Margin="0,0,0,4" />
+                </WrapPanel>
+            </StackPanel>
+        </StackPanel>
         <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" TextWrapping="Wrap" />
     </StackPanel>
 </UserControl>

@@ -43,7 +43,7 @@ public sealed class FunctionParameterContractTests
         Assert.False(project.Editor.SetupFunctionOverride.CanOverride);
         Assert.False(run.Editor!.SetupFunctionOverride.CanOverride);
         project.Editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        run.Editor.SetupFunctionName = SetupFunctionNames.uniformSorterModels;
+        run.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
         Assert.Equal(ResultsFunctionNames.mergeSortableTests, run.Editor.ResultsFunctionName);
         Assert.Equal(SetupFunctionNames.standardTests, run.Editor.SetupFunctionName);
 

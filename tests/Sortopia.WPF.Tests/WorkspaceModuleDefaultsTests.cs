@@ -51,7 +51,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var original = workspace.create(Guid.NewGuid(), "W", "Workspace", [Hierarchy(branch)]);
         var dto = WorkspaceDto.fromDomain(original);
         dto.modules[0].localOverrides.description = "Changed ancestor";
-        dto.modules[0].localOverrides.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardEvaluationInputs;
+        dto.modules[0].localOverrides.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiEvaluationInputs;
         dto.modules[0].modules[0].localOverrides.description = "Nested description";
         var restored = WorkspaceCodec.decodeWorkspace(MessagePackSetup.serialize(dto));
         var nested = restored.Modules[0].Modules[0]; var saved = nested.Projects[0];
@@ -94,7 +94,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var kind = source.Kind;
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.resultsDatabaseName = "Destination results";
-        settings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardEvaluationInputs;
+        settings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiEvaluationInputs;
         settings.description = "Destination description";
         var config = SettingsDto.toDomain(kind, settings);
         var destination = WorkspaceModule.createInherited(Guid.NewGuid(), "Destination", "Destination", ModuleDefaults.fromProject(config),

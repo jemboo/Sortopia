@@ -2326,7 +2326,7 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("ResultsDefaultsSection")).Visibility);
             Snapshot("workspace-module-function-defaults");
             vm.SelectConfigurationItem("setupFunction");
-            Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.evaluationStandard);
+            Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.evaluationStandardMssi);
             Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.sorterEval);
             Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.standardTests);
             Assert.False(module.Editor.FunctionsReady);
@@ -2416,9 +2416,9 @@ public sealed class RandomNetworkTests
                 vm.BrowseWorkspaceFolderCommand.Execute(null);
                 vm.Roots[0].Name = "GuiSpace";
                 var (_, module) = WorkspaceParameterInheritanceTests.Hierarchy(vm, branch);
-                module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels;
+                module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels;
                 module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
-                if (branch) { module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels; module.Editor.AddRequiredSetupDefaultsCommand.Execute(null); }
+                if (branch) { module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels; module.Editor.AddRequiredSetupDefaultsCommand.Execute(null); }
                 var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
                 void Layout(int width = 1000, int height = 1000)
                 {
@@ -2452,10 +2452,11 @@ public sealed class RandomNetworkTests
                 var setup = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterSetsPreview)FindWorkspaceField(fields, "SetupSetsPreview");
                 var table = (DataGrid)results.FindName("ParameterSetsTable");
                 Assert.Equal(3, table.Items.Count);
-                Assert.Equal(8, table.Columns.Count);
-                Assert.Contains("run span", table.Columns[1].Header.ToString());
+                Assert.Equal(9, table.Columns.Count);
+                var channelColumn = table.Columns.Single(column => column.Header.ToString()!.Contains("ChannelCount"));
+                Assert.Contains("run span", channelColumn.Header.ToString());
                 Assert.Contains("run span", table.Columns.Single(column => column.Header.ToString()!.Contains("StageLength")).Header.ToString());
-                Assert.Equal("16", ((TextBlock)table.Columns[1].GetCellContent(table.Items[0])).Text);
+                Assert.Equal("16", ((TextBlock)channelColumn.GetCellContent(table.Items[0])).Text);
                 Assert.Equal(branch ? Visibility.Visible : Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "SetupFields")).Visibility);
                 if (branch) Assert.Equal(2, ((DataGrid)setup.FindName("ParameterSetsTable")).Items.Count);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
@@ -2507,7 +2508,7 @@ public sealed class RandomNetworkTests
             vm.BrowseWorkspaceFolderCommand.Execute(null);
             vm.Roots[0].Name = "GuiSpace";
             var (parent, child) = WorkspaceParameterInheritanceTests.Hierarchy(vm, false);
-            parent.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels;
+            parent.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels;
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
             void Layout(int width = 1000)
             {
@@ -2575,7 +2576,7 @@ public sealed class RandomNetworkTests
             var settings = new Sortopia.WPF.Settings.WorkspaceFolderSettings(System.IO.Path.Combine(temporary.FullName, "settings.txt")); settings.Save(temporary.FullName);
             var vm = new WorkspacePageViewModel(() => { }, _ => null, settings);
             var (_, module) = WorkspaceParameterInheritanceTests.Hierarchy(vm, true);
-            module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels; module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels;
+            module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels; module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels;
             module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
             vm.AddProjectCommand.Execute(null); vm.Selected!.Name = "Single-stage evaluation";
             vm.AddRunCommand.Execute(null); var run = vm.Selected!; run.Name = "Stage sweep";
@@ -2899,7 +2900,7 @@ public sealed class RandomNetworkTests
                 RenderWorkspaceState($"required-{(setup ? "setup" : "results")}-defaults", 1000, 800);
                 rows.Single(row => row.Key == "ChannelCount").Value.Text = "4";
             }
-            branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardEvaluationInputs;
+            branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiEvaluationInputs;
             branchModule.Editor.ResultsParameterDefaultsOverride.IsOverridden = false;
             vm.SelectConfigurationItem("resultsTypes"); RenderWorkspaceState("results-output-contracts");
             Assert.Null(FindWorkspaceField(fields, "OutputTypesList"));
@@ -2970,7 +2971,8 @@ public sealed class RandomNetworkTests
             var branchProject = vm.Selected;
             // Project settings are constrained by the inherited catalog functions.
             branchModule.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
-            branchModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefix;
+            branchModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssi;
+            branchModule.Editor.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "8";
             branchModule.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
             branchProject!.Editor!.LoadProject(new Sortopia.Workspaces.Serialization.projectSettingsDto());
             LayoutWorkspace();

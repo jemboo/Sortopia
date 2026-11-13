@@ -52,7 +52,7 @@ public sealed class ModuleFunctionEditorTests
     public void Inherited_function_pairs_constrain_defaults_and_switching_setup_exposes_incompatibility()
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent", family: hierarchyKind.Branch);
-        parent.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandard;
+        parent.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
         parent.Editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
         parent.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         parent.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
@@ -62,7 +62,8 @@ public sealed class ModuleFunctionEditorTests
         Assert.Same(parent.Editor, editor.ResultsFunctionOverride.InheritedSource);
         Assert.Same(parent.Editor, editor.SetupFunctionOverride.InheritedSource);
         editor.AddSetupParameterDefaultCommand.Execute(null);
-        Assert.Equal(FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.evaluationStandard].RequiredParameters.Select(key => key.Name).Order(),
+        Assert.Equal(FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.evaluationStandardMssi].RequiredParameters.Select(key => key.Name)
+                .Where(key => key is not ("AMax" or "ActivationProbability")).Order(StringComparer.Ordinal),
             editor.SetupParameterDefaults.Single().KeyChoices);
         editor.SetupFunctionName = SetupFunctionNames.standardTests;
         Assert.DoesNotContain(ResultsFunctionNames.sorterEval, editor.ResultsFunctionOverride.Choices);
@@ -106,7 +107,7 @@ public sealed class ModuleFunctionEditorTests
         var wrongLabel = Source("Wrong text", "named", "ChannelCount");
         var wrongKeys = Source("Wrong keys", "", "Repl");
         var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [compatible, wrongLabel, wrongKeys]);
-        editor.SetupFunctionName = SetupFunctionNames.evaluationPrefix;
+        editor.SetupFunctionName = SetupFunctionNames.evaluationPrefixMssi;
         editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
         editor.SetupDataTypesOverride.IsOverridden = true;
         var output = editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
@@ -118,7 +119,7 @@ public sealed class ModuleFunctionEditorTests
         output.SourceProjectId = compatible.Id;
         Assert.Empty(output.Error);
         Assert.All(editor.SetupDataTypes.Where(row => row.GeneratesData), row => Assert.Empty(row.SourceProjects));
-        editor.SetupFunctionName = SetupFunctionNames.evaluationStandard;
+        editor.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
         Assert.All(editor.InheritedSetupDataTypes, row => { Assert.True(row.GeneratesData); Assert.Empty(row.SourceProjects); });
     }
 }

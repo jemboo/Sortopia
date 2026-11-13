@@ -94,6 +94,21 @@ type msuf6RandGen =
 
 module Msuf6RandGen =
 
+    /// Source widths of unfolding levels within one stage, in generation order.
+    let unfoldingWidths channelCount = GenerationValidation.unfoldingWidths simpleSorterModelType.Msuf6 6 channelCount
+
+    /// Reuse the seven-mode seed and per-level OPS probabilities for every suffix stage.
+    let create rngFactory channelCount prefix stageLength (seedProbabilities: seed6GenRates) (unfoldingProbabilities: opsGenRates list) =
+        GenerationValidation.dimensions simpleSorterModelType.Msuf6 channelCount stageLength
+        GenerationValidation.seed6 seedProbabilities
+        let unfolding = GenerationValidation.unfolding (unfoldingWidths (int channelCount)).Length unfoldingProbabilities
+        let rates = uf6GenRates.create (int channelCount) seedProbabilities unfolding
+        msuf6RandGen.create rngFactory channelCount prefix stageLength rates
+
+    let createUniform rngFactory channelCount prefix stageLength =
+        create rngFactory channelCount prefix stageLength (seed6GenRates.createUniform())
+            (unfoldingWidths (int channelCount) |> List.map (fun _ -> opsGenRates.createUniform()))
+
     let toString (msuf6RandGen: msuf6RandGen) : string =
         let gr = msuf6RandGen.GenRates
         // Simplified reporting for uniform rates

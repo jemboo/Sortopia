@@ -18,7 +18,8 @@ public sealed class PreparedExecutionTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static parameterBinding Bind(string key, string value, parameterValueType type = parameterValueType.Integer) => ParameterBinding.fromText(key, type, value);
     private static parameterBinding[] Models => [Bind("ChannelCount", "4"), Bind("StageLength", "3"), Bind("SorterCount", "3"), Bind("Repl", "0"),
-        Bind("SimpleSorterModelType", "Mssi", parameterValueType.Text), Bind("RngType", "SplitMix64", parameterValueType.Text), Bind("ExcludeSelfCe", "true", parameterValueType.Boolean)];
+        Bind("SorterModelType", "Simple", parameterValueType.Text), Bind("AMax", "1"), Bind("ActivationProbability", "0.5", parameterValueType.Floating),
+        Bind("RngType", "SplitMix64", parameterValueType.Text)];
     private static resultsConfig Results(string name, parameterBinding[] defaults) => new("Results", name, "1", FunctionCatalogs.resultsOutputs(name), ListModule.OfArray(defaults));
 
     private static project Project(string name, projectConfiguration configuration, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
@@ -46,28 +47,32 @@ public sealed class PreparedExecutionTests : IDisposable
         return project.withRuns(parent, [run]);
     }
 
-    private (workspace World, project Project) Create(bool branch, bool invalidSecondSetup = false, bool multipleOutputs = false)
+    private (workspace World, project Project) Create(bool branch, bool invalidSecondSetup = false, bool multipleOutputs = false, string model = "mssi")
     {
-        var merge = Bind("MergeLibId", MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2)), parameterValueType.MergeLibId);
+        var width = model == "msuf6" ? 12 : 4;
+        var models = Models.Select(binding => binding.KeyName == "ChannelCount" ? ParameterBinding.create(ParamKeys.channelCountKey, width) : binding).ToArray();
+        if (model == "msuf6") models = [.. models, Bind("Seed6Weights", "0,0,0,0,0,1,0", parameterValueType.Seed6Weights), Bind("UnfoldingWeights", "0,1,0", parameterValueType.UnfoldingWeights)];
+        var setupName = $"sorter-eval.merge.{model}";
+        var merge = Bind("MergeLibId", MergeLibId.toString(MergeLibId.availableForChannelCount(width).First(value => value.MergeDimension == 2)), parameterValueType.MergeLibId);
         var format = Bind("SortableDataFormat", "Bools", parameterValueType.Text);
         var source = Project("Source", projectConfiguration.NewRootProjectConfig(new("Source", multipleOutputs
-            ? Results(ResultsFunctionNames.standardEvaluationInputs, [.. Models, format])
+            ? Results($"sorter-eval-inputs.standard.{model}", [.. models, format])
             : Results(ResultsFunctionNames.mergeSortableTests, [merge, format]))));
         var target = source;
         if (branch)
         {
-            var definition = FunctionCatalogs.setupFunctionCatalog[SetupFunctionNames.evaluationMerge];
+            var definition = FunctionCatalogs.setupFunctionCatalog[setupName];
             var outputs = ListModule.OfSeq(definition.DataTypes.Select(entry => new setupDataTypeConfig(entry.Key, entry.Key.IsSortableTests ? source.Id : Guid.Empty, entry.Value)));
-            var setup = new setupConfig("Setup", SetupFunctionNames.evaluationMerge, "1", outputs, ListModule.OfArray<parameterBinding>([.. Models, merge, format]));
-            var results = Results(ResultsFunctionNames.sorterEval, [Bind("ChannelCount", "4"), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]);
+            var setup = new setupConfig("Setup", setupName, "1", outputs, ListModule.OfArray<parameterBinding>([.. models, merge, format]));
+            var results = Results(ResultsFunctionNames.sorterEval, [ParameterBinding.create(ParamKeys.channelCountKey, width), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]);
             target = Project("Consumer", projectConfiguration.NewBranchProjectConfig(new("Consumer", results, setup)),
                 [new() { keyName = "CollectSortableTests", values = ["false", "true"] }],
-                invalidSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "invalid"] }]
+                invalidSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]
                     : [new() { keyName = "Repl", values = ["0", "0", "1"] }]);
         }
         workspaceModule Module(project p) => workspaceModule.createInherited(Guid.NewGuid(), p.ProjectName, p.ProjectName,
             ModuleDefaults.configuration(p.IsBranchProject), ModuleOverridesDto.toDomain(p.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
-                new moduleOverridesDto { resultsFunctionName = p.ResultsFunctionName, setupFunctionName = p.IsBranchProject ? SetupFunctionNames.evaluationMerge : null }), [], [p]);
+                new moduleOverridesDto { resultsFunctionName = p.ResultsFunctionName, setupFunctionName = p.IsBranchProject ? setupName : null }), [], [p]);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", branch ? [Module(source), Module(target)] : [Module(source)]);
         Directory.CreateDirectory(Root);
         WorkspaceFileStore.CreateWorkspace(Root, world, Token);
@@ -81,7 +86,7 @@ public sealed class PreparedExecutionTests : IDisposable
         var testsType = sortopiaDataType.NewSortableTests("");
         var modelsType = sortopiaDataType.NewSorterModelSet("");
         var evalType = sortopiaDataType.NewSorterSetEval("");
-        var setup = new setupConfig("Setup", SetupFunctionNames.evaluationStandard, "1",
+        var setup = new setupConfig("Setup", SetupFunctionNames.evaluationStandardMssi, "1",
             ListModule.OfArray(new[] {
                 new setupDataTypeConfig(testsType, Guid.Empty, ListModule.Empty<string>()),
                 new setupDataTypeConfig(modelsType, Guid.Empty, ListModule.OfArray(new[] { "Repl" })) }),
@@ -92,7 +97,7 @@ public sealed class PreparedExecutionTests : IDisposable
         var target = Project("Subsets", projectConfiguration.NewBranchProjectConfig(new("Subsets", results, setup)),
             [new() { keyName = "CollectSortableTests", values = ["false", "true"] }], [new() { keyName = "Repl", values = ["0", "1"] }]);
         var module = workspaceModule.createInherited(Guid.NewGuid(), "Module", "Module", ModuleDefaults.configuration(true),
-            ModuleOverridesDto.toDomain(hierarchyKind.Branch, new moduleOverridesDto { setupFunctionName = SetupFunctionNames.evaluationStandard, resultsFunctionName = ResultsFunctionNames.sorterEval }), [], [target]);
+            ModuleOverridesDto.toDomain(hierarchyKind.Branch, new moduleOverridesDto { setupFunctionName = SetupFunctionNames.evaluationStandardMssi, resultsFunctionName = ResultsFunctionNames.sorterEval }), [], [target]);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [module]);
         Directory.CreateDirectory(Root); WorkspaceFileStore.CreateWorkspace(Root, world, Token);
         world = WorkspaceFileStore.LoadDefinition(Root);
@@ -185,6 +190,44 @@ public sealed class PreparedExecutionTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(folder, "preparations")));
         Assert.NotEmpty(DataFiles(folder, "setup"));
         Assert.Empty(DataFiles(folder, "results"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Model_specific_evaluation_inputs_keep_weights_and_reuse_tests_in_portable_execution(bool branch)
+    {
+        var (world, project) = Create(branch, multipleOutputs: !branch, model: "msuf6");
+        var prepared = Prepare(world, project); Completed(prepared.Execution);
+        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var copied = Isolate(folder);
+        var report = RunParameterExecution.executeFolder(Path.Combine(copied, "runParameters"), null!, null!, Token); Completed(report);
+        var phase = branch ? "setup" : "results";
+        Assert.Single(Directory.GetFiles(Path.Combine(copied, "data", phase, "SortableTests"), "*.msgpack"));
+        Assert.Equal(branch ? 2 : 1, Directory.GetFiles(Path.Combine(copied, "data", phase, "SorterModelSet"), "*.msgpack").Length);
+        if (branch) Assert.Equal(4, Directory.GetFiles(Path.Combine(copied, "data", "results", "SorterSetEval"), "*.msgpack").Length);
+        var calls = branch ? prepared.Execution.Setup : report.Results;
+        ISortopiaDb database = new SortopiaFileDb(copied, project.Id);
+        foreach (var call in calls)
+        {
+            Assert.IsType<parameterValue.Seed6WeightsValue>(call.Parameters.TryFind("Seed6Weights").Value.Value);
+            Assert.IsType<parameterValue.UnfoldingWeightsValue>(call.Parameters.TryFind("UnfoldingWeights").Value.Value);
+            var output = call.StoredOutputs.Single(output => output.Reference.DataType.IsSorterModelSet);
+            var stored = database.Load(output.Reference, Token); Assert.True(stored.IsOk);
+            var models = Assert.IsType<functionData.SorterModelSet>(stored.ResultValue.Value).Item;
+            foreach (var model in models.SorterModels)
+            {
+                Assert.Empty(Sortopia.Models.Sorting.SorterModel.getPrefix(model));
+                var simple = Assert.IsType<Sortopia.Models.Sorting.sorterModel.Simple>(model).Item;
+                var uf6 = Assert.IsType<Sortopia.Models.Sorting.Simple.simpleSorterModel.Msuf6>(simple).Item;
+                Assert.All(uf6.TwoOrbitUnfolder6s, stage => {
+                    Assert.True(stage.Seed6TwoOrbitType.IsPara4);
+                    Assert.All(stage.TwoOrbitUnfolderSteps.Single().TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
+                });
+            }
+        }
+        var retry = RunParameterExecution.executeFolder(Path.Combine(copied, "runParameters"), null!, null!, Token); Completed(retry);
+        Assert.All(retry.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
     }
 
     private sealed class Progress(Action<runExecutionProgress> callback) : IProgress<runExecutionProgress>

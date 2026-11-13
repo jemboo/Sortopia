@@ -32,21 +32,37 @@ module ResultsFunctions =
     let standardSortableTests =
         generator "1" testsType InputGenerators.standardKeys InputGenerators.standardTests
 
-    let uniformSorterModels =
-        generator "1" modelsType InputGenerators.modelKeys InputGenerators.uniformModels
+    let private modelGenerator source modelType keys make =
+        FunctionDefinition.resultsValidated "1" keys
+            [modelsType, InputGenerators.queryKeys keys] (ModelGenerators.inputError source modelType)
+            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> make host.Parameters))
 
-    let prefixSorterModels =
-        FunctionDefinition.resultsValidated "2" InputGenerators.prefixModelKeys
-            [modelsType, InputGenerators.queryKeys InputGenerators.prefixModelKeys] InputGenerators.prefixModelInputError
-            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> InputGenerators.prefixModels host.Parameters))
+    let prefixMsceSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msce (ModelGenerators.msceKeys PrefixInput) (ModelGenerators.msce PrefixInput)
+    let prefixMssiSorterModels = modelGenerator PrefixInput simpleSorterModelType.Mssi (ModelGenerators.mssiKeys PrefixInput) (ModelGenerators.mssi PrefixInput)
+    let prefixMsrsSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msrs (ModelGenerators.msrsKeys PrefixInput) (ModelGenerators.msrs PrefixInput)
+    let prefixMsuf4SorterModels = modelGenerator PrefixInput simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys PrefixInput) (ModelGenerators.msuf4 PrefixInput)
+    let prefixMsuf6SorterModels = modelGenerator PrefixInput simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys PrefixInput) (ModelGenerators.msuf6 PrefixInput)
 
-    let standardEvaluationInputs =
-        FunctionDefinition.results "1"
-            (InputGenerators.standardKeys @ InputGenerators.modelKeys |> List.distinctBy (fun key -> key.Name))
-            [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys InputGenerators.modelKeys]
+    let uniformMsceSorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
+    let uniformMssiSorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
+    let uniformMsrsSorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
+    let uniformMsuf4SorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
+    let uniformMsuf6SorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
+
+    let private standardInputs modelType modelKeys makeModels =
+        FunctionDefinition.resultsValidated "1"
+            (InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
+            [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys modelKeys]
+            (InputGenerators.evaluationInputError InputGenerators.standardKeys modelType)
             (fun host ->
-                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> InputGenerators.uniformModels host.Parameters)
+                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> makeModels host.Parameters)
                 host.ResultsDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
+
+    let standardMsceEvaluationInputs = standardInputs simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
+    let standardMssiEvaluationInputs = standardInputs simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
+    let standardMsrsEvaluationInputs = standardInputs simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
+    let standardMsuf4EvaluationInputs = standardInputs simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
+    let standardMsuf6EvaluationInputs = standardInputs simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
 
     let private models (host: runHost) =
         match host.SetupDb.Load modelsType with

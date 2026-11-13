@@ -81,7 +81,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     internal static WorkspaceTreeNode AddSetupSource(WorkspaceTreeNode owner, string text = "")
     {
         var container = owner.Kind == WorkspaceEntityKind.Module ? owner : owner.Parent!;
-        container.Editor!.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefix;
+        container.Editor!.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssi;
         container.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source module", family: container.Family);
         container.Children.Add(sourceModule);

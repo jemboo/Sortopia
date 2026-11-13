@@ -25,13 +25,13 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         sourceSettings.resultsQueryParameterKeys = [];
         var source = Project("Source", hierarchyKind.Root, sourceSettings);
         var consumerSettings = RunExecutionTests.Settings(true);
-        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationMerge;
-        consumerSettings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(), .. sourceSettings.resultsParameterDefaults];
+        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationMergeMssi;
+        consumerSettings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), .. sourceSettings.resultsParameterDefaults];
         consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] }];
         consumerSettings.resultsFunctionName = ResultsFunctionNames.sorterEval;
         consumerSettings.resultsParameterDefaults = [Binding("ChannelCount", "4"), Binding("SorterEvalType", "V1", parameterValueType.Text), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
         var consumer = Project("Consumer", hierarchyKind.Branch, consumerSettings,
-            failSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "invalid"] }] : null);
+            failSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }] : null);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [
             WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Outer", "Outer", [
                 WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", "Inner", [], [source])], []),
@@ -70,10 +70,10 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         testsSettings.resultsDatabaseName = "Test archive";
         testsSettings.resultsParameterDefaults = [Binding("ChannelCount", "4"), Binding("SortableDataFormat", "Bools", parameterValueType.Text)];
         var modelsSettings = RunExecutionTests.Settings(false);
-        modelsSettings.resultsFunctionName = ResultsFunctionNames.uniformSorterModels;
+        modelsSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
         modelsSettings.resultsDatabaseName = "Model archive";
         modelsSettings.resultsSortopiaDataTypes = [new() { kind = "SorterModelSet", value = "" }];
-        modelsSettings.resultsParameterDefaults = RunExecutionTests.ModelDefaults();
+        modelsSettings.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();
         var testsProject = Project("Tests source", hierarchyKind.Root, testsSettings);
         var modelsProject = Project("Models source", hierarchyKind.Root, modelsSettings);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [

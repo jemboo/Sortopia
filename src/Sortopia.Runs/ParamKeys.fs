@@ -53,9 +53,16 @@ module ParamKey =
     let sorterLibraryId name = create name (ParameterValue.tryParse parameterValueType.SorterLibId >> Option.bind ParameterValue.tryGet<sorterLibId>) SorterLibId.toString
     let prefixLibraryId name = create name (ParameterValue.tryParse parameterValueType.PrefixLibId >> Option.bind ParameterValue.tryGet<prefixLibId>) PrefixLibId.toString
     let mergeLibraryId name = create name (ParameterValue.tryParse parameterValueType.MergeLibId >> Option.bind ParameterValue.tryGet<mergeLibId>) MergeLibId.toString
+    let opsWeights name = create name (ParameterValue.tryParse parameterValueType.OpsWeights >> Option.bind ParameterValue.tryGet<opsWeights>) GenerationWeights.formatOps
+    let seed6Weights name = create name (ParameterValue.tryParse parameterValueType.Seed6Weights >> Option.bind ParameterValue.tryGet<seed6Weights>) GenerationWeights.formatSeed6
+    let unfoldingWeights name = create name (ParameterValue.tryParse parameterValueType.UnfoldingWeights >> Option.bind ParameterValue.tryGet<unfoldingWeights>) GenerationWeights.formatUnfolding
 
 
 module ParamKeys =
+    let stageWeightsKey = ParamKey.opsWeights "StageWeights"
+    let seed4WeightsKey = ParamKey.opsWeights "Seed4Weights"
+    let seed6WeightsKey = ParamKey.seed6Weights "Seed6Weights"
+    let unfoldingWeightsKey = ParamKey.unfoldingWeights "UnfoldingWeights"
     let setupCompletedKey = ParamKey.boolean "SetupCompleted"
     let sortableTestsModuleKey = ParamKey.text "SortableTestsModule"
     let sorterEvalModuleKey = ParamKey.text "SorterEvalModule"
@@ -114,7 +121,6 @@ module ParamKeys =
     let setupSorterPoolSetSummarySetIdKey = ParamKey.guid "SetupSorterPoolSetSummarySetId"
     let setupSorterSetEvalIdKey = ParamKey.guid "SetupSorterSetEvalId"
     let setupSorterSetIdKey = ParamKey.guid "SetupSorterSetId"
-    let simpleSorterModelTypeKey = ParamKey.text "SimpleSorterModelType"
     let sorterModelTypeKey = ParamKey.text "SorterModelType"
     let sortableCountKey = ParamKey.integer "SortableCount"
     let sortableDataFormatKey = ParamKey.text "SortableDataFormat"
@@ -141,6 +147,10 @@ module ParamKeys =
 
     /// Metadata comes from the same typed keys used by execution code.
     let all = [
+        ParamKey.describe stageWeightsKey
+        ParamKey.describe seed4WeightsKey
+        ParamKey.describe seed6WeightsKey
+        ParamKey.describe unfoldingWeightsKey
         ParamKey.describe setupCompletedKey
         ParamKey.describe sortableTestsModuleKey
         ParamKey.describe sorterEvalModuleKey
@@ -199,7 +209,6 @@ module ParamKeys =
         ParamKey.describe setupSorterPoolSetSummarySetIdKey
         ParamKey.describe setupSorterSetEvalIdKey
         ParamKey.describe setupSorterSetIdKey
-        ParamKey.describe simpleSorterModelTypeKey
         ParamKey.describe sorterModelTypeKey
         ParamKey.describe sortableCountKey
         ParamKey.describe sortableDataFormatKey

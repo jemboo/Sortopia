@@ -58,8 +58,8 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
     }
     private static WorkspaceTreeNode AddRun(WorkspacePageViewModel page, bool branch)
     {
-        if (page.Selected!.Editor!.ResultsFunctionName.Length == 0) page.Selected.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels;
-        if (branch && page.Selected.Editor.SetupFunctionName.Length == 0) page.Selected.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels;
+        if (page.Selected!.Editor!.ResultsFunctionName.Length == 0) page.Selected.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels;
+        if (branch && page.Selected.Editor.SetupFunctionName.Length == 0) page.Selected.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels;
         page.Selected.Editor.AddRequiredResultsDefaultsCommand.Execute(null); if (branch) page.Selected.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
@@ -82,7 +82,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         Assert.Equal(new BigInteger(4), results.TotalCount);
         Assert.Equal(new[] { "1:4", "1:8", "2:4", "2:8" }, results.Rows.Select(row => $"{row.ParameterSet.TryFind(ParamKeys.stageLengthKey).Value}:{row.ParameterSet.TryFind(ParamKeys.channelCountKey).Value}"));
         Assert.All(results.Columns.Where(column => column.Key is "StageLength" or "ChannelCount"), column => { Assert.Equal("Integer", column.TypeLabel); Assert.Equal("run span", column.Source); });
-        Assert.Equal("4", results.Rows[0].Values[0]);
+        Assert.Equal("4", results.Rows[0].Values[Array.FindIndex(results.Columns, column => column.Key == "ChannelCount")]);
         var setup = run.Editor.SetupParameterSetsPreview;
         if (branch)
         {

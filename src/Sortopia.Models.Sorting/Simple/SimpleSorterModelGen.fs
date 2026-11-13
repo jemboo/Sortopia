@@ -24,29 +24,14 @@ type simpleSorterModelGen =
 
 module SimpleSorterModelGen =
 
-    let makeUniform
-            (rngFactory: rngFactory)
-            (channelCount: int<channelCount>)
-            (prefix: ce array)
-            (stageLength: int<stageLength>)
-            (simpleorterModelType: simpleSorterModelType)
-            (excludeSelfCe: bool<excludeSelfCe>) =
-        match simpleorterModelType with
-        | simpleSorterModelType.Msce ->
-            let ceLength = stageLength |> StageLength.toCeLength channelCount
-            SmmMsceRandGen (msceRandGen.create rngFactory channelCount prefix excludeSelfCe ceLength)
-        | simpleSorterModelType.Mssi ->
-            SmmMssiRandGen (mssiRandGen.create rngFactory channelCount prefix stageLength)
-        | simpleSorterModelType.Msrs ->
-            let opsGenRates = opsGenRates.createUniform()
-            SmmMsrsRandGen (msrsRandGen.create rngFactory channelCount prefix opsGenRates stageLength)
-        | simpleSorterModelType.Msuf4 ->
-            let uf4GenRates = Uf4GenRates.makeUniform %channelCount
-            SmmMsuf4RandGen (msuf4RandGen.create rngFactory channelCount prefix stageLength uf4GenRates)
-        | simpleSorterModelType.Msuf6 ->
-            let uf6GenRates = Uf6GenRates.makeUniform %channelCount
-            SmmMsuf6RandGen (msuf6RandGen.create rngFactory channelCount prefix stageLength uf6GenRates)
-
+    /// Convenience dispatch for equal probabilities; custom initialization lives in each model module.
+    let makeUniform rngFactory channelCount prefix stageLength modelType excludeSelfCe =
+        match modelType with
+        | simpleSorterModelType.Msce -> MsceRandGen.create rngFactory channelCount prefix stageLength excludeSelfCe |> SmmMsceRandGen
+        | simpleSorterModelType.Mssi -> MssiRandGen.create rngFactory channelCount prefix stageLength |> SmmMssiRandGen
+        | simpleSorterModelType.Msrs -> MsrsRandGen.createUniform rngFactory channelCount prefix stageLength |> SmmMsrsRandGen
+        | simpleSorterModelType.Msuf4 -> Msuf4RandGen.createUniform rngFactory channelCount prefix stageLength |> SmmMsuf4RandGen
+        | simpleSorterModelType.Msuf6 -> Msuf6RandGen.createUniform rngFactory channelCount prefix stageLength |> SmmMsuf6RandGen
 
     let getPrefix (model: simpleSorterModelGen) : ce array =
         match model with

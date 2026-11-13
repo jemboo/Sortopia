@@ -95,6 +95,11 @@ type mssiRandGen =
 
 module MssiRandGen =
 
+    /// Every suffix stage uses the same random-involution generator.
+    let create rngFactory channelCount prefix stageLength =
+        GenerationValidation.dimensions simpleSorterModelType.Mssi channelCount stageLength
+        mssiRandGen.create rngFactory channelCount prefix stageLength
+
     /// Returns a string representation of the MssiRandGen.
     let toString (mssiRandGen: mssiRandGen) : string =
         sprintf "MssiRandGen(RngType=%A, Width=%d, StageLength=%d)"

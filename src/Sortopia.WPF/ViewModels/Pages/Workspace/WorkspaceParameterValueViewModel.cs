@@ -14,7 +14,7 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null, Func<string>? key = null)
     {
         this.text = text; this.valueType = valueType; this.key = key;
-        LibraryId = new(this); RemoveCommand = new RelayCommand(() => remove?.Invoke(this));
+        LibraryId = new(this); Weights = new(this); RemoveCommand = new RelayCommand(() => remove?.Invoke(this));
     }
     public string Text
     {
@@ -27,7 +27,9 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     public bool HasChoices => Choices.Length > 0;
     public bool IsLibraryId => ValueType is parameterValueType.SorterLibId or parameterValueType.PrefixLibId or parameterValueType.MergeLibId;
     public WorkspaceLibraryIdValue LibraryId { get; }
-    public bool IsTextEditor => !IsBoolean && !HasChoices && !IsLibraryId;
+    public bool IsWeights => ValueType is parameterValueType.OpsWeights or parameterValueType.Seed6Weights or parameterValueType.UnfoldingWeights;
+    public WorkspaceGenerationWeights Weights { get; }
+    public bool IsTextEditor => !IsBoolean && !HasChoices && !IsLibraryId && !IsWeights;
     public bool IsMultiline => ValueType == parameterValueType.Text;
     public bool IsNumeric => ValueType is parameterValueType.Integer or parameterValueType.Unsigned64 or parameterValueType.Floating;
     public bool[] BooleanChoices { get; } = [true, false];
@@ -40,7 +42,7 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     public string Hint => key is null ? ParameterValue.hint(ValueType) : WorkspaceParameterRules.Hint(key(), ValueType);
     public string Error => IsLibraryId ? LibraryId.Error : key is null ? ParameterValue.validationError(ValueType, Text) : WorkspaceParameterRules.Error(key(), ValueType, Text);
     public RelayCommand RemoveCommand { get; }
-    internal void RefreshType() { LibraryId.Refresh(); OnPropertyChanged(""); }
+    internal void RefreshType() { LibraryId.Refresh(); Weights.Refresh(); OnPropertyChanged(""); }
 }
 
 public sealed class WorkspaceParameterBinding : WorkspaceFormItem
@@ -50,6 +52,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     private readonly Func<string, parameterBindingDto?> inheritedValue;
     private readonly Func<paramKeyDescriptor[]?> requirements;
     private readonly Func<IEnumerable<string>> spanKeys;
+    private readonly Func<string, bool> keyVisible;
     private string[] keyChoices = [];
     private string key;
     private parameterValueType customType;
@@ -58,12 +61,14 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
         Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
-        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null)
+        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null,
+        Func<string, bool>? keyVisible = null)
     {
         this.key = key; customType = type; this.source = source;
         this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
         this.requirements = requirements ?? (() => null);
         this.spanKeys = spanKeys ?? (() => []);
+        this.keyVisible = keyVisible ?? (_ => true);
         Value = new(value, () => ValueType, key: () => Key);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => remove(this));
@@ -90,7 +95,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 
     private void RefreshKeyChoices()
     {
-        var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value))
+        var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value) && keyVisible(value))
             .Except(spanKeys(), StringComparer.Ordinal)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (keyChoices.SequenceEqual(choices)) return;

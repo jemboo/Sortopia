@@ -121,8 +121,8 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
     public async Task Runs_receive_merged_typed_defaults_and_sealing_stops_ancestor_changes(bool branch)
     {
         var page = Open(); var (ancestor, module) = Hierarchy(page, branch);
-        module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels;
-        if (branch) module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels;
+        module.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels;
+        if (branch) module.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels;
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); if (branch) module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         page.AddProjectCommand.Execute(null); var parent = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;

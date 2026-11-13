@@ -2,6 +2,7 @@
   <ItemGroup>
     <Compile Include="FunctionTypes.fs" />
     <Compile Include="FunctionNames.fs" />
+    <Compile Include="ModelGenerators.fs" />
     <Compile Include="InputGenerators.fs" />
     <Compile Include="SetupFunctions.fs" />
     <Compile Include="ResultsFunctions.fs" />

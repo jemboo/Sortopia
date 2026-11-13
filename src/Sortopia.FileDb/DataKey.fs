@@ -68,7 +68,8 @@ module DataKey =
                 | GuidValue value -> writer.Write(value.ToByteArray())
                 | SorterLibIdValue value -> (value :> IStableSerializable).WriteStableBytes writer
                 | PrefixLibIdValue value -> (value :> IStableSerializable).WriteStableBytes writer
-                | MergeLibIdValue value -> (value :> IStableSerializable).WriteStableBytes writer)
+                | MergeLibIdValue value -> (value :> IStableSerializable).WriteStableBytes writer
+                | OpsWeightsValue _ | Seed6WeightsValue _ | UnfoldingWeightsValue _ -> writer.Write binding.FormattedValue)
         let dependencies = inputs |> List.distinct |> List.sortBy (fun value -> value.ProjectId, value.IsSetup, value.QueryId, value.Id, value.DataType)
         let identity = encode (fun writer ->
             writer.Write query

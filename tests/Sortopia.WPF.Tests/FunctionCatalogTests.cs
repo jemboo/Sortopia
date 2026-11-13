@@ -20,8 +20,8 @@ public sealed class FunctionCatalogTests
         => CatalogTestHost.Invoke(setup, name, parameters, inputs);
     private static parameterSet ModelParameters(int repl = 0) => Parameters(
         ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, 3),
-        ParameterBinding.create(ParamKeys.simpleSorterModelTypeKey, "Mssi"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
-        ParameterBinding.create(ParamKeys.excludeSelfCeKey, true), ParameterBinding.create(ParamKeys.sorterCountKey, 3),
+        ParameterBinding.create(ParamKeys.sorterModelTypeKey, "Simple"), ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
+        ParameterBinding.create(ParamKeys.aMaxKey, 1), ParameterBinding.create(ParamKeys.activationProbabilityKey, 0.5), ParameterBinding.create(ParamKeys.sorterCountKey, 3),
         ParameterBinding.create(ParamKeys.replKey, repl));
 
     [Fact]
@@ -51,11 +51,11 @@ public sealed class FunctionCatalogTests
             Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")))));
         Assert.Equal(16, SortableTests.getSortableCount(tests.Item1));
         Assert.Empty(tests.Item2);
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformSorterModels, ModelParameters())));
-        var repeated = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformSorterModels, ModelParameters())));
+        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSorterModels, ModelParameters())));
+        var repeated = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSorterModels, ModelParameters())));
         Assert.Equal(3, models.Item.Count);
         Assert.Equal(models.Item.SorterModels.Select(SorterModel.getId), repeated.Item.SorterModels.Select(SorterModel.getId));
-        var next = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformSorterModels, ModelParameters(1))));
+        var next = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSorterModels, ModelParameters(1))));
         Assert.Empty(models.Item.SorterModels.Select(SorterModel.getId).Intersect(next.Item.SorterModels.Select(SorterModel.getId)));
         var evaluation = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval,
             Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V1"),
@@ -89,7 +89,7 @@ public sealed class FunctionCatalogTests
         }
         Assert.ThrowsAny<Exception>(() => Invoke(true, SetupFunctionNames.standardTests,
             Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "invalid"), ParameterBinding.create(ParamKeys.channelCountKey, 4))));
-        Assert.ThrowsAny<Exception>(() => Invoke(true, SetupFunctionNames.uniformSorterModels, ModelParameters(-1)));
+        Assert.ThrowsAny<Exception>(() => Invoke(true, SetupFunctionNames.uniformMssiSorterModels, ModelParameters(-1)));
     }
 
     [Theory]
@@ -131,7 +131,7 @@ public sealed class FunctionCatalogTests
             {
                 Assert.Equal(SetupFunctionNames.standardTests, run.Editor.SetupFunctionName);
                 run.Editor.SetupFunctionOverride.IsOverridden = true;
-                run.Editor.SetupFunctionOverride.EffectiveValue = SetupFunctionNames.uniformSorterModels;
+                run.Editor.SetupFunctionOverride.EffectiveValue = SetupFunctionNames.uniformMssiSorterModels;
             }
             WorkspaceRunExecutionTests.SupplyQuerySpans(page);
             await page.SaveWorkspaceAsync();

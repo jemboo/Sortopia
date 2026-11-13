@@ -35,8 +35,8 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     private static projectSettingsDto ModelSettings(bool branch)
     {
         var value = WorkspaceHierarchyTests.ProjectSettings(branch);
-        value.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformSorterModels; value.resultsParameterDefaults = RunExecutionTests.ModelDefaults(8);
-        if (branch) { value.setupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformSorterModels; value.setupParameterDefaults = RunExecutionTests.ModelDefaults(16); }
+        value.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels; value.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults(8);
+        if (branch) { value.setupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels; value.setupParameterDefaults = RunExecutionTests.UniformModelDefaults(16); }
         return value;
     }
     private static parameterSet[] Sets(run value) => RunParameterSets.create(value).Results;
@@ -56,7 +56,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var expanded = RunParameterSets.create(value); Assert.Equal(branch, expanded.Setup is not null);
         Assert.DoesNotContain(value.ResultsParameterDefaults, row => row.KeyName == "StageLength");
         Assert.Equal(new[] { "11:4", "11:6", "11:8", "13:4", "13:6", "13:8" }, expanded.Results.Select(set => $"{set.TryFindText("StageLength").Value}:{set.TryFindText("ChannelCount").Value}"));
-        Assert.All(expanded.Results, set => Assert.Equal("Mssi", set.TryFind(ParamKeys.simpleSorterModelTypeKey).Value));
+        Assert.All(expanded.Results, set => Assert.Equal("Simple", set.TryFind(ParamKeys.sorterModelTypeKey).Value));
         if (branch) Assert.Equal(16, Assert.Single(expanded.Setup!.Value).TryFind(ParamKeys.channelCountKey).Value);
     }
 

@@ -100,6 +100,21 @@ type msuf4RandGen =
 
 module Msuf4RandGen =
 
+    /// Source widths of unfolding levels within one stage, in generation order.
+    let unfoldingWidths channelCount = GenerationValidation.unfoldingWidths simpleSorterModelType.Msuf4 4 channelCount
+
+    /// Reuse the seed and per-level probabilities unchanged for every suffix stage.
+    let create rngFactory channelCount prefix stageLength (seedProbabilities: opsGenRates) (unfoldingProbabilities: opsGenRates list) =
+        GenerationValidation.dimensions simpleSorterModelType.Msuf4 channelCount stageLength
+        GenerationValidation.ops "seedProbabilities" seedProbabilities
+        let unfolding = GenerationValidation.unfolding (unfoldingWidths (int channelCount)).Length unfoldingProbabilities
+        let rates = uf4GenRates.create (int channelCount) seedProbabilities unfolding
+        msuf4RandGen.create rngFactory channelCount prefix stageLength rates
+
+    let createUniform rngFactory channelCount prefix stageLength =
+        create rngFactory channelCount prefix stageLength (opsGenRates.createUniform())
+            (unfoldingWidths (int channelCount) |> List.map (fun _ -> opsGenRates.createUniform()))
+
     let toString (msuf4Gen: msuf4RandGen) : string =
         let gr = msuf4Gen.GenRates
         let ratesStr =

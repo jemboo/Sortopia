@@ -108,6 +108,11 @@ type msceRandGen =
 
 module MsceRandGen =
 
+    /// Create a CE suffix from a stage budget. The same self-comparison rule applies throughout.
+    let create rngFactory channelCount prefix stageLength excludeSelfCe =
+        GenerationValidation.dimensions simpleSorterModelType.Msce channelCount stageLength
+        msceRandGen.create rngFactory channelCount prefix excludeSelfCe (StageLength.toCeLength channelCount stageLength)
+
     let toString (msceRandGen: msceRandGen) : string =
         sprintf "Model_CeGen(rngType=%A, Width=%d, Length=[%d])"
                     (msceRandGen.RngFactory) (%msceRandGen.ChannelCount) (%msceRandGen.ceLength)

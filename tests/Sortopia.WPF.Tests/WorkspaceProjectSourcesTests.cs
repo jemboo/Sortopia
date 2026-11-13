@@ -27,8 +27,8 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     {
         var settings = FunctionOutputContractTests.Combined(true);
         settings.setupDatabaseName = "Produced setup";
-        settings.setupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefix;
-        settings.setupParameterDefaults = [.. RunExecutionTests.ModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools"),
+        settings.setupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssi;
+        settings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools"),
             RunExecutionTests.Binding("PrefixLibId", Sortopia.Sorting.Catalog.PrefixLibId.toString(Sortopia.Sorting.Catalog.PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1)), parameterValueType.PrefixLibId)];
         settings.setupDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, sourceProjectId = source.Id, queryParameterKeys = [] }];
         return RunExecutionTests.MakeProject("Consumer", true, settings, seal: seal);
@@ -117,11 +117,11 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         page.CreateProjectVersionCommand.Execute(null);
         var version = page.Selected!;
         Assert.False(version.IsSealed); Assert.NotEqual(source.Id, version.Id); Assert.Empty(version.Children);
-        version.Parent!.Editor!.ResultsFunctionName = "sorter-eval-inputs.standard";
+        version.Parent!.Editor!.ResultsFunctionName = "sorter-eval-inputs.standard.mssi";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var final = WorkspaceFileStore.LoadDefinition(Root);
         Assert.Equal("sortable-tests.standard", final.ProjectIndex[source.Id].ResultsFunctionName);
-        Assert.Equal("sorter-eval-inputs.standard", final.ProjectIndex[version.Id].ResultsFunctionName);
+        Assert.Equal("sorter-eval-inputs.standard.mssi", final.ProjectIndex[version.Id].ResultsFunctionName);
     }
 
     [Fact]

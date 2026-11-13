@@ -1,5 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <Compile Include="GenerationWeights.fs" />
     <Compile Include="ParameterValue.fs" />
     <Compile Include="ParamKeys.fs" />
     <Compile Include="ParameterBinding.fs" />

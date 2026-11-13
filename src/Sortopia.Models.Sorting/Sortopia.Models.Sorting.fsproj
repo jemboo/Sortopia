@@ -2,6 +2,8 @@
   <ItemGroup>
     <Compile Include="ModelSortingTypes.fs" />
     <Compile Include="SorterModelType.fs" />
+    <Compile Include="Simple/GenerationProbabilities.fs" />
+    <Compile Include="Simple/GenerationValidation.fs" />
     <Compile Include="Simple/SimpleSorterStageCounts.fs" />
     <Compile Include="Simple/ModelPrefix.fs" />
     <Compile Include="Simple/Ce/Msce.fs" />
