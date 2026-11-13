@@ -41,6 +41,24 @@ module MigrationTests =
            SortableBitv512Tests.fromBoolArrays (id()) width bools |> sortableTests.Bitv512 |]
 
     [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``execution limits preserve evaluations and cancel all input formats`` (collect: bool) =
+        let rng = Random(57)
+        let values = Array.init 1100 (fun _ -> Array.init 6 (fun _ -> rng.Next(2)))
+        let network = block 6 [| ce.create 0 1; ce.create 2 5; ce.create 1 3 |]
+        for inputs in formats values 6 do
+            let evaluate options =
+                CeBlockOps.evalWithSorterTestsWithOptions options inputs ceBlock.Empty [|network; network|] (UMX.tag collect)
+            let serial = evaluate (Threading.Tasks.ParallelOptions(MaxDegreeOfParallelism = 1))
+            let concurrent = evaluate (Threading.Tasks.ParallelOptions(MaxDegreeOfParallelism = 2))
+            for a, b in Array.zip serial concurrent do
+                Assert.Equal<int>(a.UseCountArray, b.UseCountArray)
+                Assert.Equal(a.UnsortedCount, b.UnsortedCount)
+            let cancelled = Threading.Tasks.ParallelOptions(MaxDegreeOfParallelism = 2, CancellationToken = Threading.CancellationToken(true))
+            Assert.Throws<OperationCanceledException>(fun () -> evaluate cancelled |> ignore) |> ignore
+
+    [<Theory>]
     [<InlineData(1)>]
     [<InlineData(31)>]
     [<InlineData(32)>]

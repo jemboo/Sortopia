@@ -68,6 +68,7 @@ module CeBlockOpsUint8v512 =
         h
 
     let private countFailures
+        (options: ParallelOptions)
         (simdSortableBlocks: sortBlockUint8v512[])
         (prefix: ceBlock)
         (ceBlocks: ceBlock array)
@@ -84,6 +85,7 @@ module CeBlockOpsUint8v512 =
 
         Parallel.ForEach(
             simdSortableBlocks,
+            options,
             (fun () ->
                 let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
                 let unsorted = Array.zeroCreate<int> numNetworks
@@ -95,11 +97,13 @@ module CeBlockOpsUint8v512 =
                 let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     Array.blit source 0 workBuffer 0 currentLen
                     let data = networkData.[nIdx]
                     let ceCount = data.Lows.Length
 
                     for cIdx = 0 to ceCount - 1 do
+                        if (cIdx &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
                         let lIdx = data.Lows.[cIdx]
                         let hIdx = data.Highs.[cIdx]
                         let vLow = workBuffer.[lIdx]
@@ -118,6 +122,7 @@ module CeBlockOpsUint8v512 =
 
             (fun ((localUsage: int [][]), (localUnsorted: int[]), _) ->
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     Interlocked.Add(&globalUnsorted.[nIdx], localUnsorted.[nIdx]) |> ignore
                     let globalArr = globalUsage.[nIdx]
                     for i = 0 to localUsage.[nIdx].Length - 1 do
@@ -131,9 +136,10 @@ module CeBlockOpsUint8v512 =
 
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockUint8v512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        countFailures inputs prefix ceBlocks
+        countFailures (ParallelOptions()) inputs prefix ceBlocks
 
     let private collectFailures
+            (options: ParallelOptions)
             (simdSortableBlocks: sortBlockUint8v512[])
             (prefix: ceBlock)
             (ceBlocks: ceBlock array)
@@ -150,6 +156,7 @@ module CeBlockOpsUint8v512 =
 
         Parallel.ForEach(
             simdSortableBlocks,
+            options,
             (fun () ->
                 let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
                 let buffer = Array.zeroCreate<Vector512<uint8>> maxWidth
@@ -161,11 +168,13 @@ module CeBlockOpsUint8v512 =
                 let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     Array.blit source 0 workBuffer 0 currentLen
                     let data = networkData.[nIdx]
                     let ceCount = data.Lows.Length
 
                     for cIdx = 0 to ceCount - 1 do
+                        if (cIdx &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
                         let lIdx = data.Lows.[cIdx]
                         let hIdx = data.Highs.[cIdx]
                         let vLow = workBuffer.[lIdx]
@@ -189,6 +198,7 @@ module CeBlockOpsUint8v512 =
 
             (fun ((localUsage: int[][]), _) ->
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     // Removed Interlocked.Add block tracking entirely
                     let globalArr = globalUsage.[nIdx]
                     for i = 0 to localUsage.[nIdx].Length - 1 do
@@ -223,12 +233,23 @@ module CeBlockOpsUint8v512 =
 
     let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockUint8v512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        collectFailures inputs prefix ceBlocks
+        collectFailures (ParallelOptions()) inputs prefix ceBlocks
 
     let eval (test: sortableUint8v512Tests) (prefix: ceBlock) (ceBlocks: ceBlock []) =
         CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        countFailures test.SimdSortBlocks prefix ceBlocks
+        countFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
 
     let evalAndCollectNewSortableTests (test: sortableUint8v512Tests) (prefix: ceBlock) (ceBlocks: ceBlock []) =
         CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures test.SimdSortBlocks prefix ceBlocks
+        collectFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
+
+    /// Runtime limits apply to this invocation only; inputs remain unchanged.
+    let evalWithOptions (options: ParallelOptions) (test: sortableUint8v512Tests) prefix ceBlocks =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        countFailures options test.SimdSortBlocks prefix ceBlocks
+
+    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableUint8v512Tests) prefix ceBlocks =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        collectFailures options test.SimdSortBlocks prefix ceBlocks

@@ -1,6 +1,7 @@
 namespace Sortopia.Evaluation
 
 open System
+open System.Threading
 open System.Buffers
 open System.Collections.Generic
 open System.Runtime.CompilerServices
@@ -12,7 +13,8 @@ open Sortopia.Sorting.Inputs
 module CeBlockOpsBinary =
 
 
-    let eval (sbts: sortableBinaryTests) (prefix: ceBlock) (ceBlk: ceBlock) :ceBlockEval =
+    let evalWithCancellation (token: CancellationToken) (sbts: sortableBinaryTests) (prefix: ceBlock) (ceBlk: ceBlock) :ceBlockEval =
+            token.ThrowIfCancellationRequested()
             CeBlock.validateWidth sbts.ChannelCount prefix ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let mutable unsortedCount = 0
@@ -21,11 +23,13 @@ module CeBlockOpsBinary =
             let pool = ArrayPool<bool>.Shared
 
             for sba in sbts.SortableBinaryArrays do
+                token.ThrowIfCancellationRequested()
                 let workArray = pool.Rent(%sw)
                 try
                     Array.blit sba.Values 0 workArray 0 %sw
 
                     for i = 0 to ces.Length - 1 do
+                        if (i &&& 255) = 0 then token.ThrowIfCancellationRequested()
                         let ce = ces.[i]
                         // Boolean Comparison: true (1) > false (0)
                         if workArray.[(int ce.LowChannel)] && not workArray.[(int ce.HighChannel)] then
@@ -52,7 +56,8 @@ module CeBlockOpsBinary =
             ceBlockEval.create prefix ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
 
 
-    let evalAndCollectNewSortableTests (sbts: sortableBinaryTests) (prefix: ceBlock) (ceBlk: ceBlock) :ceBlockEval =
+    let evalAndCollectWithCancellation (token: CancellationToken) (sbts: sortableBinaryTests) (prefix: ceBlock) (ceBlk: ceBlock) :ceBlockEval =
+            token.ThrowIfCancellationRequested()
             CeBlock.validateWidth sbts.ChannelCount prefix ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let ces = ceBlk.CeArray
@@ -62,11 +67,13 @@ module CeBlockOpsBinary =
             let results = HashSet<sortableBoolArray>(SortableBoolArray.SortableBoolArrayValueComparer())
 
             for sba in sbts.SortableBinaryArrays do
+                token.ThrowIfCancellationRequested()
                 let workArray = pool.Rent(%sw)
                 try
                     Array.blit sba.Values 0 workArray 0 %sw
 
                     for i = 0 to ces.Length - 1 do
+                        if (i &&& 255) = 0 then token.ThrowIfCancellationRequested()
                         let ce = ces.[i]
                         // Boolean Comparison: true (1) > false (0)
                         if workArray.[(int ce.LowChannel)] && not workArray.[(int ce.HighChannel)] then
@@ -100,3 +107,6 @@ module CeBlockOpsBinary =
                             ceUseCounts
                             (results.Count |> UMX.tag<sortableCount>)
                             (Some (sortableTests.Bools newTests))
+
+    let eval tests prefix block = evalWithCancellation CancellationToken.None tests prefix block
+    let evalAndCollectNewSortableTests tests prefix block = evalAndCollectWithCancellation CancellationToken.None tests prefix block

@@ -56,7 +56,7 @@ internal sealed class CatalogTestHost(run? value = null, CancellationToken token
         var reader = new Database(this, true, "read", parameters, null, inputs);
         return new(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameters,
             setup ? target : reader, setup ? new Database(this, false, "read", parameters, null) : target,
-            new Sources(this, inputs), token);
+            new Sources(this, inputs), token, Environment.ProcessorCount);
     }
     public runHost ForSetup(parameterSet parameters) => Context(true, Run.SetupFunctionName.Value, parameters, []);
     public runHost ForResults(parameterSet parameters, FSharpList<storedOutput> outputs) => Context(false, Run.ResultsFunctionName, parameters, outputs);

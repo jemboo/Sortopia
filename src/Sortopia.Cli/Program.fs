@@ -12,14 +12,16 @@ module Program =
   sortopia generate-parameters --workspace <folder> --run <run-id>
   sortopia list-parameters --parameters-folder <project/runParameters> [--run <run-id>]
   sortopia check-results --parameters-folder <project/runParameters> [--run <run-id>]
-  sortopia execute-results --parameters-folder <project/runParameters> [--run <run-id>]
-  sortopia execute-results --parameters <path-to-work-item.msgpack>
+  sortopia execute-results --parameters-folder <project/runParameters> [--run <run-id>] [--jobs <count>]
+  sortopia execute-results --parameters <path-to-work-item.msgpack> [--jobs <count>]
 
 Generate locally (including setup), then copy the complete project folder.
 Folder execution considers every parameter file present, including older files;
 --run restricts it to one saved run ID. Complete outputs are validated and skipped;
 partial work reuses existing outputs. No manifests or execution receipts are needed.
-Results execution never runs setup. Ctrl+C cancels at storage and function boundaries.
+Results execution never runs setup. --jobs is a positive maximum concurrent job count (default 1).
+Selected files must own distinct outputs. Failed jobs are reported while other jobs continue.
+Ctrl+C cancels running jobs cooperatively and leaves unstarted files pending.
 Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
 
     let private options (args: string array) allowed =
@@ -36,6 +38,13 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
         | true, id when id <> Guid.Empty -> id
         | _ -> invalidArg "arguments" $"Expected a nonempty GUID: {text}"
     let private runFilter values = values |> Map.tryFind "--run" |> Option.map (guid >> UMX.tag)
+    let private executionOptions (values: Map<string, string>) =
+        match values |> Map.tryFind "--jobs" with
+        | None -> resultsExecutionOptions.Default
+        | Some text ->
+            match Int32.TryParse text with
+            | true, count when count > 0 -> { MaxParallelJobs = count }
+            | _ -> invalidArg "arguments" "--jobs requires a positive whole number."
     let private finish (report: runExecutionReport) =
         printfn "%A: %d setup sets, %d results work items processed." report.Status report.Setup.Length report.Results.Length
         if report.Error <> "" then eprintfn "%s" report.Error
@@ -77,10 +86,11 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
                         if item.Outputs.Error <> "" then eprintfn "%s" item.Outputs.Error
                     if statuses |> Array.exists (fun item -> item.Outputs.State = outputState.Invalid) then 1 else 0
                 | "execute-results" ->
-                    let values = options args[1..] ["--parameters-folder"; "--run"; "--parameters"]
+                    let values = options args[1..] ["--parameters-folder"; "--run"; "--parameters"; "--jobs"]
+                    let execution = executionOptions values
                     match Map.tryFind "--parameters-folder" values, Map.tryFind "--parameters" values with
-                    | Some folder, None -> RunParameterExecution.executeFolder folder (runFilter values) progress cancellation.Token |> finish
-                    | None, Some file when not (Map.containsKey "--run" values) -> RunParameterExecution.executeFile file progress cancellation.Token |> finish
+                    | Some folder, None -> RunParameterExecution.executeFolderWithOptions folder (runFilter values) execution progress cancellation.Token |> finish
+                    | None, Some file when not (Map.containsKey "--run" values) -> RunParameterExecution.executeFileWithOptions file execution progress cancellation.Token |> finish
                     | _ -> invalidArg "arguments" "Choose --parameters-folder (optionally --run), or one --parameters file."
                 | _ -> invalidArg "arguments" "Unknown command. Use --help for syntax."
             with

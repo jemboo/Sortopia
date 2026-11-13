@@ -1,6 +1,7 @@
 namespace Sortopia.Evaluation
 
 open System
+open System.Threading
 open System.Buffers
 open System.Collections.Generic
 open System.Runtime.CompilerServices
@@ -12,9 +13,10 @@ open Sortopia.Sorting.Inputs
 module CeBlockOpsInt =
 
 
-    let eval (sits: sortableIntTests)
+    let evalWithCancellation (token: CancellationToken) (sits: sortableIntTests)
              (prefix: ceBlock)
              (ceBlk: ceBlock) =
+            token.ThrowIfCancellationRequested()
             CeBlock.validateWidth sits.ChannelCount prefix ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let mutable unsortedCount = 0
@@ -23,11 +25,13 @@ module CeBlockOpsInt =
             let pool = ArrayPool<int>.Shared
 
             for sia in sits.SortableIntArrays do
+                token.ThrowIfCancellationRequested()
                 let workArray = pool.Rent(%sw)
                 try
                     Array.blit sia.Values 0 workArray 0 %sw
 
                     for i = 0 to ces.Length - 1 do
+                        if (i &&& 255) = 0 then token.ThrowIfCancellationRequested()
                         let ce = ces.[i]
                         let a = workArray.[(int ce.LowChannel)]
                         let b = workArray.[(int ce.HighChannel)]
@@ -53,8 +57,9 @@ module CeBlockOpsInt =
             ceBlockEval.create prefix ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
 
 
-    let evalAndCollectNewSortableTests (sits: sortableIntTests)
+    let evalAndCollectWithCancellation (token: CancellationToken) (sits: sortableIntTests)
                 (prefix: ceBlock) (ceBlk: ceBlock) =
+            token.ThrowIfCancellationRequested()
             CeBlock.validateWidth sits.ChannelCount prefix ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let ces = ceBlk.CeArray
@@ -63,11 +68,13 @@ module CeBlockOpsInt =
             let results = HashSet<sortableIntArray>(SortableIntArray.SortableIntArrayValueComparer())
 
             for sia in sits.SortableIntArrays do
+                token.ThrowIfCancellationRequested()
                 let workArray = pool.Rent(%sw)
                 try
                     Array.blit sia.Values 0 workArray 0 %sw
 
                     for i = 0 to ces.Length - 1 do
+                        if (i &&& 255) = 0 then token.ThrowIfCancellationRequested()
                         let ce = ces.[i]
                         let a = workArray.[(int ce.LowChannel)]
                         let b = workArray.[(int ce.HighChannel)]
@@ -100,3 +107,6 @@ module CeBlockOpsInt =
                         ceUseCounts
                         (results.Count |> UMX.tag<sortableCount>)
                         (Some (sortableTests.Ints newTests))
+
+    let eval tests prefix block = evalWithCancellation CancellationToken.None tests prefix block
+    let evalAndCollectNewSortableTests tests prefix block = evalAndCollectWithCancellation CancellationToken.None tests prefix block

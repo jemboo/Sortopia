@@ -144,8 +144,8 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var sourceRoot = Path.Combine(temporary.FullName, "Original");
         WorkspaceFileStore.CreateWorkspace(sourceRoot, original, Token);
         var module = original.Modules[0];
-        var sourceFolder = Path.Combine(sourceRoot, "modules", "Library");
-        var copy = WorkspaceFolderCopy.Prepare(Root, sourceFolder, Path.Combine(Root, "modules", "Library"), Token)!;
+        var sourceFolder = Path.Combine(sourceRoot, "Library");
+        var copy = WorkspaceFolderCopy.Prepare(Root, sourceFolder, Path.Combine(Root, "Library"), Token)!;
         var saved = WorkspaceFileStore.CreateWorkspace(Root, original, Token, [copy]).Definition;
         Assert.NotEqual(module.Id, saved.Modules[0].Id);
         var copiedSource = saved.ProjectIndex.Values.Single(p => p.ProjectName == "Source");
@@ -180,8 +180,8 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     {
         var source = Source(); var original = Workspace(source, Consumer(source));
         WorkspaceFileStore.CreateWorkspace(Root, original, Token);
-        var folder = Path.Combine(Root, "modules", "Library");
-        if (!wholeModule) folder = Path.Combine(folder, "projects", "Consumer");
+        var folder = Path.Combine(Root, "Library");
+        if (!wholeModule) folder = Path.Combine(folder, "Consumer");
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(Root);
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings, pickExistingFolder: _ => folder);
         page.AddBranchModuleCommand.Execute(null);
@@ -212,7 +212,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         parent.Editor!.LoadProject(Settings());
         page.AddRunCommand.Execute(null);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
-        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Path.Combine(Root, "modules", page.Roots[0].Children[0].FolderName), "module"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Path.Combine(Root, page.Roots[0].Children[0].FolderName), "module"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
             Assert.NotEmpty(page.Error);

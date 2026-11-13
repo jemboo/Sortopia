@@ -150,8 +150,8 @@ public sealed class PrefixModelWeightsTests
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
             page.Selected = run;
             await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
-            Assert.False(string.IsNullOrEmpty(page.ResultsExecution.Folder));
-            var source = Path.GetDirectoryName(page.ResultsExecution.Folder)!;
+            Assert.False(string.IsNullOrEmpty(page.RunParametersFolder));
+            var source = Path.GetDirectoryName(page.RunParametersFolder)!;
             var copy = Directory.CreateDirectory(Path.Combine(temp.FullName, "Copied project")).FullName;
             foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)) {
                 var target = Path.Combine(copy, Path.GetRelativePath(source, file));

@@ -70,7 +70,7 @@ public sealed class FileInspectorTests : IDisposable
         await page.InspectAsync(Entry(WorkspaceDefinitionFiles.Require(Root, "workspace")));
         await page.OpenReferenceAsync(Assert.Single(page.References));
         Assert.Equal("Module definition", page.Kind);
-        Assert.Equal(Path.Combine(Root, "modules", "Sorting"), page.CurrentFolder);
+        Assert.Equal(Path.Combine(Root, "Sorting"), page.CurrentFolder);
         Assert.True(page.CanGoUp);
         var path = page.Selected!.FullPath;
         var dto = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(path));
@@ -133,7 +133,7 @@ public sealed class FileInspectorTests : IDisposable
         });
         var module = workspaceModule.createInherited(Guid.NewGuid(), "Standard tests", "StandardTests", ModuleDefaults.configuration(false), local, [], []);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
-        var folder = Path.Combine(Root, "modules", "StandardTests");
+        var folder = Path.Combine(Root, "StandardTests");
         var path = WorkspaceDefinitionFiles.Require(folder, "module");
         using var model = new FileInspectorPageViewModel(() => { }, _ => null);
         await model.OpenRootAsync(folder);

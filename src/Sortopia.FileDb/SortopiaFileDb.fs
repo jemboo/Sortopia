@@ -142,7 +142,7 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         member _.GetOrCreate(key, factory, token) = protect (fun () ->
             match tryRead key token with
             | Some value -> value, true
-            | None ->
+            | None when key.Reference.IsSetup ->
                 use writer = acquireWriter token
                 // Another process may have published while this writer waited.
                 match tryRead key token with
@@ -151,4 +151,11 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
                     token.ThrowIfCancellationRequested()
                     let value = factory () |> require
                     token.ThrowIfCancellationRequested()
-                    publish key value token, false)
+                    publish key value token, false
+            | None ->
+                // Results jobs own distinct outputs. Do not hold the setup writer
+                // lock during computation, compression, or independent publication.
+                token.ThrowIfCancellationRequested()
+                let value = factory () |> require
+                token.ThrowIfCancellationRequested()
+                publish key value token, false)

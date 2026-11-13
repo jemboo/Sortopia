@@ -51,6 +51,8 @@ type runHost = {
     ResultsDb: IRunDatabase
     SourceResults: ISourceResults
     CancellationToken: CancellationToken
+    /// Runtime CPU allowance for evaluation inside this invocation.
+    EvaluationParallelism: int
 }
 
 type sourceProjects = Map<sortopiaDataType, Guid<projectId>>

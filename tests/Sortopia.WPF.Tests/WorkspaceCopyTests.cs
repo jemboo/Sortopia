@@ -51,14 +51,14 @@ public sealed class WorkspaceCopyTests : IDisposable
         var parentFolder = parentKind switch
         {
             WorkspaceEntityKind.Workspace => Root,
-            WorkspaceEntityKind.Module => Path.Combine(Root, "modules", "parent-module"),
-            _ => Path.Combine(Root, "modules", "parent-module", "projects", "parent-project")
+            WorkspaceEntityKind.Module => Path.Combine(Root, "parent-module"),
+            _ => Path.Combine(Root, "parent-module", "parent-project")
         };
         if (childKind == WorkspaceEntityKind.Module) WorkspaceImportTests.WriteModule(Source, "Imported module");
         else WorkspaceImportTests.WriteProject(Source, "Imported project");
         AddData(Source);
         var before = Snapshot(Source);
-        var destination = Path.Combine(parentFolder, childKind.ToString().ToLowerInvariant() + "s", "imported");
+        var destination = Path.Combine(parentFolder, "imported");
         selection = Source;
         await page.AddExistingAsync(childKind);
         Assert.Empty(page.Error);
@@ -75,7 +75,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(destination, "other-data", "empty")));
         Assert.Equal(File.ReadAllBytes(Path.Combine(Source, "other-data", "payload.bin")), File.ReadAllBytes(Path.Combine(destination, "other-data", "payload.bin")));
         Assert.Equal("Preserve every file", File.ReadAllText(Path.Combine(destination, ".hidden-data")));
-        var runParent = childKind == WorkspaceEntityKind.Module ? Path.Combine(destination, "projects", "child-project") : destination;
+        var runParent = childKind == WorkspaceEntityKind.Module ? Path.Combine(destination, "child-project") : destination;
         Assert.Equal("Keep results", File.ReadAllText(Path.Combine(runParent, "results.txt")));
         AssertNoStaging();
         page = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
@@ -99,7 +99,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         if (remove) { page.RemoveCommand.Execute(null); await page.SaveWorkspaceAsync(); }
         else page.DiscardChangesCommand.Execute(null);
         Assert.False(page.HasUnsavedChanges);
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "imported")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "imported")));
         Assert.Equal(before, Snapshot(Source));
         AssertNoStaging();
     }
@@ -115,7 +115,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         page.Selected!.Name = "Updated metadata";
-        var destination = Path.Combine(Root, "modules", "imported");
+        var destination = Path.Combine(Root, "imported");
         using (var locked = new FileStream(WorkspaceTestFiles.DefinitionPath(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
@@ -151,7 +151,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.Contains("Copied 2 imported components", page.Status);
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "imported", "projects", "second-project", "results.txt")));
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "imported", "second-project", "results.txt")));
         Assert.Equal(firstBefore, Snapshot(Source));
         Assert.Equal(secondBefore, Snapshot(second));
         AssertNoStaging();
@@ -173,8 +173,8 @@ public sealed class WorkspaceCopyTests : IDisposable
         parent.Name = "Renamed parent";
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.True(File.Exists(WorkspaceTestFiles.DefinitionPath(Root, "modules", "Renamed parent", "projects", Path.GetFileName(Source), "project")));
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "New parent")));
+        Assert.True(File.Exists(WorkspaceTestFiles.DefinitionPath(Root, "Renamed parent", Path.GetFileName(Source), "project")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "New parent")));
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         File.WriteAllText(Path.Combine(Source, "other-data", "payload.bin"), "New external content");
         await page.SaveWorkspaceAsync();
         Assert.Contains("source changed", page.Error);
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "imported")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "imported")));
         Assert.Equal("New external content", File.ReadAllText(Path.Combine(Source, "other-data", "payload.bin")));
         AssertNoStaging();
     }
@@ -201,7 +201,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     {
         var page = Open();
         WorkspaceImportTests.WriteModule(Source, "Imported");
-        var destination = Path.Combine(Root, "modules", "imported");
+        var destination = Path.Combine(Root, "imported");
         var sentinel = file ? destination : Path.Combine(Directory.CreateDirectory(destination).FullName, "keep.txt");
         File.WriteAllText(sentinel, "Existing content");
         selection = Source;
@@ -216,7 +216,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     public void Copy_into_a_descendant_of_the_source_is_rejected()
     {
         Open();
-        Assert.Throws<IOException>(() => WorkspaceFolderCopy.Prepare(Root, Root, Path.Combine(Root, "modules", "recursive"), Token));
+        Assert.Throws<IOException>(() => WorkspaceFolderCopy.Prepare(Root, Root, Path.Combine(Root, "recursive"), Token));
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

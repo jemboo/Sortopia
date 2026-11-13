@@ -3,7 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Workspace"
              xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace"
-             xmlns:results="clr-namespace:Sortopia.WPF.Views.Pages.ResultsExecution"
              FontFamily="Segoe UI" UseLayoutRounding="True"
              AutomationProperties.Name="Workspace page" Foreground="{DynamicResource Workspace.TextPrimary}">
     <UserControl.Resources>
@@ -73,6 +72,10 @@
             </Grid>
             <TextBlock x:Name="WorkspaceFileStatus" Text="{Binding WorkspaceFileStatus}" Margin="0,8,0,0"
                        TextWrapping="Wrap" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
+            <StackPanel Margin="0,8,0,0" Visibility="{Binding NeedsLayoutConversion, Converter={StaticResource WorkspaceBoolVisibility}}">
+                <TextBlock Text="This workspace uses the earlier folder layout. Conversion removes the modules/projects containers while preserving IDs and all project files. Conflicting folder names must be resolved before conversion." TextWrapping="Wrap" />
+                <Button Content="Convert folder layout" Command="{Binding ConvertFolderLayoutCommand}" HorizontalAlignment="Left" Margin="0,6,0,0" />
+            </StackPanel>
             <TextBlock x:Name="MissingComponentsNotice" Text="{Binding MissingComponentsMessage}" Margin="0,4,0,0"
                        TextWrapping="Wrap" Foreground="{StaticResource Workspace.Warning}" AutomationProperties.LiveSetting="Polite"
                        Visibility="{Binding HasMissingComponents, Converter={StaticResource WorkspaceBoolVisibility}}" />
@@ -203,29 +206,28 @@
                     <Button Content="Edit parent defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
                             Visibility="{Binding DataContext.ShowParentDefaultsAction, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}"
                             Command="{Binding DataContext.EditProjectDefaultsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
-                    <Expander x:Name="RunExecutionExpander" Header="Execution" IsExpanded="True" Margin="0,12,0,0"
+                    <Expander x:Name="RunExecutionExpander" Header="Run parameters" IsExpanded="True" Margin="0,12,0,0"
                               Foreground="{StaticResource Workspace.TextPrimary}"
                               Visibility="{Binding DataContext.ShowExecutionEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <StackPanel Margin="0,8,0,8" DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}">
                             <WrapPanel>
                                 <Button x:Name="GenerateRunParametersButton" Content="Generate run parameters" Command="{Binding GenerateRunParametersCommand}" Margin="0,0,8,6"
                                         AutomationProperties.Name="Generate run parameters" ToolTip="Run setup locally and save immutable results parameter files." />
-                                <Button x:Name="ExecuteRunButton" Content="Generate and execute locally" Command="{Binding ExecuteRunCommand}" Margin="0,0,0,6"
-                                        AutomationProperties.Name="Execute run" ToolTip="Prepare this run, then execute all its saved work items on this machine." />
+                                <Button x:Name="ExecutePageButton" Content="Execute page" Command="{Binding ExecutePageCommand}" Margin="0,0,0,6"
+                                        AutomationProperties.Name="Open Results execution page" ToolTip="Open this run's saved parameter files on the Results execution page. Workspace drafts are retained." />
                             </WrapPanel>
-                            <TextBlock Text="{Binding ExecuteHint}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,0">
+                            <TextBlock Text="{Binding GenerationHint}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,0">
                                 <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
                                     <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger>
                                 </Style.Triggers></Style></TextBlock.Style>
                             </TextBlock>
                             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,8"
-                                       Text="{Binding ExecutionInstructions}" />
-                            <results:ResultsExecutionPanel x:Name="RunParameterExecutionPanel" DataContext="{Binding ResultsExecution}" Margin="0,12,0,16" />
+                                       Text="{Binding GenerationInstructions}" />
                             <StackPanel DataContext="{Binding SelectedExecution}">
                                 <TextBlock x:Name="RunExecutionSummary" Text="{Binding Summary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                                 <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" />
                                 <ProgressBar Value="{Binding Percent, Mode=OneWay}" Maximum="100" IsIndeterminate="{Binding IsIndeterminate}" Height="6" Margin="0,8,0,4"
-                                             Visibility="{Binding IsRunning, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Run execution progress" />
+                                             Visibility="{Binding IsRunning, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Run parameter generation progress" />
                                 <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Style="{StaticResource InlineError}" />
                                 <Expander x:Name="RunOutputsExpander" Header="Processed sets and output summaries" Margin="0,8,0,0" Foreground="{StaticResource Workspace.TextPrimary}"
                                           Visibility="{Binding HasReport, Converter={StaticResource WorkspaceBoolVisibility}}">

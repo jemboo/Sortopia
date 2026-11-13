@@ -109,7 +109,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
             definition.OutputDependencies, parameters, ListModule.OfSeq(publishedTests.Results.Concat(publishedModels.Results).SelectMany(call => call.StoredOutputs).Select(output => output.Reference)));
         runHost Host(WorkspaceSources sources) => new(runExecutionPhase.Setup, parameters,
             new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token),
-            null!, sources, Token);
+            null!, sources, Token, Environment.ProcessorCount);
         var reader = new WorkspaceSources(world, temporary.FullName);
         var setup = Host(reader);
         Assert.Contains("exactly the source projects", Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(projects.Remove(modelsType))).Message);
@@ -213,7 +213,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var world = Create();
         var source = Named(world, "Source"); var consumer = Named(world, "Consumer");
         Assert.Equal(source, world.FindProject(source.Id).Value);
-        Assert.EndsWith(Path.Combine("modules", "Outer", "modules", "Inner", "projects", "Source"), WorkspaceData.projectFolder(world, temporary.FullName, source.Id));
+        Assert.EndsWith(Path.Combine("Outer", "Inner", "Source"), WorkspaceData.projectFolder(world, temporary.FullName, source.Id));
         var missing = Execute(world, "Consumer");
         Assert.Contains("Execute the source run first", missing.Error); Assert.Empty(missing.Setup);
         var published = Execute(world, "Source"); Completed(published);

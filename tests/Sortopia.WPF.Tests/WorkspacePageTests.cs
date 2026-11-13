@@ -80,7 +80,7 @@ public sealed class WorkspacePageTests : IDisposable
         page.Selected.Editor!.LoadRun(Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial", branch)));
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var projectFolder = Path.Combine(folder, "modules", "sorters", "projects", "search");
+        var projectFolder = Path.Combine(folder, "sorters", "search");
         var output = Path.Combine(projectFolder, "results.txt");
         File.WriteAllText(output, "Keep results");
 
@@ -118,8 +118,8 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Equal(Sortopia.Workspaces.Serialization.WorkspaceCodec.encodeRun(expectedRun),
             File.ReadAllBytes(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(runId))));
         Assert.Equal("Keep results", File.ReadAllText(output));
-        Assert.Single(Directory.GetDirectories(Path.Combine(folder, "modules")));
-        Assert.Single(Directory.GetDirectories(Path.Combine(folder, "modules", "sorters", "projects")));
+        Assert.Single(Directory.GetDirectories(folder));
+        Assert.Single(Directory.GetDirectories(Path.Combine(folder, "sorters")));
         Assert.Empty(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
         Assert.Equal("Research: updated", new WorkspacePageViewModel(() => { }, _ => null, Settings).WorkspaceName);
     }

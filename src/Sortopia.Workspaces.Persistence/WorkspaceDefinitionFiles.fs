@@ -7,7 +7,7 @@ open Sortopia.Core.Serialization
 /// Locates GUID-named entity definitions.
 module WorkspaceDefinitionFiles =
     [<CLIMutable>]
-    type Header = { workspaceName: string; moduleName: string; projectName: string; runName: string }
+    type Header = { schemaVersion: int; workspaceName: string; moduleName: string; projectName: string; runName: string }
 
     let Name (id: Guid) = $"{id:D}.msgpack"
 
@@ -63,3 +63,30 @@ module WorkspaceDefinitionFiles =
         match Find folder kind with
         | null -> raise (FileNotFoundException($"Missing {kind} definition in {folder}."))
         | path -> path
+
+    let Version folder kind =
+        Require folder kind |> WorkspaceFileSystem.readDefinition |> MessagePackSetup.deserialize<Header> |> _.schemaVersion
+
+    /// Identify an immediate child folder without treating arbitrary data files as definitions.
+    let TryKind folder =
+        if not (Directory.Exists folder) then null
+        else
+            WorkspaceFileSystem.checkDirectory folder
+            let kinds =
+                Directory.GetFiles(folder, "*.msgpack") |> Array.filter (Path.GetFileName >> HasGuid)
+                |> Array.choose (fun path ->
+                    checkFile path
+                    try
+                        let header = WorkspaceFileSystem.readDefinition path |> MessagePackSetup.deserialize<Header>
+                        if isNull (box header) then None
+                        elif not (isNull header.workspaceName) then Some "workspace"
+                        elif not (isNull header.moduleName) then Some "module"
+                        elif not (isNull header.projectName) then Some "project"
+                        elif not (isNull header.runName) then Some "run"
+                        else None
+                    with :? MessagePack.MessagePackSerializationException -> None)
+                |> Array.distinct
+            match kinds with
+            | [||] -> null
+            | [| kind |] -> kind
+            | _ -> raise (InvalidDataException($"Different entity types share one folder: {folder}."))

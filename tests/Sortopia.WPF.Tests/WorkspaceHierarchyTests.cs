@@ -181,11 +181,12 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     }
 
     [Fact]
-    public void Names_and_folders_can_be_reused_in_separate_typed_collections()
+    public void Display_names_can_be_reused_across_types_when_folder_names_differ()
     {
         var childProject = WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Shared", "shared", []);
-        var parentModule = WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Shared", "shared", [], [])], [childProject]);
-        Assert.Equal(parentModule.Modules.Single().FolderName, parentModule.Projects.Single().FolderName);
+        var parentModule = WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Parent", "parent", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Shared", "shared-module", [], [])], [childProject]);
+        Assert.Equal(parentModule.Modules.Single().ModuleName, parentModule.Projects.Single().ProjectName);
+        Assert.NotEqual(parentModule.Modules.Single().FolderName, parentModule.Projects.Single().FolderName);
     }
 
     [Fact]
@@ -211,11 +212,11 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         Assert.Equal(WorkspaceCodec.encodeWorkspace(value), WorkspaceCodec.encodeWorkspace(loaded));
         Assert.Equal("sorters", loaded.Modules.Single().FolderName);
         Assert.Equal("nested-m", loaded.Modules.Single().Modules.Single().FolderName);
-        var projectFolder = Path.Combine(Root, "modules", "sorters", "projects", "prefix-search");
+        var projectFolder = Path.Combine(Root, "sorters", "prefix-search");
         Assert.True(File.Exists(WorkspaceTestFiles.DefinitionPath(projectFolder, "project")));
         Assert.True(File.Exists(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(value.Modules.Single().Projects.Single().Runs[1].Id))));
         Assert.True(File.Exists(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(value.Modules.Single().Projects.Single().Runs[0].Id))));
-        var imported = WorkspaceFileStore.LoadModuleFolder(Path.Combine(Root, "modules", "sorters"), Token);
+        var imported = WorkspaceFileStore.LoadModuleFolder(Path.Combine(Root, "sorters"), Token);
         Assert.Equal(WorkspaceCodec.encodeModule(value.Modules.Single()), WorkspaceCodec.encodeModule(imported));
     }
 
@@ -227,7 +228,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     public void Importing_folders_with_duplicate_saved_run_names_fails_without_writes()
     {
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
-        var runs = Path.Combine(Root, "modules", "Sorting", "projects", "Search", "runs");
+        var runs = Path.Combine(Root, "Sorting", "Search", "runs");
         var duplicate = RunDto.fromDomain(MakeRun("Search", "First", true));
         duplicate.id = Guid.NewGuid();
         duplicate.parentProjectId = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Id;
@@ -249,9 +250,9 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         Assert.Equal(6, Directory.GetFiles(Root, "*.msgpack", SearchOption.AllDirectories).Length);
         Assert.Equal(WorkspaceCodec.encodeWorkspace(value), WorkspaceCodec.encodeWorkspace(WorkspaceFileStore.LoadDefinition(Root)));
-        Assert.Equal("Sorting", WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "modules", "Sorting", "module"))).moduleName);
-        Assert.Equal("Search", WorkspaceDefinitionCodec.decodeProject(File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "modules", "Sorting", "projects", "Search", "project"))).projectName);
-        var runFile = Path.Combine(Root, "modules", "Sorting", "projects", "Search", "runs", WorkspaceDefinitionFiles.Name(value.Modules.Single().Projects.Single().Runs.Single(run => run.RunName == "With setup").Id));
+        Assert.Equal("Sorting", WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "Sorting", "module"))).moduleName);
+        Assert.Equal("Search", WorkspaceDefinitionCodec.decodeProject(File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "Sorting", "Search", "project"))).projectName);
+        var runFile = Path.Combine(Root, "Sorting", "Search", "runs", WorkspaceDefinitionFiles.Name(value.Modules.Single().Projects.Single().Runs.Single(run => run.RunName == "With setup").Id));
         Assert.Equal(WorkspaceCodec.encodeRun(value.Modules[0].Projects[0].Runs.Single(r => r.RunName == "With setup")), File.ReadAllBytes(runFile));
         File.WriteAllText(Path.Combine(Path.GetDirectoryName(runFile)!, "results.txt"), "Keep these results");
         WorkspaceFileStore.SaveWorkspace(Root, value, value, Token);
@@ -262,10 +263,10 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     public void Import_reads_referenced_hierarchy_and_preserves_run_identity_without_writing()
     {
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
-        var moduleFolder = Path.Combine(Root, "modules", "Sorting");
-        Directory.Move(Path.Combine(moduleFolder, "projects", "Search"), Path.Combine(moduleFolder, "projects", "Renamed"));
-        var projectFolder = Path.Combine(moduleFolder, "projects", "Renamed");
-        WorkspaceImportTests.WriteModule(Path.Combine(moduleFolder, "modules", "Added on disk"), "Added on disk", hierarchyKind.Branch);
+        var moduleFolder = Path.Combine(Root, "Sorting");
+        Directory.Move(Path.Combine(moduleFolder, "Search"), Path.Combine(moduleFolder, "Renamed"));
+        var projectFolder = Path.Combine(moduleFolder, "Renamed");
+        WorkspaceImportTests.WriteModule(Path.Combine(moduleFolder, "Added on disk"), "Added on disk", hierarchyKind.Branch);
         var moduleFile = WorkspaceDefinitionFiles.Require(moduleFolder, "module");
         var definition = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(moduleFile));
         definition.projects[0].folderName = "Renamed";
@@ -291,10 +292,10 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
         var empty = workspace.create(Guid.NewGuid(), "Research", "Workspace", []);
         var result = WorkspaceFileStore.SaveWorkspace(Root, empty, WorkspaceFileStore.LoadDefinition(Root), Token);
-        Assert.Contains(Path.Combine("modules", "Sorting"), result.RetainedFolders);
+        Assert.Contains("Sorting", result.RetainedFolders);
         Assert.Empty(WorkspaceFileStore.LoadDefinition(Root).Modules);
-        Assert.True(Directory.Exists(Path.Combine(Root, "modules", "Sorting")));
-        Assert.Equal("Sorting", WorkspaceFileStore.LoadModuleFolder(Path.Combine(Root, "modules", "Sorting"), Token).ModuleName);
+        Assert.True(Directory.Exists(Path.Combine(Root, "Sorting")));
+        Assert.Equal("Sorting", WorkspaceFileStore.LoadModuleFolder(Path.Combine(Root, "Sorting"), Token).ModuleName);
     }
 
     [Fact]
@@ -304,7 +305,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var updated = workspace.create(Guid.NewGuid(), "Updated", "Workspace", []);
         Assert.Throws<OperationCanceledException>(() => WorkspaceFileStore.SaveWorkspace(Root, updated, Sample(), new CancellationToken(true)));
         Assert.Equal("Research", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
-        Assert.True(Directory.Exists(Path.Combine(Root, "modules", "Sorting")));
+        Assert.True(Directory.Exists(Path.Combine(Root, "Sorting")));
     }
 
     [Fact]
@@ -319,16 +320,16 @@ public sealed class WorkspaceHierarchyTests : IDisposable
             Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
         }
         Assert.Equal(WorkspaceCodec.encodeWorkspace(original), WorkspaceCodec.encodeWorkspace(WorkspaceFileStore.LoadDefinition(Root)));
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "New module")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "New module")));
         Assert.Empty(Directory.GetFiles(Root, "*.tmp", SearchOption.AllDirectories));
     }
 
     [Fact]
     public void Corrupt_run_and_workspace_definitions_are_reported_without_writes()
     {
-        var runs = Directory.CreateDirectory(Path.Combine(Root, "modules", "M", "projects", "P", "runs")).FullName;
+        var runs = Directory.CreateDirectory(Path.Combine(Root, "M", "P", "runs")).FullName;
         File.WriteAllBytes(Path.Combine(runs, WorkspaceDefinitionFiles.Name(Guid.NewGuid())), [0xc1]);
-        Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.LoadProjectFolder(Path.Combine(Root, "modules", "M", "projects", "P"), Token));
+        Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.LoadProjectFolder(Path.Combine(Root, "M", "P"), Token));
         Assert.False(File.Exists(WorkspaceTestFiles.DefinitionPath(Root, "workspace")));
         var file = WorkspaceTestFiles.DefinitionPath(Root, "workspace");
         File.WriteAllBytes(file, [0xc1]);

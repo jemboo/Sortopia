@@ -14,7 +14,7 @@ open WorkspaceDisk
 type private Transfer = { Source: string; Destination: string; Copy: WorkspaceFolderCopy option }
 
 module internal WorkspaceSavePlan =
-    let prepare rootFolder definition (token: CancellationToken) (copies: IReadOnlyList<WorkspaceFolderCopy>) (moves: IReadOnlyList<WorkspaceFolderMove>) =
+    let prepareWithContainers rootFolder definition (token: CancellationToken) (copies: IReadOnlyList<WorkspaceFolderCopy>) (moves: IReadOnlyList<WorkspaceFolderMove>) (emptyContainers: string array) =
         let root = normalizeRoot rootFolder
         let before = capture root token "workspace"
         let definition = rebase definition root
@@ -49,6 +49,7 @@ module internal WorkspaceSavePlan =
             let vacated =
                 (relocations |> Array.exists (fun move -> WorkspaceFolderCopy.Inside(move.SourceFolder, existing)))
                 || (enclosing |> Option.bind _.Copy |> Option.exists (fun copy -> not (copy.IncludesSourcePath(existing))))
+                || (emptyContainers |> Array.exists (fun path -> pathComparer.Equals(path, transfer.Destination)))
             if not vacated && (Directory.Exists(existing) || File.Exists(existing)) then
                 raise (IOException($"The destination already exists. Choose a different parent or folder name: {transfer.Destination}"))
 
@@ -72,9 +73,9 @@ module internal WorkspaceSavePlan =
                         replacement
         let rec allocateModule (value: workspaceModule) folder =
             copyId (UMX.untag value.Id) folder |> ignore
-            for value in value.Modules do allocateModule value (child folder "modules" value.FolderName)
-            for value in value.Projects do copyId (UMX.untag value.Id) (child folder "projects" value.FolderName) |> ignore
-        for value in definition.Modules do allocateModule value (child root "modules" value.FolderName)
+            for value in value.Modules do allocateModule value (child folder value.FolderName)
+            for value in value.Projects do copyId (UMX.untag value.Id) (child folder value.FolderName) |> ignore
+        for value in definition.Modules do allocateModule value (child root value.FolderName)
         let remapSource folder id =
             match transferFor folder |> Option.bind _.Copy with
             | None -> id
@@ -102,10 +103,10 @@ module internal WorkspaceSavePlan =
             let local = { local with setupSources = remapAssignments folder local.setupSources }
             workspaceModule.createInherited (copyId (UMX.untag value.Id) folder |> UMX.tag) value.ModuleName value.FolderName
                 (ModuleSettingsDto.toDomain value.Kind settings) (ModuleOverridesDto.toDomain value.Kind local)
-                (value.Modules |> Array.map (fun value -> identifyModule value (child folder "modules" value.FolderName)))
-                (value.Projects |> Array.map (fun value -> identifyProject value (child folder "projects" value.FolderName)))
+                (value.Modules |> Array.map (fun value -> identifyModule value (child folder value.FolderName)))
+                (value.Projects |> Array.map (fun value -> identifyProject value (child folder value.FolderName)))
         let definition = workspace.create definition.Id definition.WorkspaceName definition.FolderName
-                             (definition.Modules |> Array.map (fun value -> identifyModule value (child root "modules" value.FolderName)))
+                             (definition.Modules |> Array.map (fun value -> identifyModule value (child root value.FolderName)))
 
         let findRun projectFolder id =
             let path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name id)
@@ -140,6 +141,11 @@ module internal WorkspaceSavePlan =
                     if not (isNull sourcePath) && (copy |> Option.exists (fun copy -> not (copy.IncludesSourcePath(sourcePath)))) then null else sourcePath
                 elif copy |> Option.exists (fun copy -> not (copy.IncludesSourcePath(sourceFolder))) then null
                 else WorkspaceDefinitionFiles.Find sourceFolder kind
+            if kind <> "run" then
+                match WorkspaceDefinitionFiles.TryKind sourceFolder with
+                | null -> ()
+                | actual when actual = kind -> ()
+                | actual -> raise (IOException($"A {actual} already occupies the requested {kind} folder: {folder}."))
             let original = if isNull sourcePath then null else readDefinition sourcePath
             let originalPath =
                 if isNull sourcePath then null
@@ -158,18 +164,18 @@ module internal WorkspaceSavePlan =
         let rec addModule inheritedFrom (value: workspaceModule) folder depth =
             checkDepth depth
             let origin = { moduleId = UMX.untag value.Id; moduleName = string value.ModuleName }
-            for value in value.Modules do addModule origin value (child folder "modules" value.FolderName) (depth + 1)
-            for value in value.Projects do addProject origin value (child folder "projects" value.FolderName) (depth + 1)
+            for value in value.Modules do addModule origin value (child folder value.FolderName) (depth + 1)
+            for value in value.Projects do addProject origin value (child folder value.FolderName) (depth + 1)
             add folder "module" (UMX.untag value.Id) (WorkspaceDefinitionCodec.moduleWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
-        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root "modules" value.FolderName) 1
+        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root value.FolderName) 1
         add root "workspace" (UMX.untag definition.Id) (WorkspaceDefinitionCodec.encodeWorkspace definition) // Root references commit last.
         let hasOriginal path = writes |> Seq.exists (fun write -> pathComparer.Equals(write.OriginalPath, path))
         if transfers |> Array.exists (fun transfer -> not (expected.Contains(transfer.Destination)) && not (File.Exists(transfer.Source) && hasOriginal transfer.Destination)) then
             raise (ArgumentException("Every moved or imported folder must belong to an entity in the workspace definition."))
         for copy in imports do
             if not (File.Exists(copy.SourceFolder)) then
-                let container = Path.GetFileName(Path.GetDirectoryName(copy.DestinationFolder))
-                let kind = container.Substring(0, container.Length - 1)
+                let kind = WorkspaceDefinitionFiles.TryKind copy.SourceFolder
+                if kind <> "module" && kind <> "project" then invalidOp $"Cannot determine imported folder type: {copy.SourceFolder}."
                 for sourceEntity in (capture copy.SourceFolder token kind).Entities do
                     if copy.IncludesSourcePath(sourceEntity) then
                         let target = Path.GetFullPath(Path.Combine(copy.DestinationFolder, relative copy.SourceFolder sourceEntity))
@@ -184,4 +190,6 @@ module internal WorkspaceSavePlan =
         if before.Fingerprint <> (capture root token "workspace").Fingerprint then
             raise (IOException("Folders changed while preparing the save. Try saving again."))
         { RootFolder = root; Definition = definition; Fingerprint = before.Fingerprint; Writes = writes.ToArray()
-          RetainedFolders = retainedFolders.ToArray(); Copies = imports; Moves = relocations }
+          RetainedFolders = retainedFolders.ToArray(); Copies = imports; Moves = relocations; EmptyContainers = emptyContainers }
+
+    let prepare rootFolder definition token copies moves = prepareWithContainers rootFolder definition token copies moves [||]

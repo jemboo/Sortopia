@@ -14,9 +14,9 @@ module WorkspaceData =
                       |> Option.defaultWith (fun () -> invalidOp $"Project '{projectId}' was not found in the workspace.")
         let rec find parent (items: workspaceModule array) =
             items |> Array.tryPick (fun item ->
-                let folder = Path.Combine(parent, "modules", item.FolderName)
+                let folder = Path.Combine(parent, item.FolderName)
                 if item.Projects |> Array.exists (fun value -> value.Id = project.Id) then
-                    Some (Path.Combine(folder, "projects", project.FolderName))
+                    Some (Path.Combine(folder, project.FolderName))
                 else find folder item.Modules)
         find (Path.GetFullPath workspaceRoot) workspace.Modules |> Option.defaultWith (fun () -> invalidOp "Project folder was not found.")
 

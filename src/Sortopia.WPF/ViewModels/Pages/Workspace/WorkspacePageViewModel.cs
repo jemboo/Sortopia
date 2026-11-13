@@ -33,10 +33,11 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private WorkspaceFileState workspaceFileState;
     private string workspaceFileIssue = "";
     private int missingComponents;
+    private bool needsLayoutConversion;
 
     public WorkspacePageViewModel(Action returnHome, Func<string?, string?> pickFolder, WorkspaceFolderSettings settings,
         Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null,
-        Action<string>? openFolder = null, Action? inspectFiles = null)
+        Action<string>? openFolder = null, Action? inspectFiles = null, Func<string, Guid?, Task>? openResultsExecution = null)
     {
         this.returnHome = returnHome;
         this.pickFolder = pickFolder;
@@ -70,8 +71,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         PasteCommand = new RelayCommand(async () => await PasteAsync(), () => CanPaste);
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
-        ExecuteRunCommand = new RelayCommand(async () => await ExecuteRunAsync(), () => CanExecuteRun);
-        InitializeRunParameterCommands();
+        ConvertFolderLayoutCommand = new RelayCommand(async () => await ConvertFolderLayoutAsync(), () => !IsBusy && NeedsLayoutConversion);
+        InitializeRunParameterCommands(openResultsExecution);
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasEditErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         try
@@ -107,6 +108,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public RelayCommand ReturnHomeCommand { get; }
     public RelayCommand InspectFilesCommand { get; }
     public RelayCommand BrowseWorkspaceFolderCommand { get; }
+    public RelayCommand ConvertFolderLayoutCommand { get; }
+    public bool NeedsLayoutConversion => needsLayoutConversion;
     public RelayCommand OpenFolderCommand { get; }
     public RelayCommand AddModuleCommand { get; }
     public RelayCommand AddBranchModuleCommand { get; }
@@ -146,7 +149,6 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             SetProperty(ref selected, value);
             if (selected is not null) selected.IsSelected = true;
             InspectorSelectionChanged();
-            RefreshRunParameterFiles();
             OnPropertyChanged(nameof(SelectedFolderPath));
             NotifyCommands();
         }
@@ -177,10 +179,10 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         }
     }
     public bool IsBusy => cancellation is not null;
-    public bool CanEdit => !IsBusy && WorkspaceFolder.Length > 0;
+    public bool CanEdit => !IsBusy && WorkspaceFolder.Length > 0 && !NeedsLayoutConversion;
     public bool HasSavedWorkspace => workspaceFileState == WorkspaceFileState.Saved;
     public bool ShowNewWorkspace => workspaceFileState == WorkspaceFileState.Missing && savedDefinition is null;
-    public bool ShowWorkspaceEditor => savedDefinition is not null || workspaceFileState is WorkspaceFileState.Missing or WorkspaceFileState.Saved;
+    public bool ShowWorkspaceEditor => !NeedsLayoutConversion && (savedDefinition is not null || workspaceFileState is WorkspaceFileState.Missing or WorkspaceFileState.Saved);
     public bool HasMissingComponents => missingComponents > 0;
     public string MissingComponentsMessage => missingComponents == 1 ? "1 saved component is missing from disk."
         : $"{missingComponents} saved components are missing from disk.";
@@ -261,10 +263,18 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private void OpenSelectedFolder()
     {
         executions.Clear();
+        needsLayoutConversion = false;
         ResetDraft();
         try
         {
             if (WorkspaceDefinitionFiles.Find(WorkspaceFolder, "workspace") is null) return;
+            if (WorkspaceDefinitionFiles.Version(WorkspaceFolder, "workspace") == 15)
+            {
+                needsLayoutConversion = true;
+                Status = "This workspace uses the earlier modules/projects folder layout. Convert it to open it with shorter paths.";
+                Error = "";
+                return;
+            }
             AcceptSavedDefinition(WorkspaceFileStore.LoadDefinition(WorkspaceFolder));
             Status = "Loaded the saved workspace definition.";
         }
@@ -313,7 +323,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         try
         {
             var parentFolder = parent.GetFolderPath(WorkspaceFolder);
-            var container = Path.Combine(parentFolder, kind.ToString().ToLowerInvariant() + "s");
+            var container = parentFolder;
             var initial = container;
             while (!Directory.Exists(initial)) initial = Path.GetDirectoryName(initial) ?? WorkspaceFolder;
             var selectedFolder = pickExistingFolder(new(kind, initial, container));
@@ -386,7 +396,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         var node = cutNode!;
         var parent = Selected!;
         parent.ValidateChildPlacement(node);
-        var destination = Path.Combine(parent.GetFolderPath(WorkspaceFolder), node.Kind.ToString().ToLowerInvariant() + "s", node.PathName);
+        var destination = node.IsRun ? Path.Combine(parent.GetFolderPath(WorkspaceFolder), "runs", node.PathName)
+            : Path.Combine(parent.GetFolderPath(WorkspaceFolder), node.PathName);
         if (!ReferenceEquals(parent, node.Parent) && !string.Equals(destination, node.SavedFolderPath, StringComparison.OrdinalIgnoreCase)
             && (Directory.Exists(destination) || File.Exists(destination)))
             throw new IOException($"The destination already exists. Choose another parent or folder name: {destination}");
@@ -471,6 +482,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasSavedWorkspace));
         OnPropertyChanged(nameof(ShowNewWorkspace));
         OnPropertyChanged(nameof(ShowWorkspaceEditor));
+        OnPropertyChanged(nameof(NeedsLayoutConversion));
         OnPropertyChanged(nameof(WorkspaceFileStatus));
         OnPropertyChanged(nameof(WorkspaceNameError));
         NotifyCommands();
@@ -480,17 +492,24 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         RefreshInspector();
         NotifySaveValidation();
         OnPropertyChanged(nameof(SelectedExecution));
-        OnPropertyChanged(nameof(ExecuteHint));
-        OnPropertyChanged(nameof(ExecutionInstructions));
-        ExecuteRunCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(GenerationHint));
+        OnPropertyChanged(nameof(GenerationInstructions));
         NotifyRunParameterCommands();
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
         foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
-            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
+            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, ConvertFolderLayoutCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
-    public void Cancel() { cancellation?.Cancel(); ResultsExecution.Cancel(); }
+    public void Cancel() => cancellation?.Cancel();
+    public Task ConvertFolderLayoutAsync() => !ConvertFolderLayoutCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
+    {
+        var result = await Task.Run(() => WorkspaceFileStore.ConvertFolderLayout(WorkspaceFolder, token), token);
+        needsLayoutConversion = false;
+        AcceptSavedDefinition(result.Definition);
+        RetainedFolders = result.RetainedFolders;
+        Status = "Converted to shorter folder paths. Project IDs, runs, run parameters, and results were preserved.";
+    }, convertingLayout: true);
     public Task SaveWorkspaceAsync() => !CanSaveWorkspace ? Task.CompletedTask : RunAsync(async token =>
     {
         try
@@ -515,9 +534,9 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             Status = "Workspace changes have not been saved.";
         }
     });
-    private async Task RunAsync(Func<CancellationToken, Task> action)
+    private async Task RunAsync(Func<CancellationToken, Task> action, bool convertingLayout = false)
     {
-        if (!CanEdit) return;
+        if (IsBusy || (!CanEdit && !(convertingLayout && NeedsLayoutConversion))) return;
         using var source = new CancellationTokenSource();
         cancellation = source;
         NotifyCommands();

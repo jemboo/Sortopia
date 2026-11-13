@@ -246,7 +246,7 @@ public sealed class WorkspaceMoveTests : IDisposable
     public async Task Occupied_destinations_are_rejected_before_changing_the_draft(bool file)
     {
         var page = Open();
-        var destination = Path.Combine(Root, "modules", "B", "projects", "P");
+        var destination = Path.Combine(Root, "B", "P");
         if (file) File.WriteAllText(destination, "keep"); else Directory.CreateDirectory(destination);
         var before = Snapshot(Root);
         page.Selected = Find(page, "P"); page.CutCommand.Execute(null); page.Selected = Find(page, "B");
@@ -275,9 +275,9 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.True(page.HasUnsavedChanges);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "A")));
-        Assert.True(Directory.Exists(Path.Combine(Root, "modules", "B", "modules", "A", "projects", "New after move")));
-        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Root, "modules", "B", "projects", "P", "output", "result.txt")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "A")));
+        Assert.True(Directory.Exists(Path.Combine(Root, "B", "A", "New after move")));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Root, "B", "P", "output", "result.txt")));
     }
 
     [Fact]
@@ -363,10 +363,10 @@ public sealed class WorkspaceMoveTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.Equal(before, Snapshot(importSource));
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Imported", "projects", "child-project")));
-        var importedRun = WorkspaceHierarchyTests.ReadRun(Assert.Single(Directory.GetFiles(Path.Combine(Root, "modules", "B", "projects", "child-project", "runs"))));
+        Assert.False(Directory.Exists(Path.Combine(Root, "Imported", "child-project")));
+        var importedRun = WorkspaceHierarchyTests.ReadRun(Assert.Single(Directory.GetFiles(Path.Combine(Root, "B", "child-project", "runs"))));
         Assert.Equal(importedProjectId, importedRun.ParentProjectId);
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "modules", "B", "projects", "child-project", "results.txt")));
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "B", "child-project", "results.txt")));
     }
 
     [Fact]
@@ -390,7 +390,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         var page = Open();
         importSource = Path.Combine(temporary.FullName, "Imported");
         WorkspaceImportTests.WriteModule(importSource, "Imported");
-        var innerFolder = Path.Combine(importSource, "modules", "Inner");
+        var innerFolder = Path.Combine(importSource, "Inner");
         WorkspaceImportTests.WriteModule(innerFolder, "Inner");
         var innerDefinition = WorkspaceFileStore.LoadModuleFolder(innerFolder, Token);
         var outerFile = WorkspaceDefinitionFiles.Require(importSource, "module");
@@ -409,9 +409,9 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Equal(before, Snapshot(importSource));
         Assert.Equal(id, Find(page, "Inner").Id);
         var destination = Find(page, "Inner").GetFolderPath(Root);
-        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(destination, "projects", "child-project", "results.txt")));
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Imported")));
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "Relocated import", "modules", "Inner")));
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(destination, "child-project", "results.txt")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "Imported")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "Relocated import", "Inner")));
         Assert.Empty(page.RetainedFolders);
     }
 

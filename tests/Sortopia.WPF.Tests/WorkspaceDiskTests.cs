@@ -13,8 +13,8 @@ public sealed class WorkspaceDiskTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-workspace-disk-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
-    private string ModuleFolder => Path.Combine(Root, "modules", "sorting");
-    private string ProjectFolder => Path.Combine(ModuleFolder, "projects", "search");
+    private string ModuleFolder => Path.Combine(Root, "sorting");
+    private string ProjectFolder => Path.Combine(ModuleFolder, "search");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [],
         [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
@@ -58,7 +58,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
         var source = Path.Combine(temporary.FullName, "Library");
         WorkspaceFileStore.CreateWorkspace(source, Sample(), Token);
-        var sourceProject = Path.Combine(source, "modules", "sorting", "projects", "search");
+        var sourceProject = Path.Combine(source, "sorting", "search");
         var originalFiles = Files(source);
         var page = Open(_ => sourceProject);
         page.AddModuleCommand.Execute(null);
@@ -71,7 +71,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.False(page.HasMissingComponents);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var destination = Path.Combine(Root, "modules", "Destination", "projects", "search");
+        var destination = Path.Combine(Root, "Destination", "search");
         Assert.Equal(2, Markers(destination).Length);
         Assert.Empty(Markers(sourceProject).Select(Path.GetFileName).Intersect(Markers(destination).Select(Path.GetFileName)));
         AssertFilesEqual(originalFiles, source);

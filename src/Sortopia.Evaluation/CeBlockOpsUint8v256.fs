@@ -67,6 +67,7 @@ module CeBlockOpsUint8v256 =
 
 
     let private countFailures
+            (options: ParallelOptions)
             (simdSortableBlocks: sortBlockUint8v256[])
             (prefix: ceBlock)
             (ceBlocks: ceBlock array)
@@ -83,6 +84,7 @@ module CeBlockOpsUint8v256 =
 
             Parallel.ForEach(
                 simdSortableBlocks,
+                options,
                 // 1. Initialize Thread-Local State (TLS)
                 (fun () ->
                     let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
@@ -97,6 +99,7 @@ module CeBlockOpsUint8v256 =
                     let source = currentBlock.Vectors
 
                     for nIdx = 0 to numNetworks - 1 do
+                        options.CancellationToken.ThrowIfCancellationRequested()
                         // Copy source vectors to local work buffer
                         Array.blit source 0 workBuffer 0 currentLen
                         let data = networkData.[nIdx]
@@ -105,6 +108,7 @@ module CeBlockOpsUint8v256 =
 
                         // --- Hot Loop: Compare and Swap ---
                         for cIdx = 0 to ceCount - 1 do
+                            if (cIdx &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
                             let lIdx = data.Lows.[cIdx]
                             let hIdx = data.Highs.[cIdx]
                             let vLow = workBuffer.[lIdx]
@@ -128,6 +132,7 @@ module CeBlockOpsUint8v256 =
                 // 3. Final Merge (TLS to Global)
                 (fun ((localUsage: int [][]), (localUnsorted: int []), _) ->
                     for nIdx = 0 to numNetworks - 1 do
+                        options.CancellationToken.ThrowIfCancellationRequested()
                         // Merge unsorted counts
                         if localUnsorted.[nIdx] > 0 then
                             Interlocked.Add(&globalUnsorted.[nIdx], localUnsorted.[nIdx]) |> ignore
@@ -147,14 +152,14 @@ module CeBlockOpsUint8v256 =
 
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockUint8v256 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v256) -> block.Length) prefix ceBlocks simdSortableBlocks
-        countFailures inputs prefix ceBlocks
+        countFailures (ParallelOptions()) inputs prefix ceBlocks
 
     let eval
             (test: sortableUint8v256Tests)
             (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
             CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-            countFailures test.SimdSortBlocks prefix ceBlocks
+            countFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
 
 
     /// Computes a hash for a single lane across all vectors in the block.
@@ -167,6 +172,7 @@ module CeBlockOpsUint8v256 =
 
 
     let private collectFailures
+            (options: ParallelOptions)
             (simdSortableBlocks: sortBlockUint8v256[])
             (prefix: ceBlock)
             (ceBlocks: ceBlock array)
@@ -189,6 +195,7 @@ module CeBlockOpsUint8v256 =
 
         Parallel.ForEach(
             simdSortableBlocks,
+            options,
             // 1. Initialize Thread-Local State (TLS) - Removed unsorted tracking array
             (fun () ->
                 let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
@@ -201,6 +208,7 @@ module CeBlockOpsUint8v256 =
                 let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     // Blit current vectors into the reusable thread-local buffer
                     Array.blit source 0 workBuffer 0 currentLen
                     let data = networkData.[nIdx]
@@ -208,6 +216,7 @@ module CeBlockOpsUint8v256 =
 
                     // --- Hot Loop: CAS Sorting ---
                     for cIdx = 0 to ceCount - 1 do
+                        if (cIdx &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
                         let lIdx = data.Lows.[cIdx]
                         let hIdx = data.Highs.[cIdx]
                         let vLow = workBuffer.[lIdx]
@@ -232,6 +241,7 @@ module CeBlockOpsUint8v256 =
             // 3. Final Merge (Consolidating TLS into Global state)
             (fun ((localUsage: int [][]), _) ->
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     let globalArr = globalUsage.[nIdx]
                     for i = 0 to localUsage.[nIdx].Length - 1 do
                         globalArr.IncrementAtomicBy (i |> UMX.tag<ceIndex>) localUsage.[nIdx].[i]
@@ -264,11 +274,22 @@ module CeBlockOpsUint8v256 =
 
     let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockUint8v256 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v256) -> block.Length) prefix ceBlocks simdSortableBlocks
-        collectFailures inputs prefix ceBlocks
+        collectFailures (ParallelOptions()) inputs prefix ceBlocks
 
     let evalAndCollectNewSortableTests
                     (test: sortableUint8v256Tests)
                     (prefix: ceBlock)
                     (ceBlocks: ceBlock []) =
         CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures test.SimdSortBlocks prefix ceBlocks
+        collectFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
+
+    /// Runtime limits apply to this invocation only; inputs remain unchanged.
+    let evalWithOptions (options: ParallelOptions) (test: sortableUint8v256Tests) prefix ceBlocks =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        countFailures options test.SimdSortBlocks prefix ceBlocks
+
+    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableUint8v256Tests) prefix ceBlocks =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        collectFailures options test.SimdSortBlocks prefix ceBlocks

@@ -251,7 +251,7 @@ public sealed class PrefixSorterModelFunctionTests
             page.Selected = run;
             await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
             Assert.Empty(page.SelectedExecution!.Report!.Setup); Assert.Empty(page.SelectedExecution.Report.Results);
-            var source = Path.GetDirectoryName(page.ResultsExecution.Folder)!;
+            var source = Path.GetDirectoryName(page.RunParametersFolder)!;
             Assert.False(Directory.Exists(Path.Combine(source, "data", "results")));
             var copy = Directory.CreateDirectory(Path.Combine(temp.FullName, "Cloud project")).FullName;
             foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)) {

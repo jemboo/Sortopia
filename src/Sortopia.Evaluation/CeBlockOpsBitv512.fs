@@ -53,13 +53,14 @@ module CeBlockOpsBitv512 =
     let applyCas workBuffer low high = applyCasCount 512 workBuffer low high > 0
 
     let private countFailures
-        (token: CancellationToken)
+        (options: ParallelOptions)
         reportFirstFailedLane
         (simdSortableBlocks: sortBlockBitv512[])
         (prefix: ceBlock)
         (ceBlocks: ceBlock array)
         : ceBlockEval [] =
 
+        let token = options.CancellationToken
         let numNetworks = ceBlocks.Length
         if numNetworks = 0 then [||] else
 
@@ -70,7 +71,7 @@ module CeBlockOpsBitv512 =
         let globalUnsortedCount = Array.zeroCreate<int> numNetworks
 
         Parallel.For(
-            0, simdSortableBlocks.Length, ParallelOptions(CancellationToken = token),
+            0, simdSortableBlocks.Length, options,
             (fun () ->
                 let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
                 let unsortedCount = Array.zeroCreate<int> numNetworks
@@ -83,6 +84,7 @@ module CeBlockOpsBitv512 =
                 let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     Array.blit source 0 workBuffer 0 currentLen
                     let data = networkData.[nIdx]
 
@@ -111,6 +113,7 @@ module CeBlockOpsBitv512 =
 
             (fun ((localUsage: int[][] ), (localUnsortedCount: int[]), _) ->
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     Interlocked.Add(&globalUnsortedCount.[nIdx], localUnsortedCount.[nIdx]) |> ignore
                     let globalArr = globalUsage.[nIdx]
                     for i = 0 to localUsage.[nIdx].Length - 1 do
@@ -124,20 +127,20 @@ module CeBlockOpsBitv512 =
 
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        countFailures CancellationToken.None None inputs prefix ceBlocks
+        countFailures (ParallelOptions()) None inputs prefix ceBlocks
 
     let eval
             (test: sortableBitv512Tests)
             (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
             CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-            countFailures CancellationToken.None None test.SimdSortBlocks prefix ceBlocks
+            countFailures (ParallelOptions()) None test.SimdSortBlocks prefix ceBlocks
 
     /// Counts swaps and all failures for one sorter without tracking or reconstructing a counterexample.
     let evalCounts (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
         CeBlock.validateWidth test.ChannelCount ceBlock.Empty network
-        countFailures token None test.SimdSortBlocks ceBlock.Empty [| network |] |> Array.exactlyOne
+        countFailures (ParallelOptions(CancellationToken = token)) None test.SimdSortBlocks ceBlock.Empty [| network |] |> Array.exactlyOne
 
     let private evalWithFirstLane (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
@@ -145,7 +148,7 @@ module CeBlockOpsBitv512 =
         let blocks = test.SimdSortBlocks
         let firstLanes = Array.create blocks.Length -1
         let recordLane _ blockIndex lane = firstLanes[blockIndex] <- lane
-        let result = countFailures token (Some recordLane) blocks ceBlock.Empty [| network |] |> Array.exactlyOne
+        let result = countFailures (ParallelOptions(CancellationToken = token)) (Some recordLane) blocks ceBlock.Empty [| network |] |> Array.exactlyOne
         let firstLane =
             firstLanes |> Array.tryFindIndex (fun lane -> lane >= 0)
             |> Option.map (fun index -> index, firstLanes[index])
@@ -167,6 +170,7 @@ module CeBlockOpsBitv512 =
 
 
     let private collectFailures
+            (options: ParallelOptions)
             (simdSortableBlocks: sortBlockBitv512[])
             (prefix: ceBlock)
             (ceBlocks: ceBlock array)
@@ -189,6 +193,7 @@ module CeBlockOpsBitv512 =
 
         Parallel.ForEach(
             simdSortableBlocks,
+            options,
             // 1. Initialize Thread-Local State - removed unsortedCount tracker
             (fun () ->
                 let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
@@ -201,11 +206,13 @@ module CeBlockOpsBitv512 =
                 let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     Array.blit source 0 workBuffer 0 currentLen
                     let data = networkData.[nIdx]
 
                     // 1. Run the sorting network
                     for cIdx = 0 to data.Lows.Length - 1 do
+                        if (cIdx &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
                         let swaps = applyCasCount currentBlock.SortableCount workBuffer data.Lows.[cIdx] data.Highs.[cIdx]
                         localUsage.[nIdx].[cIdx] <- localUsage.[nIdx].[cIdx] + swaps
 
@@ -239,6 +246,7 @@ module CeBlockOpsBitv512 =
             // 3. Thread State Merge - removed Interlocked.Add allocations
             (fun ((localUsage: int[][]), _) ->
                 for nIdx = 0 to numNetworks - 1 do
+                    options.CancellationToken.ThrowIfCancellationRequested()
                     let globalArr = globalUsage.[nIdx]
                     for i = 0 to localUsage.[nIdx].Length - 1 do
                         globalArr.IncrementAtomicBy (i |> UMX.tag) localUsage.[nIdx].[i]
@@ -271,11 +279,22 @@ module CeBlockOpsBitv512 =
 
     let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        collectFailures inputs prefix ceBlocks
+        collectFailures (ParallelOptions()) inputs prefix ceBlocks
 
     let evalAndCollectNewSortableTests
             (test: sortableBitv512Tests)
             (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
         CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures test.SimdSortBlocks prefix ceBlocks
+        collectFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
+
+    /// Runtime limits apply to this invocation only; inputs remain unchanged.
+    let evalWithOptions (options: ParallelOptions) (test: sortableBitv512Tests) prefix ceBlocks =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        countFailures options None test.SimdSortBlocks prefix ceBlocks
+
+    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableBitv512Tests) prefix ceBlocks =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
+        collectFailures options test.SimdSortBlocks prefix ceBlocks

@@ -12,6 +12,8 @@ module FolderName =
         let reserved = [ "CON"; "PRN"; "AUX"; "NUL"; "CLOCK$" ] @
                        [ for i in 1..9 do yield $"COM{i}"; yield $"LPT{i}" ]
         if List.contains stem reserved then invalidArg "folderName" "This folder name is reserved by Windows."
+        if name.StartsWith(".sortopia-", StringComparison.OrdinalIgnoreCase) then
+            invalidArg "folderName" "Folder names beginning with '.sortopia-' are reserved for workspace operations."
         name
 
     let unique argument (names: string seq) =

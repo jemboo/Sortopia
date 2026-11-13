@@ -2,6 +2,7 @@ namespace Sortopia.FileDb
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Functions
@@ -14,10 +15,22 @@ type runParameterGenerationReport = {
 
 type workItemOutputStatus = { Id: Guid<workItemId>; RunId: Guid<runId>; Outputs: outputInspection }
 
+/// Transient execution events, separate from output-derived completion status.
+type workItemExecutionState = Running = 0 | Complete = 1 | Failed = 2 | Cancelled = 3
+type workItemExecutionProgress = { Id: Guid<workItemId>; State: workItemExecutionState; Error: string }
+
+/// Machine-local execution settings; never part of saved parameters or data IDs.
+type resultsExecutionOptions = {
+    MaxParallelJobs: int
+} with
+    static member Default = { MaxParallelJobs = 1 }
+
 module RunParameterExecution =
     let private report status setup results error : runExecutionReport = { Status = status; Setup = setup; Results = results; Error = error }
     let private notify (progress: IProgress<runExecutionProgress>) message completed total =
         if not (isNull progress) then progress.Report { Message = message; Completed = completed; Total = total }
+    let private notifyItem (progress: IProgress<workItemExecutionProgress>) id state error =
+        if not (isNull progress) then progress.Report { Id = id; State = state; Error = error }
     let private planWorkItem (value: runParameters) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
         FileResultsHost.plan value.ProjectId value.Results value.Parameters value.SetupInputs
@@ -28,20 +41,29 @@ module RunParameterExecution =
         if selected.Length = 0 then invalidOp "No parameter files match this selection. Generate run parameters or select another folder/run."
         selected
 
+    let private inspect folder (item: runParameters) (token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        let inspection =
+            try
+                let store = SortopiaFileDb(folder, item.ProjectId) :> ISortopiaDb
+                OutputPlan.inspect store (planWorkItem item token) token
+            with
+            | :? OperationCanceledException -> reraise ()
+            | error -> { State = outputState.Invalid; Available = []; ExpectedCount = 0; Error = error.GetBaseException().Message }
+        { Id = item.Id; RunId = item.RunId; Outputs = inspection }
+
     /// Read-only completion checks are derived from the expected output files.
     let inspectFolder parametersFolder runId (token: CancellationToken) =
         let items = selectedItems parametersFolder runId token
         let folder = RunParameterFiles.projectFolder parametersFolder
-        items |> Array.map (fun item ->
-            token.ThrowIfCancellationRequested()
-            let inspection =
-                try
-                    let store = SortopiaFileDb(folder, item.ProjectId) :> ISortopiaDb
-                    OutputPlan.inspect store (planWorkItem item token) token
-                with
-                | :? OperationCanceledException -> reraise ()
-                | error -> { State = outputState.Invalid; Available = []; ExpectedCount = 0; Error = error.GetBaseException().Message }
-            { Id = item.Id; RunId = item.RunId; Outputs = inspection })
+        items |> Array.map (fun item -> inspect folder item token)
+
+    /// Inspect one file independently, so a folder browser can report damaged
+    /// files without suppressing the status of its other files.
+    let inspectFile path (token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        let item = RunParameterFiles.loadFile path
+        inspect (RunParameterFiles.projectFolder (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath path))) item token
     let private verifyInputs folder projectId references (token: CancellationToken) =
         let store = SortopiaFileDb(folder, projectId) :> ISortopiaDb
         for reference in references |> Seq.distinct do
@@ -115,64 +137,150 @@ module RunParameterExecution =
                 | _ -> runExecutionStatus.Failed, $"{context}: {error.GetBaseException().Message}"
             { WorkItemIds = ids.ToArray(); Execution = finish status message }
 
-    let private execute folder (workItems: runParameters array) progress (token: CancellationToken) =
-        let results = ResizeArray<runFunctionResult>()
+    let private execute folder (workItems: runParameters array) (options: resultsExecutionOptions) progress itemProgress (token: CancellationToken) =
+        let results = Array.create workItems.Length None
+        let errors = Array.create workItems.Length ""
         let mutable context = "Validating prepared results"
+        let mutable currentItem = None
+        let finish status error = report status [||] (results |> Array.choose id) error
         try
+            if options.MaxParallelJobs < 1 then invalidArg "options" "Parallel jobs must be a positive whole number."
+            if workItems.Length = 0 then invalidArg "workItems" "Select at least one run parameter file."
+            if workItems |> Array.distinctBy _.Id |> Array.length <> workItems.Length then
+                invalidArg "workItems" "Select each parameter file only once."
+            if workItems |> Array.exists (fun item -> item.ProjectId <> workItems[0].ProjectId) then
+                invalidArg "workItems" "Selected parameter files must belong to one project."
             // Validate all selected work and outputs before writing anything.
             // Complete work does not require its setup payloads to be re-read.
-            let store = SortopiaFileDb(folder, workItems[0].ProjectId) :> ISortopiaDb
+            let database = SortopiaFileDb(folder, workItems[0].ProjectId)
+            let store = database :> ISortopiaDb
+            let owners = Collections.Generic.Dictionary<string, Guid<workItemId>>(StringComparer.OrdinalIgnoreCase)
+            let checkedInputs = Collections.Generic.HashSet<storedDataReference>()
             let items = workItems |> Array.map (fun item ->
+                currentItem <- Some item.Id
                 token.ThrowIfCancellationRequested()
+                context <- $"Validating work item {item.Id} · {item.Results.FunctionName}"
                 let plan = planWorkItem item token
+                for KeyValue(_, output) in plan do
+                    let path = database.GetPath output.Key.Reference
+                    match owners.TryGetValue path with
+                    | true, owner ->
+                        let message = $"Parameter files {owner}.msgpack and {item.Id}.msgpack declare the same results output: {path}. Select only one, or revise the results query keys so each work item has distinct outputs."
+                        notifyItem itemProgress owner workItemExecutionState.Failed message
+                        invalidOp message
+                    | _ -> owners.Add(path, item.Id)
                 let inspection = OutputPlan.inspect store plan token
                 if inspection.State = outputState.Invalid then invalidOp $"Work item {item.Id}: {inspection.Error}"
-                item, plan, inspection)
-            verifyInputs folder workItems[0].ProjectId
-                (items |> Seq.filter (fun (_, _, inspection) -> inspection.State <> outputState.Complete)
-                       |> Seq.collect (fun (item, _, _) -> item.SetupInputs)) token
-            for item, plan, _ in items do
-                token.ThrowIfCancellationRequested()
-                context <- $"Results work item {item.Id} · {item.Results.FunctionName}"
-                notify progress context (int64 results.Count) (int64 items.Length)
-                // Earlier work items (or another process) may have produced these
-                // same outputs since preflight. Re-check before invoking code.
-                let inspection = OutputPlan.inspect store plan token
-                let outputs =
-                    match inspection.State with
-                    | outputState.Invalid -> invalidOp inspection.Error
-                    | outputState.Complete ->
-                        context <- $"Skipping complete work item {item.Id} · outputs already available"
-                        inspection.Available
-                    | _ ->
-                        let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
-                        let host = FileResultsHost.create folder item.ProjectId item.Results item.Parameters inputs token
-                        (FunctionCatalogs.requireResults item.Results.FunctionName).Execute host
-                        host.ResultsDb.StoredOutputs
-                results.Add { Phase = runExecutionPhase.Results; FunctionName = string item.Results.FunctionName
-                              SetupSetNumber = item.SetupSetNumber; SetNumber = item.SetNumber; Parameters = item.Parameters; StoredOutputs = outputs }
-                notify progress context (int64 results.Count) (int64 items.Length)
-            report runExecutionStatus.Completed [||] (results.ToArray()) ""
+                if inspection.State <> outputState.Complete then
+                    verifyInputs folder item.ProjectId (item.SetupInputs |> List.filter checkedInputs.Add) token
+                item, plan)
+            currentItem <- None
+            let workers = min options.MaxParallelJobs items.Length
+            let evaluationParallelism = max 1 (Environment.ProcessorCount / workers)
+            let mutable next = -1
+            let mutable completed = 0
+            let progressGate = obj ()
+            let processItem index =
+                let item, plan = items[index]
+                let mutable label = $"Results work item {item.Id} · {item.Results.FunctionName}"
+                try
+                    token.ThrowIfCancellationRequested()
+                    notifyItem itemProgress item.Id workItemExecutionState.Running ""
+                    token.ThrowIfCancellationRequested()
+                    // Another invocation may have completed this file since preflight.
+                    let inspection = OutputPlan.inspect store plan token
+                    let outputs =
+                        match inspection.State with
+                        | outputState.Invalid -> invalidOp inspection.Error
+                        | outputState.Complete ->
+                            label <- $"Skipping complete work item {item.Id} · outputs already available"
+                            inspection.Available
+                        | _ ->
+                            let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
+                            let host = FileResultsHost.createWithParallelism evaluationParallelism folder item.ProjectId item.Results item.Parameters inputs token
+                            (FunctionCatalogs.requireResults item.Results.FunctionName).Execute host
+                            host.ResultsDb.StoredOutputs
+                    results[index] <- Some { Phase = runExecutionPhase.Results; FunctionName = string item.Results.FunctionName
+                                             SetupSetNumber = item.SetupSetNumber; SetNumber = item.SetNumber; Parameters = item.Parameters; StoredOutputs = outputs }
+                    notifyItem itemProgress item.Id workItemExecutionState.Complete ""
+                with
+                | :? OperationCanceledException when token.IsCancellationRequested ->
+                    notifyItem itemProgress item.Id workItemExecutionState.Cancelled ""
+                | error ->
+                    let message = $"{label}: {error.GetBaseException().Message}"
+                    errors[index] <- message
+                    notifyItem itemProgress item.Id workItemExecutionState.Failed message
+                lock progressGate (fun () ->
+                    completed <- completed + 1
+                    notify progress label (int64 completed) (int64 items.Length))
+            let worker () =
+                let mutable working = true
+                while working && not token.IsCancellationRequested do
+                    let index = Interlocked.Increment(&next)
+                    if index >= items.Length then working <- false else processItem index
+            // A fixed number of workers, rather than a task for every file.
+            Array.init workers (fun _ -> Task.Run(Action worker)) |> Task.WaitAll
+            let error = errors |> Array.filter (String.IsNullOrEmpty >> not) |> String.concat Environment.NewLine
+            let status = if token.IsCancellationRequested then runExecutionStatus.Cancelled
+                         elif error <> "" then runExecutionStatus.Failed else runExecutionStatus.Completed
+            finish status error
         with
-        | :? OperationCanceledException -> report runExecutionStatus.Cancelled [||] (results.ToArray()) ""
-        | error -> report runExecutionStatus.Failed [||] (results.ToArray()) $"{context}: {error.GetBaseException().Message}"
+        | :? OperationCanceledException ->
+            currentItem |> Option.iter (fun id -> notifyItem itemProgress id workItemExecutionState.Cancelled "")
+            finish runExecutionStatus.Cancelled ""
+        | error ->
+            let message = $"{context}: {error.GetBaseException().Message}"
+            currentItem |> Option.iter (fun id -> notifyItem itemProgress id workItemExecutionState.Failed message)
+            finish runExecutionStatus.Failed message
 
     /// Execute a snapshot of the folder's work, optionally restricted to one run.
-    let executeFolder parametersFolder runId progress token =
+    let executeFolderWithOptions parametersFolder runId options progress token =
         try
             let items = selectedItems parametersFolder runId token
-            execute (RunParameterFiles.projectFolder parametersFolder) items progress token
+            execute (RunParameterFiles.projectFolder parametersFolder) items options progress null token
         with
         | :? OperationCanceledException -> report runExecutionStatus.Cancelled [||] [||] ""
         | error -> report runExecutionStatus.Failed [||] [||] error.Message
 
     /// Schedulers may execute one parameter file without a manifest or workspace.
-    let executeFile path progress (token: CancellationToken) =
+    let executeFileWithOptions path options progress (token: CancellationToken) =
         try
             token.ThrowIfCancellationRequested()
             let item = RunParameterFiles.loadFile path
             let folder = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath path))
-            execute folder [| item |] progress token
+            execute folder [| item |] options progress null token
         with
         | :? OperationCanceledException -> report runExecutionStatus.Cancelled [||] [||] ""
         | error -> report runExecutionStatus.Failed [||] [||] error.Message
+
+    /// Execute exactly the selected files, with the same all-selected preflight
+    /// and output reuse as folder execution. Other files are not loaded.
+    let executeFilesWithOptions (paths: string array) options progress itemProgress (token: CancellationToken) =
+        try
+            token.ThrowIfCancellationRequested()
+            if isNull paths || paths.Length = 0 then invalidArg "paths" "Select at least one run parameter file."
+            let paths = paths |> Array.map System.IO.Path.GetFullPath
+            let comparison = if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal
+            let parametersFolder = System.IO.Path.GetDirectoryName paths[0]
+            if paths |> Array.exists (fun path -> not (String.Equals(System.IO.Path.GetDirectoryName path, parametersFolder, comparison))) then
+                invalidArg "paths" "Select parameter files from the same runParameters folder."
+            let folder = RunParameterFiles.projectFolder parametersFolder
+            let items = paths |> Array.map (fun path ->
+                token.ThrowIfCancellationRequested()
+                try RunParameterFiles.loadFile path
+                with error ->
+                    match Guid.TryParse(System.IO.Path.GetFileNameWithoutExtension path) with
+                    | true, id -> notifyItem itemProgress (UMX.tag id) workItemExecutionState.Failed error.Message
+                    | _ -> ()
+                    reraise ())
+            if items |> Array.map _.Id |> Array.distinct |> Array.length <> items.Length then invalidArg "paths" "Select each parameter file only once."
+            if items |> Array.map _.ProjectId |> Array.distinct |> Array.length <> 1 then invalidArg "paths" "Selected parameter files must belong to one project."
+            execute folder items options progress itemProgress token
+        with
+        | :? OperationCanceledException -> report runExecutionStatus.Cancelled [||] [||] ""
+        | error -> report runExecutionStatus.Failed [||] [||] error.Message
+
+    let executeFolder parametersFolder runId progress token = executeFolderWithOptions parametersFolder runId resultsExecutionOptions.Default progress token
+    let executeFile path progress token = executeFileWithOptions path resultsExecutionOptions.Default progress token
+    let executeFilesWithStatus paths progress itemProgress token = executeFilesWithOptions paths resultsExecutionOptions.Default progress itemProgress token
+    let executeFiles paths progress token = executeFilesWithStatus paths progress null token

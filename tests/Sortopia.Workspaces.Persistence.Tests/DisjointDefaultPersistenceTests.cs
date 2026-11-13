@@ -30,7 +30,7 @@ public sealed class DisjointDefaultPersistenceTests
             var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [parentModule]);
             var root = Path.Combine(temporary.FullName, "Workspace"); Directory.CreateDirectory(root);
             WorkspaceFileStore.CreateWorkspace(root, world, TestContext.Current.CancellationToken);
-            var loaded = WorkspaceFileStore.LoadModuleFolder(Path.Combine(root, "modules", "Parent", "modules", "Detached"), TestContext.Current.CancellationToken);
+            var loaded = WorkspaceFileStore.LoadModuleFolder(Path.Combine(root, "Parent", "Detached"), TestContext.Current.CancellationToken);
             Assert.Equal(new[] { "ChannelCount" }, ModuleOverridesDto.fromDomain(loaded.LocalOverrides).excludedResultsDefaults);
             Assert.Equal(new[] { "SortableDataFormat" }, loaded.ResultsParameterDefaults.Select(binding => binding.KeyName));
             var saved = loaded.Projects.Single();

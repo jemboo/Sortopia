@@ -45,8 +45,8 @@ public sealed class WorkspaceImportTests : IDisposable
     internal static void WriteModule(string folder, string name, hierarchyKind family = hierarchyKind.Root)
     {
         Directory.CreateDirectory(folder);
-        WriteProject(Path.Combine(folder, "projects", "child-project"), "Child project", family);
-        var child = WorkspaceFileStore.LoadProjectFolder(Path.Combine(folder, "projects", "child-project"), Token);
+        WriteProject(Path.Combine(folder, "child-project"), "Child project", family);
+        var child = WorkspaceFileStore.LoadProjectFolder(Path.Combine(folder, "child-project"), Token);
         var value = WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, Path.GetFileName(folder), [], [child]);
         File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeModule(value));
     }
@@ -86,10 +86,10 @@ public sealed class WorkspaceImportTests : IDisposable
         var parentFolder = parentKind switch
         {
             WorkspaceEntityKind.Workspace => Root,
-            WorkspaceEntityKind.Module => Path.Combine(Root, "modules", "existing"),
-            _ => Path.Combine(Root, "modules", "existing", "projects", "parent-project")
+            WorkspaceEntityKind.Module => Path.Combine(Root, "existing"),
+            _ => Path.Combine(Root, "existing", "parent-project")
         };
-        var container = Path.Combine(parentFolder, childKind.ToString().ToLowerInvariant() + "s");
+        var container = parentFolder;
         selected = Path.Combine(container, "imported-folder");
         if (childKind == WorkspaceEntityKind.Module) WriteModule(selected, "Imported module");
         else WriteProject(selected, "Imported project");
@@ -111,7 +111,7 @@ public sealed class WorkspaceImportTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.False(page.HasUnsavedChanges);
-        var output = childKind == WorkspaceEntityKind.Module ? Path.Combine(selected, "projects", "child-project") : selected;
+        var output = childKind == WorkspaceEntityKind.Module ? Path.Combine(selected, "child-project") : selected;
         Assert.Equal("Keep results", File.ReadAllText(Path.Combine(output, "results.txt")));
         page = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
         Assert.Empty(page.Error);
@@ -119,21 +119,21 @@ public sealed class WorkspaceImportTests : IDisposable
     }
 
     [Fact]
-    public async Task Missing_container_uses_parent_folder_and_cancelling_picker_does_not_change_the_workspace()
+    public async Task Import_uses_parent_folder_and_cancelling_picker_does_not_change_the_workspace()
     {
         WorkspaceFolderRequest? request = null;
         var page = Open(value => { request = value; return null; }, empty: true);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         Assert.Equal(Root, request!.InitialDirectory);
-        Assert.Equal(Path.Combine(Root, "modules"), request.ContainerFolder);
-        Assert.False(Directory.Exists(request.ContainerFolder));
+        Assert.Equal(Root, request.ContainerFolder);
+        Assert.True(Directory.Exists(request.ContainerFolder));
         Assert.False(page.HasUnsavedChanges);
         page.AddModuleCommand.Execute(null);
         Assert.True(page.AddExistingModuleCommand.CanExecute(null));
         Assert.True(page.AddExistingProjectCommand.CanExecute(null));
         await page.AddExistingAsync(WorkspaceEntityKind.Project);
         Assert.Equal(Root, request.InitialDirectory);
-        Assert.Equal(Path.Combine(Root, "modules", "New module", "projects"), request.ContainerFolder);
+        Assert.Equal(Path.Combine(Root, "New module"), request.ContainerFolder);
     }
 
     [Theory]
@@ -147,16 +147,16 @@ public sealed class WorkspaceImportTests : IDisposable
     {
         string? selected = null;
         var page = Open(_ => selected);
-        selected = Path.Combine(Root, "modules", "candidate");
+        selected = Path.Combine(Root, "candidate");
         switch (problem)
         {
             case "wrong type": WriteProject(selected, "A project"); break;
             case "corrupt": Directory.CreateDirectory(selected); File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(selected, "module"), [0xc1]); break;
             case "illegal children": Directory.CreateDirectory(Path.Combine(selected, "runs")); break;
             case "duplicate name": WriteModule(selected, "EXISTING"); break;
-            case "duplicate folder": selected = Path.Combine(Root, "modules", "existing"); break;
+            case "duplicate folder": selected = Path.Combine(Root, "existing"); break;
             case "corrupt run":
-                var runsFolder = Directory.CreateDirectory(Path.Combine(selected, "projects", "P", "runs")).FullName;
+                var runsFolder = Directory.CreateDirectory(Path.Combine(selected, "P", "runs")).FullName;
                 File.WriteAllBytes(Path.Combine(runsFolder, WorkspaceDefinitionFiles.Name(Guid.NewGuid())), [0xc1]); break;
         }
         var before = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace"));
@@ -170,7 +170,7 @@ public sealed class WorkspaceImportTests : IDisposable
     [Fact]
     public async Task An_import_requires_metadata_to_identify_its_family()
     {
-        var folder = Path.Combine(Root, "modules", "Plain module");
+        var folder = Path.Combine(Root, "Plain module");
         var page = Open(_ => folder, empty: true);
         Directory.CreateDirectory(folder);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);

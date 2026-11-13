@@ -94,7 +94,7 @@ public sealed class ExplicitQuerySpanTests
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
             foreach (var key in editor.ResultsQueryOutputs.Concat(editor.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); WorkspaceRunExecutionTests.SelectRun(page);
-            await page.ExecuteRunAsync(); Assert.Empty(page.Error); Assert.Equal(runExecutionStatus.Completed, page.SelectedExecution!.Report!.Status);
+            var report = await WorkspaceRunExecutionTests.GenerateAndExecuteAsync(page); Assert.Empty(page.Error); Assert.Equal(runExecutionStatus.Completed, report.Status);
             var saved = WorkspaceFileStore.LoadDefinition(folder).Modules[0].Projects[0].Runs[0];
             Assert.Equal(2, saved.ResultsParameterSpans.Length); Assert.Equal(2, saved.SetupParameterSpans.Value.Length);
             Assert.Empty(saved.ResultsParameterDefaults); Assert.Empty(saved.SetupParameterDefaults.Value);

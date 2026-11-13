@@ -30,9 +30,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         randomNetworksPage = new RandomNetworksPageViewModel(ReturnHome);
         sgdPage = new SgdPageViewModel(ReturnHome);
         fileInspectorPage = new FileInspectorPageViewModel(ReturnHome, pickWorkspaceFolder);
-        resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder);
+        var executionSettings = new ResultsExecutionSettings();
+        resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder, executionSettings.Load, executionSettings.Save);
         workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder, openWorkspaceFolder,
-            () => OpenFileInspector(true));
+            () => OpenFileInspector(true), OpenWorkspaceResultsExecutionAsync);
         currentPage = homePage;
     }
 
@@ -43,7 +44,17 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     private void OpenWorkspace() => CurrentPage = workspacePage;
-    private void OpenResultsExecution() => CurrentPage = resultsExecutionPage;
+    private void OpenResultsExecution()
+    {
+        resultsExecutionPage.SetReturnAction(ReturnHome, false);
+        CurrentPage = resultsExecutionPage;
+    }
+    private async Task OpenWorkspaceResultsExecutionAsync(string folder, Guid? runId)
+    {
+        resultsExecutionPage.SetReturnAction(OpenWorkspace, true);
+        CurrentPage = resultsExecutionPage;
+        await resultsExecutionPage.SetFolderAsync(folder, runId);
+    }
 
     private void OpenFileInspector(bool fromWorkspace)
     {

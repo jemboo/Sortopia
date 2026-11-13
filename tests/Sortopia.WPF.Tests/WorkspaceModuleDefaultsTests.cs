@@ -114,7 +114,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Equal("Results", saved.Projects[0].Runs[0].ResultsDatabaseName);
         Assert.Null(typeof(moduleSettingsDto).GetProperty("resultsDatabaseName"));
 
-        var importFolder = Path.Combine(Root, "modules", "Destination", "modules", "Nested");
+        var importFolder = Path.Combine(Root, "Destination", "Nested");
         var importing = Open(_ => importFolder);
         importing.Selected = importing.Roots[0].Children[0];
         await importing.AddExistingAsync(WorkspaceEntityKind.Module);

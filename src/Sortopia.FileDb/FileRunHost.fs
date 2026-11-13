@@ -61,7 +61,8 @@ module FileResultsHost =
         OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
                           config.DataTypes definition.OutputDependencies parameters inputs
 
-    let create folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
+    let createWithParallelism evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
+        if evaluationParallelism < 1 then invalidArg "evaluationParallelism" "Evaluation parallelism must be positive."
         let definition = FunctionCatalogs.requireResults config.FunctionName
         // Setup can produce more types than results consumes; freeze only those needed.
         let inputs = outputs |> List.map _.Reference |> List.filter (fun reference -> List.contains reference.DataType definition.SourceDataTypes)
@@ -79,10 +80,13 @@ module FileResultsHost =
                 member _.Load dataType = (store.Load(find dataType, token) |> HostStorage.require).Value
                 member _.SaveIfMissing(_, _, _) = invalidOp "The setup database is read-only during results execution."
                 member _.StoredOutputs = outputs }
-        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token
+        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism
           SetupDb = setup
           ResultsDb = FileRunDatabase(store, plan, token)
           SourceResults = HostStorage.noSources }
+
+    let create folder projectId config parameters outputs token =
+        createWithParallelism Environment.ProcessorCount folder projectId config parameters outputs token
 
 type private SourceResults(workspace, root, entries: setupDataTypeConfig list, token: CancellationToken) =
     let loaded = Collections.Generic.Dictionary<storedDataReference, storedData>()
@@ -125,7 +129,7 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
                                         branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes
                                         definition.OutputDependencies parameters inputs
-            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token
+            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount
               SetupDb = FileRunDatabase(store, plan, token)
               ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
               SourceResults = sources }

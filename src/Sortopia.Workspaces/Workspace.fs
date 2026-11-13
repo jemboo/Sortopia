@@ -236,8 +236,7 @@ type rootModule =
         if isNull projects then nullArg "projects"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         EntityName.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.ProjectName))
-        FolderName.unique "modules" (modules |> Seq.map (fun m -> m.FolderName))
-        FolderName.unique "projects" (projects |> Seq.map (fun p -> p.FolderName))
+        FolderName.unique "module and project children" (Seq.append (modules |> Seq.map (fun m -> m.FolderName)) (projects |> Seq.map (fun p -> p.FolderName)))
         { id = id; moduleName = name; folderName = folderName; configuration = configuration; inheritedDefaults = parent; localOverrides = local
           modules = modules |> Array.map (rootModule.rebind configuration)
           projects = projects |> Array.map (rootProject.rebind (ModuleDefaults.toRootProject configuration)) }
@@ -279,8 +278,7 @@ type branchModule =
         if isNull projects then nullArg "projects"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         EntityName.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.ProjectName))
-        FolderName.unique "modules" (modules |> Seq.map (fun m -> m.FolderName))
-        FolderName.unique "projects" (projects |> Seq.map (fun p -> p.FolderName))
+        FolderName.unique "module and project children" (Seq.append (modules |> Seq.map (fun m -> m.FolderName)) (projects |> Seq.map (fun p -> p.FolderName)))
         { id = id; moduleName = name; folderName = folderName; configuration = configuration; inheritedDefaults = parent; localOverrides = local
           modules = modules |> Array.map (branchModule.rebind configuration)
           projects = projects |> Array.map (branchProject.rebind (ModuleDefaults.toBranchProject configuration)) }

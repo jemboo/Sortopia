@@ -28,6 +28,7 @@ module internal WorkspaceCommit =
         let publishedCopies = ResizeArray<WorkspaceFolderCopy>()
         let stagedMoves = ResizeArray<StagedMove>()
         let createdFolders = ResizeArray<string>()
+        let removedContainers = ResizeArray<string>()
         let mutable committed = false
         let rec ensureDirectory path =
             checkContained root path
@@ -59,6 +60,12 @@ module internal WorkspaceCommit =
                 for publication in publications do
                     token.ThrowIfCancellationRequested()
                     WorkspaceFolderMove.CheckPath(root, publication.Destination)
+                    if Directory.Exists(publication.Destination) && (plan.EmptyContainers |> Array.exists (fun path -> pathComparer.Equals(path, publication.Destination))) then
+                        checkDirectory publication.Destination
+                        if not (Seq.isEmpty (Directory.EnumerateFileSystemEntries(publication.Destination))) then
+                            raise (IOException($"An old container still has unlisted contents and cannot become a child folder: {publication.Destination}"))
+                        Directory.Delete(publication.Destination)
+                        removedContainers.Add(publication.Destination)
                     if Directory.Exists(publication.Destination) || File.Exists(publication.Destination) then
                         raise (IOException($"The destination already exists: {publication.Destination}"))
                     ensureDirectory (Path.GetDirectoryName(publication.Destination))
@@ -120,6 +127,9 @@ module internal WorkspaceCommit =
                     match publication with
                     | Move item ->
                         try
+                            for container in removedContainers do
+                                if WorkspaceFolderCopy.Inside(item.Move.DestinationFolder, container) && not (pathComparer.Equals(item.Move.DestinationFolder, container)) then
+                                    ensureDirectory container
                             WorkspaceFolderMove.CheckPath(root, item.Move.DestinationFolder)
                             movePath item.Move.DestinationFolder item.Staging
                             item.Published <- false

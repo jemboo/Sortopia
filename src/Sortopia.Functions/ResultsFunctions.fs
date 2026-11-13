@@ -1,6 +1,7 @@
 namespace Sortopia.Functions
 
 open System
+open System.Threading.Tasks
 open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Sorting
@@ -18,6 +19,8 @@ module ResultsFunctions =
     let private testsType = sortopiaDataType.SortableTests ""
     let private modelsType = sortopiaDataType.SorterModelSet ""
     let private evalType = sortopiaDataType.SorterSetEval ""
+    let private evaluationOptions (host: runHost) =
+        ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)
 
     let private generator version dataType keys make =
         FunctionDefinition.results version keys [dataType, InputGenerators.queryKeys keys]
@@ -89,7 +92,7 @@ module ResultsFunctions =
                 invalidArg "inputs" "The models and tests must have the same channel count."
             let prefix = ceBlock.create (Guid.Empty |> UMX.tag) channels ces
             let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None models
-            let evaluated = SorterSetEval.makeSorterSetEval (Guid.NewGuid() |> UMX.tag) sorters prefix tests evalType collect
+            let evaluated = SorterSetEval.makeSorterSetEvalWithOptions (evaluationOptions host) (Guid.NewGuid() |> UMX.tag) sorters prefix tests evalType collect
             functionData.SorterSetEval evaluated)
 
     let evaluateSorters =
@@ -115,5 +118,5 @@ module ResultsFunctions =
                         invalidArg "inputs" "The models and tests must have the same channel count."
                     let group = sorterModelSet.create (Guid.NewGuid() |> UMX.tag) chunk models.RawCeLength
                     let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None group
-                    SorterSetEval.makeSorterEvals sorters.Sorters prefix tests evalType (UMX.tag false))
+                    SorterSetEval.makeSorterEvalsWithOptions (evaluationOptions host) sorters.Sorters prefix tests evalType (UMX.tag false))
                 sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> functionData.SorterSetEval))

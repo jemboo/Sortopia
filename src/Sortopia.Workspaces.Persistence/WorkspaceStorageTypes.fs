@@ -21,5 +21,6 @@ type internal SavePlan =
       Writes: WorkspaceFileUpdate array
       RetainedFolders: string array
       Copies: WorkspaceFolderCopy array
-      Moves: WorkspaceFolderMove array }
+      Moves: WorkspaceFolderMove array
+      EmptyContainers: string array }
 

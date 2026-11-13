@@ -63,8 +63,8 @@ public sealed class WorkspacePersistenceTests : IDisposable
         var module = loaded.Modules.Single();
         var project = module.Projects.Single();
         var run = project.Runs.Single();
-        var moduleFolder = Path.Combine(Root, "modules", module.FolderName);
-        var projectFolder = Path.Combine(moduleFolder, "projects", project.FolderName);
+        var moduleFolder = Path.Combine(Root, module.FolderName);
+        var projectFolder = Path.Combine(moduleFolder, project.FolderName);
         var runFile = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(run.Id));
         Assert.True(File.Exists(runFile));
         Assert.Empty(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
@@ -118,11 +118,11 @@ public sealed class WorkspacePersistenceTests : IDisposable
     public void Module_import_is_deferred_preserves_new_ids_and_copies_user_data()
     {
         var original = WorkspaceFileStore.CreateWorkspace(Library, Sample(true), Token).Definition;
-        var source = Path.Combine(Library, "modules", "sorting");
+        var source = Path.Combine(Library, "sorting");
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep this data");
         Directory.CreateDirectory(Path.Combine(source, "empty"));
         var before = Files(Library);
-        var destination = Path.Combine(Root, "modules", "sorting");
+        var destination = Path.Combine(Root, "sorting");
         var import = WorkspaceImport.PrepareModule(Root, source, destination, Token);
         Assert.False(Directory.Exists(Root));
         Assert.NotNull(import.Copy);
@@ -143,10 +143,10 @@ public sealed class WorkspacePersistenceTests : IDisposable
     public void Project_import_assigns_new_ids_but_attaching_in_place_keeps_ids()
     {
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
-        var source = Path.Combine(Root, "modules", "sorting", "projects", "search");
+        var source = Path.Combine(Root, "sorting", "search");
         var attached = WorkspaceImport.PrepareProject(Root, source, source, Token);
         Assert.Null(attached.Copy);
-        var destination = Path.Combine(Root, "modules", "sorting", "projects", "copy");
+        var destination = Path.Combine(Root, "sorting", "copy");
         var copied = WorkspaceImport.PrepareProject(Root, source, destination, Token);
         Assert.NotNull(copied.Copy);
         Assert.NotEqual(attached.Definition.Id, copied.Definition.Id);
@@ -164,13 +164,13 @@ public sealed class WorkspacePersistenceTests : IDisposable
     public void Changed_import_sources_fail_before_writing_the_destination(string change)
     {
         WorkspaceFileStore.CreateWorkspace(Library, Sample(), Token);
-        var source = Path.Combine(Library, "modules", "sorting");
+        var source = Path.Combine(Library, "sorting");
         var note = Path.Combine(source, "notes.txt");
         File.WriteAllText(note, "Before");
         var timestamp = File.GetLastWriteTimeUtc(note);
         var emptyFolder = Path.Combine(source, "empty");
         Directory.CreateDirectory(emptyFolder);
-        var import = WorkspaceImport.PrepareModule(Root, source, Path.Combine(Root, "modules", "sorting"), Token);
+        var import = WorkspaceImport.PrepareModule(Root, source, Path.Combine(Root, "sorting"), Token);
         switch (change)
         {
             case "add-file": File.WriteAllText(Path.Combine(source, "new.txt"), "Added after import"); break;
@@ -184,7 +184,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
         }
         Assert.Contains("source changed", Assert.Throws<IOException>(() => WorkspaceFileStore.CreateWorkspace(Root,
             workspace.create(Guid.NewGuid(), "Imported", "Workspace", [import.Definition]), Token, [import.Copy!])).Message);
-        Assert.False(Directory.Exists(Path.Combine(Root, "modules", "sorting")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "sorting")));
         Assert.Null(WorkspaceDefinitionFiles.Find(Root, "workspace"));
     }
 
@@ -193,8 +193,8 @@ public sealed class WorkspacePersistenceTests : IDisposable
     {
         var saved = WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Empty", "Workspace", []), Token).Definition;
         WorkspaceFileStore.CreateWorkspace(Library, Sample(), Token);
-        var destination = Path.Combine(Root, "modules", "sorting");
-        var import = WorkspaceImport.PrepareModule(Root, Path.Combine(Library, "modules", "sorting"), destination, Token);
+        var destination = Path.Combine(Root, "sorting");
+        var import = WorkspaceImport.PrepareModule(Root, Path.Combine(Library, "sorting"), destination, Token);
         var updated = Add(saved, import.Definition);
         var before = Files(Root);
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -213,11 +213,11 @@ public sealed class WorkspacePersistenceTests : IDisposable
     public void Moves_preserve_entity_ids_and_user_files()
     {
         var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token).Definition;
-        var source = Path.Combine(Root, "modules", "sorting");
+        var source = Path.Combine(Root, "sorting");
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep on move");
         var dto = WorkspaceDto.fromDomain(saved);
         dto.modules[0].folderName = "moved";
-        var destination = Path.Combine(Root, "modules", "moved");
+        var destination = Path.Combine(Root, "moved");
         var result = WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token,
             moves: [new WorkspaceFolderMove(source, destination)]);
         Assert.Equal(1, result.MovedFolders);

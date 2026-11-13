@@ -119,7 +119,7 @@ public sealed class WorkspaceEditingTests : IDisposable
         var saved = Entity(page, WorkspaceEntityKind.Module);
         Assert.Equal(id, saved.Id);
         Assert.False(saved.FolderFollowsName);
-        Assert.Equal(Path.Combine(Root, "modules", "Prefix tests"), saved.GetFolderPath(Root));
+        Assert.Equal(Path.Combine(Root, "Prefix tests"), saved.GetFolderPath(Root));
         Assert.True(Directory.Exists(saved.GetFolderPath(Root)));
         Assert.False(Directory.Exists(originalPath));
         if (savePlaceholder) Assert.Equal("Keep while naming", File.ReadAllText(Path.Combine(saved.GetFolderPath(Root), "notes.txt")));
@@ -149,7 +149,7 @@ public sealed class WorkspaceEditingTests : IDisposable
         Assert.Empty(page.Error);
         beta.FolderName = "ALPHA-FOLDER";
         Assert.Equal("beta-folder", beta.FolderName);
-        Assert.Contains("Duplicate folder name in modules", beta.FolderNameError);
+        Assert.Contains("Duplicate folder name among module and project children", beta.FolderNameError);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
         beta.FolderName = "beta-folder";
         Assert.Empty(page.Error);
@@ -277,11 +277,11 @@ public sealed class WorkspaceEditingTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.True(page.HasRetainedFolders);
-        Assert.Contains(Path.Combine("modules", "sorting"), page.RetainedFolders);
+        Assert.Contains("sorting", page.RetainedFolders);
         page.WorkspaceName = "Edited";
         page.DiscardChangesCommand.Execute(null);
         Assert.False(page.HasRetainedFolders);
-        Assert.True(Directory.Exists(Path.Combine(Root, "modules", "sorting")));
+        Assert.True(Directory.Exists(Path.Combine(Root, "sorting")));
     }
 
     [Fact]

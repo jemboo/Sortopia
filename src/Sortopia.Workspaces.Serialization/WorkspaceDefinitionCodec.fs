@@ -38,10 +38,11 @@ type projectDefinitionDto = {
 /// Versioned, shallow entity files. Child references are authoritative and ordered.
 /// File resolution and hierarchy assembly belong to Workspaces.Persistence.
 module WorkspaceDefinitionCodec =
-    let schemaVersion = 15
+    let schemaVersion = 16
     let private kindName = function hierarchyKind.Root -> "root" | hierarchyKind.Branch -> "branch" | _ -> invalidArg "kind" "Unknown entity family."
     let kind = function "root" -> hierarchyKind.Root | "branch" -> hierarchyKind.Branch | _ -> invalidArg "kind" "Kind must be root or branch."
     let private validate version id name folder =
+        if version = 15 then invalidArg "schemaVersion" "This folder uses the earlier modules/projects layout. Convert its folder layout before opening or importing it."
         if version <> schemaVersion then invalidArg "schemaVersion" $"Unsupported entity definition version: {version}. Create a new workspace in the current format."
         EntityId.validate id
         EntityName.validate name |> ignore
@@ -98,6 +99,7 @@ module WorkspaceDefinitionCodec =
         origin value.inheritedFrom
         references "modules" value.modules
         references "projects" value.projects
+        FolderName.unique "module and project children" (Seq.append (value.modules |> Seq.map _.folderName) (value.projects |> Seq.map _.folderName))
         value
     let decodeProject bytes =
         let value = MessagePackSetup.deserialize<projectDefinitionDto> bytes

@@ -1,6 +1,7 @@
 namespace Sortopia.Evaluation
 
 open System
+open System.Threading
 open System.Buffers
 open System.Collections.Generic
 open System.Runtime.CompilerServices
@@ -69,8 +70,9 @@ module CeBlockOpsPacked =
                         newPackedData
 
 
-    let eval (tests: packedSortableIntTests)
+    let evalWithCancellation (token: CancellationToken) (tests: packedSortableIntTests)
              (prefix: ceBlock) (ceBlk: ceBlock) : ceBlockEval =
+        token.ThrowIfCancellationRequested()
         CeBlock.validateWidth tests.ChannelCount prefix ceBlk
         let sw = %tests.ChannelCount
         let totalTests = tests.SortableCount
@@ -88,8 +90,10 @@ module CeBlockOpsPacked =
 
         // PHASE 1: THE SORTING (Hot Loop)
         for t = 0 to %totalTests - 1 do
+            token.ThrowIfCancellationRequested()
             let offset = t * sw
             for i = 0 to %ceBlk.CeLength - 1 do
+                if (i &&& 255) = 0 then token.ThrowIfCancellationRequested()
                 let lPtr = &Unsafe.Add(&dataRef, offset + lows.[i])
                 let hPtr = &Unsafe.Add(&dataRef, offset + highs.[i])
                 let a = lPtr
@@ -100,6 +104,7 @@ module CeBlockOpsPacked =
                     ceUseCounts.Increment (i |> UMX.tag<ceIndex>)
 
         for t = 0 to %totalTests - 1 do
+            token.ThrowIfCancellationRequested()
             let offset = t * sw
             let mutable isSorted = true
             let mutable j = 0
@@ -114,8 +119,9 @@ module CeBlockOpsPacked =
         ceBlockEval.create prefix ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
 
 
-    let evalAndCollectNewSortableTests (tests: packedSortableIntTests)
+    let evalAndCollectWithCancellation (token: CancellationToken) (tests: packedSortableIntTests)
                                        (prefix: ceBlock) (ceBlk: ceBlock) : ceBlockEval =
+        token.ThrowIfCancellationRequested()
         CeBlock.validateWidth tests.ChannelCount prefix ceBlk
         let sw = %tests.ChannelCount
         let totalTests = tests.SortableCount
@@ -132,8 +138,10 @@ module CeBlockOpsPacked =
 
         // PHASE 1: THE SORTING (Hot Loop)
         for t = 0 to %totalTests - 1 do
+            token.ThrowIfCancellationRequested()
             let offset = t * sw
             for i = 0 to %ceBlk.CeLength - 1 do
+                if (i &&& 255) = 0 then token.ThrowIfCancellationRequested()
                 let lPtr = &Unsafe.Add(&dataRef, offset + lows.[i])
                 let hPtr = &Unsafe.Add(&dataRef, offset + highs.[i])
                 let a = lPtr
@@ -148,6 +156,7 @@ module CeBlockOpsPacked =
         let uniqueOffsets = HashSet<int>(comparer)
 
         for t = 0 to %totalTests - 1 do
+            token.ThrowIfCancellationRequested()
             let offset = t * sw
             let mutable isSorted = true
             let mutable j = 0
@@ -164,6 +173,7 @@ module CeBlockOpsPacked =
         let newPackedData = Array.zeroCreate (newCount * sw)
         let mutable targetOffset = 0
         for sourceOffset in uniqueOffsets do
+            token.ThrowIfCancellationRequested()
             Array.blit resultsBuffer sourceOffset newPackedData targetOffset sw
             targetOffset <- targetOffset + sw
 
@@ -177,3 +187,6 @@ module CeBlockOpsPacked =
                     ceUseCounts
                     (newCount |> UMX.tag<sortableCount>)
                     (Some (sortableTests.PackedInts newPacked))
+
+    let eval tests prefix block = evalWithCancellation CancellationToken.None tests prefix block
+    let evalAndCollectNewSortableTests tests prefix block = evalAndCollectWithCancellation CancellationToken.None tests prefix block

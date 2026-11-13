@@ -50,13 +50,13 @@ public sealed class WorkspaceFamilyTests : IDisposable
         foreach (var module in restored.Modules)
         {
             Assert.Equal(module.Kind, module.Modules.Single().Kind);
-            var folder = Path.Combine(Root, "modules", module.FolderName);
+            var folder = Path.Combine(Root, module.FolderName);
             Assert.Equal(module.Kind, WorkspaceFileStore.LoadModuleFolder(folder, Token).Kind);
             var project = module.Projects.Single();
             Assert.Equal(module.Kind, project.Kind);
             var run = project.Runs.Single();
             Assert.Equal(module.Kind == hierarchyKind.Branch, run.HasSetup);
-            var file = Path.Combine(folder, "projects", project.FolderName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
+            var file = Path.Combine(folder, project.FolderName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
             Assert.Equal(run.Id, WorkspaceCodec.decodeRun(project, File.ReadAllBytes(file)).Id);
         }
     }

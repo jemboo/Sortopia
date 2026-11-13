@@ -2180,11 +2180,11 @@ public sealed class RandomNetworkTests
         var temporary = System.IO.Directory.CreateTempSubdirectory("Sortopia-execution-view-");
         try
         {
-            var vm = WorkspaceRunExecutionTests.Create(temporary.FullName, true);
+            string? openedFolder = null; Guid? openedRun = null;
+            var vm = WorkspaceRunExecutionTests.Create(temporary.FullName, true, (folder, id) => { openedFolder = folder; openedRun = id; return Task.CompletedTask; });
             WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!, "SortableDataFormat", false, "Bools", "Ints", "BitVector512");
             WorkspaceParameterSetsPreviewTests.AddSpan(vm.Selected!, "SortableDataFormat", true, "Bools", "Bools");
-            WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
-            vm.SelectConfigurationItem("execution");
+            WorkspaceRunExecutionTests.SupplyQuerySpans(vm); vm.SelectConfigurationItem("execution");
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
             void Layout(int width = 1000)
             {
@@ -2192,73 +2192,45 @@ public sealed class RandomNetworkTests
                 page.Measure(new Size(width, 1000)); page.Arrange(new Rect(0, 0, width, 1000)); page.UpdateLayout();
             }
             Layout();
-            var button = (Button)page.FindName("ExecuteRunButton");
-            var prepareButton = (Button)page.FindName("GenerateRunParametersButton");
-            var executionPanel = (Sortopia.WPF.Views.Pages.ResultsExecution.ResultsExecutionPanel)page.FindName("RunParameterExecutionPanel");
-            var preparedButton = (Button)executionPanel.FindName("ExecutePendingButton");
-            Assert.False(button.IsEnabled);
-            Assert.False(prepareButton.IsEnabled);
-            Assert.False(preparedButton.IsEnabled);
-            CompleteRun(vm.SaveWorkspaceAsync);
-            WorkspaceRunExecutionTests.SelectRun(vm);
-            CompleteRun(() => WorkspaceRunExecutionTests.ExecuteSourceAsync(vm));
-            Layout();
-            Assert.True(button.IsEnabled);
-            Assert.Same(vm.ExecuteRunCommand, button.Command);
-            Assert.Same(vm.GenerateRunParametersCommand, prepareButton.Command);
-            Assert.Same(vm.ResultsExecution.ExecuteCommand, preparedButton.Command);
+            Assert.Null(page.FindName("ExecuteRunButton")); Assert.Null(page.FindName("RunParameterExecutionPanel"));
+            var button = (Button)page.FindName("GenerateRunParametersButton");
+            var navigate = (Button)page.FindName("ExecutePageButton");
+            Assert.False(button.IsEnabled); Assert.False(navigate.IsEnabled);
+            CompleteRun(vm.SaveWorkspaceAsync); WorkspaceRunExecutionTests.SelectRun(vm);
+            CompleteRun(() => WorkspaceRunExecutionTests.ExecuteSourceAsync(vm)); Layout();
+            Assert.True(button.IsEnabled); Assert.True(navigate.IsEnabled);
+            Assert.Same(vm.GenerateRunParametersCommand, button.Command); Assert.Same(vm.ExecutePageCommand, navigate.Command);
             CompleteRun(async () =>
             {
-                button.Command.Execute(null);
-                Assert.True(vm.IsBusy);
-                Assert.False(vm.ExecuteRunCommand.CanExecute(null));
-                Assert.True(vm.CancelCommand.CanExecute(null));
-                Assert.False(await vm.TryLeaveAsync());
-                await vm.ExecuteRunAsync(); // A second click must not start another execution.
+                button.Command.Execute(null); Assert.True(vm.IsBusy);
+                Assert.False(vm.GenerateRunParametersCommand.CanExecute(null)); Assert.False(vm.ExecutePageCommand.CanExecute(null));
+                Assert.True(vm.CancelCommand.CanExecute(null)); Assert.False(await vm.TryLeaveAsync());
+                await vm.GenerateRunParametersAsync(); // A second click must not start another generation.
                 while (vm.IsBusy) await Task.Delay(10, TestContext.Current.CancellationToken);
             });
             Assert.Equal(Sortopia.Functions.runExecutionStatus.Completed, vm.SelectedExecution!.Report!.Status);
-            Assert.Equal(6, vm.SelectedExecution.Report.Results.Length);
-            Assert.False(vm.HasUnsavedChanges);
-            Layout();
-            Assert.Contains("2 setup, 6 results", ((TextBlock)page.FindName("RunExecutionSummary")).Text);
-            Assert.True(preparedButton.IsEnabled);
-            var choices = (ComboBox)executionPanel.FindName("RunFilterInput");
-            Assert.Equal(2, choices.Items.Count);
-            Assert.Same(vm.ResultsExecution.SelectedRun, choices.SelectedItem);
-            var outputs = (Expander)page.FindName("RunOutputsExpander");
-            Assert.Equal(Visibility.Visible, outputs.Visibility);
-            Assert.Equal(((SolidColorBrush)page.FindResource("Workspace.TextPrimary")).Color, ((SolidColorBrush)outputs.Foreground).Color);
+            Assert.Equal(2, vm.SelectedExecution.Report.Setup.Length); Assert.Empty(vm.SelectedExecution.Report.Results);
+            Assert.False(vm.HasUnsavedChanges); Layout();
+            Assert.Contains("6 results parameter files", ((TextBlock)page.FindName("RunExecutionSummary")).Text);
+            navigate.Command.Execute(null); Assert.Equal(vm.RunParametersFolder, openedFolder); Assert.Equal(vm.Selected!.Id, openedRun);
+            var outputs = (Expander)page.FindName("RunOutputsExpander"); Assert.Equal(Visibility.Visible, outputs.Visibility);
             outputs.IsExpanded = true;
             foreach (var width in new[] { 1000, 650 })
             {
                 Layout(width);
-                var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
-                viewport.ScrollToTop(); Layout(width);
+                var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport"); viewport.ScrollToTop(); Layout(width);
                 Assert.Equal(0, viewport.ScrollableWidth);
-                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, 1000, 96, 96, PixelFormats.Pbgra32);
-                image.Render(page);
-                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
-                using var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-execution-{width}.png"));
-                encoder.Save(stream);
             }
-            // Invalid format choices are caught while editing, before saving/executing.
-            var badFormat = vm.Selected!.Editor!.SetupParameters.Single(row => row.Key == "SortableDataFormat");
-            badFormat.Values[0].Text = "invalid";
-            Layout();
-            Assert.False(vm.SaveWorkspaceCommand.CanExecute(null));
-            Assert.False(button.IsEnabled);
+            var badFormat = vm.Selected.Editor!.SetupParameters.Single(row => row.Key == "SortableDataFormat");
+            badFormat.Values[0].Text = "invalid"; Layout();
+            Assert.False(vm.SaveWorkspaceCommand.CanExecute(null)); Assert.False(button.IsEnabled);
+            Assert.True(navigate.IsEnabled); // Existing saved parameter files remain available despite this draft.
             Assert.Contains("SortableDataFormat", vm.SaveHint);
-            Assert.Equal(Sortopia.Functions.runExecutionStatus.Completed, vm.SelectedExecution!.Report!.Status);
-            badFormat.Values[0].Text = "Bools";
-            CompleteRun(vm.SaveWorkspaceAsync); WorkspaceRunExecutionTests.SelectRun(vm); Layout();
-            Assert.False(vm.IsBusy);
+            badFormat.Values[0].Text = "Bools"; CompleteRun(vm.SaveWorkspaceAsync); WorkspaceRunExecutionTests.SelectRun(vm); Layout();
             Assert.True(button.IsEnabled);
         }
         finally { temporary.Delete(recursive: true); }
     }
-
     private static void CheckWorkspaceFunctionCatalogs()
     {
         var temporary = System.IO.Directory.CreateTempSubdirectory("Sortopia-function-picker-view-");
@@ -2788,12 +2760,12 @@ public sealed class RandomNetworkTests
             Assert.False(openFolder.IsEnabled);
             entityName.SetCurrentValue(TextBox.TextProperty, "Sorting");
             Assert.Equal("Sorting", folderName.Text);
-            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting"), fullPath.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "Sorting"), fullPath.Text);
             fullPath.SelectAll();
             Assert.Equal(fullPath.Text, fullPath.SelectedText);
             entityName.SetCurrentValue(TextBox.TextProperty, "Sorting research");
             Assert.Equal("Sorting research", folderName.Text);
-            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting research"), fullPath.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "Sorting research"), fullPath.Text);
             entityName.SetCurrentValue(TextBox.TextProperty, "Sorting");
             CompleteRun(vm.SaveWorkspaceAsync);
             Assert.Empty(vm.Error);
@@ -2846,7 +2818,7 @@ public sealed class RandomNetworkTests
             entityName.SetCurrentValue(TextBox.TextProperty, "Trial: renamed");
             Assert.Equal(runId, vm.Selected.Id);
             Assert.Equal("Trial: renamed", vm.Selected.Name);
-            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting", "projects", "Search", "runs", WorkspaceDefinitionFiles.Name(runId)), fullPath.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "Sorting", "Search", "runs", WorkspaceDefinitionFiles.Name(runId)), fullPath.Text);
             Assert.Empty(vm.Error);
             Assert.True(save.IsEnabled);
             foreach (var size in new[] { new Size(1000, 800), new Size(640, 480) })
@@ -3144,10 +3116,10 @@ public sealed class RandomNetworkTests
             Assert.False(save.IsEnabled);
             Assert.Empty(vm.Roots.Single().Children.Single().Children);
             Assert.True(System.IO.Directory.Exists(importSource));
-            Assert.False(System.IO.Directory.Exists(System.IO.Path.Combine(temporary.FullName, "modules", "Sorting", "projects", "library-project")));
+            Assert.False(System.IO.Directory.Exists(System.IO.Path.Combine(temporary.FullName, "Sorting", "library-project")));
             RenderWorkspaceState("discarded");
             vm.Selected = vm.Roots.Single().Children.Single();
-            var moduleFolder = System.IO.Path.Combine(temporary.FullName, "modules", "Sorting");
+            var moduleFolder = System.IO.Path.Combine(temporary.FullName, "Sorting");
             System.IO.File.Delete(WorkspaceDefinitionFiles.Require(moduleFolder, "module"));
             vm.RefreshDiskStatus();
             LayoutWorkspace();
@@ -3180,14 +3152,14 @@ public sealed class RandomNetworkTests
             Assert.Empty(vm.Error);
             Assert.Equal("Organized", vm.Selected!.Parent!.Name);
             LayoutWorkspace();
-            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "modules", "Organized", "modules", "Sorting"), fullPath.Text);
+            Assert.Equal(System.IO.Path.Combine(temporary.FullName, "Organized", "Sorting"), fullPath.Text);
             Assert.False(openFolder.IsEnabled);
             Assert.False(vm.HasCutItem);
             RenderWorkspaceState("pending-move");
             CompleteRun(vm.SaveWorkspaceAsync);
             Assert.Empty(vm.Error);
             Assert.False(System.IO.Directory.Exists(moduleFolder));
-            Assert.True(System.IO.Directory.Exists(System.IO.Path.Combine(temporary.FullName, "modules", "Organized", "modules", "Sorting")));
+            Assert.True(System.IO.Directory.Exists(System.IO.Path.Combine(temporary.FullName, "Organized", "Sorting")));
         }
         finally { temporary.Delete(recursive: true); }
     }

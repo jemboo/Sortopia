@@ -14,8 +14,8 @@ public sealed class ChildReferenceTests : IDisposable
     private static parameterBindingDto Binding(int value) => new() { keyName = "ChannelCount", valueType = (int)parameterValueType.Integer, value = value.ToString() };
     private static int Channel(IEnumerable<parameterBinding> bindings) => int.Parse(bindings.Single(value => value.KeyName == "ChannelCount").FormattedValue);
     private static Dictionary<string, byte[]> Files(string folder) => Directory.GetFiles(folder, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
-    private string ModuleFolder => Path.Combine(Root, "modules", "sorting");
-    private string ProjectFolder => Path.Combine(ModuleFolder, "projects", "search");
+    private string ModuleFolder => Path.Combine(Root, "sorting");
+    private string ProjectFolder => Path.Combine(ModuleFolder, "search");
 
     private static void Copy(string source, string target)
     {
@@ -37,7 +37,7 @@ public sealed class ChildReferenceTests : IDisposable
         var w = WorkspaceDefinitionCodec.decodeWorkspace(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(Root, "workspace")));
         var m = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ModuleFolder, "module")));
         var p = WorkspaceDefinitionCodec.decodeProject(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ProjectFolder, "project")));
-        Assert.Equal(15, w.schemaVersion);
+        Assert.Equal(16, w.schemaVersion);
         Assert.Equal(saved.Modules[0].Id, Assert.Single(w.modules).id);
         Assert.Equal(saved.Modules[0].Projects[0].Id, Assert.Single(m.projects).id);
         Assert.Equal(saved.Modules[0].Projects[0].Runs[0].Id, Assert.Single(p.runs));
@@ -87,11 +87,11 @@ public sealed class ChildReferenceTests : IDisposable
     public void Detached_folders_keep_parent_defaults_separate_from_local_overrides(bool branch)
     {
         var saved = WorkspaceFileStore.CreateWorkspace(Root, Inherited(branch), Token).Definition;
-        var source = Path.Combine(Root, "modules", "parent", "modules", "child");
+        var source = Path.Combine(Root, "parent", "child");
         var moduleCopy = Path.Combine(temporary.FullName, "Detached module");
         var projectCopy = Path.Combine(temporary.FullName, "Detached project");
         Copy(source, moduleCopy);
-        Copy(Path.Combine(source, "projects", "draft"), projectCopy);
+        Copy(Path.Combine(source, "draft"), projectCopy);
         Directory.Delete(Root, true); // Only this test's generated workspace.
         var m = WorkspaceFileStore.LoadModuleFolder(moduleCopy, Token);
         var p = WorkspaceFileStore.LoadProjectFolder(projectCopy, Token);
@@ -122,7 +122,7 @@ public sealed class ChildReferenceTests : IDisposable
         var dto = WorkspaceDto.fromDomain(saved);
         dto.modules[0].localOverrides.resultsParameterDefaults.Single(binding => binding.keyName == "ChannelCount").value = "8";
         WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token);
-        var folder = Path.Combine(Root, "modules", "parent", "modules", "child");
+        var folder = Path.Combine(Root, "parent", "child");
         var detached = WorkspaceFileStore.LoadModuleFolder(folder, Token);
         Assert.Equal(32, Channel(detached.ResultsParameterDefaults));
         Assert.Equal(8, Channel(((moduleConfiguration.RootModuleConfig)detached.InheritedDefaults).Item.ResultsParameterDefaults));
@@ -136,7 +136,7 @@ public sealed class ChildReferenceTests : IDisposable
         var dto = WorkspaceDto.fromDomain(saved);
         dto.modules[0].projects[0].runs = [];
         WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token);
-        var extra = Path.Combine(ModuleFolder, "projects", "unlisted");
+        var extra = Path.Combine(ModuleFolder, "unlisted");
         Directory.CreateDirectory(extra);
         File.WriteAllText(Path.Combine(extra, Guid.NewGuid() + ".msgpack"), "not a definition");
         Assert.Empty(WorkspaceFileStore.LoadProjectFolder(ProjectFolder, Token).Runs);
@@ -177,7 +177,7 @@ public sealed class ChildReferenceTests : IDisposable
     public void Edits_to_child_context_are_detected_even_when_live_parent_values_hide_them()
     {
         var saved = WorkspaceFileStore.CreateWorkspace(Root, Inherited(false), Token).Definition;
-        var path = WorkspaceDefinitionFiles.Require(Path.Combine(Root, "modules", "parent", "modules", "child"), "module");
+        var path = WorkspaceDefinitionFiles.Require(Path.Combine(Root, "parent", "child"), "module");
         var dto = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(path));
         dto.inheritedDefaults.description = "External change";
         File.WriteAllBytes(path, MessagePackSetup.serialize(dto));

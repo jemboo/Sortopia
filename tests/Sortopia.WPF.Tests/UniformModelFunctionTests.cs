@@ -176,14 +176,14 @@ public sealed class UniformModelFunctionTests
             Assert.All(run.Editor!.ResultsParameters.Single().Values, value => Assert.True(value.IsWeights));
             run.Editor.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             if (branch) {
-                WorkspaceParameterSetsPreviewTests.AddSpan(run, "UnfoldingWeights", true, "1,0,0", "0,1,0");
+                WorkspaceParameterSetsPreviewTests.AddSpan(run, "UnfoldingWeights", true, "1,0,0");
                 run.Editor.SetupQueryOutputs.Single().Keys.Single().Selected = true;
             }
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); page.Selected = run;
             await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
-            Assert.Equal(branch ? 2 : 0, page.SelectedExecution!.Report!.Setup.Length); Assert.Empty(page.SelectedExecution.Report.Results);
-            var source = Path.GetDirectoryName(page.ResultsExecution.Folder)!;
-            if (branch) Assert.Equal(2, Directory.GetFiles(Path.Combine(source, "data", "setup", "SorterModelSet"), "*.msgpack").Length);
+            Assert.Equal(branch ? 1 : 0, page.SelectedExecution!.Report!.Setup.Length); Assert.Empty(page.SelectedExecution.Report.Results);
+            var source = Path.GetDirectoryName(page.RunParametersFolder)!;
+            if (branch) Assert.Single(Directory.GetFiles(Path.Combine(source, "data", "setup", "SorterModelSet"), "*.msgpack"));
             Assert.False(Directory.Exists(Path.Combine(source, "data", "results")));
             var copy = Directory.CreateDirectory(Path.Combine(temp.FullName, "Cloud project")).FullName;
             foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)) {

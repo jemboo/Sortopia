@@ -214,7 +214,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         foreach (var child in Children)
         {
             var pathName = child.IsRun && originalIds?.TryGetValue(child.Id, out var original) == true ? WorkspaceDefinitionFiles.Name(original) : child.PathName;
-            var childSource = Path.Combine(source, child.Kind.ToString().ToLowerInvariant() + "s", pathName);
+            var childSource = child.IsRun ? Path.Combine(source, "runs", pathName) : Path.Combine(source, pathName);
             child.RememberImportLocations(childSource, originId, originalIds);
         }
     }
@@ -236,7 +236,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     };
     public bool CanContain(WorkspaceTreeNode child) => CanContain(child.Kind) && (IsWorkspace || Family == child.Family);
     internal string GetFolderPath(string rootFolder) => Parent is null ? rootFolder
-        : Path.Combine(Parent.GetFolderPath(rootFolder), Kind.ToString().ToLowerInvariant() + "s", PathName);
+        : IsRun ? Path.Combine(Parent.GetFolderPath(rootFolder), "runs", PathName) : Path.Combine(Parent.GetFolderPath(rootFolder), PathName);
     public bool IsSelected { get => isSelected; set => SetProperty(ref isSelected, value); }
     public WorkspaceTreeNode? Parent { get; private set; }
     public ObservableCollection<WorkspaceTreeNode> Children { get; } = [];
@@ -335,12 +335,12 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     private string ChildCollision(WorkspaceEntityKind kind, string value, bool folder, WorkspaceTreeNode? excluded = null)
     {
         if (folder && kind == WorkspaceEntityKind.Run) return "";
-        var saved = savedChildren.FirstOrDefault(child => child.Node != excluded && child.Node.Kind == kind
+        var saved = savedChildren.FirstOrDefault(child => child.Node != excluded && (folder ? !child.Node.IsRun : child.Node.Kind == kind)
             && string.Equals(folder ? child.FolderName : child.Name, value, StringComparison.OrdinalIgnoreCase));
-        var current = Children.FirstOrDefault(child => child != excluded && child.Kind == kind
+        var current = Children.FirstOrDefault(child => child != excluded && (folder ? !child.IsRun : child.Kind == kind)
             && string.Equals(folder ? child.FolderName : child.Name, value, StringComparison.OrdinalIgnoreCase));
         if (saved is null && current is null) return "";
-        return $"Duplicate {(folder ? "folder name" : "name")} in {kind.ToString().ToLowerInvariant()}s: '{value}' is already used by '{saved?.Name ?? current!.Name}'"
+        return $"Duplicate {(folder ? "folder name among module and project children" : "name in " + kind.ToString().ToLowerInvariant() + "s")}: '{value}' is already used by '{saved?.Name ?? current!.Name}'"
             + (saved is not null ? " in the saved workspace. Choose another value." : " in this collection. Choose another value.");
     }
     internal void AddExistingChild(WorkspaceTreeNode child)
@@ -368,10 +368,10 @@ public sealed class WorkspaceTreeNode : ViewModelBase
         if (conflict.Length > 0) throw new ArgumentException(conflict);
     }
     internal bool HasChildIdentity(WorkspaceEntityKind kind, string value) =>
-        Children.Any(child => child.Kind == kind && (string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(child.FolderName, value, StringComparison.OrdinalIgnoreCase)))
-        || savedChildren.Any(child => child.Node.Kind == kind && (string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(child.FolderName, value, StringComparison.OrdinalIgnoreCase)));
+        Children.Any(child => child.Kind == kind && string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)
+            || kind != WorkspaceEntityKind.Run && !child.IsRun && string.Equals(child.FolderName, value, StringComparison.OrdinalIgnoreCase))
+        || savedChildren.Any(child => child.Node.Kind == kind && string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)
+            || kind != WorkspaceEntityKind.Run && !child.Node.IsRun && string.Equals(child.FolderName, value, StringComparison.OrdinalIgnoreCase));
     private void RememberSavedChildren() =>
         savedChildren = Children.Select(child => new SavedChild(child, child.Name, child.FolderName)).ToArray();
 

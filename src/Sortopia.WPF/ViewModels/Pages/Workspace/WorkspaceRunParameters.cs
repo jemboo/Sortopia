@@ -2,32 +2,40 @@ using System.IO;
 using Sortopia.FileDb;
 using Sortopia.Functions;
 using Sortopia.WPF.Commands;
-using Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed partial class WorkspacePageViewModel
 {
     public RelayCommand GenerateRunParametersCommand { get; private set; } = null!;
-    public ResultsExecutionPageViewModel ResultsExecution { get; private set; } = null!;
-    private void InitializeRunParameterCommands()
+    public RelayCommand ExecutePageCommand { get; private set; } = null!;
+    private Func<string, Guid?, Task>? openResultsExecution;
+    private void InitializeRunParameterCommands(Func<string, Guid?, Task>? openResultsExecution)
     {
-        ResultsExecution = new ResultsExecutionPageViewModel(() => { }, pickFolder);
-        GenerateRunParametersCommand = new RelayCommand(async () => await GenerateRunParametersAsync(), () => CanExecuteRun);
+        this.openResultsExecution = openResultsExecution;
+        GenerateRunParametersCommand = new RelayCommand(async () => await GenerateRunParametersAsync(), () => CanGenerateRunParameters);
+        ExecutePageCommand = new RelayCommand(async () => await OpenExecutePageAsync(), () => !IsBusy && this.openResultsExecution is not null && RunParametersFolder.Length > 0);
     }
-    public Task RefreshRunParameterFilesAsync()
+    public string RunParametersFolder
     {
-        var run = SelectedSavedRun;
-        var folder = run is not null && savedDefinition is not null
-            ? Path.Combine(WorkspaceData.projectFolder(savedDefinition, WorkspaceFolder, run.ParentProjectId), "runParameters") : "";
-        return ResultsExecution.SetFolderAsync(folder, run?.Id);
+        get
+        {
+            var run = SelectedSavedRun;
+            return run is not null && savedDefinition is not null
+                ? Path.Combine(WorkspaceData.projectFolder(savedDefinition, WorkspaceFolder, run.ParentProjectId), "runParameters") : "";
+        }
     }
-    private void RefreshRunParameterFiles() => _ = RefreshRunParameterFilesAsync();
-    private void NotifyRunParameterCommands() => GenerateRunParametersCommand.RaiseCanExecuteChanged();
+    public Task OpenExecutePageAsync() => ExecutePageCommand.CanExecute(null)
+        ? openResultsExecution!(RunParametersFolder, SelectedSavedRun!.Id) : Task.CompletedTask;
+    private void NotifyRunParameterCommands()
+    {
+        OnPropertyChanged(nameof(RunParametersFolder));
+        GenerateRunParametersCommand.RaiseCanExecuteChanged(); ExecutePageCommand.RaiseCanExecuteChanged();
+    }
 
     public Task GenerateRunParametersAsync()
     {
-        if (!CanExecuteRun) return Task.CompletedTask;
+        if (!CanGenerateRunParameters) return Task.CompletedTask;
         var value = SelectedSavedRun!;
         var workspace = savedDefinition!;
         var root = WorkspaceFolder;
@@ -46,7 +54,6 @@ public sealed partial class WorkspacePageViewModel
                 var report = await Task.Run(() => RunParameterExecution.generate(workspace, root, value, progress, token));
                 acceptingProgress = false;
                 state.FinishGeneration(report);
-                await RefreshRunParameterFilesAsync();
                 Status = $"Run '{value.RunName}': {state.Summary}";
                 Error = report.Execution.Error;
             }

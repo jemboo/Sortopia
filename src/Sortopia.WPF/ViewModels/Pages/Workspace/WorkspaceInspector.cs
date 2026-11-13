@@ -77,7 +77,7 @@ public sealed partial class WorkspacePageViewModel
         if (node.Editor is { } editor)
             foreach (var item in editor.InspectorSnapshots().Where(item => item.Group != "Functions")) yield return item;
         if (node.IsRun)
-            yield return new("execution", "Execution", "Execution status", SelectedExecution?.Summary ?? "Not executed yet", SelectedExecution?.IsRunning == true ? "Running" : ExecuteHint.Length > 0 ? "Not ready" : "Ready", SelectedExecution?.Error ?? "");
+            yield return new("execution", "Run parameters", "Generate run parameters", SelectedExecution?.Summary ?? "Not generated yet", SelectedExecution?.IsRunning == true ? "Generating" : GenerationHint.Length > 0 ? "Not ready" : "Ready", SelectedExecution?.Error ?? "");
     }
     private void RefreshInspector()
     {

@@ -1,5 +1,6 @@
 namespace Sortopia.Evaluation
 
+open System.Threading.Tasks
 open FSharp.UMX
 open Sortopia.Sorting
 open Sortopia.Sorting.Inputs
@@ -38,7 +39,8 @@ type sorterSetEval =
 
 module SorterSetEval =
 
-    let makeSorterEvals
+    let makeSorterEvalsWithOptions
+                (options: ParallelOptions)
                 (sorters: sorter array)
                 (prefix: ceBlock)
                 (sortableTests: sortableTests)
@@ -52,7 +54,7 @@ module SorterSetEval =
                             sorter.ChannelCount sorter.Ces )
 
         let ceBlockEvals : ceBlockEval array =
-                CeBlockOps.evalWithSorterTests
+                CeBlockOps.evalWithSorterTestsWithOptions options
                         sortableTests
                         prefix
                         ceBlocks
@@ -68,7 +70,8 @@ module SorterSetEval =
                 )
 
 
-    let makeSorterSetEval
+    let makeSorterSetEvalWithOptions
+            (options: ParallelOptions)
             (sorterSetEvalId: Guid<sorterSetEvalId>)
             (sorterSet: sorterSet)
             (prefix: ceBlock)
@@ -76,7 +79,7 @@ module SorterSetEval =
             (sorterEvalType:sorterEvalType)
             (collectNewSortableTests: bool<collectNewSortableTests>) : sorterSetEval =
 
-        let sorterEvals = makeSorterEvals
+        let sorterEvals = makeSorterEvalsWithOptions options
                             sorterSet.Sorters
                             prefix
                             sortableTests
@@ -89,6 +92,12 @@ module SorterSetEval =
                     (sortableTests |> SortableTests.getId )
                     sorterEvals
 
+
+    let makeSorterEvals sorters prefix tests evalType collect =
+        makeSorterEvalsWithOptions (ParallelOptions()) sorters prefix tests evalType collect
+
+    let makeSorterSetEval id sorters prefix tests evalType collect =
+        makeSorterSetEvalWithOptions (ParallelOptions()) id sorters prefix tests evalType collect
 
     let makeFullDataTableRecords (source: sorterSetEval) : Sortopia.Reporting.dataTableRecord seq =
         source.SorterEvals

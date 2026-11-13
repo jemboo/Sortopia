@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.IO
 open System.Runtime.InteropServices
 open System.Threading
+open FSharp.UMX
 open Sortopia.Workspaces
 open Sortopia.Workspaces.Serialization
 open WorkspaceFileSystem
@@ -16,6 +17,34 @@ type WorkspaceFileStore private () =
     static member GetFolderName(rootFolder: string) = WorkspaceDisk.folderName rootFolder
     static member LoadModuleFolder(folder: string, token: CancellationToken) = WorkspaceDisk.loadModuleFolder folder token
     static member LoadProjectFolder(folder: string, token: CancellationToken) = WorkspaceDisk.loadProjectFolder folder token
+
+    /// Explicit, transactional conversion of the previous container-based workspace layout.
+    /// All identities and project contents are preserved; collisions fail before publication.
+    static member ConvertFolderLayout(rootFolder: string, token: CancellationToken) =
+        let root = normalizeRoot rootFolder
+        let definition = WorkspaceDisk.loadDefinitionLayout true token root
+        let moves = ResizeArray<WorkspaceFolderMove>()
+        let containers = ResizeArray<string>()
+        containers.Add(Path.Combine(root, "modules"))
+        let rec visit oldParent newParent (value: workspaceModule) =
+            let source = Path.Combine(oldParent, "modules", value.FolderName)
+            let destination = Path.Combine(newParent, value.FolderName)
+            moves.Add({ SourceFolder = source; DestinationFolder = destination })
+            containers.Add(Path.Combine(destination, "modules")); containers.Add(Path.Combine(destination, "projects"))
+            for child in value.Modules do visit source destination child
+            for child in value.Projects do
+                moves.Add({ SourceFolder = Path.Combine(source, "projects", child.FolderName); DestinationFolder = Path.Combine(destination, child.FolderName) })
+        for child in definition.Modules do visit root root child
+        let plan = WorkspaceSavePlan.prepareWithContainers root definition token null moves (containers.ToArray())
+        WorkspaceDisk.verifySavedFiles definition |> ignore
+        let result = WorkspaceCommit.commit plan token
+        // Only remove obsolete, empty containers. Unlisted folders and user files stay intact.
+        for folder in containers |> Seq.sortByDescending _.Length do
+            WorkspaceFolderMove.CheckPath(root, folder)
+            if Directory.Exists(folder) && Seq.isEmpty (Directory.EnumerateFileSystemEntries(folder)) then
+                try Directory.Delete(folder) with :? IOException | :? UnauthorizedAccessException -> ()
+        WorkspaceDisk.rememberSavedFiles root result.Definition
+        result
 
     static member CreateWorkspace(rootFolder: string, definition: workspace, token: CancellationToken,
                                   [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderCopy>)>] copies: IReadOnlyList<WorkspaceFolderCopy>,
