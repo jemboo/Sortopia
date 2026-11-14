@@ -3,6 +3,8 @@
     <Compile Include="ParameterBindingDto.fs" />
     <Compile Include="WorkspaceDto.fs" />
     <Compile Include="WorkspaceDefinitionCodec.fs" />
+    <Compile Include="WorkspaceDocument.fs" />
+    <Compile Include="WorkspaceRunDocument.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Workspaces/Sortopia.Workspaces.fsproj" />

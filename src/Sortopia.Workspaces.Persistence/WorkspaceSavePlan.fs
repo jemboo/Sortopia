@@ -14,10 +14,10 @@ open WorkspaceDisk
 type private Transfer = { Source: string; Destination: string; Copy: WorkspaceFolderCopy option }
 
 module internal WorkspaceSavePlan =
-    let prepareWithContainers rootFolder definition (token: CancellationToken) (copies: IReadOnlyList<WorkspaceFolderCopy>) (moves: IReadOnlyList<WorkspaceFolderMove>) (emptyContainers: string array) =
+    let prepareWithContainers rootFolder (definition: WorkspaceDocument) (token: CancellationToken) (copies: IReadOnlyList<WorkspaceFolderCopy>) (moves: IReadOnlyList<WorkspaceFolderMove>) (emptyContainers: string array) =
         let root = normalizeRoot rootFolder
         let before = capture root token "workspace"
-        let definition = rebase definition root
+        let definition = WorkspaceDocument.validate { definition with Definition = { definition.Definition with folderName = folderName root } }
         let expected = HashSet<string>(pathComparer)
         let writes = ResizeArray<WorkspaceFileUpdate>()
         let retainedFolders = ResizeArray<string>()
@@ -71,11 +71,11 @@ module internal WorkspaceSavePlan =
                         copiedIds.Add(key, replacement)
                         sourceIds[replacement] <- id
                         replacement
-        let rec allocateModule (value: workspaceModule) folder =
-            copyId (UMX.untag value.Id) folder |> ignore
-            for value in value.Modules do allocateModule value (child folder value.FolderName)
-            for value in value.Projects do copyId (UMX.untag value.Id) (child folder value.FolderName) |> ignore
-        for value in definition.Modules do allocateModule value (child root value.FolderName)
+        let rec allocateModule (value: ModuleDocument) folder =
+            copyId value.Definition.id folder |> ignore
+            for value in value.Modules do allocateModule value (child folder value.Definition.folderName)
+            for value in value.Projects do copyId value.Definition.id (child folder value.Definition.folderName) |> ignore
+        for value in definition.Modules do allocateModule value (child root value.Definition.folderName)
         let remapSource folder id =
             match transferFor folder |> Option.bind _.Copy with
             | None -> id
@@ -84,30 +84,30 @@ module internal WorkspaceSavePlan =
             if isNull entries then null else entries |> Array.map (fun entry -> { entry with sourceProjectId = remapSource folder entry.sourceProjectId })
         let remapAssignments folder (entries: setupSourceConfigDto array) =
             if isNull entries then null else entries |> Array.map (fun entry -> { entry with sourceProjectId = remapSource folder entry.sourceProjectId })
-        let identifyProject (value: project) folder =
-            let settings = SettingsDto.fromDomain (if value.IsSealed then value.Configuration else value.InheritedDefaults)
-            let local = OverridesDto.fromDomain value.LocalOverrides
-            let settings = { settings with setupDataTypes = remapSources folder settings.setupDataTypes }
-            let local = { local with setupSources = remapAssignments folder local.setupSources }
-            let parent = project.restore (copyId (UMX.untag value.Id) folder |> UMX.tag) value.ProjectName value.FolderName
-                             (SettingsDto.toDomain value.Kind settings) (OverridesDto.toDomain value.Kind local) value.IsSealed [||]
+        let settings folder (value: projectSettingsDto) =
+            if isNull (box value) then value else { value with setupDataTypes = remapSources folder value.setupDataTypes }
+        let identifyProject (value: ProjectDocument) folder : ProjectDocument =
+            let dto = value.Definition
+            let id = copyId dto.id folder
             let runs = value.Runs |> Array.map (fun run ->
-                let dto = RunDto.fromDomain run
-                { dto with id = copyId dto.id (Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name dto.id)); parentProjectId = UMX.untag parent.Id }
-                |> RunDto.toDomain parent)
-            project.withRuns parent runs
-        let rec identifyModule (value: workspaceModule) folder =
-            let settings = ModuleSettingsDto.fromDomain value.InheritedDefaults
-            let local = ModuleOverridesDto.fromDomain value.LocalOverrides
-            let settings = { settings with setupDataTypes = remapSources folder settings.setupDataTypes }
-            let local = { local with setupSources = remapAssignments folder local.setupSources }
-            workspaceModule.createInherited (copyId (UMX.untag value.Id) folder |> UMX.tag) value.ModuleName value.FolderName
-                (ModuleSettingsDto.toDomain value.Kind settings) (ModuleOverridesDto.toDomain value.Kind local)
-                (value.Modules |> Array.map (fun value -> identifyModule value (child folder value.FolderName)))
-                (value.Projects |> Array.map (fun value -> identifyProject value (child folder value.FolderName)))
-        let definition = workspace.create definition.Id definition.WorkspaceName definition.FolderName
-                             (definition.Modules |> Array.map (fun value -> identifyModule value (child root value.FolderName)))
-
+                { run with id = copyId run.id (Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name run.id)); parentProjectId = id })
+            let local = dto.localOverrides
+            { Definition = { dto with id = id; runs = runs |> Array.map _.id
+                                      configuration = settings folder dto.configuration; inheritedDefaults = settings folder dto.inheritedDefaults
+                                      localOverrides = if isNull (box local) then local else { local with setupSources = remapAssignments folder local.setupSources } }
+              Runs = runs }
+        let rec identifyModule (value: ModuleDocument) folder : ModuleDocument =
+            let dto = value.Definition
+            let modules = value.Modules |> Array.map (fun value -> identifyModule value (child folder value.Definition.folderName))
+            let projects = value.Projects |> Array.map (fun value -> identifyProject value (child folder value.Definition.folderName))
+            { Definition = { dto with id = copyId dto.id folder
+                                      inheritedDefaults = { dto.inheritedDefaults with setupDataTypes = remapSources folder dto.inheritedDefaults.setupDataTypes }
+                                      localOverrides = { dto.localOverrides with setupSources = remapAssignments folder dto.localOverrides.setupSources }
+                                      modules = modules |> Array.map (fun m -> { id = m.Definition.id; folderName = m.Definition.folderName })
+                                      projects = projects |> Array.map (fun p -> { id = p.Definition.id; folderName = p.Definition.folderName }) }
+              Modules = modules; Projects = projects }
+        let modules = definition.Modules |> Array.map (fun value -> identifyModule value (child root value.Definition.folderName))
+        let definition = { definition with Modules = modules; Definition = { definition.Definition with modules = modules |> Array.map (fun m -> { id = m.Definition.id; folderName = m.Definition.folderName }) } } |> WorkspaceDocument.withOrigins
         let findRun projectFolder id =
             let path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name id)
             if File.Exists path then path else null
@@ -157,18 +157,19 @@ module internal WorkspaceSavePlan =
                     | Some transfer -> Path.GetFullPath(Path.Combine(transfer.Destination, Path.GetRelativePath(transfer.Source, sourcePath)))
             if not (pathComparer.Equals(path, originalPath) && not (isNull original) && equalBytes original bytes) then
                 writes.Add({ Path = path; Content = bytes; OriginalPath = originalPath; Original = original })
-        let addProject inheritedFrom (value: project) folder depth =
+        let addProject inheritedFrom (value: ProjectDocument) folder depth =
             checkDepth depth
-            for run in value.Runs do add (Path.Combine(folder, "runs")) "run" (UMX.untag run.Id) (WorkspaceCodec.encodeRun run)
-            add folder "project" (UMX.untag value.Id) (WorkspaceDefinitionCodec.projectWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
-        let rec addModule inheritedFrom (value: workspaceModule) folder depth =
+            for run in value.Runs do add (Path.Combine(folder, "runs")) "run" run.id (MessagePackSetup.serialize run)
+            let dto = { value.Definition with inheritedFrom = if value.Definition.isSealed then Unchecked.defaultof<_> else inheritedFrom }
+            add folder "project" dto.id (MessagePackSetup.serialize dto)
+        let rec addModule inheritedFrom (value: ModuleDocument) folder depth =
             checkDepth depth
-            let origin = { moduleId = UMX.untag value.Id; moduleName = string value.ModuleName }
-            for value in value.Modules do addModule origin value (child folder value.FolderName) (depth + 1)
-            for value in value.Projects do addProject origin value (child folder value.FolderName) (depth + 1)
-            add folder "module" (UMX.untag value.Id) (WorkspaceDefinitionCodec.moduleWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
-        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root value.FolderName) 1
-        add root "workspace" (UMX.untag definition.Id) (WorkspaceDefinitionCodec.encodeWorkspace definition) // Root references commit last.
+            let origin = { moduleId = value.Definition.id; moduleName = value.Definition.moduleName }
+            for value in value.Modules do addModule origin value (child folder value.Definition.folderName) (depth + 1)
+            for value in value.Projects do addProject origin value (child folder value.Definition.folderName) (depth + 1)
+            add folder "module" value.Definition.id (MessagePackSetup.serialize { value.Definition with inheritedFrom = inheritedFrom })
+        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root value.Definition.folderName) 1
+        add root "workspace" definition.Definition.id (MessagePackSetup.serialize definition.Definition) // Root references commit last.
         let hasOriginal path = writes |> Seq.exists (fun write -> pathComparer.Equals(write.OriginalPath, path))
         if transfers |> Array.exists (fun transfer -> not (expected.Contains(transfer.Destination)) && not (File.Exists(transfer.Source) && hasOriginal transfer.Destination)) then
             raise (ArgumentException("Every moved or imported folder must belong to an entity in the workspace definition."))

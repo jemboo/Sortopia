@@ -138,7 +138,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var module = page.Selected!;
         page.AddProjectCommand.Execute(null);
         Assert.Contains("No results function is selected", page.Error);
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         page.EditProjectDefaultsCommand.Execute(null);
         Assert.Same(module, page.Selected);
         module.Editor!.ResultsFunctionName = "sortable-tests.standard";

@@ -102,7 +102,7 @@ public sealed class ExplicitQuerySpanTests
             var restored = reopened.Roots[0].Children[0].Children[0].Children[0].Editor!;
             Assert.False(restored.CanEditQuerySelection); Assert.All(restored.ResultsQueryOutputs.SelectMany(output => output.Keys), key => Assert.False(key.CanChange));
             restored.ResultsParameters[0].RemoveCommand.Execute(null);
-            Assert.False(reopened.SaveWorkspaceCommand.CanExecute(null)); Assert.Empty(restored.ResultsParameterSetsPreview.Rows);
+            Assert.True(reopened.SaveWorkspaceCommand.CanExecute(null)); Assert.Empty(restored.ResultsParameterSetsPreview.Rows);
             page.Cancel(); reopened.Cancel();
         }
         finally { temporary.Delete(true); }

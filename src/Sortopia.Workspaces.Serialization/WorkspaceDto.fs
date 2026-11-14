@@ -204,6 +204,13 @@ module SettingsDto =
         setupDataTypes = value.SetupDataTypes |> List.map SetupDataTypeConfigDto.fromDomain |> List.toArray
         setupParameterDefaults = value.SetupParameterDefaults |> List.map ParameterBindingDto.fromDomain |> List.toArray }
     let fromDomain = function RootProjectConfig v -> fromRoot v | BranchProjectConfig v -> fromBranch v
+    /// Reading stored results does not require parsing a source's setup settings or runs.
+    let resultsToDomain (value: projectSettingsDto) : resultsConfig =
+        if isNull (box value) then nullArg "configuration"
+        { DatabaseName = UMX.tag value.resultsDatabaseName; FunctionName = UMX.tag value.resultsFunctionName
+          FunctionVersion = value.resultsFunctionVersion
+          Outputs = Contract.array "resultsDataTypes" value.resultsDataTypes |> Array.map ResultsDataTypeConfigDto.toDomain |> Array.toList
+          ParameterDefaults = Contract.array "resultsParameterDefaults" value.resultsParameterDefaults |> Array.map ParameterBindingDto.toDomain |> Array.toList }
     let toDomain kind (value: projectSettingsDto) =
         if isNull (box value) then nullArg "configuration"
         let resultTypes = Contract.array "resultsDataTypes" value.resultsDataTypes |> Array.map ResultsDataTypeConfigDto.toDomain |> Array.toList

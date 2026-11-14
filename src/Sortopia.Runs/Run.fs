@@ -257,14 +257,16 @@ module BranchRun =
     let makeSetupParameterSets (branch: branchRun) = ParameterSets.create branch.SetupParameterDefaults branch.SetupParameterSpans
 
 module BranchRunSources =
-    let resolve (find: Guid<projectId> -> sourceProjectSnapshot option) (value: branchRun) =
-        let sources = value.SetupDataTypes |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty) |> List.map (fun entry ->
+    let resolveFor isRequired (find: Guid<projectId> -> sourceProjectSnapshot option) (value: branchRun) =
+        let sources = value.SetupDataTypes |> List.filter (fun entry -> isRequired entry.DataType && UMX.untag entry.SourceProjectId <> System.Guid.Empty) |> List.map (fun entry ->
             let source = find entry.SourceProjectId |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" $"Source project '{entry.SourceProjectId}' was not found.")
             if not source.IsSealed then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' must be sealed."
             if not (List.contains entry.DataType source.Results.SortopiaDataTypes) then invalidArg "sourceProjectId" $"Source project '{source.ProjectName}' does not provide '{entry.DataType}'."
             RunConfiguration.sourceParameters source.Results.DataTypes[entry.DataType] value.SetupParameterDefaults value.SetupParameterSpans
             entry.DataType, source) |> Map.ofList
         { value with sources = sources }
+
+    let resolve find value = resolveFor (fun _ -> true) find value
 
 type run =
     | RootRun of rootRun

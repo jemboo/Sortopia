@@ -88,14 +88,14 @@ module FileResultsHost =
     let create folder projectId config parameters outputs token =
         createWithParallelism Environment.ProcessorCount folder projectId config parameters outputs token
 
-type private SourceResults(workspace, root, entries: setupDataTypeConfig list, token: CancellationToken) =
+type private SourceResults(scope, root, entries: setupDataTypeConfig list, token: CancellationToken) =
     let loaded = Collections.Generic.Dictionary<storedDataReference, storedData>()
     interface ISourceResults with
         member _.Find(projectId, dataType, parameters) =
             token.ThrowIfCancellationRequested()
             let entry = entries |> List.tryFind (fun entry -> entry.SourceProjectId = projectId && entry.DataType = dataType)
                         |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" "This project and data type are not configured as a source for this setup function.")
-            let data = WorkspaceData.loadSource workspace root entry parameters token
+            let data = WorkspaceData.loadScopedSource scope root entry parameters token
             loaded[data.Reference] <- data
             data.Reference
         member _.Load reference =
@@ -106,15 +106,13 @@ type private SourceResults(workspace, root, entries: setupDataTypeConfig list, t
 
 /// Binds a saved run to setup/results storage and read-only source access, much
 /// like GeneSort's runHost/runStorage/workflowSources, without catalog registration.
-type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token: CancellationToken) =
-    do FunctionConfiguration.validateRunInputs value
-    let parent = workspace.FindProject value.ParentProjectId
-                 |> Option.defaultWith (fun () -> invalidOp "The run's parent project was not found.")
-    do
-        if not (parent.Runs |> Array.exists (fun saved -> saved.Id = value.Id && saved = value)) then
-            invalidOp "Execute requires a saved run from the supplied workspace."
-    let folder = WorkspaceData.projectFolder workspace workspaceRoot parent.Id
+type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: CancellationToken) =
+    let value = scope.Run
+    let parent = scope.Parent
+    let folder = WorkspaceData.scopedProjectFolder scope workspaceRoot parent.Id
     let store = SortopiaFileDb(folder, parent.Id) :> ISortopiaDb
+    new(workspace: workspace, workspaceRoot: string, value: run, token: CancellationToken) =
+        FileRunHost(RunWorkspace.fromWorkspace workspace value, workspaceRoot, token)
     member _.Run = value
     member _.ProjectFolder = folder
     member _.CancellationToken = token
@@ -123,7 +121,7 @@ type FileRunHost(workspace: workspace, workspaceRoot: string, value: run, token:
         | run.RootRun _ -> invalidOp "A root run has no setup database."
         | run.BranchRun branch ->
             let entries = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
-            let sources = SourceResults(workspace, workspaceRoot, entries, token)
+            let sources = SourceResults(scope, workspaceRoot, entries, token)
             let definition = SetupFunctionCatalog.require branch.SetupFunctionName
             let inputs = entries |> List.map (fun entry -> (sources :> ISourceResults).Find(entry.SourceProjectId, entry.DataType, parameters))
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)

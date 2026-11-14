@@ -113,9 +113,12 @@ public sealed class ModuleFunctionEditorTests
         var output = editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
         // Repl is a model input for this function, so use a key outside its complete required set.
         wrongKeys.Settings.resultsQueryParameterKeys = ["Message"];
-        Assert.Equal(compatible.Id, Assert.Single(output.SourceProjects).Id);
+        Assert.Equal(3, output.SourceProjects.Count());
+        Assert.Equal(compatible.Id, Assert.Single(output.SourceProjects, choice => choice.IsCompatible).Id);
+        Assert.Contains("named", output.SourceProjects.Single(choice => choice.Id == wrongLabel.Id).IncompatibilityReason);
+        Assert.Contains("Message", output.SourceProjects.Single(choice => choice.Id == wrongKeys.Id).IncompatibilityReason);
         output.SourceProjectId = wrongKeys.Id;
-        Assert.Contains("does not accept", output.Error);
+        Assert.Contains("not accepted", output.Error);
         output.SourceProjectId = compatible.Id;
         Assert.Empty(output.Error);
         Assert.All(editor.SetupDataTypes.Where(row => row.GeneratesData), row => Assert.Empty(row.SourceProjects));

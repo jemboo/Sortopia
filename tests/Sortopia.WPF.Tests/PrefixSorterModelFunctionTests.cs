@@ -238,6 +238,8 @@ public sealed class PrefixSorterModelFunctionTests
             var prefix = module.Editor!.ResultsParameterDefaults.Single(value => value.Key == "PrefixLibId");
             prefix.Value.Text = Prefix(9);
             await page.SaveWorkspaceAsync(); Assert.Contains("incompatible", page.Error);
+            module = page.Roots[0].Children[0]; page.Selected = module;
+            prefix = module.Editor!.ResultsParameterDefaults.Single(value => value.Key == "PrefixLibId");
             prefix.RemoveCommand.Execute(null);
             page.AddProjectCommand.Execute(null); var project = page.Selected!;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
@@ -245,6 +247,8 @@ public sealed class PrefixSorterModelFunctionTests
             var span = Assert.Single(run.Editor.ResultsParameters);
             foreach (var width in new[] { 8, 9 }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = Prefix(width); }
             await page.SaveWorkspaceAsync(); Assert.Contains("incompatible", page.Error);
+            run = page.Roots[0].Children[0].Children[0].Children[0];
+            span = Assert.Single(run.Editor!.ResultsParameters);
             span.Values.Last().Text = Prefix(16);
             run.Editor.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);

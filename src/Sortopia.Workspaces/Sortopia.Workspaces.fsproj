@@ -3,6 +3,7 @@
     <Compile Include="Defaults.fs" />
     <Compile Include="ModuleDefaults.fs" />
     <Compile Include="Workspace.fs" />
+    <Compile Include="RunWorkspace.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Runs/Sortopia.Runs.fsproj" />

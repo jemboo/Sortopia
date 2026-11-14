@@ -9,6 +9,7 @@ module SetupFunctionCatalog =
         Map.ofList [
             SetupFunctionNames.standardTests, SetupFunctions.standardTests
             SetupFunctionNames.evaluationSource, SetupFunctions.evaluationSource
+            SetupFunctionNames.evaluationSourcePrefix, SetupFunctions.evaluationSourcePrefix
             SetupFunctionNames.uniformMsceSorterModels, SetupFunctions.uniformMsceSorterModels
             SetupFunctionNames.uniformMssiSorterModels, SetupFunctions.uniformMssiSorterModels
             SetupFunctionNames.uniformMsrsSorterModels, SetupFunctions.uniformMsrsSorterModels

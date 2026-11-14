@@ -160,7 +160,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     }
 
     [Fact]
-    public void Setup_editor_filters_exact_type_and_text_and_links_to_the_defining_source()
+    public void Setup_editor_explains_incompatible_type_and_text_and_links_to_the_defining_source()
     {
         var source = Source(); var world = Workspace(source, Consumer(source));
         var tree = WorkspaceTreeNode.FromWorkspace(world);
@@ -170,7 +170,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         Assert.Equal(source.Id, Assert.Single(row.SourceProjects).Id);
         Assert.Same(sourceNode.Editor, row.SourceEditor);
         row = new WorkspaceSetupDataTypeEntry(new() { dataType = new() { kind = "SortableTests", value = "wrong label" }, sourceProjectId = source.Id, queryParameterKeys = [] }, () => [new(source.Id, "Source", true, sourceNode.Editor!.ToProjectSettings(), sourceNode.Editor)]);
-        Assert.Empty(row.SourceProjects); Assert.Contains("exact data type", row.Error);
+        Assert.False(Assert.Single(row.SourceProjects).IsCompatible); Assert.Contains("exact data type", row.Error);
     }
 
     [Theory]

@@ -97,6 +97,28 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <Style x:Key="NetworkComboBoxItemStyle" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+        <Setter Property="Background" Value="{StaticResource Workspace.SurfaceRaised}" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="ItemSurface" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="ItemSurface" Property="Background" Value="{StaticResource Workspace.SurfaceHover}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="ItemSurface" Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style x:Key="NetworkComboBoxStyle" TargetType="ComboBox">
         <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
         <Setter Property="Background" Value="{StaticResource Workspace.SurfaceRaised}" />
@@ -105,32 +127,7 @@
         <Setter Property="FontSize" Value="14" />
         <Setter Property="Padding" Value="10,5" />
         <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
-        <Setter Property="ItemContainerStyle">
-            <Setter.Value>
-                <Style TargetType="ComboBoxItem">
-                    <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
-                    <Setter Property="Background" Value="{StaticResource Workspace.SurfaceRaised}" />
-                    <Setter Property="Padding" Value="10,7" />
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="ComboBoxItem">
-                                <Border x:Name="ItemSurface" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter />
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsHighlighted" Value="True">
-                                        <Setter TargetName="ItemSurface" Property="Background" Value="{StaticResource Workspace.SurfaceHover}" />
-                                    </Trigger>
-                                    <Trigger Property="IsSelected" Value="True">
-                                        <Setter TargetName="ItemSurface" Property="Background" Value="{StaticResource Workspace.SurfaceSelected}" />
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource NetworkComboBoxItemStyle}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">

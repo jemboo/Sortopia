@@ -10,7 +10,7 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public enum WorkspaceEntityKind { Workspace, Module, Project, Run }
 
-public sealed class WorkspaceTreeNode : ViewModelBase
+public sealed partial class WorkspaceTreeNode : ViewModelBase
 {
     private string name;
     private string folderName;
@@ -88,7 +88,7 @@ public sealed class WorkspaceTreeNode : ViewModelBase
     private Guid? savedParentProjectId;
     public bool IsSealed => sealedProject is not null;
     public bool CanEditIdentity => !IsSealed;
-    public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed" : "Draft · first saved run fixes these settings" : "";
+    public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed" : "Draft · settings are fixed when the project and its first run are valid and saved" : "";
     private IEnumerable<WorkspaceSourceProject> SourceProjects()
     {
         var root = this;

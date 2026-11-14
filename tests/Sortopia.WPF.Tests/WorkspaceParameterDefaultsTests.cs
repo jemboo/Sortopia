@@ -214,7 +214,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var owner = onProject ? project : module;
         if (onProject) (setup ? project.Editor!.InheritedSetupDefaults : project.Editor!.InheritedOutputDefaults).Single(row => row.Key == "RngType").OverrideCommand!.Execute(null);
         var row = (setup ? owner.Editor!.SetupParameterDefaults : owner.Editor!.ResultsParameterDefaults).Single(row => row.Key == "RngType");
-        row.Value.Text = "invalid RNG"; Assert.True(row.Value.HasChoices); Assert.NotEmpty(row.Error); Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        row.Value.Text = "invalid RNG"; Assert.True(row.Value.HasChoices); Assert.NotEmpty(row.Error); Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         row.Value.Text = "SplitMix64"; Assert.Empty(row.Error);
         page.Selected = project; page.AddRunCommand.Execute(null); var editor = page.Selected!.Editor!;
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);

@@ -111,7 +111,6 @@ module WorkspaceDefinitionCodec =
         if (Array.distinct value.runs).Length <> value.runs.Length then invalidArg "runs" "Duplicate run reference."
         if value.isSealed then required "sealed configuration" value.configuration
         else
-            if value.runs.Length > 0 then invalidArg "runs" "Projects containing saved runs must be sealed."
             required "inherited defaults" value.inheritedDefaults
             required "local overrides" value.localOverrides
             origin value.inheritedFrom

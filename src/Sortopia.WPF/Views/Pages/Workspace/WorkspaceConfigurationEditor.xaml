@@ -103,10 +103,28 @@
                     <TextBlock Text="Generated from parameters; no source project needed." TextWrapping="Wrap" Margin="0,6,0,6" Visibility="{Binding GeneratesData, Converter={StaticResource VisibleWhen}}" />
                     <StackPanel Visibility="{Binding RequiresSource, Converter={StaticResource VisibleWhen}}">
                     <Label Content="Source project" Target="{Binding ElementName=SetupSourceProjectInput}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                    <ComboBox x:Name="SetupSourceProjectInput" ItemsSource="{Binding SourceProjects}" DisplayMemberPath="Label" SelectedValuePath="Id"
-                              SelectedValue="{Binding SourceProjectId, Mode=TwoWay}" ToolTip="{Binding SourceLabel}" AutomationProperties.Name="Setup source project" />
+                    <ComboBox x:Name="SetupSourceProjectInput" ItemsSource="{Binding SourceProjects}" SelectedValuePath="Id" TextSearch.TextPath="Label"
+                              SelectedValue="{Binding SourceProjectId, Mode=TwoWay}" ToolTip="{Binding SourceLabel}" AutomationProperties.Name="Setup source project"
+                              MaxDropDownHeight="420">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel MaxWidth="420" Margin="0,3">
+                                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding CompatibilityText}" TextWrapping="Wrap" FontSize="12" Margin="0,3,0,0" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem" BasedOn="{StaticResource NetworkComboBoxItemStyle}">
+                                <Setter Property="IsEnabled" Value="{Binding IsCompatible}" />
+                                <Setter Property="ToolTip" Value="{Binding CompatibilityText}" />
+                                <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                <Setter Property="AutomationProperties.HelpText" Value="{Binding CompatibilityText}" />
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
                     <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SetupSourceLink}" Visibility="{Binding RequiresSource, Converter={StaticResource VisibleWhen}}" />
-                    <TextBlock Text="Draft sources must be sealed by saving their first run before this project can save runs." Style="{StaticResource Help}" />
+                    <TextBlock Text="You can save unfinished sources and runs as drafts. Complete and save each source's first run before generating this project's run parameters." Style="{StaticResource Help}" />
                     <TextBlock Text="{Binding SourceQueryHint}" Style="{StaticResource Help}" />
                     </StackPanel>
                     <TextBlock Text="Query keys" FontWeight="SemiBold" Margin="0,8,0,6" />

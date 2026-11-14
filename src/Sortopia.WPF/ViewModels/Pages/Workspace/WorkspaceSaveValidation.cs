@@ -19,16 +19,27 @@ public sealed record WorkspaceSaveIssue(WorkspaceTreeNode Node, string Section, 
 public sealed partial class WorkspacePageViewModel
 {
     public RelayCommand ReviewSaveIssueCommand { get; private set; } = null!;
-    public IReadOnlyList<WorkspaceSaveIssue> SaveIssues => Roots.SelectMany(root => root.DescendantsAndSelf()).SelectMany(IssuesFor).ToArray();
+    public IReadOnlyList<WorkspaceSaveIssue> SaveIssues
+    {
+        get
+        {
+            var issues = Roots.SelectMany(root => root.DescendantsAndSelf()).SelectMany(IssuesFor).ToArray();
+            return issues.Length == 0 && savedConfigurationError.Length > 0 && Roots.Count > 0
+                ? [new(Roots[0], "Configuration", savedConfigurationError)] : issues;
+        }
+    }
     private static IEnumerable<WorkspaceSaveIssue> IssuesFor(WorkspaceTreeNode node)
     {
         if (node.NameError.Length > 0) yield return new(node, "Name", node.NameError);
         if (node.FolderNameError.Length > 0) yield return new(node, "Location", node.FolderNameError);
         if (node.Editor is { } editor)
             foreach (var issue in editor.ValidationIssues) yield return new(node, issue.Section, issue.Message);
+        if (node.DraftSourceError is { Length: > 0 } sourceError) yield return new(node, "Setup settings", sourceError);
     }
     public bool HasSaveIssues => SaveIssues.Count > 0;
-    public string SaveIssueSummary => $"Cannot save yet · {SaveIssues.Count} {(SaveIssues.Count == 1 ? "field needs" : "fields need")} attention. Select an item below to fix it.";
+    private bool HasStructuralErrors => Roots.SelectMany(root => root.DescendantsAndSelf()).Any(node => node.NameError.Length > 0 || node.FolderNameError.Length > 0);
+    public string SaveIssueSummary => HasStructuralErrors ? "Fix the name or location errors before saving. Select an item below to review it."
+        : $"{SaveIssues.Count} configuration {(SaveIssues.Count == 1 ? "issue" : "issues")} · {(HasUnsavedChanges ? "You can save this draft and finish later." : "Draft saved. Runs with valid settings and sources can still generate parameters.")} Select an item below to review it.";
     public string SaveHint
     {
         get
@@ -37,10 +48,11 @@ public sealed partial class WorkspacePageViewModel
             if (WorkspaceFolder.Length == 0) return "Choose a workspace folder with Browse before saving.";
             if (!Directory.Exists(WorkspaceFolder)) return $"The workspace folder is unavailable: {WorkspaceFolder}. Restore it or choose another folder with Browse.";
             if (workspaceFileState == WorkspaceFileState.Conflict) return $"Cannot save in this folder. {workspaceFileIssue}";
-            if (SaveIssues.FirstOrDefault() is { } issue) return $"Cannot save: {issue.Location}. {issue.Message}";
+            if (SaveIssues.FirstOrDefault(issue => issue.Section is "Name" or "Location") is { } issue) return $"Cannot save: {issue.Location}. {issue.Message}";
             if (WorkspaceNameError.Length > 0) return WorkspaceNameError;
-            if (!ShowNewWorkspace && savedDefinition is null) return "The workspace could not be loaded. Review the load error or choose another folder.";
+            if (!ShowNewWorkspace && savedDocument is null) return "The workspace could not be loaded. Review the load error or choose another folder.";
             if (!ShowNewWorkspace && !HasUnsavedChanges && !HasMissingComponents) return "All changes are already saved.";
+            if (HasSaveIssues) return "Save this draft with its configuration issues. You can close Sortopia and finish it later; invalid runs cannot generate parameter files.";
             return "Save all workspace, module, project and run changes.";
         }
     }

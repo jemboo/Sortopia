@@ -69,7 +69,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         Assert.Equal("Results settings", issue.Section);
         Assert.Contains("Override on this module", issue.Message); Assert.Contains("catalog", issue.Message);
         Assert.DoesNotContain("ancestor", issue.Message);
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         project.Editor!.Sections.ResultsSettings = false; page.Selected = page.Roots[0];
         page.ReviewSaveIssueCommand.Execute(issue);
         Assert.Same(project, page.Selected); Assert.True(project.Editor.Sections.ResultsSettings);
@@ -115,7 +115,8 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         var issue = Assert.Single(page.SaveIssues);
         Assert.Equal("Results parameter spans", issue.Section);
         Assert.Contains("ChannelCount", issue.Message); Assert.Contains("Whole number", issue.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(issue.Location, page.SaveHint);
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.Contains("draft", page.SaveHint);
     }
     public void Dispose() => temporary.Delete(recursive: true);
 }

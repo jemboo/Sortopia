@@ -198,9 +198,11 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         run.Editor!.ResultsFunctionName = "Not an allowed run override";
         Assert.Equal("sortable-tests.standard", run.Editor.ResultsFunctionName);
         run.Editor.ResultsParameters.Clear();
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         await page.SaveWorkspaceAsync();
         Assert.Contains("ChannelCount", page.Error);
+        Assert.Empty(page.OperationError); Assert.False(page.HasUnsavedChanges);
+        Assert.Empty(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Runs[0].resultsParameterSpans);
         Assert.Equal(before, File.ReadAllBytes(file));
     }
 

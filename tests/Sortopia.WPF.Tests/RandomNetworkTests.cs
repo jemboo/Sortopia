@@ -2223,9 +2223,9 @@ public sealed class RandomNetworkTests
             }
             var badFormat = vm.Selected.Editor!.SetupParameters.Single(row => row.Key == "SortableDataFormat");
             badFormat.Values[0].Text = "invalid"; Layout();
-            Assert.False(vm.SaveWorkspaceCommand.CanExecute(null)); Assert.False(button.IsEnabled);
+            Assert.True(vm.SaveWorkspaceCommand.CanExecute(null)); Assert.False(button.IsEnabled);
             Assert.True(navigate.IsEnabled); // Existing saved parameter files remain available despite this draft.
-            Assert.Contains("SortableDataFormat", vm.SaveHint);
+            Assert.Contains(vm.SaveIssues, issue => issue.Message.Contains("SortableDataFormat"));
             badFormat.Values[0].Text = "Bools"; CompleteRun(vm.SaveWorkspaceAsync); WorkspaceRunExecutionTests.SelectRun(vm); Layout();
             Assert.True(button.IsEnabled);
         }
@@ -2969,8 +2969,8 @@ public sealed class RandomNetworkTests
             var sourceEntry = branchProject.Editor.SetupDataTypes.Single(row => row.RequiresSource);
             var setupEntry = (ContentPresenter)setupEntries.ItemContainerGenerator.ContainerFromItem(sourceEntry);
             var sourcePicker = (ComboBox)setupEntries.ItemTemplate.FindName("SetupSourceProjectInput", setupEntry);
-            Assert.Contains(sourcePicker.Items.Cast<WorkspaceSourceProject>(), item => item.Id == setupSource.Id);
-            Assert.All(sourcePicker.Items.Cast<WorkspaceSourceProject>(), item => Assert.Contains(item.Settings.resultsDataTypes, output => output.dataType.kind == "SortableTests" && output.dataType.value == ""));
+            Assert.Contains(sourcePicker.Items.Cast<WorkspaceSourceProjectChoice>(), item => item.Id == setupSource.Id && item.IsCompatible);
+            Assert.All(sourcePicker.Items.Cast<WorkspaceSourceProjectChoice>().Where(item => item.IsCompatible), item => Assert.Contains(item.Project.Settings.resultsDataTypes, output => output.dataType.kind == "SortableTests" && output.dataType.value == ""));
             sourcePicker.SetCurrentValue(ComboBox.SelectedValueProperty, setupSource.Id); LayoutWorkspace();
             Assert.Equal(setupSource.Id, sourceEntry.SourceProjectId);
             Assert.Null(setupEntries.ItemTemplate.FindName("SetupQueryKeysList", setupEntry));
@@ -2991,7 +2991,7 @@ public sealed class RandomNetworkTests
             var integerEditor = AddTypedDefault("ChannelCount");
             var integerInput = (TextBox)integerEditor.FindName("TypedValueInput");
             integerInput.SetCurrentValue(TextBox.TextProperty, "0"); LayoutWorkspace();
-            Assert.False(save.IsEnabled); Assert.Contains("1 or greater", vm.Error);
+            Assert.True(save.IsEnabled); Assert.Contains("1 or greater", vm.Error);
             integerInput.SetCurrentValue(TextBox.TextProperty, "4"); LayoutWorkspace();
             var booleanEditor = AddTypedDefault("CollectSortableTests");
             var booleanInput = (ComboBox)booleanEditor.FindName("BooleanValueInput");
@@ -3034,7 +3034,7 @@ public sealed class RandomNetworkTests
             var valueEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)values.ItemTemplate.FindName("ParameterValueEditor", valueRow);
             var numeric = (TextBox)valueEditor.FindName("TypedValueInput");
             numeric.SetCurrentValue(TextBox.TextProperty, "0"); LayoutWorkspace();
-            Assert.False(save.IsEnabled); Assert.Empty(branchRun.Editor.ResultsParameterSetsPreview.Rows);
+            Assert.True(save.IsEnabled); Assert.Empty(branchRun.Editor.ResultsParameterSetsPreview.Rows);
             numeric.SetCurrentValue(TextBox.TextProperty, "4"); LayoutWorkspace();
             Assert.True(save.IsEnabled);
             foreach (var width in new[] { 1400, 640 })

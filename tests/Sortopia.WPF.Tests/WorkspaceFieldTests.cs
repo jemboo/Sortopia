@@ -67,11 +67,11 @@ public sealed class WorkspaceFieldTests : IDisposable
         run.Editor.DescriptionOverride.IsOverridden = true; Assert.Equal("Local", run.Editor.Description);
     }
     [Fact]
-    public async Task Invalid_span_values_block_save_and_preview_until_corrected()
+    public async Task Invalid_span_values_allow_draft_save_but_block_preview_until_corrected()
     {
         var page = Open(); CreateProject(page, false); var run = CreateRun(page);
         var row = run.Editor!.ResultsParameters.Single(row => row.Key == "ChannelCount"); row.Values[0].Text = "7,11";
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null)); Assert.NotEmpty(run.Editor.ResultsParameterSetsPreview.Error);
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null)); Assert.NotEmpty(run.Editor.ResultsParameterSetsPreview.Error);
         row.Values[0].Text = "16"; await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
     }
     [Theory] [InlineData(false)] [InlineData(true)]

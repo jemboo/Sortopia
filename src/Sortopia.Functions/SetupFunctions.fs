@@ -16,38 +16,52 @@ module SetupFunctions =
             (fun host _ -> host.SetupDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
         |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format, with an empty prefix. Save the tests in the setup database."
 
+    let private sourceInputError withPrefix defaults spans =
+        try
+            let widths = inputValues ParamKeys.channelCountKey defaults spans
+            if widths |> List.exists (fun count -> count < 1) then
+                invalidArg "ChannelCount" "ChannelCount must be positive."
+            if withPrefix then
+                for prefix in inputValues ParamKeys.prefixLibIdKey defaults spans do
+                    if widths |> List.exists ((<>) (int prefix.ChannelCount)) then
+                        invalidArg "ChannelCount" $"ChannelCount must match PrefixLibId's {int prefix.ChannelCount} channels for every parameter combination."
+            ""
+        with error -> error.Message
+
     /// Copy both evaluation inputs unchanged, using a separate source project per type.
+    let private copyEvaluationInputs (host: runHost) (projects: sourceProjects) =
+        let channels = required ParamKeys.channelCountKey host.Parameters
+        let modelsReference = host.SourceResults.Find(projects[modelsType], modelsType, host.Parameters)
+        let testsReference = host.SourceResults.Find(projects[testsType], testsType, host.Parameters)
+        let modelsValue = host.SourceResults.Load modelsReference
+        let testsValue = host.SourceResults.Load testsReference
+        // Validate both sources before publishing either local copy, including on retries.
+        match modelsValue with
+        | functionData.SorterModelSet models ->
+            if models.SorterModels |> Array.exists (fun model -> int (SorterModel.getChannelCount model) <> channels) then
+                invalidArg "ChannelCount" $"Every model in the source SorterModelSet must have ChannelCount {channels}."
+        | _ -> invalidOp "Expected a source SorterModelSet."
+        match testsValue with
+        | functionData.SortableTests (tests, _) ->
+            if int (Sortopia.Sorting.Inputs.SortableTests.getChannelCount tests) <> channels then
+                invalidArg "ChannelCount" $"The source SortableTests must have ChannelCount {channels}."
+        | _ -> invalidOp "Expected source SortableTests."
+        host.SetupDb.SaveIfMissing(modelsType, [modelsReference], fun () -> modelsValue)
+        host.SetupDb.SaveIfMissing(testsType, [testsReference], fun () -> testsValue)
+
     let evaluationSource =
         let keys = [ParamKey.describe ParamKeys.channelCountKey]
-        let inputError defaults spans =
-            try
-                if inputValues ParamKeys.channelCountKey defaults spans |> List.exists (fun count -> count < 1) then
-                    "ChannelCount must be positive."
-                else ""
-            with error -> error.Message
         FunctionDefinition.setupWithSourcesValidated "1" keys
             [modelsType, queryKeys keys; testsType, queryKeys keys]
-            [modelsType, [modelsType]; testsType, [testsType]] inputError
-            (fun host projects ->
-                let channels = required ParamKeys.channelCountKey host.Parameters
-                let modelsReference = host.SourceResults.Find(projects[modelsType], modelsType, host.Parameters)
-                let testsReference = host.SourceResults.Find(projects[testsType], testsType, host.Parameters)
-                let modelsValue = host.SourceResults.Load modelsReference
-                let testsValue = host.SourceResults.Load testsReference
-                // Validate both sources before publishing either local copy, including on retries.
-                match modelsValue with
-                | functionData.SorterModelSet models ->
-                    if models.SorterModels |> Array.exists (fun model -> int (SorterModel.getChannelCount model) <> channels) then
-                        invalidArg "ChannelCount" $"Every model in the source SorterModelSet must have ChannelCount {channels}."
-                | _ -> invalidOp "Expected a source SorterModelSet."
-                match testsValue with
-                | functionData.SortableTests (tests, _) ->
-                    if int (Sortopia.Sorting.Inputs.SortableTests.getChannelCount tests) <> channels then
-                        invalidArg "ChannelCount" $"The source SortableTests must have ChannelCount {channels}."
-                | _ -> invalidOp "Expected source SortableTests."
-                host.SetupDb.SaveIfMissing(modelsType, [modelsReference], fun () -> modelsValue)
-                host.SetupDb.SaveIfMissing(testsType, [testsReference], fun () -> testsValue))
+            [modelsType, [modelsType]; testsType, [testsType]] (sourceInputError false) copyEvaluationInputs
         |> FunctionDefinition.describe "Copy sorter models and sortable tests from separately selected source projects into the setup database. Find both by ChannelCount, validate matching widths, and preserve the models, tests, and tests' prefix."
+
+    let evaluationSourcePrefix =
+        let keys = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.prefixLibIdKey]
+        FunctionDefinition.setupWithSourcesValidated "1" keys
+            [modelsType, [ParamKeys.channelCountKey.Name]; testsType, [ParamKeys.prefixLibIdKey.Name]]
+            [modelsType, [modelsType]; testsType, [testsType]] (sourceInputError true) copyEvaluationInputs
+        |> FunctionDefinition.describe "Copy sorter models by ChannelCount and sortable tests by PrefixLibId from separately selected source projects into the setup database. Require matching channel counts and preserve the existing models, tests, and tests' prefix."
 
     let private modelGenerator modelType keys make =
         FunctionDefinition.setupValidated "1" keys [modelsType, queryKeys keys] (ModelGenerators.inputError ChannelCountInput modelType)

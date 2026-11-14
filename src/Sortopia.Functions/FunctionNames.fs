@@ -28,6 +28,7 @@ module ResultsFunctionNames =
 module SetupFunctionNames =
     let standardTests : string<setupFunctionName> = UMX.tag "sortable-tests-with-prefix.standard"
     let evaluationSource : string<setupFunctionName> = UMX.tag "sorter-eval.source"
+    let evaluationSourcePrefix : string<setupFunctionName> = UMX.tag "sorter-eval.source.prefix"
     let uniformMsceSorterModels : string<setupFunctionName> = UMX.tag "sorter-model-set.uniform.msce"
     let uniformMssiSorterModels : string<setupFunctionName> = UMX.tag "sorter-model-set.uniform.mssi"
     let uniformMsrsSorterModels : string<setupFunctionName> = UMX.tag "sorter-model-set.uniform.msrs"

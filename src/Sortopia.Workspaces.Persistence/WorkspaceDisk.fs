@@ -16,12 +16,20 @@ open WorkspaceFileSystem
 module internal WorkspaceDisk =
     // In-memory optimistic concurrency baseline; never a tracking file. Comparing
     // only resolved settings would miss edits to captured defaults hidden by a parent.
-    let private loadedFiles = ConditionalWeakTable<workspace, (string * string * string) array>()
+    let private loadedFiles = ConditionalWeakTable<obj, (string * string * string) array>()
+    let private loadedDocuments = ConditionalWeakTable<WorkspaceDocument, WorkspaceDocument>()
     let private digest bytes = SHA256.HashData(bytes: byte array) |> Convert.ToHexString
-    let private remember value files =
+    let private remember (value: obj) files =
         loadedFiles.Remove value |> ignore
         loadedFiles.Add(value, files)
-    let verifySavedFiles (value: workspace) =
+        match value with
+        | :? WorkspaceDocument as document ->
+            loadedDocuments.Remove document |> ignore
+            loadedDocuments.Add(document, MessagePackSetup.serialize document |> MessagePackSetup.deserialize<WorkspaceDocument>)
+        | _ -> ()
+    let documentBaseline value =
+        match loadedDocuments.TryGetValue value with true, snapshot -> snapshot | _ -> value
+    let verifySavedFiles (value: obj) =
         match loadedFiles.TryGetValue value with
         | true, files ->
             for path, kind, hash in files do
@@ -181,6 +189,7 @@ module internal WorkspaceDisk =
         let path, bytes = definition folder "project" depth reader
         let dto = WorkspaceDefinitionCodec.decodeProject (upgradeBytes legacy "project" bytes)
         reader.Identity(path, "project", dto.id, expected)
+        if not dto.isSealed && dto.runs.Length > 0 then invalidOp $"Project '{dto.projectName}' is a saved draft. Complete its configuration and run inputs before generating run parameters."
         let saved = WorkspaceDefinitionCodec.projectHeader parent dto
         let runs = dto.runs |> Array.map (fun id ->
             let file = Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name id)
@@ -225,6 +234,54 @@ module internal WorkspaceDisk =
         value)
 
     let loadDefinition rootFolder = loadDefinitionLayout false CancellationToken.None rootFolder
+
+    let private readProjectDocument folder depth (reader: Reader) expected : ProjectDocument =
+        let path, bytes = definition folder "project" depth reader
+        let dto = WorkspaceDefinitionCodec.decodeProject bytes
+        reader.Identity(path, "project", dto.id, expected)
+        let runs = dto.runs |> Array.map (fun id ->
+            let file = Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name id)
+            if not (File.Exists file) then raise (FileNotFoundException($"Missing referenced run {id} in project '{dto.projectName}'.", file))
+            let run = reader.Read file |> MessagePackSetup.deserialize<runDto>
+            RunDto.readId run |> ignore
+            reader.Identity(file, "run", run.id, Some id)
+            run)
+        { Definition = { dto with folderName = Path.GetFileName(folder) }; Runs = runs }
+
+    let rec private readModuleDocument folder depth (reader: Reader) expected : ModuleDocument =
+        let path, bytes = definition folder "module" depth reader
+        let dto = WorkspaceDefinitionCodec.decodeModule bytes
+        reader.Identity(path, "module", dto.id, expected)
+        { Definition = { dto with folderName = Path.GetFileName(folder) }
+          Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder false folder "modules" reference) (depth + 1) reader (Some reference.id))
+          Projects = dto.projects |> Array.map (fun reference -> readProjectDocument (referenceFolder false folder "projects" reference) (depth + 1) reader (Some reference.id)) }
+
+    let loadDocument rootFolder =
+        let root = normalizeRoot rootFolder
+        let reader = Reader(CancellationToken.None)
+        let path, bytes = definition root "workspace" 0 reader
+        let dto = WorkspaceDefinitionCodec.decodeWorkspace bytes
+        reader.Identity(path, "workspace", dto.id, None)
+        let value = WorkspaceDocument.validate {
+            Definition = { dto with folderName = folderName root }
+            Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder false root "modules" reference) 1 reader (Some reference.id)) }
+        reader.Verify()
+        remember value reader.Files
+        value
+
+    let rememberSavedDocument root (value: WorkspaceDocument) =
+        let files = ResizeArray<string * string * string>()
+        let add folder kind id value = files.Add(Path.Combine(folder, WorkspaceDefinitionFiles.Name id), kind, digest (MessagePackSetup.serialize value))
+        let rec visit folder (value: ModuleDocument) =
+            add folder "module" value.Definition.id value.Definition
+            for m in value.Modules do visit (child folder m.Definition.folderName) m
+            for p in value.Projects do
+                let projectFolder = child folder p.Definition.folderName
+                add projectFolder "project" p.Definition.id p.Definition
+                for r in p.Runs do add (Path.Combine(projectFolder, "runs")) "run" r.id r
+        add root "workspace" value.Definition.id value.Definition
+        for m in value.Modules do visit (child root m.Definition.folderName) m
+        remember value (files.ToArray())
 
     let rememberSavedFiles root (value: workspace) =
         let files = ResizeArray<string * string * string>()

@@ -6,6 +6,7 @@ open FSharp.UMX
 open Sortopia.FileDb
 open Sortopia.Functions
 open Sortopia.Workspaces.Persistence
+open Sortopia.Workspaces.Serialization
 
 module Program =
     let private help = """Sortopia results execution
@@ -64,12 +65,10 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
                 | "generate-parameters" ->
                     let values = options args[1..] ["--workspace"; "--run"]
                     let folder = required "--workspace" values
-                    let id = required "--run" values |> guid |> UMX.tag
-                    let workspace = WorkspaceFileStore.LoadDefinition folder
-                    let value = workspace.ProjectIndex.Values |> Seq.collect _.Runs |> Seq.tryFind (fun value -> value.Id = id)
-                                |> Option.defaultWith (fun () -> invalidOp "The saved run was not found in this workspace.")
-                    let generated = RunParameterExecution.generate workspace folder value progress cancellation.Token
-                    printfn "Published parameter files: %d\nProject folder: %s" generated.WorkItemIds.Length (WorkspaceData.projectFolder workspace folder value.ParentProjectId)
+                    let id = required "--run" values |> guid
+                    let scope = WorkspaceRunDocument.resolveByRunId (WorkspaceFileStore.LoadDocument folder) id
+                    let generated = RunParameterExecution.generateInScope scope folder progress cancellation.Token
+                    printfn "Published parameter files: %d\nProject folder: %s" generated.WorkItemIds.Length (WorkspaceData.scopedProjectFolder scope folder scope.Run.ParentProjectId)
                     finish generated.Execution
                 | "list-parameters" ->
                     let values = options args[1..] ["--parameters-folder"; "--run"]

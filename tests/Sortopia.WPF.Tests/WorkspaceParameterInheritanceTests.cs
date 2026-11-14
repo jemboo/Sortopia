@@ -143,7 +143,7 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         AddDefault(child.Editor!, "ChannelCount", "8");
         var duplicate = AddDefault(child.Editor!, "ChannelCount", "4");
         Assert.Contains("unique", child.Editor!.ResultsParameterDefaultsError);
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         var inherited = ListModule.OfArray(new[] { ParameterBinding.create(ParamKeys.channelCountKey, 16) });
         var local = ListModule.OfArray(new[] { ParameterBinding.create(ParamKeys.channelCountKey, 8), ParameterBinding.create(ParamKeys.channelCountKey, 4) });
         Assert.Throws<ArgumentException>(() => Defaults.mergeParameterDefaults(inherited, local));

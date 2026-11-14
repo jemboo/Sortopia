@@ -20,13 +20,15 @@ public sealed partial class WorkspacePageViewModel
     {
         get
         {
-            var run = SelectedSavedRun;
-            return run is not null && savedDefinition is not null
-                ? Path.Combine(WorkspaceData.projectFolder(savedDefinition, WorkspaceFolder, run.ParentProjectId), "runParameters") : "";
+            // Prepared work is independent of the editable configuration's validity.
+            if (Selected?.IsRun != true || savedDocument is null) return "";
+            var file = Roots.SelectMany(root => root.DescendantsAndSelf())
+                .FirstOrDefault(node => node.IsRun && node.Id == Selected.Id)?.SavedFolderPath;
+            return file is null ? "" : Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(file))!, "runParameters");
         }
     }
     public Task OpenExecutePageAsync() => ExecutePageCommand.CanExecute(null)
-        ? openResultsExecution!(RunParametersFolder, SelectedSavedRun!.Id) : Task.CompletedTask;
+        ? openResultsExecution!(RunParametersFolder, Selected!.Id) : Task.CompletedTask;
     private void NotifyRunParameterCommands()
     {
         OnPropertyChanged(nameof(RunParametersFolder));
@@ -36,8 +38,8 @@ public sealed partial class WorkspacePageViewModel
     public Task GenerateRunParametersAsync()
     {
         if (!CanGenerateRunParameters) return Task.CompletedTask;
-        var value = SelectedSavedRun!;
-        var workspace = savedDefinition!;
+        var scope = savedRunScope!;
+        var value = scope.Run;
         var root = WorkspaceFolder;
         var state = SelectedExecution!;
         return RunAsync(async token =>
@@ -51,7 +53,7 @@ public sealed partial class WorkspacePageViewModel
             }));
             try
             {
-                var report = await Task.Run(() => RunParameterExecution.generate(workspace, root, value, progress, token));
+                var report = await Task.Run(() => RunParameterExecution.generateInScope(scope, root, progress, token));
                 acceptingProgress = false;
                 state.FinishGeneration(report);
                 Status = $"Run '{value.RunName}': {state.Summary}";

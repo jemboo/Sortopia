@@ -306,7 +306,7 @@ public sealed class ResultsExecutionTests : IDisposable
         Assert.IsType<HomePageViewModel>(shell.CurrentPage).OpenWorkspaceCommand.Execute(null);
         var workspace = Assert.IsType<WorkspacePageViewModel>(shell.CurrentPage); WorkspaceRunExecutionTests.SelectRun(workspace);
         workspace.WorkspaceName = "Unsaved title";
-        Assert.True(workspace.ExecutePageCommand.CanExecute(null)); Assert.False(workspace.GenerateRunParametersCommand.CanExecute(null));
+        Assert.True(workspace.ExecutePageCommand.CanExecute(null)); Assert.True(workspace.GenerateRunParametersCommand.CanExecute(null));
         await workspace.OpenExecutePageAsync();
         var execution = Assert.IsType<ResultsExecutionPageViewModel>(shell.CurrentPage);
         Assert.Equal(folder, execution.Folder); Assert.Equal(runId, execution.SelectedRun!.Id);

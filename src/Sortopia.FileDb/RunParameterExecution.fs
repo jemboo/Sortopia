@@ -72,14 +72,15 @@ module RunParameterExecution =
 
     /// Local phase: resolve source projects, execute setup, freeze each results
     /// invocation. Each atomically published parameter file is independently ready.
-    let generate (workspace: workspace) workspaceRoot (value: run) progress (token: CancellationToken) =
+    let private generateUsing makeHost progress (token: CancellationToken) =
         let setup = ResizeArray<runFunctionResult>()
         let ids = ResizeArray<Guid<workItemId>>()
         let mutable context = "Preparing run"
         let finish status error = report status (setup.ToArray()) [||] error
         try
             token.ThrowIfCancellationRequested()
-            let factory = FileRunHost(workspace, workspaceRoot, value, token)
+            let factory: FileRunHost = makeHost ()
+            let value = factory.Run
             let projectFolder = factory.ProjectFolder
             RunParameterStorage.requireProject projectFolder value.ParentProjectId
             let sets = RunParameterSets.create value
@@ -136,6 +137,13 @@ module RunParameterExecution =
                 | :? OperationCanceledException -> runExecutionStatus.Cancelled, ""
                 | _ -> runExecutionStatus.Failed, $"{context}: {error.GetBaseException().Message}"
             { WorkItemIds = ids.ToArray(); Execution = finish status message }
+
+    let generate (workspace: workspace) workspaceRoot (value: run) progress (token: CancellationToken) =
+        generateUsing (fun () -> FileRunHost(workspace, workspaceRoot, value, token)) progress token
+
+    /// Only the selected saved run and its direct source results are dependencies.
+    let generateInScope (scope: runWorkspace) workspaceRoot progress (token: CancellationToken) =
+        generateUsing (fun () -> FileRunHost(scope, workspaceRoot, token)) progress token
 
     let private execute folder (workItems: runParameters array) (options: resultsExecutionOptions) progress itemProgress (token: CancellationToken) =
         let results = Array.create workItems.Length None

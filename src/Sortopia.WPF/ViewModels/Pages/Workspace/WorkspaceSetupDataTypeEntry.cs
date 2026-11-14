@@ -8,6 +8,14 @@ public sealed record WorkspaceSourceProject(Guid Id, string Name, bool IsSealed,
     public string Label => $"{Name}{(Location.Length == 0 ? "" : " · " + Location)} · {(IsSealed ? "sealed" : HasPendingRuns ? "seals on save" : "draft")}";
 }
 
+public sealed record WorkspaceSourceProjectChoice(WorkspaceSourceProject Project, string IncompatibilityReason, string QuerySummary)
+{
+    public Guid Id => Project.Id;
+    public string Label => Project.Label;
+    public bool IsCompatible => IncompatibilityReason.Length == 0;
+    public string CompatibilityText => IsCompatible ? QuerySummary : "Unavailable · " + IncompatibilityReason;
+}
+
 /// <summary>One setup output, its matching source project, and its own query keys.</summary>
 public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
 {
@@ -26,26 +34,40 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     }
     public WorkspaceOutputType DataType { get; }
     public Guid SourceProjectId { get => sourceProjectId; set { if (SetProperty(ref sourceProjectId, value)) Edited(); } }
-    public IEnumerable<WorkspaceSourceProject> SourceProjects => RequiresSource ? sources().Where(p => Matches(p) && SupportsQuery(p)) : [];
+    public IEnumerable<WorkspaceSourceProjectChoice> SourceProjects => RequiresSource
+        ? sources().Select(p => new WorkspaceSourceProjectChoice(p, Incompatibility(p), QuerySummary(p)))
+            .OrderByDescending(p => p.IsCompatible).ThenBy(p => p.Label, StringComparer.OrdinalIgnoreCase) : [];
     public WorkspaceSourceProject? Source => sources().FirstOrDefault(p => p.Id == SourceProjectId);
     public WorkspaceConfigurationViewModel? SourceEditor => Source?.Editor;
     public string SourceLabel => !RequiresSource ? "Generated from parameters; no source project needed" : Source?.Label ?? "Choose a source project";
     public string QueryKeysSummary => QueryKeys.Length == 0 ? "No setup query keys" : string.Join(", ", QueryKeys);
     public string SourceQueryHint => !RequiresSource ? "Generated from parameters; no source project needed."
-        : Source is { } p ? $"Source results query keys: {string.Join(", ", p.Settings.resultsDataTypes?.FirstOrDefault(output => output.dataType.kind == DataType.Kind && output.dataType.value == DataType.Text)?.queryParameterKeys ?? p.Settings.resultsQueryParameterKeys)}"
-        : !SourceProjects.Any() ? "No compatible source projects. A source must provide this exact data type and text, with results query keys accepted by the setup function."
-        : allowUnassignedSource ? "Choose a shared source here, or let each descendant project choose its source. Only compatible projects are listed." : "Choose a project providing this exact data type and text. Only projects with compatible results query keys are listed.";
+        : Source is { } p ? QuerySummary(p)
+        : !SourceProjects.Any(p => p.IsCompatible) ? "No compatible source projects. Open the list to see why each project is unavailable."
+        : allowUnassignedSource ? "Choose a shared source here, or let descendant projects choose. Unavailable projects are listed with the reason."
+        : "Choose a compatible project. Unavailable projects are listed with the reason.";
     public string[] QueryKeys { get; private set; }
     private bool Matches(WorkspaceSourceProject p) => p.Settings.resultsSortopiaDataTypes.Any(t => t.kind == DataType.Kind && t.value == DataType.Text);
-    private bool SupportsQuery(WorkspaceSourceProject p) => requiredParameters is null ||
-        (p.Settings.resultsDataTypes?.FirstOrDefault(output => output.dataType.kind == DataType.Kind && output.dataType.value == DataType.Text)?.queryParameterKeys
-            ?? p.Settings.resultsQueryParameterKeys ?? []).All(key => requiredParameters.Contains(key, StringComparer.Ordinal));
+    private string[] SourceKeys(WorkspaceSourceProject p) => p.Settings.resultsDataTypes?
+        .FirstOrDefault(output => output.dataType.kind == DataType.Kind && output.dataType.value == DataType.Text)?.queryParameterKeys
+        ?? p.Settings.resultsQueryParameterKeys ?? [];
+    private string QuerySummary(WorkspaceSourceProject p) => SourceKeys(p) is { Length: > 0 } keys
+        ? $"Source results query keys: {string.Join(", ", keys)}" : "Source has no results query keys.";
+    private string Incompatibility(WorkspaceSourceProject p)
+    {
+        if (!Matches(p))
+        {
+            static string TypeName(sortopiaDataTypeDto type) => $"{type.kind} \"{type.value}\"";
+            var outputs = string.Join(", ", p.Settings.resultsSortopiaDataTypes.Select(TypeName));
+            return $"Requires the exact data type {DataType.Kind} \"{DataType.Text}\". Project produces {(outputs.Length == 0 ? "no outputs" : outputs)}.";
+        }
+        var missing = requiredParameters is null ? [] : SourceKeys(p).Except(requiredParameters, StringComparer.Ordinal).ToArray();
+        return missing.Length == 0 ? "" : $"Source query parameters not accepted by this setup function: {string.Join(", ", missing)}. Accepted parameters: {string.Join(", ", requiredParameters!)}.";
+    }
     public string Error => !RequiresSource || allowUnassignedSource && SourceProjectId == Guid.Empty ? ""
         : SourceProjectId == Guid.Empty ? "Choose a source project."
         : Source is not { } p ? "The source project is missing from this workspace."
-        : !Matches(p) ? "The source must provide this exact data type, including its free-form text."
-        : !SupportsQuery(p) ? "The source requires query parameters that this setup function does not accept. Choose a compatible source project."
-        : "";
+        : Incompatibility(p);
     private void Edited() { RefreshSources(); NotifyChanged(); }
     internal void RefreshSources()
     {

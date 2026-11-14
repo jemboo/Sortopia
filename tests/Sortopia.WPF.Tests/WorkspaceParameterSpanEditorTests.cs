@@ -106,13 +106,13 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Invalid_choices_block_save_and_preview_then_round_trip_after_correction(bool setup)
+    public async Task Invalid_choices_allow_draft_save_but_block_preview_then_round_trip_after_correction(bool setup)
     {
         var page = Open(setup); var editor = page.Selected!.Editor!;
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); if (setup) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
         (setup ? editor.SetupParameters : editor.ResultsParameters).Single(row => row.Key == "RngType").RemoveCommand.Execute(null);
         var row = WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "RngType", setup, "invalid");
-        Assert.False(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Contains("RngType", page.SaveHint);
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Contains("draft", page.SaveHint);
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         row.Values[0].Text = "SplitMix64";
         Assert.Single((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
