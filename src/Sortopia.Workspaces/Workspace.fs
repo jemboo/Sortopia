@@ -71,8 +71,8 @@ type rootProject =
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
         if runs |> Array.exists (fun r -> r.ParentProjectId <> id) then invalidArg "runs" "Each run must reference its containing project ID."
-        if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration || r.ProjectName <> name) then
-            invalidArg "configuration" "Existing runs require their original sealed project settings and name."
+        if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration) then
+            invalidArg "configuration" "Existing runs require their original sealed project settings."
         let isSealed = isSealed || runs.Length > 0
         let local = if isSealed then Defaults.localRoot configuration else { local with ResultsDatabaseName = Some configuration.ResultsDatabaseName }
         let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; inheritedDefaults = (if isSealed then configuration else parent); localOverrides = local; runs = [||] }
@@ -133,8 +133,8 @@ type branchProject =
         EntityName.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.RunName))
         EntityId.unique "runs" (runs |> Seq.map (fun r -> UMX.untag r.Id))
         if runs |> Array.exists (fun r -> r.ParentProjectId <> id) then invalidArg "runs" "Each run must reference its containing project ID."
-        if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration || r.ProjectName <> name) then
-            invalidArg "configuration" "Existing runs require their original sealed project settings and name."
+        if runs |> Array.exists (fun r -> r.ProjectConfiguration <> configuration) then
+            invalidArg "configuration" "Existing runs require their original sealed project settings."
         let isSealed = isSealed || runs.Length > 0
         let local = if isSealed then Defaults.localBranch configuration else { local with ResultsDatabaseName = Some configuration.ResultsDatabaseName; SetupDatabaseName = Some configuration.SetupDatabaseName }
         let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; inheritedDefaults = (if isSealed then configuration else parent); localOverrides = local; runs = [||] }

@@ -1,6 +1,7 @@
 using System.IO;
 using Sortopia.FileDb;
 using Sortopia.Functions;
+using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Commands;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -42,6 +43,7 @@ public sealed partial class WorkspacePageViewModel
         var value = scope.Run;
         var root = WorkspaceFolder;
         var state = SelectedExecution!;
+        var saved = savedDocument!;
         return RunAsync(async token =>
         {
             state.Begin("Generating run parameters locally…");
@@ -53,7 +55,17 @@ public sealed partial class WorkspacePageViewModel
             }));
             try
             {
-                var report = await Task.Run(() => RunParameterExecution.generateInScope(scope, root, progress, token));
+                var generated = await Task.Run(() => WorkspaceRunGeneration.generate(root, saved, value.Id, progress, token));
+                if (!ReferenceEquals(saved, generated.Document))
+                {
+                    var dirty = HasUnsavedChanges;
+                    savedDocument = generated.Document;
+                    ClearRunScope();
+                    Roots.SelectMany(node => node.DescendantsAndSelf()).Single(node => node.IsProject && node.Id == scope.Parent.Id).MarkSealed(generated.Scope.Parent);
+                    HasUnsavedChanges = dirty;
+                    NotifyDraftProperties();
+                }
+                var report = generated.Report;
                 acceptingProgress = false;
                 state.FinishGeneration(report);
                 Status = $"Run '{value.RunName}': {state.Summary}";

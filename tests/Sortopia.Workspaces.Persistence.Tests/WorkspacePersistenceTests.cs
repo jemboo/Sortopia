@@ -114,6 +114,29 @@ public sealed class WorkspacePersistenceTests : IDisposable
         AssertFilesEqual(before, Root);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sealed_project_names_and_folders_can_change_with_stable_ids_and_settings(bool branch)
+    {
+        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(branch), Token).Definition;
+        var original = saved.Modules[0].Projects[0];
+        var source = Path.Combine(Root, "sorting", "search");
+        File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep contents");
+        var dto = WorkspaceDto.fromDomain(saved);
+        dto.modules[0].projects[0].projectName = "Renamed";
+        dto.modules[0].projects[0].folderName = "Renamed";
+        var destination = Path.Combine(Root, "sorting", "Renamed");
+        var result = WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token, moves: [new(source, destination)]);
+        var renamed = WorkspaceFileStore.LoadDefinition(Root).ProjectIndex[original.Id];
+        Assert.Equal("Renamed", renamed.ProjectName); Assert.Equal("Renamed", renamed.FolderName);
+        Assert.True(renamed.IsSealed); Assert.Equal(original.Configuration, renamed.Configuration);
+        Assert.Equal(original.Runs[0].Id, renamed.Runs[0].Id); Assert.Equal(original.Id, renamed.Runs[0].ParentProjectId);
+        Assert.Equal("Renamed", renamed.Runs[0].ProjectName);
+        Assert.Equal("Keep contents", File.ReadAllText(Path.Combine(destination, "notes.txt")));
+        Assert.False(Directory.Exists(source)); Assert.Equal(1, result.MovedFolders);
+    }
+
     [Fact]
     public void Module_import_is_deferred_preserves_new_ids_and_copies_user_data()
     {

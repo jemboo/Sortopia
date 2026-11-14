@@ -131,7 +131,7 @@
                             Visibility="{Binding HasCutItem, Converter={StaticResource WorkspaceBoolVisibility}}" />
                   </StackPanel>
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
-                            ToolTip="Remove the selected entity from the workspace. Existing folders and files are kept." />
+                            ToolTip="Remove from the draft. Saving deletes module/project folders and all contents, or the run's definition, parameter files and unshared data. Discard cancels removal." />
                 </WrapPanel>
                 <TextBlock x:Name="SelectionHint" Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8" />
                 <TreeView x:Name="WorkspaceTree" Grid.Row="2" Margin="0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
@@ -165,6 +165,10 @@
                         <TextBlock Text="{Binding Selected.Name}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0" />
                         <TextBlock Text="{Binding Selected.KindLabel}" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" />
                         <TextBlock Text="{Binding Selected.ProjectState}" FontSize="11" Foreground="{StaticResource Workspace.Accent}" TextWrapping="Wrap" />
+                        <StackPanel Visibility="{Binding Selected.IsSealed, Converter={StaticResource WorkspaceBoolVisibility}}" Margin="0,6,0,0">
+                            <Button Content="Resume editing" HorizontalAlignment="Left" Command="{Binding ResumeProjectEditingCommand}" />
+                            <TextBlock Text="{Binding ResumeProjectEditingHint}" FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" />
+                        </StackPanel>
                         <TextBlock Text="Select a setting to open its editor." FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                     <ScrollViewer x:Name="ConfigurationSummaryViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -197,10 +201,13 @@
                     <TextBlock Text="{Binding DataContext.ActiveItemTitle, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <StackPanel x:Name="NameItemEditor" Visibility="{Binding DataContext.ShowNameEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <TextBox x:Name="WorkspaceNameInput" Text="{Binding DataContext.WorkspaceName, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" Visibility="{Binding IsWorkspace, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Workspace name" />
-                        <TextBox x:Name="EntityNameInput" IsEnabled="{Binding CanEditIdentity}" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name">
+                        <TextBox x:Name="EntityNameInput" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name">
                             <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}"><Style.Triggers><DataTrigger Binding="{Binding IsWorkspace}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBox.Style>
                         </TextBox>
                         <TextBlock x:Name="EntityNameError" Text="{Binding NameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                        <TextBlock Text="Renaming also changes the folder name. Save workspace moves the folder and all its contents."
+                                   TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,0"
+                                   Visibility="{Binding FolderFollowsName, Converter={StaticResource WorkspaceBoolVisibility}}" />
                     </StackPanel>
 
                     <Button Content="Edit parent defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
@@ -262,15 +269,7 @@
                             <DataTrigger Binding="{Binding HasConfiguration}" Value="False"><Setter Property="IsExpanded" Value="True" /></DataTrigger>
                         </Style.Triggers></Style></Expander.Style>
                     <StackPanel Margin="0,8,0,0">
-                        <StackPanel x:Name="EntityFolderNamePanel" Visibility="{Binding HasFolder, Converter={StaticResource WorkspaceBoolVisibility}}">
-                        <Label Content="Folder name" Target="{Binding ElementName=EntityFolderNameInput}" Padding="0,0,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
-                        <TextBox x:Name="EntityFolderNameInput" IsEnabled="{Binding CanEditIdentity}" Text="{Binding FolderNameInput, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsWorkspace}"
-                                 MinHeight="30" AutomationProperties.Name="Entity folder name" />
-                        <TextBlock x:Name="EntityFolderNameError" Text="{Binding FolderNameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                        <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}"
-                                   Text="{Binding FolderNameHint}" />
-                        </StackPanel>
-                        <Label Content="Full path" Target="{Binding ElementName=EntityFullPath}" Padding="0,10,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
+                        <Label Content="Full path" Target="{Binding ElementName=EntityFullPath}" Padding="0,0,0,4" Foreground="{StaticResource Workspace.TextPrimary}" />
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBox x:Name="EntityFullPath" IsReadOnly="True" TextWrapping="Wrap" MinHeight="30" MaxHeight="76" VerticalScrollBarVisibility="Auto"
@@ -282,6 +281,8 @@
                                     ToolTip="Open this folder in File Explorer. Available when the folder exists on disk."
                                     AutomationProperties.Name="Open selected folder in File Explorer" />
                         </Grid>
+                        <TextBlock Text="{Binding FolderNameHint}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Workspace.TextSecondary}"
+                                   Visibility="{Binding HasFolder, Converter={StaticResource WorkspaceBoolVisibility}}" />
                         <TextBlock x:Name="PendingCopyNotice" Text="{Binding PendingCopyDescription}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Workspace.TextSecondary}">
                             <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
                         </TextBlock>

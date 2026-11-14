@@ -5,28 +5,20 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed partial class WorkspaceTreeNode
 {
-    internal string DraftSourceError => IsProject && !IsSealed && Children.Count > 0 ? SourceReadinessError([]) : "";
-    private string SourceReadinessError(HashSet<Guid> visiting)
+    internal string DraftSourceError => IsProject && !IsSealed && Children.Count > 0 ? SourceReadinessError() : "";
+    private string SourceReadinessError()
     {
-        if (!visiting.Add(Id)) return "Source-project dependencies contain a cycle. Change the source project assignments before generating run parameters.";
-        try
+        if (!IsBranch || IsSealed) return "";
+        var root = this;
+        while (root.Parent is not null) root = root.Parent;
+        foreach (var entry in Editor!.ToProjectSettings().setupDataTypes.Where(entry => entry.sourceProjectId != Guid.Empty))
         {
-            if (!IsBranch || IsSealed) return "";
-            var root = this;
-            while (root.Parent is not null) root = root.Parent;
-            foreach (var entry in Editor!.ToProjectSettings().setupDataTypes.Where(entry => entry.sourceProjectId != Guid.Empty))
-            {
-                var source = root.DescendantsAndSelf().FirstOrDefault(node => node.IsProject && node.Id == entry.sourceProjectId);
-                if (source is null) return "The source project is missing from this workspace. Choose an available source project.";
-                if (source.IsSealed) continue;
-                if (source.Children.Count == 0 || source.DescendantsAndSelf().Any(node => node.Editor?.ValidationIssues.Any() == true))
-                    return $"Source project '{source.Name}' needs a complete run before this project can be sealed. You can save both projects as drafts and finish the source later.";
-                var error = source.SourceReadinessError(visiting);
-                if (error.Length > 0) return error;
-            }
-            return "";
+            var source = root.DescendantsAndSelf().FirstOrDefault(node => node.IsProject && node.Id == entry.sourceProjectId);
+            if (source is null) return "The source project is missing from this workspace. Choose an available source project.";
+            if (source.IsSealed) continue;
+            return $"Source project '{source.Name}' is a draft. Generate its run parameters and execute its results before using it as a source. You can save this project and finish the source later.";
         }
-        finally { visiting.Remove(Id); }
+        return "";
     }
     internal static WorkspaceTreeNode FromDocument(WorkspaceDocument value)
     {
@@ -101,13 +93,7 @@ public sealed partial class WorkspaceTreeNode
     private ProjectDocument ToProjectDocument(int depth)
     {
         CheckDepth(depth); ValidateChildren();
-        // Only a complete first run fixes its project's configuration. Draft runs
-        // keep their inputs on disk without pretending to be executable snapshots.
-        if (DraftSourceError.Length == 0 && !DescendantsAndSelf().Any(node => node.Editor?.ValidationIssues.Any() == true))
-        {
-            try { return WorkspaceDocumentModule.projectFromDomain(ParentOrigin, ToProject(depth)); }
-            catch (Exception error) when (error is ArgumentException or InvalidOperationException) { }
-        }
+        // Saving preserves editable project settings. Generation seals the snapshot.
         var runs = Children.Select(child => {
             child.ValidateChildren();
             if (child.savedParentProjectId is { } parent && parent != Id) throw new ArgumentException("A saved run cannot change its parent project.");

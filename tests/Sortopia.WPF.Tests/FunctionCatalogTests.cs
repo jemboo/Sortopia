@@ -136,11 +136,13 @@ public sealed class FunctionCatalogTests
             WorkspaceRunExecutionTests.SupplyQuerySpans(page);
             await page.SaveWorkspaceAsync();
             Assert.Empty(page.Error);
-            var saved = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];
+            var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(root).Modules[0].Projects[0].Runs[0];
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, saved.ResultsFunctionName);
             if (branch) Assert.Equal(SetupFunctionNames.standardTests, saved.SetupFunctionName.Value);
             var reopened = new WorkspacePageViewModel(() => { }, _ => null, settings);
             var savedProject = reopened.Roots[0].Children[0].Children[0];
+            Assert.False(savedProject.IsSealed);
+            reopened.Selected = savedProject.Children[0]; await reopened.GenerateRunParametersAsync(); Assert.Empty(reopened.Error);
             Assert.True(savedProject.IsSealed);
             Assert.False(savedProject.Editor!.ResultsFunctionOverride.CanEditValue);
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, savedProject.Editor.ResultsFunctionName);

@@ -117,7 +117,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         row.Values[0].Text = "SplitMix64";
         Assert.Single((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(page.WorkspaceFolder).Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(page.WorkspaceFolder).Modules[0].Projects[0].Runs[0];
         var sets = RunParameterSets.create(saved);
         Assert.Equal("SplitMix64", (setup ? sets.Setup.Value : sets.Results)[0].TryFind(ParamKeys.rngTypeKey).Value);
         var reopened = Open(setup); // Existing saved workspace is loaded by the settings path.

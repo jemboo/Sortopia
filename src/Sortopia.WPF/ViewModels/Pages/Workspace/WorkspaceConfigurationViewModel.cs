@@ -196,6 +196,13 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public bool IsReadOnly { get; private set; }
     public bool IsEditable => !IsReadOnly;
     internal void Freeze(projectSettingsDto? snapshot = null) { frozenSettings = snapshot ?? ToProjectSettings(); ResultsFunctionOverride.Load(frozenSettings.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? frozenSettings.setupFunctionName : null); IsReadOnly = true; foreach (var state in properties.Values) state.IsReadOnly = true; RefreshInherited(); }
+    internal void ResumeEditing(projectOverridesDto overrides)
+    {
+        frozenSettings = null; IsReadOnly = false;
+        foreach (var state in properties.Values) state.IsReadOnly = false;
+        ResultsFunctionOverride.Load(null); SetupFunctionOverride.Load(null);
+        LoadOverrides(overrides); RefreshInherited();
+    }
     private readonly Dictionary<string, WorkspaceOverrideState> properties = [];
     public WorkspaceConfigurationViewModel(WorkspaceEntityKind kind, bool isBranch, Func<WorkspaceConfigurationViewModel?> parent, Func<string> name, Func<IEnumerable<WorkspaceSourceProject>>? sources = null, Func<IEnumerable<WorkspaceConfigurationViewModel>>? childEditors = null)
     {
@@ -264,9 +271,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public bool IsRun => !IsDefaults;
     public bool IsBranch { get; }
     public string Title => IsModule ? "Module defaults" : IsProject ? "Project defaults" : "Run inputs";
-    public string Hint => IsReadOnly ? "Sealed project: settings were fixed when its first run was saved. Create a new version to change them." : IsDefaults
+    public string Hint => IsReadOnly ? "Sealed project: settings are fixed for generated work. Resume editing an unused project, or create a new version to change them." : IsDefaults
         ? "Parameter defaults inherit by key: local values replace matching keys and add new ones. Other properties follow their nearest ancestor override; other list overrides replace the whole list."
-        : "Functions and defaults come from the sealed parent project. Override the description and supply spans for the functions’ required parameters.";
+        : "Functions and defaults come from the parent project. Override the description and supply spans for the functions’ required parameters.";
     public string Description { get => DescriptionOverride.EffectiveValue; set => DescriptionOverride.SetLocal(value); }
     public string ResultsDatabaseName { get => ResultsDatabaseOverride.EffectiveValue; set { if (IsProject) ResultsDatabaseOverride.SetLocal(value); } }
     public string ResultsFunctionName { get => frozenSettings?.resultsFunctionName ?? ResultsFunctionOverride.EffectiveValue; set { if (IsModule) ResultsFunctionOverride.SetLocal(value); } }

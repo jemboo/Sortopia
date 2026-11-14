@@ -79,7 +79,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Same(child.Editor, run.Editor.DescriptionOverride.InheritedSource);
         Assert.False(project.Editor!.OutputTypesOverride.CanOverride);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0];
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Modules[0];
         Assert.Equal("Local description", saved.Projects[0].Description);
         Assert.Null(ModuleOverridesDto.fromDomain(saved.LocalOverrides).resultsFunctionName);
         Assert.Null(typeof(moduleOverridesDto).GetProperty("resultsQueryParameterKeys"));

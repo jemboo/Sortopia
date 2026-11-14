@@ -82,6 +82,9 @@ public sealed partial class WorkspacePageViewModel
                 return $"Saved run '{node.Name}': {savedScopeError} Save this run and its project after correcting these settings.";
             try
             {
+                if (node.Parent.Name != (string)scope.Parent.ProjectName ||
+                    !SettingsDto.toDomain(node.Parent.Family, node.Parent.Editor!.ToProjectSettings()).Equals(scope.Parent.Configuration))
+                    return $"Save the changes to project '{node.Parent.Name}' and its inherited settings before generating run parameters.";
                 var current = RunDto.toDomain(scope.Parent, node.Editor.ToRunInputs(node.Id, node.Name, node.Parent.Id));
                 if (!WorkspaceCodec.encodeRun(current).SequenceEqual(WorkspaceCodec.encodeRun(scope.Run)))
                     return $"Save the changes to run '{node.Name}' before generating its parameter files.";
@@ -95,7 +98,7 @@ public sealed partial class WorkspacePageViewModel
     public string GenerationInstructions => (Selected?.IsBranch == true
         ? "Generate run parameters runs setup locally and creates one file for each setup × results pairing. Open the Execute page to select saved files for results execution. "
         : "Generate run parameters creates one file for every results parameter set. Open the Execute page to select saved files for results execution. ")
-        + "Cancel operation stops at database operations and between function calls.";
+        + "Generation fixes the parent project's settings before writing setup data or parameter files. Cancel operation stops at database operations and between function calls.";
 
     private sealed class ThrottledExecutionProgress(IProgress<runExecutionProgress> target) : IProgress<runExecutionProgress>
     {

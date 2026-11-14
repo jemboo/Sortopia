@@ -130,6 +130,8 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         Assert.Same(module.Editor, run.Editor.InheritedOutputDefaults.Single(row => row.Key == "StageLength").Source.InheritedSource);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         ancestor = page.Roots[0].Children[0].Children[0].Children[0]; module = ancestor.Children[0]; parent = module.Children[0]; run = parent.Children[0];
+        Assert.False(parent.IsSealed); page.Selected = run;
+        await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
         Assert.True(parent.IsSealed); ancestor.Editor!.ResultsParameterDefaults.Single().Value.Text = "24";
         Assert.Equal("16", run.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
         Assert.Equal(16, Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).ParameterSet.TryFind(ParamKeys.channelCountKey).Value);

@@ -287,15 +287,14 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     }
 
     [Fact]
-    public void Extra_folders_are_reported_and_preserved_and_can_be_imported_later()
+    public void Removed_modules_are_deleted_instead_of_becoming_unlisted_folders()
     {
         WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
         var empty = workspace.create(Guid.NewGuid(), "Research", "Workspace", []);
         var result = WorkspaceFileStore.SaveWorkspace(Root, empty, WorkspaceFileStore.LoadDefinition(Root), Token);
-        Assert.Contains("Sorting", result.RetainedFolders);
+        Assert.Empty(result.RetainedFolders);
         Assert.Empty(WorkspaceFileStore.LoadDefinition(Root).Modules);
-        Assert.True(Directory.Exists(Path.Combine(Root, "Sorting")));
-        Assert.Equal("Sorting", WorkspaceFileStore.LoadModuleFolder(Path.Combine(Root, "Sorting"), Token).ModuleName);
+        Assert.False(Directory.Exists(Path.Combine(Root, "Sorting")));
     }
 
     [Fact]
@@ -370,7 +369,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         Assert.Empty(viewModel.Error);
         Assert.True(viewModel.HasSavedWorkspace);
         Assert.False(viewModel.ShowNewWorkspace);
-        Assert.Equal("Edited", WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0].RunName);
+        Assert.Equal("Edited", WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0].RunName);
         Assert.False(viewModel.DiscardChangesCommand.CanExecute(null));
         Assert.Single(viewModel.Roots[0].Children);
     }

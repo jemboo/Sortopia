@@ -32,7 +32,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Theory]
     [InlineData(WorkspaceEntityKind.Module)]
     [InlineData(WorkspaceEntityKind.Project)]
-    public async Task Folder_follows_name_through_failed_save_then_stops_after_first_successful_save(WorkspaceEntityKind kind)
+    public async Task Folder_follows_renames_through_failed_saves_successful_saves_and_reopening(WorkspaceEntityKind kind)
     {
         var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", []));
         page.AddModuleCommand.Execute(null);
@@ -58,34 +58,38 @@ public sealed class WorkspaceEditingTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         node = Entity(page, kind);
-        Assert.False(node.FolderFollowsName);
+        Assert.True(node.FolderFollowsName);
+        var oldFolder = node.GetFolderPath(Root);
+        File.WriteAllText(Path.Combine(oldFolder, "keep.txt"), "Keep contents");
         node.Name = "New display name";
-        Assert.Equal("Saved name", node.FolderName);
+        Assert.Equal("New display name", node.FolderName);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         var reopened = new WorkspacePageViewModel(() => { }, _ => null, Settings);
         node = Entity(reopened, kind);
         Assert.Equal("New display name", node.Name);
-        Assert.Equal("Saved name", node.FolderName);
+        Assert.Equal("New display name", node.FolderName);
+        Assert.False(Directory.Exists(oldFolder));
+        Assert.Equal("Keep contents", File.ReadAllText(Path.Combine(node.GetFolderPath(Root), "keep.txt")));
         node.Name = "Another display name";
-        Assert.Equal("Saved name", node.FolderName);
+        Assert.Equal("Another display name", node.FolderName);
     }
 
     [Theory]
     [InlineData(WorkspaceEntityKind.Module)]
     [InlineData(WorkspaceEntityKind.Project)]
-    public void Manually_editing_the_folder_stops_following_even_if_it_later_matches_the_name(WorkspaceEntityKind kind)
+    public void Renaming_updates_even_a_manually_chosen_folder(WorkspaceEntityKind kind)
     {
         var node = new WorkspaceTreeNode(kind, "New entity");
         node.Name = "First name";
         Assert.Equal("First name", node.FolderName);
         node.FolderName = "custom-folder";
         node.Name = "Second name";
-        Assert.Equal("custom-folder", node.FolderName);
+        Assert.Equal("Second name", node.FolderName);
         node.FolderName = "Second name";
         node.Name = "Third name";
-        Assert.Equal("Second name", node.FolderName);
-        Assert.False(node.FolderFollowsName);
+        Assert.Equal("Third name", node.FolderName);
+        Assert.True(node.FolderFollowsName);
     }
 
     [Theory]
@@ -118,7 +122,7 @@ public sealed class WorkspaceEditingTests : IDisposable
         Assert.Empty(page.Error);
         var saved = Entity(page, WorkspaceEntityKind.Module);
         Assert.Equal(id, saved.Id);
-        Assert.False(saved.FolderFollowsName);
+        Assert.True(saved.FolderFollowsName);
         Assert.Equal(Path.Combine(Root, "Prefix tests"), saved.GetFolderPath(Root));
         Assert.True(Directory.Exists(saved.GetFolderPath(Root)));
         Assert.False(Directory.Exists(originalPath));
@@ -190,7 +194,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     }
 
     [Fact]
-    public void Automatic_folder_collision_rejects_both_changes_and_can_be_resolved_with_a_manual_folder()
+    public void Automatic_folder_collision_rejects_the_rename_until_a_unique_name_is_chosen()
     {
         var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Existing", "reserved", [], [])]));
         page.AddModuleCommand.Execute(null);
@@ -202,8 +206,10 @@ public sealed class WorkspaceEditingTests : IDisposable
         Assert.True(node.FolderFollowsName);
         Assert.Contains("Duplicate folder name", node.NameError);
         node.FolderName = "unique-folder";
-        Assert.Equal("reserved", node.Name);
-        Assert.Equal("unique-folder", node.FolderName);
+        Assert.Equal(original, node.Name);
+        Assert.NotEmpty(node.NameError);
+        node.Name = "Unique name";
+        Assert.Equal("Unique name", node.FolderName);
         Assert.Empty(page.Error);
     }
 
@@ -269,19 +275,24 @@ public sealed class WorkspaceEditingTests : IDisposable
     }
 
     [Fact]
-    public async Task Save_reports_retained_folders_and_discard_clears_the_report()
+    public async Task Removing_a_module_deletes_its_folder_on_save()
     {
         var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [], [])]));
         page.Selected = page.Roots.Single().Children.Single();
         page.RemoveCommand.Execute(null);
+        Assert.Contains("delete", page.Status);
+        Assert.True(Directory.Exists(Path.Combine(Root, "sorting")));
+        page.DiscardChangesCommand.Execute(null);
+        Assert.True(Directory.Exists(Path.Combine(Root, "sorting")));
+        page.Selected = page.Roots.Single().Children.Single();
+        page.RemoveCommand.Execute(null);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.True(page.HasRetainedFolders);
-        Assert.Contains("sorting", page.RetainedFolders);
+        Assert.False(page.HasRetainedFolders);
         page.WorkspaceName = "Edited";
         page.DiscardChangesCommand.Execute(null);
         Assert.False(page.HasRetainedFolders);
-        Assert.True(Directory.Exists(Path.Combine(Root, "sorting")));
+        Assert.False(Directory.Exists(Path.Combine(Root, "sorting")));
     }
 
     [Fact]

@@ -61,7 +61,7 @@ public sealed class WorkspacePageTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Saved_workspace_module_and_run_names_can_change_but_sealed_project_identity_is_fixed(bool branch)
+    public async Task Saved_draft_workspace_module_project_and_run_names_can_change(bool branch)
     {
         var folder = temp.CreateSubdirectory("Root").FullName;
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
@@ -90,8 +90,8 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.False(reopened.SaveWorkspaceCommand.CanExecute(null));
         reopened.Roots.Single().Name = "Research: updated";
         var module = reopened.Roots.Single().Children.Single();
-        module.Name = "Sorting: updated";
-        module.Children.Single().Name = "Search: updated";
+        module.Name = "Sorting updated";
+        module.Children.Single().Name = "Search updated";
         module.Children.Single().Children.Single().Name = "Trial: renamed";
         Assert.True(reopened.SaveWorkspaceCommand.CanExecute(null));
         Assert.Contains("Unsaved changes", reopened.WorkspaceFileStatus);
@@ -100,26 +100,29 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.False(reopened.HasUnsavedChanges);
         Assert.False(reopened.SaveWorkspaceCommand.CanExecute(null));
         Assert.DoesNotContain("Unsaved changes", reopened.WorkspaceFileStatus);
-        var saved = WorkspaceFileStore.LoadDefinition(folder);
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(folder);
         Assert.Equal("Research: updated", saved.WorkspaceName);
         Assert.Equal("Root", saved.FolderName);
-        Assert.Equal("Sorting: updated", saved.Modules.Single().ModuleName);
-        Assert.Equal("sorters", saved.Modules.Single().FolderName);
+        Assert.Equal("Sorting updated", saved.Modules.Single().ModuleName);
+        Assert.Equal("Sorting updated", saved.Modules.Single().FolderName);
         var project = saved.Modules.Single().Projects.Single();
-        Assert.Equal("Search", project.ProjectName);
-        Assert.Equal("search", project.FolderName);
-        Assert.Equal("Search", project.Runs.Single().ProjectName);
+        Assert.Equal("Search updated", project.ProjectName);
+        Assert.Equal("Search updated", project.FolderName);
+        Assert.Equal("Search updated", project.Runs.Single().ProjectName);
         Assert.Equal("Trial: renamed", project.Runs.Single().RunName);
         Assert.Equal(runId, project.Runs.Single().Id);
         var expectedDto = Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial: renamed", branch));
         expectedDto.id = runId;
         expectedDto.parentProjectId = project.Id;
         var expectedRun = WorkspaceHierarchyTests.FromRunDto(expectedDto);
+        Assert.False(Directory.Exists(projectFolder));
+        projectFolder = Path.Combine(folder, "Sorting updated", "Search updated");
+        output = Path.Combine(projectFolder, "results.txt");
         Assert.Equal(Sortopia.Workspaces.Serialization.WorkspaceCodec.encodeRun(expectedRun),
             File.ReadAllBytes(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(runId))));
         Assert.Equal("Keep results", File.ReadAllText(output));
         Assert.Single(Directory.GetDirectories(folder));
-        Assert.Single(Directory.GetDirectories(Path.Combine(folder, "sorters")));
+        Assert.Single(Directory.GetDirectories(Path.Combine(folder, "Sorting updated")));
         Assert.Empty(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
         Assert.Equal("Research: updated", new WorkspacePageViewModel(() => { }, _ => null, Settings).WorkspaceName);
     }
@@ -157,7 +160,7 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.NotEqual(first.Id, second.Id);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal(2, WorkspaceFileStore.LoadDefinition(folder).Modules.Single().Projects.Single().Runs.Length);
+        Assert.Equal(2, WorkspaceTestFiles.LoadRuntimeSnapshot(folder).Modules.Single().Projects.Single().Runs.Length);
     }
 
     [Fact]

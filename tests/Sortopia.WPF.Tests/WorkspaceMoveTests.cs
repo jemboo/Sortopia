@@ -99,6 +99,19 @@ public sealed class WorkspaceMoveTests : IDisposable
     }
 
     [Fact]
+    public async Task A_child_moved_out_survives_deleting_its_old_parent_in_the_same_save()
+    {
+        var page = Open();
+        Data(Path.Combine(Root, "A", "P"));
+        await Move(page, "P", "B");
+        page.Selected = Find(page, "A"); page.RemoveCommand.Execute(null);
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        Assert.False(Directory.Exists(Path.Combine(Root, "A")));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Root, "B", "P", "output", "result.txt")));
+        Assert.Single(Find(page, "P").Children);
+    }
+
+    [Fact]
     public async Task A_failed_parent_move_restores_run_files_and_can_be_retried()
     {
         var page = Open();
@@ -413,6 +426,24 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(Root, "Imported")));
         Assert.False(Directory.Exists(Path.Combine(Root, "Relocated import", "Inner")));
         Assert.Empty(page.RetainedFolders);
+    }
+
+    [Fact]
+    public async Task Renaming_a_project_inside_a_pending_import_copies_its_files_to_the_new_folder()
+    {
+        var page = Open();
+        importSource = Path.Combine(temporary.FullName, "Imported");
+        WorkspaceImportTests.WriteModule(importSource, "Imported");
+        var before = Snapshot(importSource);
+        await page.AddExistingAsync(WorkspaceEntityKind.Module); Assert.Empty(page.Error);
+        var project = Find(page, "Child project");
+        var id = project.Id;
+        project.Name = "Renamed project";
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        Assert.Equal(before, Snapshot(importSource));
+        Assert.Equal(id, Find(page, "Renamed project").Id);
+        Assert.False(Directory.Exists(Path.Combine(Root, "Imported", "child-project")));
+        Assert.Equal("Keep results", File.ReadAllText(Path.Combine(Root, "Imported", "Renamed project", "results.txt")));
     }
 
     [Fact]

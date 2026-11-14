@@ -11,13 +11,13 @@ open Sortopia.Workspaces.Serialization
 open Sortopia.Core.Serialization
 open WorkspaceFileSystem
 
-/// Transactional workspace saves and explicit entity imports. Unlisted folders and user data are kept.
+/// Transactional workspace saves, explicit removals and imports. Unlisted folders are kept.
 [<AbstractClass; Sealed>]
 type WorkspaceFileStore private () =
     static member LoadDefinition(rootFolder: string) = WorkspaceDisk.loadDefinition rootFolder
     static member LoadDocument(rootFolder: string) = WorkspaceDisk.loadDocument rootFolder
     static member private RuntimeResult(result: WorkspaceDocumentSaveResult) =
-        WorkspaceSaveResult(WorkspaceDocument.toDomain result.Definition, result.CopiedFolders, result.RetainedFolders, result.MovedFolders)
+        WorkspaceSaveResult(WorkspaceDocument.toDomain result.Definition, result.CopiedFolders, result.RetainedFolders, result.MovedFolders, result.CleanupWarnings)
     static member GetFolderName(rootFolder: string) = WorkspaceDisk.folderName rootFolder
     static member LoadModuleFolder(folder: string, token: CancellationToken) = WorkspaceDisk.loadModuleFolder folder token
     static member LoadProjectFolder(folder: string, token: CancellationToken) = WorkspaceDisk.loadProjectFolder folder token
@@ -77,6 +77,7 @@ type WorkspaceFileStore private () =
             if not (equalBytes (WorkspaceCodec.encodeWorkspace current) (WorkspaceCodec.encodeWorkspace savedDefinition)) then
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
         WorkspaceFileStore.ValidateSealedProjects(savedDefinition, WorkspaceDocument.toDomain plan.Definition)
+        let plan = WorkspaceSavePlan.withRemovals (WorkspaceDocument.fromDomain savedDefinition) plan token
         let result = WorkspaceCommit.commit plan token |> WorkspaceFileStore.RuntimeResult
         WorkspaceDisk.rememberSavedFiles (normalizeRoot rootFolder) result.Definition
         result
@@ -89,7 +90,7 @@ type WorkspaceFileStore private () =
                 raise (IOException("A workspace file already exists at this location. Reopen the workspace to load it."))
         requireNew ()
         let plan = WorkspaceSavePlan.prepare rootFolder definition token copies moves
-        WorkspaceFileStore.ValidateDocuments(None, plan.Definition)
+        WorkspaceFileStore.ValidateDocuments(None, plan.Definition, None)
         requireNew ()
         let result = WorkspaceCommit.commit plan token
         WorkspaceDisk.rememberSavedDocument (normalizeRoot rootFolder) result.Definition
@@ -98,6 +99,9 @@ type WorkspaceFileStore private () =
     static member SaveDocument(rootFolder: string, definition: WorkspaceDocument, savedDefinition: WorkspaceDocument, token: CancellationToken,
                                [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderCopy>)>] copies: IReadOnlyList<WorkspaceFolderCopy>,
                                [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderMove>)>] moves: IReadOnlyList<WorkspaceFolderMove>) =
+        WorkspaceFileStore.SaveDocumentCore(rootFolder, definition, savedDefinition, token, copies, moves, None)
+
+    static member private SaveDocumentCore(rootFolder, definition, savedDefinition, token: CancellationToken, copies, moves, resumeProject) =
         token.ThrowIfCancellationRequested()
         let verified = WorkspaceDisk.verifySavedFiles savedDefinition
         // File DTOs are editable; don't rely on a caller leaving the baseline's fields untouched.
@@ -108,12 +112,25 @@ type WorkspaceFileStore private () =
             let current = WorkspaceDisk.loadDocument rootFolder
             if not (equalBytes (MessagePackSetup.serialize current) (MessagePackSetup.serialize savedDefinition)) then
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
-        WorkspaceFileStore.ValidateDocuments(Some previous, plan.Definition)
+        WorkspaceFileStore.ValidateDocuments(Some previous, plan.Definition, resumeProject)
+        let plan = WorkspaceSavePlan.withRemovals previous plan token
         let result = WorkspaceCommit.commit plan token
         WorkspaceDisk.rememberSavedDocument (normalizeRoot rootFolder) result.Definition
         result
 
-    static member private ValidateDocuments(previous: WorkspaceDocument option, next: WorkspaceDocument) =
+    /// Empty when the project can safely return to editable configuration.
+    static member ResumeProjectEditingReason(rootFolder: string, savedDefinition: WorkspaceDocument, projectId: Guid) =
+        WorkspaceProjectState.resumeReason (normalizeRoot rootFolder) (WorkspaceDisk.documentBaseline savedDefinition) projectId
+
+    /// Explicit recovery for an unused project sealed by an earlier save or failed generation.
+    static member ResumeProjectEditing(rootFolder: string, savedDefinition: WorkspaceDocument, projectId: Guid, token: CancellationToken) =
+        let previous = WorkspaceDisk.documentBaseline savedDefinition
+        let reason = WorkspaceProjectState.resumeReason (normalizeRoot rootFolder) previous projectId
+        if reason <> "" then invalidOp reason
+        let next = WorkspaceProjectState.resume previous projectId
+        WorkspaceFileStore.SaveDocumentCore(rootFolder, next, savedDefinition, token, null, null, Some projectId)
+
+    static member private ValidateDocuments(previous: WorkspaceDocument option, next: WorkspaceDocument, resumeProject: Guid option) =
         let rec projects (modules: ModuleDocument array) = seq {
             for m in modules do
                 yield! m.Projects
@@ -124,12 +141,12 @@ type WorkspaceFileStore private () =
             let dto = p.Definition
             let old = oldProjects |> Option.bind (fun values -> match values.TryGetValue dto.id with true, p -> Some p | _ -> None)
             match old with
-            | Some original when original.Definition.isSealed ->
+            | Some original when original.Definition.isSealed && resumeProject <> Some dto.id ->
                 let before = original.Definition
-                if not dto.isSealed || dto.projectName <> before.projectName || dto.folderName <> before.folderName
+                if not dto.isSealed
                    || not (equalBytes (MessagePackSetup.serialize dto.configuration) (MessagePackSetup.serialize before.configuration)) then
-                    invalidOp $"Project '{before.projectName}' is sealed. Create a new project version to change its settings, name, or folder."
-            | _ when dto.isSealed -> WorkspaceDocument.projectToDomain None p |> ignore
+                    invalidOp $"Project '{before.projectName}' is sealed. Create a new project version to change its execution settings."
+            | _ when dto.isSealed -> WorkspaceDefinitionCodec.projectHeader None dto |> ignore
             | _ -> ()
             for run in p.Runs do
                 match oldRuns |> Option.bind (fun values -> match values.TryGetValue run.id with true, parent -> Some parent | _ -> None) with
@@ -142,8 +159,8 @@ type WorkspaceFileStore private () =
         for project in next.ProjectIndex.Values do
             match oldProjects.TryGetValue(project.Id) with
             | true, original when original.IsSealed
-                                  && (not project.IsSealed || project.ProjectName <> original.ProjectName || project.FolderName <> original.FolderName || project.Configuration <> original.Configuration) ->
-                raise (InvalidOperationException($"Project '{original.ProjectName}' is sealed. Create a new project version to change its settings, name, or folder."))
+                                  && (not project.IsSealed || project.Configuration <> original.Configuration) ->
+                raise (InvalidOperationException($"Project '{original.ProjectName}' is sealed. Create a new project version to change its execution settings."))
             | _ -> ()
             for run in project.Runs do
                 match oldRuns.TryGetValue(run.Id) with

@@ -107,7 +107,8 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var node = page.Roots[0].Children[0].Children[0];
         Assert.True(node.IsSealed);
         node.Editor!.ResultsFunctionName = "Changed"; node.Name = "Changed";
-        Assert.Equal("sortable-tests.standard", node.Editor.ResultsFunctionName); Assert.Equal("Source", node.Name);
+        Assert.Equal("sortable-tests.standard", node.Editor.ResultsFunctionName); Assert.Equal("Changed", node.Name);
+        Assert.Equal("Changed", node.FolderName);
         node.Children.Clear();
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root);
@@ -201,7 +202,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     }
 
     [Fact]
-    public async Task Failed_first_run_save_leaves_the_project_draft_until_the_transaction_succeeds()
+    public async Task Failed_and_successful_first_run_saves_both_leave_the_project_editable()
     {
         WorkspaceFileStore.CreateWorkspace(Root, Workspace(), Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(Root);
@@ -220,8 +221,8 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         Assert.False(parent.IsSealed);
         parent.Editor!.Description = "Retry description";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).ProjectIndex[parent.Id];
-        Assert.True(saved.IsSealed);
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).ProjectIndex[parent.Id];
+        Assert.False(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects.Single(p => p.Definition.id == parent.Id).Definition.isSealed);
         Assert.Equal("Retry description", saved.Runs[0].Description);
     }
 

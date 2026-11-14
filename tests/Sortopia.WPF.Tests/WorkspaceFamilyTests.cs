@@ -112,7 +112,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
         var id = run.Id;
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules.Single().Projects.Single().Runs.Single();
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules.Single().Projects.Single().Runs.Single();
         Assert.Equal(id, saved.Id);
         Assert.Equal(branch, saved.HasSetup);
         var rootFile = WorkspaceDefinitionFiles.Require(Root, "workspace");

@@ -45,7 +45,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         if (branch) Assert.Equal("Project setup", run.Editor.SetupDatabaseName);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(page.WorkspaceFolder);
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(page.WorkspaceFolder);
         var dto = ModuleDto.fromDomain(saved.Modules[0]);
         Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.configuration), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.localOverrides), StringComparison.OrdinalIgnoreCase);
@@ -55,7 +55,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         var reopened = Open();
         var fields = reopened.Roots[0].Children[0].Children[0].Editor!;
         Assert.Equal("Project results", fields.ResultsDatabaseName);
-        Assert.True(fields.IsReadOnly);
+        Assert.False(fields.IsReadOnly);
     }
 
     [Fact]

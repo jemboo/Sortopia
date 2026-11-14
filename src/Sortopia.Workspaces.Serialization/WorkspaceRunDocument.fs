@@ -18,9 +18,10 @@ module WorkspaceRunDocument =
         let find id = index |> Map.tryFind id |> Option.defaultWith (fun () -> invalidOp $"Required project '{id}' was not found in the workspace.")
         let saved, folder = find projectId
         let requireSealed (p: ProjectDocument) =
-            if not p.Definition.isSealed then invalidOp $"Project '{p.Definition.projectName}' is a draft. Complete and save its configuration and run first."
-        requireSealed saved
-        let parent = WorkspaceDefinitionCodec.projectHeader None saved.Definition
+            if not p.Definition.isSealed then invalidOp $"Source project '{p.Definition.projectName}' is a draft. Generate its run parameters and execute its results before using it as a source."
+        // Resolve drafts into a runtime snapshot without changing the saved document.
+        // The generation coordinator persists this snapshot immediately before writes.
+        let parent = WorkspaceDefinitionCodec.projectHeader None saved.Definition |> project.seal
         let inputs = saved.Runs |> Array.tryFind (fun r -> r.id = runId) |> Option.defaultWith (fun () -> invalidOp "Save this run before generating its parameter files.")
         let selected = RunDto.toDomain parent inputs
         let sources = RunWorkspace.sourceIds selected |> List.map (fun id ->

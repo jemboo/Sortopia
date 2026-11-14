@@ -104,7 +104,7 @@ public sealed class WorkspaceImportTests : IDisposable
         Assert.Equal(originalEntity, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(selected, childKind.ToString().ToLowerInvariant())));
         Assert.True(page.HasUnsavedChanges);
         Assert.Equal("imported-folder", page.Selected!.FolderName);
-        Assert.False(page.Selected.FolderFollowsName);
+        Assert.True(page.Selected.FolderFollowsName);
         var importedProject = childKind == WorkspaceEntityKind.Module ? page.Selected.Children.Single() : page.Selected;
         Assert.Equal("Existing trial", importedProject.Children.Single().Name);
         Assert.False(importedProject.Children.Single().HasFolder);

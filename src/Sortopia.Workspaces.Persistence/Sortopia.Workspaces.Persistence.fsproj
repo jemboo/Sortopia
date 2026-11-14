@@ -5,15 +5,19 @@
     <Compile Include="WorkspaceDefinitionFiles.fs" />
     <Compile Include="WorkspaceFolderCopy.fs" />
     <Compile Include="WorkspaceFolderMove.fs" />
+    <Compile Include="WorkspaceRemoval.fs" />
     <Compile Include="WorkspaceImportIdentity.fs" />
     <Compile Include="WorkspaceStorageTypes.fs" />
     <Compile Include="WorkspaceDisk.fs" />
     <Compile Include="WorkspaceSavePlan.fs" />
     <Compile Include="WorkspaceCommit.fs" />
+    <Compile Include="WorkspaceProjectState.fs" />
     <Compile Include="WorkspaceFileStore.fs" />
+    <Compile Include="WorkspaceRunGeneration.fs" />
     <Compile Include="WorkspaceImport.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Workspaces.Serialization/Sortopia.Workspaces.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.FileDb/Sortopia.FileDb.fsproj" />
   </ItemGroup>
 </Project>

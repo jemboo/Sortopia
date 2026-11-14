@@ -7,6 +7,8 @@ open System.Threading
 open MessagePack
 open FSharp.UMX
 open Sortopia.Core.Serialization
+open Sortopia.Runs
+open Sortopia.Functions
 
 [<MessagePackObject>]
 type dataEnvelopeDto = {
@@ -29,6 +31,24 @@ type internal dataHeader = { Envelope: dataEnvelopeDto; PayloadLength: uint32 }
 
 /// Query lookup and inspection share a bounded envelope reader. Payloads stay on disk.
 module internal DataEnvelope =
+    let dependencies (value: dataEnvelopeDto) =
+        use stream = new MemoryStream(value.IdentityBytes, false)
+        stream.Position <- int64 value.QueryBytes.Length
+        use reader = new BinaryReader(stream, System.Text.Encoding.UTF8)
+        let count = reader.ReadInt32()
+        if count < 0 || count > 4096 then invalidOp "Invalid stored dependency count."
+        let inputs = [ for _ in 1..count do
+                        let project = Guid(reader.ReadBytes 16)
+                        let id = Guid(reader.ReadBytes 16)
+                        let query = Guid(reader.ReadBytes 16)
+                        let setup = reader.ReadBoolean()
+                        let kind = reader.ReadString()
+                        let label = reader.ReadString()
+                        yield { ProjectId = UMX.tag project; Id = UMX.tag id; QueryId = UMX.tag query
+                                IsSetup = setup; DataType = SortopiaDataType.create kind label } ]
+        if stream.Position <> stream.Length then invalidOp "Unexpected stored dependency metadata."
+        inputs
+
     let readHeader path (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
         use stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)

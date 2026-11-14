@@ -68,6 +68,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         page.Selected.Name = "Renamed in workspace";
         var importedName = page.Selected.Name;
         Assert.False(Directory.Exists(destination));
+        destination = Path.Combine(parentFolder, importedName);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.False(page.HasUnsavedChanges);
@@ -82,7 +83,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         Assert.Empty(page.Error);
         var parent = page.Roots.Single();
         while (parent.Kind != parentKind) parent = parent.Children.First();
-        Assert.Contains(parent.Children, child => child.Name == importedName && child.FolderName == "imported");
+        Assert.Contains(parent.Children, child => child.Name == importedName && child.FolderName == importedName);
     }
 
     [Theory]
@@ -115,7 +116,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         page.Selected!.Name = "Updated metadata";
-        var destination = Path.Combine(Root, "imported");
+        var destination = Path.Combine(Root, "Updated metadata");
         using (var locked = new FileStream(WorkspaceTestFiles.DefinitionPath(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
@@ -129,6 +130,21 @@ public sealed class WorkspaceCopyTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.True(Directory.Exists(destination));
+        Assert.Equal(before, Snapshot(Source));
+    }
+
+    [Fact]
+    public async Task Removing_a_project_from_a_pending_import_excludes_its_contents_and_preserves_source()
+    {
+        var page = Open(); WorkspaceImportTests.WriteModule(Source, "Imported");
+        var before = Snapshot(Source); selection = Source;
+        await page.AddExistingAsync(WorkspaceEntityKind.Module);
+        var imported = page.Selected!; var folder = imported.GetFolderPath(Root);
+        page.Selected = imported.Children.Single(node => node.IsProject);
+        var projectFolder = page.Selected.GetFolderPath(Root);
+        page.RemoveCommand.Execute(null);
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        Assert.True(Directory.Exists(folder)); Assert.False(Directory.Exists(projectFolder));
         Assert.Equal(before, Snapshot(Source));
     }
 
@@ -169,11 +185,11 @@ public sealed class WorkspaceCopyTests : IDisposable
         await page.AddExistingAsync(WorkspaceEntityKind.Project);
         Assert.Empty(page.Error);
         page.Selected!.FolderName = "renamed-folder";
-        Assert.Equal(Path.GetFileName(Source), page.Selected.FolderName);
+        Assert.Equal("renamed-folder", page.Selected.FolderName);
         parent.Name = "Renamed parent";
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.True(File.Exists(WorkspaceTestFiles.DefinitionPath(Root, "Renamed parent", Path.GetFileName(Source), "project")));
+        Assert.True(File.Exists(WorkspaceTestFiles.DefinitionPath(Root, "Renamed parent", "renamed-folder", "project")));
         Assert.False(Directory.Exists(Path.Combine(Root, "New parent")));
     }
 

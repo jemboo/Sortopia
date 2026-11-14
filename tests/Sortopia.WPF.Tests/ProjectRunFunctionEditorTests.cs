@@ -102,7 +102,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         Assert.Empty(setup ? project.Editor.ToLocalOverrides().setupParameterDefaults : project.Editor.ToLocalOverrides().resultsParameterDefaults);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(folder.FullName).Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(folder.FullName).Modules[0].Projects[0].Runs[0];
         var sets = RunParameterSets.create(saved);
         Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, (setup ? sets.Setup.Value : sets.Results).Single().ParamMap.Keys.Order());
     }
@@ -117,6 +117,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null); WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var module = page.Roots[0].Children[0]; var project = module.Children[0]; var run = project.Children[0];
+        page.Selected = run; await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
         module.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
         if (branch) module.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
         foreach (var node in new[] { project, run })

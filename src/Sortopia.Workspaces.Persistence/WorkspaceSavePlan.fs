@@ -191,6 +191,12 @@ module internal WorkspaceSavePlan =
         if before.Fingerprint <> (capture root token "workspace").Fingerprint then
             raise (IOException("Folders changed while preparing the save. Try saving again."))
         { RootFolder = root; Definition = definition; Fingerprint = before.Fingerprint; Writes = writes.ToArray()
-          RetainedFolders = retainedFolders.ToArray(); Copies = imports; Moves = relocations; EmptyContainers = emptyContainers }
+          RetainedFolders = retainedFolders.ToArray(); Copies = imports; Moves = relocations; EmptyContainers = emptyContainers; Removals = [||] }
 
     let prepare rootFolder definition token copies moves = prepareWithContainers rootFolder definition token copies moves [||]
+
+    let withRemovals previous (plan: SavePlan) token =
+        let removed = WorkspaceRemoval.plan plan.RootFolder previous plan.Definition plan.Moves token
+        { plan with Removals = removed
+                    RetainedFolders = plan.RetainedFolders |> Array.filter (fun path ->
+                        not (removed |> Array.exists (fun item -> WorkspaceFolderCopy.Inside(item.Destination, Path.Combine(plan.RootFolder, path))))) }

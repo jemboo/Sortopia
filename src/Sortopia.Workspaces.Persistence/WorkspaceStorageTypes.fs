@@ -7,11 +7,13 @@ open Sortopia.Workspaces.Serialization
 
 [<Sealed>]
 type WorkspaceSaveResult(definition: workspace, copiedFolders: int, retainedFolders: IReadOnlyList<string>,
-                         [<Optional; DefaultParameterValue(0)>] movedFolders: int) =
+                         [<Optional; DefaultParameterValue(0)>] movedFolders: int,
+                         [<Optional; DefaultParameterValue(null: IReadOnlyList<string>)>] cleanupWarnings: IReadOnlyList<string>) =
     member _.Definition = definition
     member _.CopiedFolders = copiedFolders
     member _.RetainedFolders = retainedFolders
     member _.MovedFolders = movedFolders
+    member _.CleanupWarnings = if isNull cleanupWarnings then [||] :> IReadOnlyList<string> else cleanupWarnings
 
 type internal DiskState = { Fingerprint: string; Entities: string array }
 type internal WorkspaceFileUpdate = { Path: string; Content: byte array; OriginalPath: string; Original: byte array }
@@ -23,12 +25,15 @@ type internal SavePlan =
       RetainedFolders: string array
       Copies: WorkspaceFolderCopy array
       Moves: WorkspaceFolderMove array
+      Removals: RemovedPath array
       EmptyContainers: string array }
 
 [<Sealed>]
-type WorkspaceDocumentSaveResult(definition: WorkspaceDocument, copiedFolders: int, retainedFolders: IReadOnlyList<string>, movedFolders: int) =
+type WorkspaceDocumentSaveResult(definition: WorkspaceDocument, copiedFolders: int, retainedFolders: IReadOnlyList<string>, movedFolders: int,
+                                 [<Optional; DefaultParameterValue(null: IReadOnlyList<string>)>] cleanupWarnings: IReadOnlyList<string>) =
     member _.Definition = definition
     member _.CopiedFolders = copiedFolders
     member _.RetainedFolders = retainedFolders
     member _.MovedFolders = movedFolders
+    member _.CleanupWarnings = if isNull cleanupWarnings then [||] :> IReadOnlyList<string> else cleanupWarnings
 

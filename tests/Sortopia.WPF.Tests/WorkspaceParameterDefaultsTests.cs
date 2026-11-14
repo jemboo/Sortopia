@@ -165,7 +165,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal("16", run.Editor.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Projects[0];
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Modules[0].Projects[0];
         Assert.Equal(16, Assert.Single(Sets(saved.Runs[0])).TryFind(ParamKeys.channelCountKey).Value);
     }
 
@@ -219,7 +219,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         page.Selected = project; page.AddRunCommand.Execute(null); var editor = page.Selected!.Editor!;
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var sets = RunParameterSets.create(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0]);
+        var sets = RunParameterSets.create(WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0]);
         Assert.Equal("SplitMix64", Assert.Single(setup ? sets.Setup.Value : sets.Results).TryFind(ParamKeys.rngTypeKey).Value);
     }
 

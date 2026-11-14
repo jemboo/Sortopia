@@ -72,8 +72,8 @@ public sealed partial class WorkspacePageViewModel
         if (Selected is not { } node) yield break;
         if (node.Editor is { } module)
             foreach (var item in module.InspectorSnapshots().Where(item => item.Group == "Functions")) yield return item;
-        yield return new("name", "Identity", "Name", node.NameInput, node.IsSealed ? "Fixed · sealed project" : "Local", node.NameError);
-        yield return new("location", "Identity", "Location", node.IsRun ? node.PathName : node.FolderNameInput, node.DiskStatus.Length > 0 ? node.DiskStatus : "Saved", node.FolderNameError);
+        yield return new("name", "Identity", "Name", node.NameInput, "Local", node.NameError);
+        yield return new("location", "Identity", "Location", SelectedFolderPath, node.DiskStatus.Length > 0 ? node.DiskStatus : "Saved", node.FolderNameError);
         if (node.Editor is { } editor)
             foreach (var item in editor.InspectorSnapshots().Where(item => item.Group != "Functions")) yield return item;
         if (node.IsRun)

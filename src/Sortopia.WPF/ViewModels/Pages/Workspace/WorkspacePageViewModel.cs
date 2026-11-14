@@ -57,6 +57,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
         CreateProjectVersionCommand = new RelayCommand(CreateProjectVersion, () => CanEdit && Selected is { IsProject: true, IsSealed: true, Parent: not null });
+        ResumeProjectEditingCommand = new RelayCommand(async () => await ResumeProjectEditingAsync(), () => CanEdit && Selected is { IsProject: true, IsSealed: true } && ResumeProjectEditingHint.Length == 0);
         EditProjectDefaultsCommand = new RelayCommand(() =>
         { var key = ActiveItemKey; Selected = Selected!.Parent; SelectConfigurationItem(key); }, () => CanEdit && Selected?.HasParentDefaults == true);
         SelectValueSourceCommand = new RelayCommand(source =>
@@ -129,6 +130,28 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand AddRunCommand { get; }
     public RelayCommand CreateProjectVersionCommand { get; }
+    public RelayCommand ResumeProjectEditingCommand { get; }
+    public string ResumeProjectEditingHint
+    {
+        get
+        {
+            if (Selected is not { IsProject: true, IsSealed: true } || savedDocument is null) return "Select a saved, sealed project.";
+            try { return WorkspaceFileStore.ResumeProjectEditingReason(WorkspaceFolder, savedDocument, Selected.Id); }
+            catch (Exception error) when (IsFolderError(error) || error is InvalidOperationException) { return error.GetBaseException().Message; }
+        }
+    }
+    public Task ResumeProjectEditingAsync() => !ResumeProjectEditingCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
+    {
+        var project = Selected!;
+        var dirty = HasUnsavedChanges;
+        var result = await Task.Run(() => WorkspaceFileStore.ResumeProjectEditing(WorkspaceFolder, savedDocument!, project.Id, token));
+        savedDocument = result.Definition; ClearRunScope();
+        static IEnumerable<ProjectDocument> Projects(ModuleDocument module) => module.Projects.Concat(module.Modules.SelectMany(Projects));
+        project.ResumeEditing(result.Definition.Modules.SelectMany(Projects).Single(value => value.Definition.id == project.Id).Definition);
+        HasUnsavedChanges = dirty;
+        NotifyDraftProperties();
+        Status = $"Project '{project.Name}' is editable again. Set its query keys, save, then generate run parameters when ready.";
+    });
     public RelayCommand EditProjectDefaultsCommand { get; }
     public RelayCommand SelectValueSourceCommand { get; }
     public RelayCommand AddExistingModuleCommand { get; }
@@ -269,11 +292,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         savedDocument = value;
         ClearRunScope();
         savedConfigurationError = "";
-        try { WorkspaceDocumentModule.toDomain(value); }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or FormatException or OverflowException)
-        {
-            savedConfigurationError = error.GetBaseException().Message;
-        }
+        // Editors validate drafts; strict whole-workspace runtime conversion would
+        // incorrectly report every unsealed project with runs as an error.
         ReplaceDraft(WorkspaceTreeNode.FromDocument(value));
     }
     private void OpenSelectedFolder()
@@ -379,11 +399,14 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     }
     private void Remove()
     {
+        var removed = Selected!;
         if (Selected!.DescendantsAndSelf().Contains(cutNode)) ClearCut();
         var parent = Selected!.Parent!;
         parent.Children.Remove(Selected);
         Selected = parent;
-        Status = "Removed from the workspace. Save to keep this change. Existing folders and files will be kept.";
+        Status = removed.IsRun
+            ? $"Removed run '{removed.Name}' from the draft. Save workspace to delete its definition, generated parameter files, and data unused by remaining runs. Discard changes cancels removal."
+            : $"Removed '{removed.Name}' from the draft. Save workspace to delete its folder and all contents. Discard changes cancels removal.";
     }
     private bool CanPaste => CanEdit && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
         && !cutNode.DescendantsAndSelf().Contains(Selected);
@@ -445,13 +468,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             node.RememberImportLocations(source, copy.Id, copy.OriginalIds);
         }
     }
-    private async Task PrepareModuleLocationCopiesAsync(CancellationToken token)
+    private async Task PrepareLocationCopiesAsync(CancellationToken token)
     {
         var nodes = Roots.Single().DescendantsAndSelf().ToArray();
         // Visit parents before children so nested location edits use their nearest pending copy.
         foreach (var node in nodes)
         {
-            if (node.Kind != WorkspaceEntityKind.Module || node.PendingCopy is not null
+            if (!node.FolderFollowsName || node.PendingCopy is not null
                 || node.ImportOriginId is not { } originId || node.ImportSourcePath is not { } source) continue;
             var origin = nodes.Single(item => item.PendingCopy?.Id == originId);
             var inheritedLocation = Path.Combine(origin.GetFolderPath(WorkspaceFolder), Path.GetRelativePath(origin.PendingCopy!.SourceFolder, source));
@@ -512,10 +535,11 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(SelectedExecution));
         OnPropertyChanged(nameof(GenerationHint));
         OnPropertyChanged(nameof(GenerationInstructions));
+        OnPropertyChanged(nameof(ResumeProjectEditingHint));
         NotifyRunParameterCommands();
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
-        foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
+        foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, ResumeProjectEditingCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
             RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, ConvertFolderLayoutCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
@@ -534,13 +558,14 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         {
             var definition = Roots.Single().ToDocument();
             var original = savedDocument;
-            await PrepareModuleLocationCopiesAsync(token);
+            await PrepareLocationCopiesAsync(token);
             var copies = Roots.Single().GetPendingCopies(WorkspaceFolder).ToArray();
             var moves = Roots.Single().GetPendingMoves(WorkspaceFolder);
             var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateDocument(WorkspaceFolder, definition, token, copies, moves)
                 : WorkspaceFileStore.SaveDocument(WorkspaceFolder, definition, original, token, copies, moves), token);
             AcceptSavedDocument(result.Definition);
             RetainedFolders = result.RetainedFolders;
+            Error = string.Join(Environment.NewLine, result.CleanupWarnings);
             Status = $"Workspace '{definition.Definition.workspaceName}' saved." + (HasSaveIssues ? " Draft saved with configuration issues; you can close Sortopia and continue later." : "") + (result.CopiedFolders > 0
                 ? $" Copied {result.CopiedFolders} imported {(result.CopiedFolders == 1 ? "component" : "components")}; sources are unchanged." : "")
                 + (result.MovedFolders > 0 ? $" Moved {result.MovedFolders} {(result.MovedFolders == 1 ? "component" : "components")} with all contents." : "");

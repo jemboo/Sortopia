@@ -66,10 +66,9 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
                     let values = options args[1..] ["--workspace"; "--run"]
                     let folder = required "--workspace" values
                     let id = required "--run" values |> guid
-                    let scope = WorkspaceRunDocument.resolveByRunId (WorkspaceFileStore.LoadDocument folder) id
-                    let generated = RunParameterExecution.generateInScope scope folder progress cancellation.Token
-                    printfn "Published parameter files: %d\nProject folder: %s" generated.WorkItemIds.Length (WorkspaceData.scopedProjectFolder scope folder scope.Run.ParentProjectId)
-                    finish generated.Execution
+                    let generated = WorkspaceRunGeneration.generate folder (WorkspaceFileStore.LoadDocument folder) id progress cancellation.Token
+                    printfn "Published parameter files: %d\nProject folder: %s" generated.Report.WorkItemIds.Length (WorkspaceData.scopedProjectFolder generated.Scope folder generated.Scope.Run.ParentProjectId)
+                    finish generated.Report.Execution
                 | "list-parameters" ->
                     let values = options args[1..] ["--parameters-folder"; "--run"]
                     let items = RunParameterFiles.listWorkItems (required "--parameters-folder" values) cancellation.Token

@@ -191,7 +191,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         Assert.Equal("Edited project description", run.Editor.DescriptionOverride.EffectiveValue);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal("Edited project description", WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0].Description);
+        Assert.Equal("Edited project description", WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0].Description);
         var file = WorkspaceDefinitionFiles.Require(Root, "workspace");
         var before = File.ReadAllBytes(file);
         run = page.Roots[0].Children[0].Children[0].Children[0];

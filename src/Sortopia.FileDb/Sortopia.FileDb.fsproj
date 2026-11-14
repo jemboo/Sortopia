@@ -9,6 +9,7 @@
     <Compile Include="FileRunHost.fs" />
     <Compile Include="FileRunExecution.fs" />
     <Compile Include="RunParameterFiles.fs" />
+    <Compile Include="RunDataCleanup.fs" />
     <Compile Include="FileInspection.fs" />
     <Compile Include="RunParameterExecution.fs" />
   </ItemGroup>

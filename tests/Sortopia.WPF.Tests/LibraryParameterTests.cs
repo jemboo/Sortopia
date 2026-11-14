@@ -138,7 +138,7 @@ public sealed class LibraryParameterTests
             var run = page.Selected!; WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
             Assert.True(run.Editor!.ResultsParameters.Single(row => row.Key == "MergeLibId").Values[0].IsLibraryId);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-            var savedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Modules[0].Projects[0].Runs[0];
+            var savedRun = WorkspaceTestFiles.LoadRuntimeSnapshot(root).Modules[0].Modules[0].Projects[0].Runs[0];
             Assert.IsType<parameterValue.MergeLibIdValue>(RunParameterSets.create(savedRun).Results[0].TryFind("MergeLibId").Value.Value);
         }
         finally { temporary.Delete(true); }

@@ -38,7 +38,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         var span = run.Editor!.ResultsParameters.Single(row => row.Key == "ChannelCount");
         span.Values[0].Text = "7"; span.AddValueCommand.Execute(null); span.Values[1].Text = "11";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0];
         Assert.Equal(new[] { "7", "11" }, saved.ResultsParameterSpans.Single(row => row.KeyName == "ChannelCount").Values);
         Assert.Equal("Keep every setting: α", saved.Description);
         Assert.Null(RunDto.fromDomain(saved).descriptionOverride);

@@ -93,7 +93,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         else Assert.False(setup.HasRows);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Modules[0].Modules[0].Modules[0].Projects[0].Runs[0];
         var generated = RunParameterSets.create(saved);
         Assert.Equal(generated.Results, results.Rows.Select(row => row.ParameterSet));
         if (branch) Assert.Equal(generated.Setup.Value, setup.Rows.Select(row => row.ParameterSet));

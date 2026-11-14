@@ -18,7 +18,6 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     private string folderNameInput;
     private string nameError = "";
     private string folderNameError = "";
-    private bool folderFollowsName;
     private sealed record SavedChild(WorkspaceTreeNode Node, string Name, string FolderName);
     private SavedChild[] savedChildren = [];
     private bool isSelected;
@@ -68,8 +67,6 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         Id = id ?? Guid.NewGuid();
         Kind = kind; this.name = name; this.folderName = kind == WorkspaceEntityKind.Run ? "" : folderName ?? name;
         nameInput = name; folderNameInput = this.folderName;
-        folderFollowsName = kind is not (WorkspaceEntityKind.Workspace or WorkspaceEntityKind.Run) && folderName is null
-            || kind == WorkspaceEntityKind.Module && folderName == name && IsGeneratedModuleName(name);
         Children.CollectionChanged += (_, args) =>
         {
             if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.RefreshInheritedSubtree(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
@@ -87,8 +84,26 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     private project? sealedProject;
     private Guid? savedParentProjectId;
     public bool IsSealed => sealedProject is not null;
-    public bool CanEditIdentity => !IsSealed;
-    public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed" : "Draft · settings are fixed when the project and its first run are valid and saved" : "";
+    public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed for generated work" : "Draft · editable until run parameters are generated" : "";
+    internal void MarkSealed(project snapshot)
+    {
+        sealedProject = project.withRuns(snapshot, []);
+        var settings = SettingsDto.fromDomain(snapshot.Configuration);
+        Editor!.LoadProject(settings);
+        Editor.Freeze(settings);
+        RefreshProjectState();
+    }
+    internal void ResumeEditing(projectDefinitionDto definition)
+    {
+        sealedProject = null;
+        Editor!.ResumeEditing(definition.localOverrides);
+        RefreshProjectState();
+    }
+    private void RefreshProjectState()
+    {
+        RefreshInheritedSubtree();
+        OnPropertyChanged(nameof(IsSealed)); OnPropertyChanged(nameof(ProjectState));
+    }
     private IEnumerable<WorkspaceSourceProject> SourceProjects()
     {
         var root = this;
@@ -225,7 +240,10 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         foreach (var node in nodes)
             if (node.PendingCopy is { } copy)
                 yield return copy.WithDestination(rootFolder, node.GetFolderPath(rootFolder))
-                    .WithExclusions(nodes.Where(other => other.CopyOriginId == copy.Id).Select(other => other.CopyOriginRelativePath!));
+                    .WithExclusions(nodes.Where(other => other.CopyOriginId == copy.Id).Select(other => other.CopyOriginRelativePath!)
+                        .Concat(node.DescendantsAndSelf().SelectMany(parent => parent.savedChildren).Select(child => child.Node)
+                            .Where(child => child.ImportOriginId == copy.Id && child.ImportSourcePath is not null && !nodes.Any(current => current.Id == child.Id))
+                            .Select(child => Path.GetRelativePath(copy.SourceFolder, child.ImportSourcePath!))));
     }
     public bool CanContain(WorkspaceEntityKind child) => Kind switch
     {
@@ -251,20 +269,21 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         get => nameInput;
         set
         {
-            if (IsSealed) return;
             SetProperty(ref nameInput, value);
             var conflict = Collision(value, folder: false);
-            if (conflict.Length == 0 && folderFollowsName)
+            // Rebinding an existing display name must not relocate an imported
+            // folder or an older definition with a different folder name.
+            if (conflict.Length == 0 && FolderFollowsName && !string.Equals(name, value, StringComparison.Ordinal))
                 conflict = Collision(value, folder: true);
             SetNameError(conflict);
             if (conflict.Length > 0) return;
             if (!SetProperty(ref name, value, nameof(Name))) return;
-            if (folderFollowsName)
+            if (FolderFollowsName)
             {
                 SetProperty(ref folderName, value, nameof(FolderName));
                 SetProperty(ref folderNameInput, value, nameof(FolderNameInput));
                 SetFolderNameError("");
-                if (Kind == WorkspaceEntityKind.Module) MarkMoved();
+                MarkMoved();
             }
             foreach (var child in Children) child.RefreshInheritedSubtree();
             Changed?.Invoke();
@@ -280,35 +299,23 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         get => folderNameInput;
         set
         {
-            if (IsRun || IsSealed) return;
+            if (IsRun) return;
             SetProperty(ref folderNameInput, value);
             var conflict = Collision(value, folder: true);
             SetFolderNameError(conflict);
             if (conflict.Length > 0) return;
             // Binding refreshes can write the current value back; they are not a manual location edit.
             if (string.Equals(folderName, value, StringComparison.Ordinal)) return;
-            folderFollowsName = false;
-            OnPropertyChanged(nameof(FolderFollowsName));
-            OnPropertyChanged(nameof(FolderNameHint));
             if (SetProperty(ref folderName, value, nameof(FolderName)))
             {
-                if (Kind == WorkspaceEntityKind.Module) MarkMoved();
+                if (FolderFollowsName) MarkMoved();
                 Changed?.Invoke();
             }
-            // A manual folder can resolve a name edit that conflicted only through automatic tracking.
-            if (nameError.Length > 0) NameInput = nameInput;
         }
     }
-    public bool FolderFollowsName => folderFollowsName;
+    public bool FolderFollowsName => Kind is WorkspaceEntityKind.Module or WorkspaceEntityKind.Project;
     public string FolderNameHint => IsWorkspace ? "The workspace folder name follows the selected root location."
-        : folderFollowsName ? Kind == WorkspaceEntityKind.Module
-            ? "Uses the name you enter until the named module is saved or you edit this folder name."
-            : "Follows the name until saved or edited manually."
-        : Kind == WorkspaceEntityKind.Module ? "Saving a location change moves this folder and all contents. Changing only the name keeps this location."
-        : "Changing the name keeps this folder location.";
-    private static bool IsGeneratedModuleName(string value) => value == "New module"
-        || value.StartsWith("New module ", StringComparison.Ordinal)
-        && int.TryParse(value[11..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var suffix) && suffix >= 2;
+        : "The folder follows the name. Rename this module or project to change its path, then Save workspace to move the folder and all contents.";
     public string NameError => nameError;
     public string FolderNameError => folderNameError;
     internal string EditError => nameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Name: {nameError}" : folderNameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Folder name: {folderNameError}"
@@ -420,7 +427,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     }
     private project ReadProject()
     {
-        if (sealedProject is not null) return sealedProject;
+        if (sealedProject is not null) return project.restore(Id, Name, FolderName, sealedProject.Configuration, sealedProject.LocalOverrides, true, []);
         return project.createInherited(Id, Name, FolderName, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), []);
     }
     private projectConfiguration ParentConfiguration() => Parent?.Editor is { } editor

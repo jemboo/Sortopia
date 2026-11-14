@@ -72,7 +72,7 @@ module RunParameterExecution =
 
     /// Local phase: resolve source projects, execute setup, freeze each results
     /// invocation. Each atomically published parameter file is independently ready.
-    let private generateUsing makeHost progress (token: CancellationToken) =
+    let private generateUsing makeHost beforeWrite progress (token: CancellationToken) =
         let setup = ResizeArray<runFunctionResult>()
         let ids = ResizeArray<Guid<workItemId>>()
         let mutable context = "Preparing run"
@@ -100,6 +100,8 @@ module RunParameterExecution =
                 for set in parameters do
                     token.ThrowIfCancellationRequested()
                     FunctionValidation.validate definition set
+                token.ThrowIfCancellationRequested()
+                beforeWrite ()
                 let sources = branch.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType definition.SourceDataTypes)
                 for i = 0 to parameters.Length - 1 do
                     token.ThrowIfCancellationRequested()
@@ -109,7 +111,9 @@ module RunParameterExecution =
                     definition.Execute host sources
                     setup.Add { Phase = runExecutionPhase.Setup; FunctionName = string branch.SetupFunctionName
                                 SetupSetNumber = None; SetNumber = i + 1; Parameters = parameters[i]; StoredOutputs = host.SetupDb.StoredOutputs }
-            | run.RootRun _, None -> ()
+            | run.RootRun _, None ->
+                token.ThrowIfCancellationRequested()
+                beforeWrite ()
             | _ -> invalidOp "The generated parameter sets do not match the run type."
             let batches =
                 if sets.Setup.IsNone then [| None, [] |]
@@ -139,11 +143,15 @@ module RunParameterExecution =
             { WorkItemIds = ids.ToArray(); Execution = finish status message }
 
     let generate (workspace: workspace) workspaceRoot (value: run) progress (token: CancellationToken) =
-        generateUsing (fun () -> FileRunHost(workspace, workspaceRoot, value, token)) progress token
+        generateUsing (fun () -> FileRunHost(workspace, workspaceRoot, value, token)) ignore progress token
 
     /// Only the selected saved run and its direct source results are dependencies.
     let generateInScope (scope: runWorkspace) workspaceRoot progress (token: CancellationToken) =
-        generateUsing (fun () -> FileRunHost(scope, workspaceRoot, token)) progress token
+        generateUsing (fun () -> FileRunHost(scope, workspaceRoot, token)) ignore progress token
+
+    /// Persist the parent snapshot after validation, before any setup or work-item writes.
+    let generateInScopeBeforeWrite (scope: runWorkspace) workspaceRoot beforeWrite progress (token: CancellationToken) =
+        generateUsing (fun () -> FileRunHost(scope, workspaceRoot, token)) beforeWrite progress token
 
     let private execute folder (workItems: runParameters array) (options: resultsExecutionOptions) progress itemProgress (token: CancellationToken) =
         let results = Array.create workItems.Length None

@@ -110,7 +110,10 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         Assert.Equal(branch ? 1 : 0, state.Report.Setup.Length); Assert.Empty(state.Report.Results);
         Assert.Equal(3, report.Results.Length); Assert.Empty(report.Setup);
         Assert.False(page.IsBusy); Assert.False(page.HasUnsavedChanges);
-        foreach (var file in files) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
+        // Generation changes only the parent definition, capturing its settings.
+        var parentDefinition = Path.Combine(page.Selected!.Parent!.GetFolderPath(page.WorkspaceFolder), Sortopia.Workspaces.Persistence.WorkspaceDefinitionFiles.Name(page.Selected.Parent.Id));
+        Assert.True(page.Selected.Parent.IsSealed);
+        foreach (var file in files.Where(file => file.Key != parentDefinition)) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
         var outputs = report.Results.SelectMany(call => call.StoredOutputs).ToArray();
         Assert.Equal(3, outputs.Select(output => output.Reference.Id).Distinct().Count());
         var retry = await GenerateAndExecuteAsync(page);

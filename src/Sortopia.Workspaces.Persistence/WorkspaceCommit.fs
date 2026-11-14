@@ -29,6 +29,8 @@ module internal WorkspaceCommit =
         let stagedMoves = ResizeArray<StagedMove>()
         let createdFolders = ResizeArray<string>()
         let removedContainers = ResizeArray<string>()
+        let stagedRemovals = ResizeArray<RemovedPath * string>()
+        let cleanupWarnings = ResizeArray<string>()
         let mutable committed = false
         let rec ensureDirectory path =
             checkContained root path
@@ -39,6 +41,7 @@ module internal WorkspaceCommit =
                 createdFolders.Add(path)
         try
             try
+                for removal in plan.Removals do WorkspaceRemoval.checkTree root removal.Source token
                 if plan.Copies.Length > 0 then ensureDirectory root
                 let beforeStaging = if plan.Copies.Length > 0 then (capture root token "workspace").Fingerprint else null
                 for copy in plan.Copies do
@@ -75,6 +78,14 @@ module internal WorkspaceCommit =
                     | Copy(copy, _) ->
                         publishedCopies.Add(copy)
                         createdFolders.AddRange(copy.Directories |> Array.map (fun relative -> Path.Combine(copy.DestinationFolder, relative)))
+                // Retain removed contents until all definitions commit, so a failed
+                // save can restore them before undoing any enclosing folder moves.
+                for removal in plan.Removals do
+                    token.ThrowIfCancellationRequested()
+                    WorkspaceRemoval.checkTree root removal.Destination token
+                    let staging = Path.Combine(root, ".sortopia-delete-" + Guid.NewGuid().ToString("N"))
+                    movePath removal.Destination staging
+                    stagedRemovals.Add(removal, staging)
                 for write in plan.Writes do
                     token.ThrowIfCancellationRequested()
                     ensureDirectory (Path.GetDirectoryName(write.Path))
@@ -90,7 +101,7 @@ module internal WorkspaceCommit =
                     applied.Add(write)
                     if not samePath && not (isNull write.OriginalPath) then File.Delete(write.OriginalPath)
                 committed <- true
-                WorkspaceDocumentSaveResult(plan.Definition, plan.Copies.Length, plan.RetainedFolders, plan.Moves.Length)
+                WorkspaceDocumentSaveResult(plan.Definition, plan.Copies.Length, plan.RetainedFolders, plan.Moves.Length, cleanupWarnings)
             with failure ->
                 let errors = ResizeArray<Exception>([| failure |])
                 let recover action = try action () with rollback -> errors.Add(rollback)
@@ -112,6 +123,11 @@ module internal WorkspaceCommit =
                             File.Delete(write.Path))
                 // Remove temporary metadata before restoring paths; never carry it back into a source folder.
                 for _, temporary in staged do recover (fun () -> if File.Exists(temporary) then File.Delete(temporary))
+                for removal, staging in stagedRemovals |> Seq.rev do
+                    recover (fun () ->
+                        WorkspaceFolderMove.CheckPath(root, removal.Destination)
+                        ensureDirectory (Path.GetDirectoryName removal.Destination)
+                        movePath staging removal.Destination)
                 for folder in createdFolders |> Seq.rev do
                     recover (fun () ->
                         checkContained root folder
@@ -158,6 +174,10 @@ module internal WorkspaceCommit =
                 if errors.Count > 1 then raise (AggregateException("Save failed; some files could not be restored.", errors))
                 reraise ()
         finally
+            if committed then
+                for removal, staging in stagedRemovals do
+                    try WorkspaceRemoval.deleteStaging root staging
+                    with error -> cleanupWarnings.Add($"The workspace was saved, but deletion of '{removal.Destination}' could not finish. Remaining files are at '{staging}'. {error.Message}")
             for _, temporary in staged do if File.Exists(temporary) then File.Delete(temporary)
             for _, staging in stagedCopies do WorkspaceFolderCopy.DeleteStaging(root, staging)
             if not committed then

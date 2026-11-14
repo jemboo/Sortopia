@@ -5,7 +5,7 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 public sealed record WorkspaceSourceProject(Guid Id, string Name, bool IsSealed, projectSettingsDto Settings, WorkspaceConfigurationViewModel Editor,
     bool HasPendingRuns = false, string Location = "")
 {
-    public string Label => $"{Name}{(Location.Length == 0 ? "" : " · " + Location)} · {(IsSealed ? "sealed" : HasPendingRuns ? "seals on save" : "draft")}";
+    public string Label => $"{Name}{(Location.Length == 0 ? "" : " · " + Location)} · {(IsSealed ? "sealed" : "draft · generate source results first")}";
 }
 
 public sealed record WorkspaceSourceProjectChoice(WorkspaceSourceProject Project, string IncompatibilityReason, string QuerySummary)

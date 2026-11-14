@@ -35,8 +35,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     public bool ShowQueryConfiguration => !IsModule;
     public bool CanEditQuerySelection => IsProject ? IsEditable : IsRun && Parent is { IsProject: true, IsEditable: true };
     public string QueryConfigurationHint => IsModule ? "Query keys are selected on each project."
-        : CanEditQuerySelection ? $"Project ‘{(IsRun ? Parent?.Name : Name)}’: choose query keys from explicit spans shared by its runs. Add run spans first. Each output can use a different subset. Choices are fixed when the first run is saved."
-        : "Query keys are fixed by the sealed project. Create a new project to change its output projections. Every selected key requires an explicit span in each run.";
+        : CanEditQuerySelection ? $"Project ‘{(IsRun ? Parent?.Name : Name)}’: choose query keys from explicit spans shared by its runs. Add run spans first. Each output can use a different subset. Choices are fixed when run parameters are generated."
+        : "Query keys are fixed by the sealed project. Select the project to resume editing if it has no generated work, or create a new version. Every selected key requires an explicit span in each run.";
     public IEnumerable<WorkspaceOutputQuery> ResultsQueryOutputs => QueryRows(false);
     public IEnumerable<WorkspaceOutputQuery> SetupQueryOutputs => QueryRows(true);
     public string ResultsProjectionNotice => ProjectionNotice(false);
@@ -46,8 +46,8 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!IsRun || !ActiveParameters(setup).Any(span => span.Key.Length > 0)) return "";
         var empty = QueryRows(setup).Where(output => output.HasEmptyProjection).Select(output => output.Kind).ToArray();
         return empty.Length == 0 ? "" : $"No query keys selected for {string.Join(", ", empty)}. Different span values share the same output when input data is unchanged. "
-            + (CanEditQuerySelection ? "Choose each output's projection below before saving."
-                : "This project is sealed; use a new project to choose different query keys.");
+            + (CanEditQuerySelection ? "Choose each output's projection below before generating run parameters."
+                : "Select the project to resume editing if unused, or create a new version to choose different query keys.");
     }
     public IEnumerable<WorkspaceExcludedDefault> ExcludedResultsDefaults => Exclusions(false);
     public IEnumerable<WorkspaceExcludedDefault> ExcludedSetupDefaults => Exclusions(true);

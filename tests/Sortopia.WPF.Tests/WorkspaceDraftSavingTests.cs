@@ -98,10 +98,11 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
         Assert.Single(setup ? projectEditor.ExcludedSetupDefaults : projectEditor.ExcludedResultsDefaults).RestoreCommand.Execute(null);
         defaults = setup ? Module(reopened).Editor!.SetupParameterDefaults : Module(reopened).Editor!.ResultsParameterDefaults;
         defaults.Single(row => row.Key == "ChannelCount").Value.Text = "4";
-        await reopened.SaveWorkspaceAsync(); Assert.True(reopened.Error.Length == 0, reopened.Error); Assert.True(Project(reopened).IsSealed);
+        await reopened.SaveWorkspaceAsync(); Assert.True(reopened.Error.Length == 0, reopened.Error); Assert.False(Project(reopened).IsSealed);
         reopened.Selected = Run(reopened);
         Assert.True(reopened.GenerateRunParametersCommand.CanExecute(null));
         await reopened.GenerateRunParametersAsync(); Assert.Empty(reopened.Error);
+        Assert.True(Project(reopened).IsSealed);
         Assert.Single(Directory.GetFiles(reopened.RunParametersFolder, "*.msgpack"));
     }
 
@@ -136,7 +137,8 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
     {
         var page = Open(); page.AddModuleCommand.Execute(null); Configure(page.Selected!, false);
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
-        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); Assert.True(Project(page).IsSealed);
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); Assert.False(Project(page).IsSealed);
+        page.Selected = Run(page); await page.GenerateRunParametersAsync(); Assert.Empty(page.Error); Assert.True(Project(page).IsSealed);
         Module(page).Editor!.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "bad";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError);
         var reopened = Open(); Assert.True(Project(reopened).IsSealed);
@@ -189,12 +191,15 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
         await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError);
         var consumer = page.Roots[0].DescendantsAndSelf().Single(node => node.Id == consumerId);
         Assert.False(consumer.IsSealed);
-        Assert.Contains(page.SaveIssues, issue => issue.Message.Contains("needs a complete run"));
+        Assert.Contains(page.SaveIssues, issue => issue.Message.Contains("Generate its run parameters"));
         var reopened = Open();
         reopened.Selected = reopened.Roots[0].DescendantsAndSelf().Single(node => node.Id == sourceId);
         Assert.True(reopened.AddRunCommand.CanExecute(null)); reopened.AddRunCommand.Execute(null);
-        await reopened.SaveWorkspaceAsync(); Assert.True(reopened.Error.Length == 0, reopened.Error);
-        Assert.True(reopened.Roots[0].DescendantsAndSelf().Single(node => node.Id == consumerId).IsSealed);
+        await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.OperationError);
+        Assert.False(reopened.Roots[0].DescendantsAndSelf().Single(node => node.Id == sourceId).IsSealed);
+        reopened.Selected = reopened.Roots[0].DescendantsAndSelf().Single(node => node.Id == sourceId).Children[0];
+        await WorkspaceRunExecutionTests.GenerateAndExecuteAsync(reopened);
+        Assert.False(reopened.Roots[0].DescendantsAndSelf().Single(node => node.Id == consumerId).IsSealed);
         Assert.True(reopened.Roots[0].DescendantsAndSelf().Single(node => node.Id == sourceId).IsSealed);
     }
 

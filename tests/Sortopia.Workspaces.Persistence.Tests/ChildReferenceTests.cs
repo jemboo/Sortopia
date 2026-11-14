@@ -133,6 +133,10 @@ public sealed class ChildReferenceTests : IDisposable
     {
         var saved = WorkspaceFileStore.CreateWorkspace(Root, WorkspacePersistenceTests.Sample(), Token).Definition;
         var oldRun = saved.Modules[0].Projects[0].Runs[0].Id;
+        var unlisted = Guid.NewGuid();
+        var unlistedDto = RunDto.fromDomain(saved.Modules[0].Projects[0].Runs[0]);
+        unlistedDto.id = unlisted;
+        File.WriteAllBytes(Path.Combine(ProjectFolder, "runs", unlisted + ".msgpack"), MessagePackSetup.serialize(unlistedDto));
         var dto = WorkspaceDto.fromDomain(saved);
         dto.modules[0].projects[0].runs = [];
         WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token);
@@ -142,7 +146,8 @@ public sealed class ChildReferenceTests : IDisposable
         Assert.Empty(WorkspaceFileStore.LoadProjectFolder(ProjectFolder, Token).Runs);
         Assert.Single(WorkspaceFileStore.LoadModuleFolder(ModuleFolder, Token).Projects);
         Assert.Empty(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs);
-        Assert.True(File.Exists(Path.Combine(ProjectFolder, "runs", oldRun + ".msgpack")));
+        Assert.False(File.Exists(Path.Combine(ProjectFolder, "runs", oldRun + ".msgpack")));
+        Assert.True(File.Exists(Path.Combine(ProjectFolder, "runs", unlisted + ".msgpack")));
         var loaded = WorkspaceFileStore.LoadDefinition(Root);
         WorkspaceFileStore.SaveWorkspace(Root, loaded, loaded, Token);
         Assert.Single(WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects);
