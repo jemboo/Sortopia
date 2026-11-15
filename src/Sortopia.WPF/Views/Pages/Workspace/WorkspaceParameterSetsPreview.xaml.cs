@@ -18,6 +18,12 @@ public partial class WorkspaceParameterSetsPreview : UserControl
         ParameterSetsTable.Columns.Clear();
         ParameterSetsTable.Columns.Add(new DataGridTextColumn { Header = "Set", Binding = new Binding("Number"), Width = 48 });
         if (DataContext is not Preview preview) return;
+        if (preview.HasSuffixStages)
+            ParameterSetsTable.Columns.Add(new DataGridTextColumn
+            {
+                Header = "Suggested suffix stages\nCalculated", Binding = new Binding("SuffixStages") { Mode = BindingMode.OneWay, StringFormat = "N0" },
+                MinWidth = 155, Width = DataGridLength.SizeToHeader
+            });
         for (var index = 0; index < preview.Columns.Length; index++)
             ParameterSetsTable.Columns.Add(new DataGridTextColumn
             {

@@ -4,6 +4,7 @@ open System
 open System.Globalization
 open FSharp.UMX
 open Sortopia.Sorting.Catalog
+open Sortopia.Sorting
 
 [<Measure>] type paramKeyName
 
@@ -59,6 +60,9 @@ module ParamKey =
 
 
 module ParamKeys =
+    let sorterSuccessFractionKey = ParamKey.create "SorterSuccessFraction"
+                                    (ParameterValue.tryParse parameterValueType.SorterSuccessFraction >> Option.bind ParameterValue.tryGet<sorterSuccessFraction>)
+                                    SorterSuccessFraction.toString
     let stageWeightsKey = ParamKey.opsWeights "StageWeights"
     let seed4WeightsKey = ParamKey.opsWeights "Seed4Weights"
     let seed6WeightsKey = ParamKey.seed6Weights "Seed6Weights"
@@ -122,7 +126,6 @@ module ParamKeys =
     let setupSorterPoolSetSummarySetIdKey = ParamKey.guid "SetupSorterPoolSetSummarySetId"
     let setupSorterSetEvalIdKey = ParamKey.guid "SetupSorterSetEvalId"
     let setupSorterSetIdKey = ParamKey.guid "SetupSorterSetId"
-    let sorterModelTypeKey = ParamKey.text "SorterModelType"
     let sortableCountKey = ParamKey.integer "SortableCount"
     let sortableDataFormatKey = ParamKey.text "SortableDataFormat"
     let sortedFractionKey = ParamKey.floating "SortedFraction"
@@ -148,6 +151,7 @@ module ParamKeys =
 
     /// Metadata comes from the same typed keys used by execution code.
     let all = [
+        ParamKey.describe sorterSuccessFractionKey
         ParamKey.describe stageWeightsKey
         ParamKey.describe seed4WeightsKey
         ParamKey.describe seed6WeightsKey
@@ -211,7 +215,6 @@ module ParamKeys =
         ParamKey.describe setupSorterPoolSetSummarySetIdKey
         ParamKey.describe setupSorterSetEvalIdKey
         ParamKey.describe setupSorterSetIdKey
-        ParamKey.describe sorterModelTypeKey
         ParamKey.describe sortableCountKey
         ParamKey.describe sortableDataFormatKey
         ParamKey.describe sortedFractionKey

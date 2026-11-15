@@ -67,7 +67,7 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
                 node.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
                 node.Editor.SetupParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "4";
                 node.Editor.SetupParameterDefaults.Single(value => value.Key == "SorterCount").Value.Text = "2";
-                node.Editor.SetupParameterDefaults.Single(value => value.Key == "StageLength").Value.Text = "1";
+                node.Editor.SetupParameterDefaults.Single(value => value.Key == "SorterSuccessFraction").Value.Text = "50%";
             }
             else
             {

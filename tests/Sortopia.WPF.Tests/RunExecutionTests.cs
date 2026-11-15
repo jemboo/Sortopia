@@ -27,7 +27,7 @@ public sealed class RunExecutionTests
     internal static parameterBindingDto Binding(string key, string value, parameterValueType type = parameterValueType.Text) =>
         new() { keyName = key, value = value, valueType = (int)type };
     internal static parameterBindingDto[] UniformModelDefaults(int channels = 4) => [
-        Binding("ChannelCount", channels.ToString(), parameterValueType.Integer), Binding("StageLength", "3", parameterValueType.Integer),
+        Binding("ChannelCount", channels.ToString(), parameterValueType.Integer), Binding("SorterSuccessFraction", "50%", parameterValueType.SorterSuccessFraction),
         Binding("RngType", "SplitMix64"), Binding("SorterCount", "3", parameterValueType.Integer), Binding("Repl", "0", parameterValueType.Integer)];
     // Successful execution fixtures explicitly supply fixed query inputs as one-value spans.
     // Production run construction never fills these in implicitly.

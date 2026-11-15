@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="SortingTypes.fs" />
+    <Compile Include="SorterSuccessFraction.fs" />
     <Compile Include="Networks\Ce.fs" />
     <Compile Include="Networks\Stage.fs" />
     <Compile Include="Networks\CeSorting.fs" />

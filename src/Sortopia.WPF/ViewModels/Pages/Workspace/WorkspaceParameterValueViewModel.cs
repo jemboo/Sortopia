@@ -23,7 +23,9 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     }
     public parameterValueType ValueType => valueType();
     public bool IsBoolean => ValueType == parameterValueType.Boolean;
-    public string[] Choices => key is null ? [] : WorkspaceParameterRules.Choices(key());
+    public string[] Choices => ValueType == parameterValueType.SorterSuccessFraction
+        ? Sortopia.Sorting.SorterSuccessFraction.all.Select(Sortopia.Sorting.SorterSuccessFraction.toString).ToArray()
+        : key is null ? [] : WorkspaceParameterRules.Choices(key());
     public bool HasChoices => Choices.Length > 0;
     public bool IsLibraryId => ValueType is parameterValueType.SorterLibId or parameterValueType.PrefixLibId or parameterValueType.MergeLibId;
     public WorkspaceLibraryIdValue LibraryId { get; }
@@ -55,8 +57,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     private string[] keyChoices = [];
     private string key;
     private parameterValueType customType;
-    public static string[] KnownKeys { get; } = ParamKeys.all.Where(key => key.Name != ParamKeys.sorterModelTypeKey.Name)
-        .Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
+    public static string[] KnownKeys { get; } = ParamKeys.all.Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
     public static WorkspaceParameterTypeChoice[] ValueTypes { get; } = Enum.GetValues<parameterValueType>()
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,

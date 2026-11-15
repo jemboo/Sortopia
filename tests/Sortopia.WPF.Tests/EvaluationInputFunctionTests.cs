@@ -23,7 +23,7 @@ public sealed class EvaluationInputFunctionTests
         (setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
         defaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-        defaults.Single(row => row.Key == "StageLength").Value.Text = "3";
+        defaults.Single(row => row.Key == "SorterSuccessFraction").Value.Text = "50%";
         return editor;
     }
     private static parameterSet Parameters(WorkspaceConfigurationViewModel editor, bool setup)
@@ -60,7 +60,7 @@ public sealed class EvaluationInputFunctionTests
         var sourceTypes = setup ? SetupFunctionCatalog.require(name).SourceDataTypes : ResultsFunctionCatalog.require(name).SourceDataTypes;
         Assert.False(SetupFunctionCatalog.functions.ContainsKey(group));
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey(group));
-        Assert.Equal("1", setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
+        Assert.Equal("2", setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
         Assert.DoesNotContain(required, key => key.Name == "SimpleSorterModelType");
         Assert.Equal(model == "msce", required.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", required.Any(key => key.Name == "StageWeights"));

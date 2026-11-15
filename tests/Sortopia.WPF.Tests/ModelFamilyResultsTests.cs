@@ -33,6 +33,8 @@ public sealed class ModelFamilyResultsTests
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models").Editor!;
         editor.ResultsFunctionName = name; editor.AddRequiredResultsDefaultsCommand.Execute(null);
         var keys = definition.RequiredParameters.Select(key => key.Name).ToArray();
+        Assert.Null(ParamKeys.tryFind("SorterModelType"));
+        Assert.DoesNotContain("SorterModelType", WorkspaceParameterBinding.KnownKeys);
         Assert.DoesNotContain("SorterModelType", keys);
         Assert.Equal(family == "SimpleR", keys.Contains("AMax")); Assert.Equal(family == "SimpleR", keys.Contains("AInitial"));
         Assert.Equal(family == "SimpleS", keys.Contains("ActivationProbability"));
@@ -45,7 +47,7 @@ public sealed class ModelFamilyResultsTests
         var parameters = parameterSet.fromBindings(editor.ToProjectSettings().resultsParameterDefaults.Select(ParameterBindingDto.toDomain));
         FunctionValidation.validate(definition, parameters);
         Assert.Contains("not used", Assert.Throws<ArgumentException>(() => FunctionValidation.validate(definition,
-            parameters.WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family)))).Message);
+            parameters.WithBinding(ParameterBinding.fromText("SorterModelType", parameterValueType.Text, family)))).Message);
     }
 
     [Theory]

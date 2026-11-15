@@ -116,13 +116,14 @@ module RunParameterExecution =
                 beforeWrite ()
             | _ -> invalidOp "The generated parameter sets do not match the run type."
             let batches =
-                if sets.Setup.IsNone then [| None, [] |]
+                if sets.Setup.IsNone then [| None, [], None |]
                 else setup |> Seq.map (fun batch ->
                     Some batch.SetNumber, batch.StoredOutputs |> List.map (fun output -> output.Reference)
-                                         |> List.filter (fun reference -> List.contains reference.DataType resultsDefinition.SourceDataTypes)) |> Seq.toArray
+                                         |> List.filter (fun reference -> List.contains reference.DataType resultsDefinition.SourceDataTypes),
+                    ModelGenerationStageLengths.tryForFunction batch.FunctionName batch.Parameters |> Option.map int) |> Seq.toArray
             context <- "Verifying project-local setup data"
-            verifyInputs projectFolder value.ParentProjectId (batches |> Seq.collect snd) token
-            for setupNumber, inputs in batches do
+            verifyInputs projectFolder value.ParentProjectId (batches |> Seq.collect (fun (_, inputs, _) -> inputs)) token
+            for setupNumber, inputs, setupStages in batches do
                 for i = 0 to sets.Results.Length - 1 do
                     token.ThrowIfCancellationRequested()
                     context <- $"Saving results work item {ids.Count + 1}"
@@ -130,7 +131,9 @@ module RunParameterExecution =
                     let item = {
                         Id = UMX.tag Guid.Empty; ProjectId = value.ParentProjectId; RunId = value.Id
                         Results = { config with ParameterDefaults = [] }; Parameters = sets.Results[i]
-                        SetupInputs = inputs; SetNumber = i + 1; SetupSetNumber = setupNumber }
+                        SetupInputs = inputs; SetNumber = i + 1; SetupSetNumber = setupNumber
+                        SetupSuffixStages = setupStages
+                        ResultsSuffixStages = ModelGenerationStageLengths.tryForFunction (string config.FunctionName) sets.Results[i] |> Option.map int }
                     planWorkItem item token |> ignore
                     ids.Add(RunParameterFiles.saveWorkItem projectFolder item token)
             notify progress $"Generated {ids.Count} results work items" (int64 setupCount + resultsCount) (int64 setupCount + resultsCount)

@@ -52,11 +52,11 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     [InlineData(true)]
     public void Disjoint_inputs_fill_each_combination(bool branch)
     {
-        var value = RunExecutionTests.MakeRun(branch, ModelSettings(branch), [Span("StageLength", "11", "13"), Span("ChannelCount", "4", "6", "8")]);
+        var value = RunExecutionTests.MakeRun(branch, ModelSettings(branch), [Span("Repl", "11", "13"), Span("ChannelCount", "4", "6", "8")]);
         var expanded = RunParameterSets.create(value); Assert.Equal(branch, expanded.Setup is not null);
-        Assert.DoesNotContain(value.ResultsParameterDefaults, row => row.KeyName == "StageLength");
-        Assert.Equal(new[] { "11:4", "11:6", "11:8", "13:4", "13:6", "13:8" }, expanded.Results.Select(set => $"{set.TryFindText("StageLength").Value}:{set.TryFindText("ChannelCount").Value}"));
-        Assert.All(expanded.Results, set => Assert.Null(set.TryFind(ParamKeys.sorterModelTypeKey)));
+        Assert.DoesNotContain(value.ResultsParameterDefaults, row => row.KeyName == "Repl");
+        Assert.Equal(new[] { "11:4", "11:6", "11:8", "13:4", "13:6", "13:8" }, expanded.Results.Select(set => $"{set.TryFindText("Repl").Value}:{set.TryFindText("ChannelCount").Value}"));
+        Assert.All(expanded.Results, set => Assert.Null(set.TryFind("SorterModelType")));
         if (branch) Assert.Equal(16, Assert.Single(expanded.Setup!.Value).TryFind(ParamKeys.channelCountKey).Value);
     }
 

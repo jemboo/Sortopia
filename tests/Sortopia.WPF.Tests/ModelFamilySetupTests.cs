@@ -47,7 +47,7 @@ public sealed class ModelFamilySetupTests
         var parameters = parameterSet.fromBindings(editor.ToProjectSettings().setupParameterDefaults.Select(ParameterBindingDto.toDomain));
         FunctionValidation.validate(definition, parameters);
         var irrelevant = new[] {
-            ParameterBinding.create(ParamKeys.sorterModelTypeKey, family),
+            ParameterBinding.fromText("SorterModelType", parameterValueType.Text, family),
             ParameterBinding.create(ParamKeys.aMaxKey, 1), ParameterBinding.create(ParamKeys.aInitialKey, 0),
             ParameterBinding.create(ParamKeys.activationProbabilityKey, 0.5)
         }.Where(binding => !keys.Contains(binding.KeyName));

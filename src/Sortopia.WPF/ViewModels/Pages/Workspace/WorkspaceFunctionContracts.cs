@@ -2,6 +2,9 @@ using Sortopia.Functions;
 using Microsoft.FSharp.Collections;
 using Sortopia.Runs;
 using Sortopia.Workspaces.Serialization;
+using Sortopia.Sorting;
+using Sortopia.Models.Sorting;
+using Sortopia.Models.Sorting.Simple;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
@@ -46,8 +49,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     {
         bool prefix = functionName.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal);
         if (!WorkspaceParameterInitialValues.IsModelFunction(functionName)) return "";
-        var dimensions = prefix ? "Channel count comes from PrefixLibId. StageLength controls the random suffix capacity; the fixed prefix is always added. "
-            : "ChannelCount sets the width and StageLength sets the model's stage capacity. The generated models have no fixed prefix. ";
+        var dimensions = prefix ? "Channel count and prefix stage length come from PrefixLibId. SorterSuccessFraction determines the random suffix capacity; the fixed prefix is always added. "
+            : "ChannelCount sets the width; SorterSuccessFraction determines the stage capacity with zero prefix stages. The generated models have no fixed prefix. ";
         var tests = functionName.StartsWith("sorter-eval.merge.", StringComparison.Ordinal)
             ? "MergeLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
             : functionName.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal)
@@ -62,10 +65,44 @@ public sealed partial class WorkspaceConfigurationViewModel
                     ? "The function fixes the algorithm and Simple model type. All suffix entries are enabled; no activator parameters are required. "
                     : "";
         return family
-            + dimensions + tests + "Repl selects a reproducible batch of SorterCount models. Mode weights are shared by every stage; UF4/UF6 have separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
+            + dimensions + "Choose 50%, 90%, or 99% of generated networks sorting every input. These budgets are provisional; custom weights and inactive entries can change the actual success rate. "
+            + tests + "Repl selects a reproducible batch of SorterCount models. Mode weights are shared by every stage; UF4/UF6 have separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
     }
-    public string ResultsInputGuidance => HasResultsContract ? ModelInputGuidance(ResultsFunctionName) : "";
-    public string SetupInputGuidance => HasSetupContract ? ModelInputGuidance(SetupFunctionName) : "";
+    private string ModelStageLengthSuggestion(bool setup)
+    {
+        var name = setup ? SetupFunctionName : ResultsFunctionName;
+        if (!PhaseVersionCurrent(setup) || !WorkspaceParameterInitialValues.IsModelFunction(name)) return "";
+        var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
+        var spans = IsRun ? ActiveParameters(setup).ToArray() : [];
+        parameterValue[] Values(string key)
+        {
+            var bindings = defaults.Where(value => value.keyName == key).ToArray();
+            var matches = spans.Where(span => span.Key == key).ToArray();
+            if (bindings.Length > 1 || matches.Length > 1 || bindings.Length > 0 && matches.Length > 0) return [];
+            var texts = bindings.Select(value => value.value).Concat(matches.SelectMany(span => span.Values.Select(value => value.Text))).ToArray();
+            var parsed = texts.Select(text => ParameterValue.tryParse(ParamKeys.valueType(key), text)).ToArray();
+            return parsed.Any(value => value is null) ? [] : parsed.Select(value => value.Value).Distinct().ToArray();
+        }
+        var fractions = Values("SorterSuccessFraction").OfType<parameterValue.SorterSuccessFractionValue>().Select(value => value.Item).ToArray();
+        var dimensions = name.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal)
+            ? Values("PrefixLibId").OfType<parameterValue.PrefixLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: value.Item.StageLength)).ToArray()
+            : Values("ChannelCount").OfType<parameterValue.IntegerValue>().Select(value => (Width: value.Item, Prefix: 0)).ToArray();
+        if (fractions.Length == 0 || dimensions.Length == 0) return "Select a success fraction and channel count or prefix to see the suggested stage length. ";
+        var model = SimpleSorterModelType.fromString(name.Split('.').First(part => part is "msce" or "mssi" or "msrs" or "msuf4" or "msuf6"));
+        try
+        {
+            var suggestions = (from dimension in dimensions from fraction in fractions
+                select SimpleSorterStageLengths.forSuccessFraction(fraction, dimension.Width, dimension.Prefix, model)).ToArray();
+            if (suggestions.Any(value => !value.IsSupported)) return "Stage suggestion unavailable for an unsupported channel count. ";
+            var minimum = suggestions.Min(value => value.Stages); var maximum = suggestions.Max(value => value.Stages);
+            if (suggestions.Length == 1)
+                return $"Suggested random suffix: {minimum:N0} stages ({dimensions[0].Width} channels, {dimensions[0].Prefix} prefix stages, {SorterSuccessFraction.toString(fractions[0])} target; {suggestions[0].Source}). ";
+            return $"Suggested random suffix: {minimum:N0}–{maximum:N0} stages across the selected widths, prefixes, and success fractions. ";
+        }
+        catch (ArgumentException error) { return $"Stage suggestion unavailable: {error.Message} "; }
+    }
+    public string ResultsInputGuidance => HasResultsContract ? ModelStageLengthSuggestion(false) + ModelInputGuidance(ResultsFunctionName) : "";
+    public string SetupInputGuidance => HasSetupContract ? ModelStageLengthSuggestion(true) + ModelInputGuidance(SetupFunctionName) : "";
     public bool HasResultsInputGuidance => ResultsInputGuidance.Length > 0;
     public bool HasSetupInputGuidance => SetupInputGuidance.Length > 0;
     public bool HasResultsContract => ResultsFunctionCatalog.functions.ContainsKey(ResultsFunctionName);

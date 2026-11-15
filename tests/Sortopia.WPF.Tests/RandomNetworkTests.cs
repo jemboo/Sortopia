@@ -156,7 +156,7 @@ public sealed class RandomNetworkTests
         settings.ChannelCount = 24;
         Assert.Equal("4096", settings.SamplesText);
         Assert.Equal("215", settings.CountText);
-        Assert.Contains("measured", settings.StageDefaultDescription);
+        Assert.Contains("reference", settings.StageDefaultDescription);
     }
 
     [Fact]
@@ -2275,7 +2275,7 @@ public sealed class RandomNetworkTests
             Assert.Equal("Run parameter files", vm.ActiveItemTitle);
             var files = (DataGrid)page.FindName("RunParameterFilesTable");
             Assert.True(files.IsReadOnly); Assert.Equal(6, files.Items.Count);
-            Assert.Equal(new[] { "File", "Parameters", "File status", "Results status" }, files.Columns.Select(column => column.Header.ToString()));
+            Assert.Equal(new[] { "File", "Parameters", "Suggested suffix stages", "File status", "Results status" }, files.Columns.Select(column => column.Header.ToString()));
             Assert.All(files.Items.Cast<WorkspaceRunParameterFile>(), file =>
             {
                 Assert.Equal("Ready", file.FileStatus); Assert.Equal("Not generated", file.ResultsStatus);
@@ -2290,7 +2290,8 @@ public sealed class RandomNetworkTests
                 Layout(width);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport"); viewport.ScrollToTop(); Layout(width);
                 Assert.Equal(0, viewport.ScrollableWidth);
-                Assert.True(files.Columns[2].ActualWidth >= 68); Assert.True(files.Columns[3].ActualWidth >= 85);
+                Assert.True(files.Columns[2].ActualWidth >= 100);
+                Assert.True(files.Columns[3].ActualWidth >= 68); Assert.True(files.Columns[4].ActualWidth >= 85);
                 var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, 1000, 96, 96, PixelFormats.Pbgra32); image.Render(page);
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
                 using var output = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-run-parameter-files-{width}.png")); encoder.Save(output);
@@ -2506,8 +2507,8 @@ public sealed class RandomNetworkTests
                 vm.Selected = project;
                 vm.AddRunCommand.Execute(null);
                 var run = vm.Selected!;
-                var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", false, "1", "2", "3");
-                if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", true, "4", "5");
+                var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", false, "1", "2", "3");
+                if (branch) WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "4", "5");
                 WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
                 var sections = run.Editor!.Sections;
                 sections.Description = sections.ResultsSettings = sections.ResultsDefaults = sections.ResultsSpans = false;
@@ -2517,10 +2518,13 @@ public sealed class RandomNetworkTests
                 var setup = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterSetsPreview)FindWorkspaceField(fields, "SetupSetsPreview");
                 var table = (DataGrid)results.FindName("ParameterSetsTable");
                 Assert.Equal(3, table.Items.Count);
-                Assert.Equal(1 + Sortopia.Functions.ResultsFunctionCatalog.require(module.Editor.ResultsFunctionName).RequiredParameters.Length, table.Columns.Count);
+                Assert.Equal(2 + Sortopia.Functions.ResultsFunctionCatalog.require(module.Editor.ResultsFunctionName).RequiredParameters.Length, table.Columns.Count);
+                var suffixColumn = table.Columns[1];
+                Assert.Equal("Suggested suffix stages\nCalculated", suffixColumn.Header);
+                Assert.Equal("133", ((TextBlock)suffixColumn.GetCellContent(table.Items[0])).Text);
                 var channelColumn = table.Columns.Single(column => column.Header.ToString()!.Contains("ChannelCount"));
                 Assert.Contains("run span", channelColumn.Header.ToString());
-                Assert.Contains("run span", table.Columns.Single(column => column.Header.ToString()!.Contains("StageLength")).Header.ToString());
+                Assert.Contains("run span", table.Columns.Single(column => column.Header.ToString()!.Contains("Repl")).Header.ToString());
                 Assert.Equal("16", ((TextBlock)channelColumn.GetCellContent(table.Items[0])).Text);
                 Assert.Equal(branch ? Visibility.Visible : Visibility.Collapsed, ((Expander)FindWorkspaceField(fields, "SetupPreviewSection")).Visibility);
                 if (branch) Assert.Equal(2, ((DataGrid)setup.FindName("ParameterSetsTable")).Items.Count);
@@ -2550,7 +2554,9 @@ public sealed class RandomNetworkTests
                 FindWorkspaceField(fields, "ResultsSetsPreview");
                 Layout();
                 Assert.Equal(Visibility.Visible, table.Visibility);
-                Assert.Equal("6", ((TextBlock)table.Columns.Single(column => column.Header.ToString()!.Contains("StageLength")).GetCellContent(table.Items[0])).Text);
+                var replColumn = table.Columns.Single(column => column.Header.ToString()!.Contains("Repl"));
+                table.ScrollIntoView(table.Items[0], replColumn); Layout();
+                Assert.Equal("6", ((TextBlock)replColumn.GetCellContent(table.Items[0])).Text);
                 var previewExpander = (Expander)FindWorkspaceField(fields, "ResultsPreviewSection");
                 var previewPeer = (IExpandCollapseProvider)new ExpanderAutomationPeer(previewExpander).GetPattern(PatternInterface.ExpandCollapse)!;
                 previewPeer.Collapse(); Layout();
@@ -2588,7 +2594,7 @@ public sealed class RandomNetworkTests
             Assert.Single(inherited.Items);
             Assert.Single(locals.Items);
             Assert.Equal("ChannelCount", ((WorkspaceParameterBindingPreview)inherited.Items[0]).Key);
-            Assert.Equal("StageLength", ((WorkspaceParameterBinding)locals.Items[0]).Key);
+            Assert.Equal("Repl", ((WorkspaceParameterBinding)locals.Items[0]).Key);
             var row = (ContentPresenter)inherited.ItemContainerGenerator.ContainerFromIndex(0);
             var source = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)inherited.ItemTemplate.FindName("ParameterValueSource", row);
             Assert.Equal(Visibility.Visible, ((TextBlock)source.FindName("SourceLinkText")).Visibility);
@@ -2646,7 +2652,7 @@ public sealed class RandomNetworkTests
             module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
             vm.AddProjectCommand.Execute(null); vm.Selected!.Name = "Single-stage evaluation";
             vm.AddRunCommand.Execute(null); var run = vm.Selected!; run.Name = "Stage sweep";
-            var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", false, "1", "2", "3");
+            var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", false, "1", "2", "3");
             WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", true, "8", "16");
             WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
             var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };

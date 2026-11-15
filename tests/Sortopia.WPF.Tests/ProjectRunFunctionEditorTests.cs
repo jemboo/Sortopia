@@ -71,9 +71,9 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
         if (setup) { module.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels; module.Editor.AddRequiredSetupDefaultsCommand.Execute(null); }
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
-        var local = WorkspaceParameterInheritanceTests.AddDefault(project.Editor!, "StageLength", "5", setup);
+        var local = WorkspaceParameterInheritanceTests.AddDefault(project.Editor!, "Repl", "5", setup);
         page.AddRunCommand.Execute(null); var run = page.Selected!;
-        var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", setup, "2", "3");
+        var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", setup, "2", "3");
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         void Change(bool standard)
         {
@@ -81,8 +81,8 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
             else module.Editor.ResultsFunctionName = standard ? ResultsFunctionNames.standardSortableTests : ResultsFunctionNames.uniformMssiSimpleSorterModels;
         }
         Change(true);
-        Assert.DoesNotContain(setup ? project.Editor!.LocalSetupParameterDefaults : project.Editor!.LocalResultsParameterDefaults, row => row.Key == "StageLength");
-        Assert.DoesNotContain(setup ? run.Editor!.ActiveSetupParameters : run.Editor!.ActiveResultsParameters, row => row.Key == "StageLength");
+        Assert.DoesNotContain(setup ? project.Editor!.LocalSetupParameterDefaults : project.Editor!.LocalResultsParameterDefaults, row => row.Key == "Repl");
+        Assert.DoesNotContain(setup ? run.Editor!.ActiveSetupParameters : run.Editor!.ActiveResultsParameters, row => row.Key == "Repl");
         Assert.Contains("editing session", setup ? run.Editor.RetainedSetupSpansHint : run.Editor.RetainedResultsSpansHint);
         Change(false);
         Assert.DoesNotContain(local, setup ? project.Editor.LocalSetupParameterDefaults : project.Editor.LocalResultsParameterDefaults);
@@ -95,10 +95,10 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         Assert.Empty(run.Editor.ResultsParametersError);
         if (setup) Assert.Empty(run.Editor.SetupParametersError);
         var inputs = run.Editor.ToRunInputs(run.Id, run.Name, project.Id);
-        Assert.DoesNotContain(setup ? inputs.setupParameterSpans : inputs.resultsParameterSpans, row => row.keyName == "StageLength");
+        Assert.DoesNotContain(setup ? inputs.setupParameterSpans : inputs.resultsParameterSpans, row => row.keyName == "Repl");
         var preview = setup ? run.Editor.SetupParameterSetsPreview : run.Editor.ResultsParameterSetsPreview;
         Assert.Single(preview.Rows);
-        Assert.DoesNotContain(preview.Columns, column => column.Key == "StageLength");
+        Assert.DoesNotContain(preview.Columns, column => column.Key == "Repl");
         Assert.Empty(setup ? project.Editor.ToLocalOverrides().setupParameterDefaults : project.Editor.ToLocalOverrides().resultsParameterDefaults);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);

@@ -2,6 +2,10 @@ using System.IO;
 using System.Numerics;
 using Microsoft.FSharp.Collections;
 using Sortopia.Runs;
+using Sortopia.Functions;
+using Sortopia.Sorting;
+using Sortopia.Sorting.Catalog;
+using Sortopia.Workspaces;
 using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -74,14 +78,14 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         var page = Open();
         WorkspaceParameterInheritanceTests.Hierarchy(page, branch);
         var run = AddRun(page, branch);
-        AddSpan(run, "StageLength", false, "1", "2");
+        AddSpan(run, "Repl", false, "1", "2");
         AddSpan(run, "ChannelCount", false, "+004", "8");
-        if (branch) AddSpan(run, "StageLength", true, "3", "4", "5");
+        if (branch) AddSpan(run, "Repl", true, "3", "4", "5");
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         var results = run.Editor!.ResultsParameterSetsPreview;
         Assert.Equal(new BigInteger(4), results.TotalCount);
-        Assert.Equal(new[] { "1:4", "1:8", "2:4", "2:8" }, results.Rows.Select(row => $"{row.ParameterSet.TryFind(ParamKeys.stageLengthKey).Value}:{row.ParameterSet.TryFind(ParamKeys.channelCountKey).Value}"));
-        Assert.All(results.Columns.Where(column => column.Key is "StageLength" or "ChannelCount"), column => { Assert.Equal("Integer", column.TypeLabel); Assert.Equal("run span", column.Source); });
+        Assert.Equal(new[] { "1:4", "1:8", "2:4", "2:8" }, results.Rows.Select(row => $"{row.ParameterSet.TryFind(ParamKeys.replKey).Value}:{row.ParameterSet.TryFind(ParamKeys.channelCountKey).Value}"));
+        Assert.All(results.Columns.Where(column => column.Key is "Repl" or "ChannelCount"), column => { Assert.Equal("Integer", column.TypeLabel); Assert.Equal("run span", column.Source); });
         Assert.Equal("4", results.Rows[0].Values[Array.FindIndex(results.Columns, column => column.Key == "ChannelCount")]);
         var setup = run.Editor.SetupParameterSetsPreview;
         if (branch)
@@ -150,6 +154,67 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         Assert.Throws<ArgumentException>(() => ParameterSets.preview(0, bindings, valid));
         var invalid = ListModule.OfArray(new[] { ParameterSpan.create(ParamKey.text("ChannelCount"), ListModule.OfSeq(Enumerable.Range(1, 80).Select(value => value.ToString()).Append("bad"))) });
         Assert.Throws<ArgumentException>(() => ParameterSets.preview(3, bindings, invalid));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Suffix_preview_uses_each_phases_function_and_each_width_and_success_fraction(bool setup)
+    {
+        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: hierarchyKind.Branch);
+        module.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+        module.Editor.SetupFunctionName = SetupFunctionNames.uniformMsceSimpleSorterModels;
+        module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
+        var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
+        var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
+        AddSpan(run, "ChannelCount", setup, "4", "8");
+        AddSpan(run, "SorterSuccessFraction", setup, "50%", "90%", "99%");
+        WorkspaceParameterSetsPreview Preview() => setup ? run.Editor!.SetupParameterSetsPreview : run.Editor!.ResultsParameterSetsPreview;
+        var preview = Preview();
+        Assert.True(preview.HasSuffixStages); Assert.Equal(6, preview.Rows.Length);
+        foreach (var row in preview.Rows)
+        {
+            var width = row.ParameterSet.TryFind(ParamKeys.channelCountKey).Value;
+            var percent = SorterSuccessFraction.percent(row.ParameterSet.TryFind(ParamKeys.sorterSuccessFractionKey).Value);
+            var expected = (setup, width, percent) switch {
+                (true, 4, 50) => 7, (true, 4, 90) => 12, (true, 4, 99) => 18,
+                (true, 8, 50) => 17, (true, 8, 90) => 26, (true, 8, 99) => 40,
+                (false, 4, 50) => 5, (false, 4, 90) => 9, (false, 4, 99) => 15,
+                (false, 8, 50) => 22, (false, 8, 90) => 33, (false, 8, 99) => 49,
+                _ => throw new InvalidOperationException() };
+            Assert.Equal(expected, row.SuffixStages);
+            Assert.Null(row.ParameterSet.TryFind(ParamKeys.stageLengthKey));
+            Assert.Equal(row.ParameterSet.ParamMap.Count, row.Values.Length);
+        }
+        var reps = AddSpan(run, "Repl", setup, Enumerable.Range(0, 100).Select(value => value.ToString()).ToArray());
+        Assert.Equal(600, (int)Preview().TotalCount);
+        Assert.Equal(WorkspaceParameterSetsPreview.MaximumRows, Preview().Rows.Length);
+        Assert.All(Preview().Rows, row => Assert.NotNull(row.SuffixStages));
+        reps.Values.Last().Text = "invalid";
+        Assert.Empty(Preview().Rows); Assert.False(Preview().HasSuffixStages); Assert.NotEmpty(Preview().Error);
+    }
+
+    [Fact]
+    public void Prefix_suffix_preview_refreshes_inherited_values_and_rejects_invalid_drafts()
+    {
+        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models");
+        module.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixMssiSimpleSorterModels;
+        module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
+        var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
+        var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
+        var prefix = module.Editor.ResultsParameterDefaults.Single(row => row.Key == "PrefixLibId").Value;
+        var fraction = module.Editor.ResultsParameterDefaults.Single(row => row.Key == "SorterSuccessFraction").Value;
+        Assert.Equal(48, Assert.Single(run.Editor!.ResultsParameterSetsPreview.Rows).SuffixStages);
+        prefix.Text = PrefixLibId.toString(prefixLibId.create(8, 3, prefixLibVariant.PrefixA));
+        Assert.Equal(46, Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).SuffixStages);
+        fraction.Text = "50%";
+        Assert.Equal(19, Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).SuffixStages);
+        prefix.Text = "invalid";
+        Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows); Assert.False(run.Editor.ResultsParameterSetsPreview.HasSuffixStages);
+        module.Editor.ResultsFunctionName = ResultsFunctionNames.standardSortableTests;
+        module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
+        Assert.False(run.Editor.ResultsParameterSetsPreview.HasSuffixStages);
+        Assert.Null(Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).SuffixStages);
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

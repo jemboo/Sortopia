@@ -42,6 +42,7 @@ internal static class WorkspaceParameterInitialValues
         {
             "ChannelCount" => channels.ToString(CultureInfo.InvariantCulture),
             "StageLength" => "1",
+            "SorterSuccessFraction" => "99%",
             "SorterCount" => "100",
             "Repl" => "0",
             "ExcludeSelfCe" => "true",

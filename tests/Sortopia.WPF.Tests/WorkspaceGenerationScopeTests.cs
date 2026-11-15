@@ -20,7 +20,7 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
             module.Editor.SetupParameterDefaults.Single(row => row.Key == "MergeLibId").Value.Text =
                 RunExecutionTests.Settings(false).resultsParameterDefaults.Single(row => row.keyName == "MergeLibId").value;
             module.Editor.SetupParameterDefaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-            module.Editor.SetupParameterDefaults.Single(row => row.Key == "StageLength").Value.Text = "1";
+            module.Editor.SetupParameterDefaults.Single(row => row.Key == "SorterSuccessFraction").Value.Text = "50%";
         }
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync();

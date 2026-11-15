@@ -120,7 +120,7 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
             var recommendation = SimpleSorterStageCounts.fullSortDefault(SimpleSorterModelType.fromString(Method), ChannelCount);
             var count = Method == "msce" ? Sortopia.Sorting.StageLength.toCeLength(ChannelCount, recommendation.Stages)
                 : recommendation.Stages * (ChannelCount / 2);
-            var source = recommendation.IsEstimate ? "Estimated" : "Measured";
+            var source = recommendation.IsEstimate ? "Estimated" : "Reference";
             var hint = $"{source} 99% default: {count:N0} CEs ({recommendation.Stages:N0} stages). This is a starting size, not a guarantee for an individual network. Enter 1–{MaximumCeBudget:N0} CEs.";
             if (Method != "msce" && int.TryParse(Generator.CountText, out var stages) && stages > 0)
                 hint += $" This method generates whole stages: {stages:N0} stages, {stages * (ChannelCount / 2):N0} CEs.";

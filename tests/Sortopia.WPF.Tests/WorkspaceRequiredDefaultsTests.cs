@@ -21,10 +21,10 @@ public sealed class WorkspaceRequiredDefaultsTests
         if (setup) parent.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
         else parent.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         var inherited = WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "ChannelCount", "16", setup);
-        WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "StageLength", "2", setup);
+        WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "Repl", "2", setup);
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child", family: family); parent.Children.Add(child);
         var editor = child.Editor!;
-        var local = WorkspaceParameterInheritanceTests.AddDefault(editor, "StageLength", "5", setup);
+        var local = WorkspaceParameterInheritanceTests.AddDefault(editor, "Repl", "5", setup);
         var draft = WorkspaceParameterInheritanceTests.AddDefault(editor, "RngType", "unfinished edit", setup);
         var otherPhase = setup ? editor.ResultsParameterDefaults : editor.SetupParameterDefaults;
         var command = setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand;
@@ -34,7 +34,7 @@ public sealed class WorkspaceRequiredDefaultsTests
         Assert.True(command.CanExecute(null));
         command.Execute(null);
         Assert.Equal(4, rows.Count);
-        Assert.Same(local, rows.Single(row => row.Key == "StageLength")); Assert.Equal("5", local.Value.Text);
+        Assert.Same(local, rows.Single(row => row.Key == "Repl")); Assert.Equal("5", local.Value.Text);
         Assert.Same(draft, rows.Single(row => row.Key == "RngType")); Assert.Equal("unfinished edit", draft.Value.Text);
         Assert.DoesNotContain(rows, row => row.Key == "ChannelCount");
         Assert.Empty(otherPhase);

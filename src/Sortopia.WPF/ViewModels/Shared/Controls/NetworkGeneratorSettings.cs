@@ -45,7 +45,7 @@ public sealed class NetworkGeneratorSettings : ViewModelBase
         if (Options is null) return;
         // Keep the full-sort recommendation as a conservative suffix budget.
         var recommendation = SimpleSorterStageCounts.fullSortDefault(SimpleSorterModelType.fromString(Method), ChannelCount);
-        var source = recommendation.IsEstimate ? "estimate" : "measured";
+        var source = recommendation.IsEstimate ? "estimate" : "reference";
         StageDefaultDescription = $"{recommendation.Stages} ({source}, full sort)";
         OnPropertyChanged(nameof(StageDefaultDescription));
         CountText = recommendation.Stages.ToString(CultureInfo.InvariantCulture);

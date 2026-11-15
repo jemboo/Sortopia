@@ -30,9 +30,9 @@ public sealed class FileDataStoreTests : IDisposable
     private static functionData Tests(int channels = 4) => CatalogTestHost.Invoke(true, SetupFunctionNames.standardTests,
         Parameters(ParameterBinding.create(ParamKeys.channelCountKey, channels), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"))).Head;
     private static functionData Models(int stages = 3) => CatalogTestHost.Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels,
-        Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, stages),
+        Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, Sortopia.Sorting.sorterSuccessFraction.pct50),
             ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
-            ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, 0))).Head;
+            ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, stages))).Head;
     private static T Ok<T>(FSharpResult<T, string> result)
     { Assert.True(result.IsOk, result.IsError ? result.ErrorValue : ""); return result.ResultValue; }
 
@@ -190,7 +190,7 @@ public sealed class FileDataStoreTests : IDisposable
         var testCalls = 0; var modelCalls = 0;
         foreach (var stage in new[] { 3, 4, 4 })
         {
-            var parameters = BranchRun.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.stageLengthKey, stage));
+            var parameters = BranchRun.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.replKey, stage));
             var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
                 setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardMssiSimpleEvaluationInputs, "1",
                 branch.ProjectConfiguration.Setup.DataTypes, SetupFunctionCatalog.require(branch.SetupFunctionName).OutputDependencies,

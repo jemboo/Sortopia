@@ -481,10 +481,10 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupParameterSetsSummary => $"{SetCount(ActiveSetupParameters)} setup parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
     public WorkspaceParameterSetsPreview ResultsParameterSetsPreview => !IsRun ? WorkspaceParameterSetsPreview.Empty
         : resultsPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveOutputDefaults, ActiveResultsParameters,
-            FirstError(ResultsParameterDefaultsError, ResultsParametersError));
+            FirstError(ResultsParameterDefaultsError, ResultsParametersError), PhaseVersionCurrent(false) ? ResultsFunctionName : "");
     public WorkspaceParameterSetsPreview SetupParameterSetsPreview => !IsRun || !IsBranch ? WorkspaceParameterSetsPreview.Empty
         : setupPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveSetupDefaults, ActiveSetupParameters,
-            FirstError(SetupParameterDefaultsError, SetupParametersError));
+            FirstError(SetupParameterDefaultsError, SetupParametersError), PhaseVersionCurrent(true) ? SetupFunctionName : "");
     private static string FirstError(params string[] errors) => errors.FirstOrDefault(error => error.Length > 0) ?? "";
     public string ResultsSettingsError => FirstError(ResultsDatabaseError, ResultsFunctionError, OutputTypesError, ResultsQueryKeysError);
     public string SetupSettingsError => FirstError(SetupDatabaseError, SetupFunctionError, SetupDataTypesError, SetupQueryKeysError);

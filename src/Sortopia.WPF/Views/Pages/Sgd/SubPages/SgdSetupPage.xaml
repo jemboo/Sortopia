@@ -51,7 +51,7 @@
                             <StackPanel Width="320">
                                 <StackPanel AutomationProperties.Name="Test plan">
                                     <TextBlock Text="Evaluation plan" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
-                                    <HeaderedContentControl Style="{StaticResource ResultRow}" Header="99% stage default" Content="{Binding Generator.StageDefaultDescription}" ToolTip="GeneSort stage count for 99% sorter success. Estimates use the nearest measured widths for this method." />
+                                    <HeaderedContentControl Style="{StaticResource ResultRow}" Header="99% stage default" Content="{Binding Generator.StageDefaultDescription}" ToolTip="Provisional full-sort budget from current samples and legacy GeneSort references, with estimates for other widths. This targets the fraction of generated networks that sort every input; it is not a guarantee for an individual network or custom weights." />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Coverage" Content="{Binding PlannedCoverage, TargetNullValue=—, FallbackValue=—}" />
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Inputs before prefix" Content="{Binding PlannedInputs, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" ToolTip="A prefix chosen on Sampling reduces this set to distinct outputs. Sampling shows the actual test count." />
                                     <TextBlock Text="{Binding Generator.SetupError}" Style="{StaticResource InlineError}" />

@@ -18,6 +18,8 @@ internal static class WorkspaceParameterRules
     {
         [ParamKeys.channelCountKey.Name] = Minimum(1),
         [ParamKeys.stageLengthKey.Name] = Minimum(0),
+        [ParamKeys.sorterSuccessFractionKey.Name] = new(SorterSuccessFraction.all.Select(SorterSuccessFraction.toString).ToArray(),
+            ParameterValue.hint(parameterValueType.SorterSuccessFraction), text => { SorterSuccessFraction.fromString(text); return true; }),
         [ParamKeys.sorterCountKey.Name] = Minimum(1),
         [ParamKeys.replKey.Name] = Minimum(0),
         [ParamKeys.aMaxKey.Name] = Minimum(0),

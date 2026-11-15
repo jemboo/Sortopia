@@ -23,7 +23,7 @@ public sealed class UniformModelFunctionTests
         (setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
         defaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-        defaults.Single(row => row.Key == "StageLength").Value.Text = "3";
+        defaults.Single(row => row.Key == "SorterSuccessFraction").Value.Text = "50%";
         return editor;
     }
     private static parameterSet Parameters(WorkspaceConfigurationViewModel editor, bool setup)

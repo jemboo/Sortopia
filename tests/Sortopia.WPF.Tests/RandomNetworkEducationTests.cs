@@ -15,7 +15,7 @@ public sealed class RandomNetworkEducationTests
     [InlineData("msrs", 8, "204")]
     [InlineData("msuf4", 8, "204")]
     [InlineData("msuf6", 12, "474")]
-    [InlineData("mssi", 5, "32")]
+    [InlineData("mssi", 5, "34")]
     public void Size_defaults_use_the_method_specific_99_percent_CE_budget(string method, int width, string count) => OnSta(() =>
     {
         using var vm = new RandomNetworksPageViewModel(() => { });

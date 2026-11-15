@@ -21,7 +21,7 @@ public sealed class PrefixSorterModelFunctionTests
     private static parameterBinding[] Defaults(string model = "Mssi", int width = 8, int repl = 0) => [
         ParameterBinding.create(ParamKeys.prefixLibIdKey, prefixLibId.create(width, 1, prefixLibVariant.Prefix1)),
         Bind("RngType", "SplitMix64", parameterValueType.Text),
-        Bind("StageLength", "2"), Bind("SorterCount", "3"), Bind("Repl", repl.ToString()), .. ModelDefaults(model, width)];
+        Bind("SorterSuccessFraction", "50%", parameterValueType.SorterSuccessFraction), Bind("SorterCount", "3"), Bind("Repl", repl.ToString()), .. ModelDefaults(model, width)];
     private static parameterBinding[] ModelDefaults(string model, int width) => model switch {
         "Msce" => [Bind("ExcludeSelfCe", "true", parameterValueType.Boolean)],
         "Msrs" => [Bind("StageWeights", "1,1,1", parameterValueType.OpsWeights)],
@@ -64,7 +64,8 @@ public sealed class PrefixSorterModelFunctionTests
                 "Msce" => simple.IsMsce, "Mssi" => simple.IsMssi, "Msrs" => simple.IsMsrs,
                 "Msuf4" => simple.IsMsuf4, "Msuf6" => simple.IsMsuf6, _ => false
             });
-            Assert.Equal(type == "Msce" ? width : 2, SimpleSorterModel.getLength(simple));
+            var stages = SimpleSorterStageLengths.stageLength50(width, 1, SimpleSorterModelType.fromString(type));
+            Assert.Equal(type == "Msce" ? width * stages / 2 : stages, SimpleSorterModel.getLength(simple));
             Assert.Equal(width, SorterModel.getChannelCount(model));
             Assert.Equal(expectedPrefix, SorterModel.getPrefix(model));
             var sorter = SorterModel.makeSorterWithPrefix(model, null!);
@@ -96,8 +97,8 @@ public sealed class PrefixSorterModelFunctionTests
     }
 
     [Theory]
-    [InlineData("StageLength", "0", "at least 1")]
-    [InlineData("StageLength", "2147483647", "suffix-size")]
+    [InlineData("SorterSuccessFraction", "75%", "Choose")]
+    [InlineData("StageLength", "2", "not used")]
     [InlineData("SorterCount", "0", "positive")]
     [InlineData("Repl", "-1", "nonnegative")]
     [InlineData("Repl", "2147483647", "indices")]
@@ -111,7 +112,7 @@ public sealed class PrefixSorterModelFunctionTests
     {
         var family = key == "ActivationProbability" ? "SimpleS" : "Simple";
         var values = ModelFamilyResultsTests.WithFamilyParameters(Parameters(), family);
-        Assert.Contains(reason, Assert.Throws<ArgumentException>(() => Generate(values.WithBinding(Bind(key, text, ParamKeys.tryFind(key).Value.ValueType)), family: family)).Message);
+        Assert.Contains(reason, Assert.Throws<ArgumentException>(() => Generate(values.WithBinding(Bind(key, text, ParamKeys.valueType(key))), family: family)).Message);
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public sealed class PrefixSorterModelFunctionTests
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf4SimpleSorterModels);
         Assert.Empty(definition.SourceDataTypes);
-        Assert.Equal(new[] { "PrefixLibId", "Repl", "RngType", "Seed4Weights", "SorterCount", "StageLength", "UnfoldingWeights" }, definition.RequiredParameters.Select(key => key.Name).Order());
+        Assert.Equal(new[] { "PrefixLibId", "Repl", "RngType", "Seed4Weights", "SorterCount", "SorterSuccessFraction", "UnfoldingWeights" }, definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.True(Assert.Single(definition.SortopiaDataTypes).IsSorterModelSet);
         var defaults = ListModule.OfSeq(Defaults("Msuf4").Where(value => value.KeyName != "PrefixLibId"));
         FunctionValidation.validateDefaults(definition, defaults);

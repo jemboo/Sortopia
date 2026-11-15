@@ -40,9 +40,9 @@ module ResultsFunctions =
 
     let private modelGenerator source modelType keys make family =
         let keys = ModelGenerators.familyKeys family keys
-        FunctionDefinition.resultsValidated "1" keys
+        FunctionDefinition.resultsValidated "2" keys
             [modelsType, InputGenerators.queryKeys keys] (ModelGenerators.inputError source modelType)
-            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> ModelGenerators.withFamily family make host.Parameters))
+            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> make family host.Parameters))
         |> FunctionDefinition.describe (ModelGenerators.familyDescription source modelType family + " Save the models in the results database.")
 
     let prefixMsceSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msce (ModelGenerators.msceKeys PrefixInput) (ModelGenerators.msce PrefixInput)
@@ -59,12 +59,12 @@ module ResultsFunctions =
 
     let private standardInputs modelType modelKeys makeModels family =
         let modelKeys = ModelGenerators.familyKeys family modelKeys
-        FunctionDefinition.resultsValidated "1"
+        FunctionDefinition.resultsValidated "2"
             (InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys modelKeys]
             (InputGenerators.evaluationInputError InputGenerators.standardKeys modelType)
             (fun host ->
-                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> ModelGenerators.withFamily family makeModels host.Parameters)
+                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> makeModels family host.Parameters)
                 host.ResultsDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
         |> FunctionDefinition.describe ($"Generate full binary sortable tests. {ModelGenerators.familyDescription ChannelCountInput modelType family} Save both outputs in the results database for use by other projects.")
 

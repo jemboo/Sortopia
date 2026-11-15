@@ -2,6 +2,7 @@ namespace Sortopia.Runs
 
 open System
 open System.Globalization
+open Sortopia.Sorting
 open Sortopia.Sorting.Catalog
 
 type parameterValueType =
@@ -17,6 +18,7 @@ type parameterValueType =
     | OpsWeights = 9
     | Seed6Weights = 10
     | UnfoldingWeights = 11
+    | SorterSuccessFraction = 12
 
 /// A typed parameter value, independent of its key or role in a run.
 type parameterValue =
@@ -32,6 +34,7 @@ type parameterValue =
     | OpsWeightsValue of opsWeights
     | Seed6WeightsValue of seed6Weights
     | UnfoldingWeightsValue of unfoldingWeights
+    | SorterSuccessFractionValue of sorterSuccessFraction
 
 module ParameterValue =
     let private invariant = CultureInfo.InvariantCulture
@@ -48,6 +51,7 @@ module ParameterValue =
         | OpsWeightsValue _ -> parameterValueType.OpsWeights
         | Seed6WeightsValue _ -> parameterValueType.Seed6Weights
         | UnfoldingWeightsValue _ -> parameterValueType.UnfoldingWeights
+        | SorterSuccessFractionValue _ -> parameterValueType.SorterSuccessFraction
     let typeFor (value: Type) =
         if value = typeof<string> then parameterValueType.Text
         elif value = typeof<int> then parameterValueType.Integer
@@ -61,6 +65,7 @@ module ParameterValue =
         elif value = typeof<opsWeights> then parameterValueType.OpsWeights
         elif value = typeof<seed6Weights> then parameterValueType.Seed6Weights
         elif value = typeof<unfoldingWeights> then parameterValueType.UnfoldingWeights
+        elif value = typeof<sorterSuccessFraction> then parameterValueType.SorterSuccessFraction
         else invalidArg "value" $"Unsupported parameter type: {value.Name}."
     let label = function
         | parameterValueType.Text -> "Text"
@@ -75,6 +80,7 @@ module ParameterValue =
         | parameterValueType.OpsWeights -> "OPS mode weights"
         | parameterValueType.Seed6Weights -> "Six-channel seed weights"
         | parameterValueType.UnfoldingWeights -> "Unfolding-level weights"
+        | parameterValueType.SorterSuccessFraction -> "Sorter success fraction"
         | _ -> "Unknown type"
     let hint = function
         | parameterValueType.Text -> "Text; spaces, line breaks, and blank values are preserved."
@@ -89,6 +95,7 @@ module ParameterValue =
         | parameterValueType.OpsWeights -> "Set finite nonnegative Ortho, Para, and SelfReflection weights, with at least one positive weight."
         | parameterValueType.Seed6Weights -> "Set finite nonnegative Ortho1–2, Para1–4, and SelfReflection weights, with at least one positive weight."
         | parameterValueType.UnfoldingWeights -> "Set OPS weights for each unfolding level, from the seed outwards. Each level needs a positive weight. The same levels repeat in every stage."
+        | parameterValueType.SorterSuccessFraction -> "Choose 50%, 90%, or 99% of generated networks sorting every input. The stage budget is provisional; custom weights and inactive entries can change the actual success rate."
         | _ -> "Choose a supported parameter type."
 
     /// Validate the typed value without formatting or reparsing it.
@@ -98,6 +105,7 @@ module ParameterValue =
         | OpsWeightsValue value -> GenerationWeights.validateOps value
         | Seed6WeightsValue value -> GenerationWeights.validateSeed6 value
         | UnfoldingWeightsValue value -> GenerationWeights.validateUnfolding value
+        | SorterSuccessFractionValue value when isNull (box value) -> nullArg "value"
         | TextValue text when isNull text -> invalidArg "value" (hint parameterValueType.Text)
         | FloatingValue number when not (Double.IsFinite number) -> invalidArg "value" (hint parameterValueType.Floating)
         | SorterLibIdValue id ->
@@ -129,6 +137,7 @@ module ParameterValue =
             | parameterValueType.OpsWeights -> OpsWeightsValue (unbox<opsWeights> boxed)
             | parameterValueType.Seed6Weights -> Seed6WeightsValue (unbox<seed6Weights> boxed)
             | parameterValueType.UnfoldingWeights -> UnfoldingWeightsValue (unbox<unfoldingWeights> boxed)
+            | parameterValueType.SorterSuccessFraction -> SorterSuccessFractionValue (unbox<sorterSuccessFraction> boxed)
             | _ -> invalidArg "value" "Unsupported parameter type."
         validate result
         result
@@ -149,6 +158,7 @@ module ParameterValue =
             | OpsWeightsValue value -> box value
             | Seed6WeightsValue value -> box value
             | UnfoldingWeightsValue value -> box value
+            | SorterSuccessFractionValue value -> box value
         if not (isNull boxed) && boxed.GetType() = typeof<'value> then Some (unbox<'value> boxed) else None
 
     let private parsed wrap (success, value) = if success then Some (wrap value) else None
@@ -175,6 +185,7 @@ module ParameterValue =
             | parameterValueType.OpsWeights -> catalog GenerationWeights.parseOps OpsWeightsValue text
             | parameterValueType.Seed6Weights -> catalog GenerationWeights.parseSeed6 Seed6WeightsValue text
             | parameterValueType.UnfoldingWeights -> catalog GenerationWeights.parseUnfolding UnfoldingWeightsValue text
+            | parameterValueType.SorterSuccessFraction -> catalog SorterSuccessFraction.fromString SorterSuccessFractionValue text
             | _ -> None
     let format = function
         | TextValue value -> value
@@ -189,6 +200,7 @@ module ParameterValue =
         | OpsWeightsValue value -> GenerationWeights.formatOps value
         | Seed6WeightsValue value -> GenerationWeights.formatSeed6 value
         | UnfoldingWeightsValue value -> GenerationWeights.formatUnfolding value
+        | SorterSuccessFractionValue value -> SorterSuccessFraction.toString value
     let validationError kind text =
         if tryParse kind text |> Option.isSome then "" else hint kind
     let parse kind text =

@@ -40,11 +40,11 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         var child = page.Selected!;
         var parent = child.Parent!;
         AddDefault(parent.Editor!, "ChannelCount", "16");
-        AddDefault(child.Editor!, "StageLength", "1");
+        AddDefault(child.Editor!, "Repl", "1");
         if (branch)
         {
             AddDefault(parent.Editor!, "ChannelCount", "32", setup: true);
-            AddDefault(child.Editor!, "StageLength", "2", setup: true);
+            AddDefault(child.Editor!, "Repl", "2", setup: true);
         }
         return (parent, child);
     }
@@ -61,7 +61,7 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         Assert.Equal("16", inherited.Value);
         Assert.Same(parent.Editor, inherited.Source.InheritedSource);
         Assert.Equal("Inherited from cc16", inherited.Source.SourceLabel);
-        Assert.Equal("StageLength", Assert.Single(child.Editor.LocalResultsParameterDefaults).Key);
+        Assert.Equal("Repl", Assert.Single(child.Editor.LocalResultsParameterDefaults).Key);
         page.SelectValueSourceCommand.Execute(inherited.Source.InheritedSource);
         Assert.Same(parent, page.Selected);
 
@@ -91,15 +91,15 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0];
-        Assert.Equal(new[] { "ChannelCount", "StageLength" }, saved.ResultsParameterDefaults.Select(value => value.KeyName));
+        Assert.Equal(new[] { "ChannelCount", "Repl" }, saved.ResultsParameterDefaults.Select(value => value.KeyName));
         Assert.Equal(new[] { "20", "1" }, saved.ResultsParameterDefaults.Select(value => value.FormattedValue));
         var overrides = ModuleOverridesDto.fromDomain(saved.LocalOverrides);
-        Assert.Equal("StageLength", Assert.Single(overrides.resultsParameterDefaults).keyName);
+        Assert.Equal("Repl", Assert.Single(overrides.resultsParameterDefaults).keyName);
         if (branch)
         {
             var settings = ModuleSettingsDto.fromDomain(saved.Configuration);
             Assert.Equal(new[] { "32", "2" }, settings.setupParameterDefaults.Select(value => value.value));
-            Assert.Equal("StageLength", Assert.Single(overrides.setupParameterDefaults).keyName);
+            Assert.Equal("Repl", Assert.Single(overrides.setupParameterDefaults).keyName);
         }
         var reopened = Open();
         parent = reopened.Roots[0].Children[0].Children[0].Children[0];
@@ -127,7 +127,7 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         page.AddProjectCommand.Execute(null); var parent = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;
         Assert.Same(ancestor.Editor, run.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Source.InheritedSource);
-        Assert.Same(module.Editor, run.Editor.InheritedOutputDefaults.Single(row => row.Key == "StageLength").Source.InheritedSource);
+        Assert.Same(module.Editor, run.Editor.InheritedOutputDefaults.Single(row => row.Key == "Repl").Source.InheritedSource);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         ancestor = page.Roots[0].Children[0].Children[0].Children[0]; module = ancestor.Children[0]; parent = module.Children[0]; run = parent.Children[0];
         Assert.False(parent.IsSealed); page.Selected = run;

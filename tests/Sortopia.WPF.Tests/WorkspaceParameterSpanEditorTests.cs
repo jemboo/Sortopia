@@ -47,7 +47,6 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     [Theory]
     [InlineData("ChannelCount", "0", "1")]
     [InlineData("SorterCount", "0", "1")]
-    [InlineData("StageLength", "-1", "0")]
     [InlineData("Repl", "-1", "0")]
     [InlineData("AMax", "-1", "0")]
     public void Numeric_keys_enforce_their_own_limits_without_replacing_invalid_text(string key, string invalid, string valid)
@@ -96,9 +95,9 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         var page = Open(true); var run = page.Selected!;
         run.Parent!.Parent!.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
         var results = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", false, "8");
-        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "StageLength", true, "3");
-        Assert.DoesNotContain("SorterEvalType", results.KeyChoices); Assert.DoesNotContain("StageLength", results.KeyChoices);
-        Assert.Contains("StageLength", setup.KeyChoices); Assert.DoesNotContain("SorterEvalType", setup.KeyChoices);
+        var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "3");
+        Assert.DoesNotContain("SorterEvalType", results.KeyChoices); Assert.DoesNotContain("Repl", results.KeyChoices);
+        Assert.Contains("Repl", setup.KeyChoices); Assert.DoesNotContain("SorterEvalType", setup.KeyChoices);
         Assert.Equal(parameterValueType.Integer, results.ValueType); Assert.Equal(parameterValueType.Integer, setup.ValueType);
     }
 

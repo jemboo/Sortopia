@@ -20,6 +20,8 @@ Input models retain full binary datasets, permutation orbits, merge inputs and p
 
 ## Configurable generation
 
+The [provisional stage-length functions](stage-lengths.md) provide 50%, 90%, and 99% whole-network success targets with a prefix-aware suffix budget. They consolidate the GeneSort probability references and Sortopia's existing 99% defaults, with explicit provenance and generator-width support information.
+
 Each generator module in `Sortopia.Models.Sorting.Simple` has its own typed initializer, shared by SGD and non-UI callers. All take an RNG factory, channel count, fixed prefix, and suffix stage length, followed by the options specific to that model:
 
 - `MsceRandGen.create`: an `excludeSelfCe` flag.

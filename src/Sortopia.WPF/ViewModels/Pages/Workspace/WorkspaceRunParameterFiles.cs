@@ -1,11 +1,14 @@
 using System.IO;
 using Sortopia.FileDb;
+using Sortopia.Functions;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed record WorkspaceRunParameterFile(string Path, Guid? RunId, string Parameters, string FileStatus, string ResultsStatus, string Details)
 {
     public string FileName => System.IO.Path.GetFileName(Path);
+    public string SuffixStages { get; init; } = "—";
+    public string SuffixStagesDetails { get; init; } = "No model-generation suffix length is recorded for this file.";
 }
 
 /// Reads saved files independently of the current draft and the last generation attempt.
@@ -93,7 +96,12 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
                     (previous is null ? "The run could not be identified. "
                         : previous.Parameters == "Not read" ? "Generation reported this file, but it could not be read. "
                         : "Parameters shown are from the last successful read. ")
-                    + error.GetBaseException().Message));
+                    + error.GetBaseException().Message)
+                {
+                    SuffixStages = previous?.SuffixStages ?? "—",
+                    SuffixStagesDetails = previous is null ? "The file could not be read."
+                        : "From the last successful read. " + previous.SuffixStagesDetails
+                });
                 continue;
             }
             if (parameters.RunId != runId) continue;
@@ -105,18 +113,47 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
                 rows.Add(new(path, runId, values, "Invalid", "Unknown", "The parameter file belongs to a different project."));
                 continue;
             }
+            var (suffixStages, suffixDetails) = StageLengths(parameters);
             try
             {
                 var outputs = RunParameterExecution.inspectFile(path, token).Outputs;
                 rows.Add(new(path, runId, values, "Ready", outputs.State == outputState.Pending ? "Not generated" : outputs.State.ToString(),
-                    outputs.Error.Length > 0 ? outputs.Error : $"{outputs.Available.Length}/{outputs.ExpectedCount} result outputs available."));
+                    outputs.Error.Length > 0 ? outputs.Error : $"{outputs.Available.Length}/{outputs.ExpectedCount} result outputs available.")
+                    { SuffixStages = suffixStages, SuffixStagesDetails = suffixDetails });
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception error)
             {
-                rows.Add(new(path, runId, values, "Ready", "Unknown", error.GetBaseException().Message));
+                rows.Add(new(path, runId, values, "Ready", "Unknown", error.GetBaseException().Message)
+                    { SuffixStages = suffixStages, SuffixStagesDetails = suffixDetails });
             }
         }
         return rows.ToArray();
+    }
+
+    private static (string Stages, string Details) StageLengths(runParameters item)
+    {
+        int? setup = item.SetupSuffixStages?.Value;
+        int? results = item.ResultsSuffixStages?.Value;
+        var basis = "Saved at parameter generation.";
+        // Files written before sizing metadata was added still contain complete results inputs.
+        if (results is null && ResultsFunctionCatalog.functions.TryGetValue(item.Results.FunctionName, out var definition)
+            && definition.Version == item.Results.FunctionVersion)
+        {
+            try
+            {
+                results = ModelGenerationStageLengths.tryForFunction(item.Results.FunctionName, item.Parameters)?.Value;
+                if (results is not null) basis = "Results length calculated from this file's saved parameters.";
+            }
+            catch (ArgumentException error) { return ("Unavailable", $"Could not calculate the suffix length: {error.Message}"); }
+        }
+        var lengths = new List<string>();
+        if (setup is not null) lengths.Add($"Setup: {setup:N0}");
+        if (results is not null) lengths.Add($"Results: {results:N0}");
+        var details = lengths.Count == 0 ? "No model-generation suffix length is recorded for this file."
+            : $"Suggested suffix stages — {string.Join("; ", lengths)}. Fixed prefix stages are additional. {basis} These are provisional success targets.";
+        if (item.SetupSetNumber is not null && setup is null)
+            details += " No setup suffix length is recorded; it is not inferred from the current draft.";
+        return (lengths.Count == 0 ? "—" : string.Join("\n", lengths), details);
     }
 }

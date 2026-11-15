@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using Microsoft.FSharp.Collections;
 using Sortopia.Runs;
+using Sortopia.Functions;
 using Sortopia.Workspaces.Serialization;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -13,6 +14,7 @@ public sealed record WorkspaceParameterSetColumn(string Key, string TypeLabel, s
 
 public sealed record WorkspaceParameterSetRow(int Number, parameterSet ParameterSet)
 {
+    public int? SuffixStages { get; init; }
     // Formatting belongs to this display boundary; the underlying set keeps its typed bindings.
     public string[] Values => ParameterSet.ParamMap.Values.Select(binding => binding.FormattedValue).ToArray();
 }
@@ -23,13 +25,15 @@ public sealed record WorkspaceParameterSetsPreview(
     public const int MaximumRows = 50;
     public static WorkspaceParameterSetsPreview Empty { get; } = new([], [], BigInteger.Zero, "");
     public bool HasRows => Rows.Length > 0;
+    public bool HasSuffixStages => Rows.Any(row => row.SuffixStages is not null);
+    public string SuffixStagesHint => "Suggested suffix stages are calculated for each combination using its channel count, prefix depth, model type, and success fraction. Fixed prefix stages are additional; success rates are provisional.";
     public string Summary => Error.Length > 0 ? "Preview unavailable until the parameter errors are corrected."
         : !HasRows ? ""
         : Columns.Length == 0 ? "1 empty parameter set (no defaults or spans)."
         : TotalCount > Rows.Length ? $"Showing the first {Rows.Length} of {TotalCount.ToString("N0", CultureInfo.InvariantCulture)} parameter sets."
         : $"{Rows.Length} parameter set(s). Showing all combinations.";
 
-    internal static WorkspaceParameterSetsPreview Create(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans, string error)
+    internal static WorkspaceParameterSetsPreview Create(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans, string error, string functionName = "")
     {
         var inputs = spans.ToArray();
         var count = inputs.Aggregate(BigInteger.One, (product, span) => product * span.Values.Count);
@@ -42,7 +46,10 @@ public sealed record WorkspaceParameterSetsPreview(
             var varied = inputs.Select(span => span.Key).ToHashSet(StringComparer.Ordinal);
             var columns = sets[0].ParamMap.Values.Select(binding => new WorkspaceParameterSetColumn(binding.KeyName,
                 ParameterValue.label(binding.ValueType), varied.Contains(binding.KeyName) ? "run span" : "default")).ToArray();
-            return new(columns, sets.Select((set, index) => new WorkspaceParameterSetRow(index + 1, set)).ToArray(), count, "");
+            return new(columns, sets.Select((set, index) => new WorkspaceParameterSetRow(index + 1, set)
+            {
+                SuffixStages = ModelGenerationStageLengths.tryForFunction(functionName, set)?.Value
+            }).ToArray(), count, "");
         }
         catch (ArgumentException exception) { return new([], [], count, exception.Message); }
     }

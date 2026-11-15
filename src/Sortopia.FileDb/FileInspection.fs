@@ -84,5 +84,6 @@ module FileInspection =
                   Json = json {| SchemaVersion = dto.Version; Id = id; ProjectId = dto.ProjectId; RunId = dto.RunId
                                  FunctionName = dto.FunctionName; FunctionVersion = dto.FunctionVersion; DatabaseName = dto.DatabaseName
                                  SetNumber = dto.SetNumber; SetupSetNumber = Option.toNullable dto.SetupSetNumber
+                                 SetupSuffixStages = Option.toNullable dto.SetupSuffixStages; ResultsSuffixStages = Option.toNullable dto.ResultsSuffixStages
                                  Outputs = dto.Outputs; Parameters = parameters; SetupInputs = dto.SetupInputs |} }
             | kind -> invalidOp $"Unsupported execution metadata kind: {kind}"

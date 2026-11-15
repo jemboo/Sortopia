@@ -22,7 +22,7 @@ public sealed class PrefixModelWeightsTests
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models").Editor!;
         editor.ResultsFunctionName = Function(model); editor.AddRequiredResultsDefaultsCommand.Execute(null);
         editor.ResultsParameterDefaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-        editor.ResultsParameterDefaults.Single(row => row.Key == "StageLength").Value.Text = "3";
+        editor.ResultsParameterDefaults.Single(row => row.Key == "SorterSuccessFraction").Value.Text = "50%";
         return editor;
     }
     private static parameterSet Parameters(WorkspaceConfigurationViewModel editor) =>
@@ -37,10 +37,10 @@ public sealed class PrefixModelWeightsTests
     public void Each_function_exposes_only_its_algorithm_inputs_with_valid_initial_values(string model, string extras)
     {
         var editor = Module(model); var definition = ResultsFunctionCatalog.require(Function(model));
-        string[] common = ["PrefixLibId", "RngType", "StageLength", "SorterCount", "Repl"];
+        string[] common = ["PrefixLibId", "RngType", "SorterSuccessFraction", "SorterCount", "Repl"];
         Assert.Equal(common.Concat(extras.Split(',', StringSplitOptions.RemoveEmptyEntries)).Order(), definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
-        Assert.Equal("1", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
+        Assert.Equal("2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = Parameters(editor); FunctionValidation.validate(definition, parameters);
         var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
         Assert.Equal(2, models.Count);

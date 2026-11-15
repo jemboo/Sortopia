@@ -22,6 +22,8 @@ type runParameters = {
     SetupInputs: storedDataReference list
     SetNumber: int
     SetupSetNumber: int option
+    SetupSuffixStages: int option
+    ResultsSuffixStages: int option
 }
 
 [<MessagePackObject>]
@@ -62,6 +64,9 @@ type runParametersDto = {
     [<Key(8)>] SetupInputs: dataReferenceDto array
     [<Key(9)>] SetNumber: int
     [<Key(10)>] SetupSetNumber: int option
+    // Optional display metadata; older files omit these fields.
+    [<Key(11)>] SetupSuffixStages: int option
+    [<Key(12)>] ResultsSuffixStages: int option
 }
 
 [<MessagePackObject>]
@@ -93,7 +98,7 @@ module internal RunParameterCodec =
             | BooleanValue v -> MessagePackSetup.serialize v
             | GuidValue v -> MessagePackSetup.serialize v
             | SorterLibIdValue _ | PrefixLibIdValue _ | MergeLibIdValue _
-            | OpsWeightsValue _ | Seed6WeightsValue _ | UnfoldingWeightsValue _ -> MessagePackSetup.serialize value.FormattedValue
+            | OpsWeightsValue _ | Seed6WeightsValue _ | UnfoldingWeightsValue _ | SorterSuccessFractionValue _ -> MessagePackSetup.serialize value.FormattedValue
         { Key = string value.KeyName; Type = int value.ValueType; Value = bytes }
     let readBinding (value: preparedBindingDto) =
         let typed =
@@ -105,7 +110,7 @@ module internal RunParameterCodec =
             | parameterValueType.Boolean -> MessagePackSetup.deserialize<bool> value.Value |> BooleanValue
             | parameterValueType.Guid -> MessagePackSetup.deserialize<Guid> value.Value |> GuidValue
             | parameterValueType.SorterLibId | parameterValueType.PrefixLibId | parameterValueType.MergeLibId
-            | parameterValueType.OpsWeights | parameterValueType.Seed6Weights | parameterValueType.UnfoldingWeights as kind ->
+            | parameterValueType.OpsWeights | parameterValueType.Seed6Weights | parameterValueType.UnfoldingWeights | parameterValueType.SorterSuccessFraction as kind ->
                 MessagePackSetup.deserialize<string> value.Value |> ParameterValue.parse kind
             | _ -> invalidOp "Unknown prepared parameter value type."
         ParameterBinding.fromValue (UMX.tag value.Key) typed
@@ -117,13 +122,16 @@ module internal RunParameterCodec =
             { Kind = SortopiaDataType.kindName dataType; Label = SortopiaDataType.text dataType; QueryKeys = keys |> List.map string |> List.sort |> List.toArray })
         Parameters = value.Parameters.ParamMap |> Map.toArray |> Array.map (snd >> binding)
         SetupInputs = value.SetupInputs |> List.sort |> List.map reference |> List.toArray
-        SetNumber = value.SetNumber; SetupSetNumber = value.SetupSetNumber }
+        SetNumber = value.SetNumber; SetupSetNumber = value.SetupSetNumber
+        SetupSuffixStages = value.SetupSuffixStages; ResultsSuffixStages = value.ResultsSuffixStages }
 
     let fromDto id (dto: runParametersDto) : runParameters =
         if dto.Version <> 1 then invalidOp "Unsupported runParameters schema."
         if dto.ProjectId = Guid.Empty || dto.RunId = Guid.Empty || dto.SetNumber < 1
            || (dto.SetupSetNumber |> Option.exists (fun n -> n < 1)) then invalidOp "Invalid prepared work item identity."
         if String.IsNullOrWhiteSpace dto.DatabaseName then invalidOp "A prepared work item needs a results database name."
+        if [dto.SetupSuffixStages; dto.ResultsSuffixStages] |> List.exists (Option.exists (fun stages -> stages < 1)) then
+            invalidOp "Saved suffix stage lengths must be positive."
         let outputs = dto.Outputs |> Array.map (fun entry ->
             { DataType = SortopiaDataType.create entry.Kind entry.Label; QueryParameterKeys = entry.QueryKeys |> Array.map UMX.tag |> Array.toList }) |> Array.toList
         if (outputs |> List.map (fun entry -> entry.DataType) |> List.distinct).Length <> outputs.Length then invalidOp "Duplicate prepared output type."
@@ -132,7 +140,8 @@ module internal RunParameterCodec =
                       Outputs = outputs; ParameterDefaults = [] }
           Parameters = dto.Parameters |> Array.map readBinding |> parameterSet.fromBindings
           SetupInputs = dto.SetupInputs |> Array.map readReference |> Array.toList
-          SetNumber = dto.SetNumber; SetupSetNumber = dto.SetupSetNumber }
+          SetNumber = dto.SetNumber; SetupSetNumber = dto.SetupSetNumber
+          SetupSuffixStages = dto.SetupSuffixStages; ResultsSuffixStages = dto.ResultsSuffixStages }
 
 /// Small immutable metadata files, atomically published beside project-local data.
 module internal RunParameterStorage =

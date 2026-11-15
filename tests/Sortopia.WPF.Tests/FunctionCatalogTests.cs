@@ -19,7 +19,7 @@ public sealed class FunctionCatalogTests
     private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
         => CatalogTestHost.Invoke(setup, name, parameters, inputs);
     private static parameterSet ModelParameters(int repl = 0) => Parameters(
-        ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.stageLengthKey, 3),
+        ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, Sortopia.Sorting.sorterSuccessFraction.pct50),
         ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"), ParameterBinding.create(ParamKeys.sorterCountKey, 3),
         ParameterBinding.create(ParamKeys.replKey, repl));
 

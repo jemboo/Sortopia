@@ -65,8 +65,8 @@ module SetupFunctions =
 
     let private modelGenerator modelType keys make family =
         let keys = ModelGenerators.familyKeys family keys
-        FunctionDefinition.setupValidated "1" keys [modelsType, queryKeys keys] (ModelGenerators.inputError ChannelCountInput modelType)
-            (fun host _ -> host.SetupDb.SaveIfMissing(modelsType, [], fun () -> ModelGenerators.withFamily family make host.Parameters))
+        FunctionDefinition.setupValidated "2" keys [modelsType, queryKeys keys] (ModelGenerators.inputError ChannelCountInput modelType)
+            (fun host _ -> host.SetupDb.SaveIfMissing(modelsType, [], fun () -> make family host.Parameters))
         |> FunctionDefinition.describe (ModelGenerators.familyDescription ChannelCountInput modelType family + " Save the models in the setup database.")
 
     let uniformMsceSorterModels = modelGenerator simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
@@ -82,7 +82,7 @@ module SetupFunctions =
             elif testsKeys |> List.exists (fun key -> key.Name = ParamKeys.mergeLibIdKey.Name) then
                 "Copy tests and their prefix from a source project, selecting by MergeLibId and SortableDataFormat."
             else "Copy tests and their prefix from a source project, selecting by PrefixLibId and SortableDataFormat."
-        FunctionDefinition.setupWithSourcesValidated "1"
+        FunctionDefinition.setupWithSourcesValidated "2"
             (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
             [testsType, (if fromSource then [testsType] else []); modelsType, []]
@@ -95,7 +95,7 @@ module SetupFunctions =
                         sourceTests host.Parameters [host.SourceResults.Load reference] |> ignore
                         [reference]
                     else []
-                host.SetupDb.SaveIfMissing(modelsType, [], fun () -> ModelGenerators.withFamily family makeModels host.Parameters)
+                host.SetupDb.SaveIfMissing(modelsType, [], fun () -> makeModels family host.Parameters)
                 host.SetupDb.SaveIfMissing(testsType, sources, fun () ->
                     if fromSource then sourceTests host.Parameters [host.SourceResults.Load sources.Head]
                     else InputGenerators.standardTests host.Parameters))

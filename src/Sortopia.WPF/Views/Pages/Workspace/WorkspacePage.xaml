@@ -286,6 +286,9 @@
                                             <Setter Property="TextTrimming" Value="CharacterEllipsis" /><Setter Property="ToolTip" Value="{Binding Parameters}" />
                                         </Style>
                                         <Style x:Key="StatusCell" TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /></Style>
+                                        <Style x:Key="SuffixStagesCell" TargetType="TextBlock" BasedOn="{StaticResource StatusCell}">
+                                            <Setter Property="ToolTip" Value="{Binding SuffixStagesDetails}" />
+                                        </Style>
                                     </DataGrid.Resources>
                                     <DataGrid.RowStyle><Style TargetType="DataGridRow"><Setter Property="ToolTip" Value="{Binding Path}" /></Style></DataGrid.RowStyle>
                                     <DataGrid.ColumnHeaderStyle>
@@ -296,6 +299,7 @@
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="80" MinWidth="80" ElementStyle="{StaticResource FileCell}" />
                                         <DataGridTextColumn Header="Parameters" Binding="{Binding Parameters}" Width="*" MinWidth="100" ElementStyle="{StaticResource ParameterCell}" />
+                                        <DataGridTextColumn Header="Suggested suffix stages" Binding="{Binding SuffixStages}" Width="100" MinWidth="100" ElementStyle="{StaticResource SuffixStagesCell}" />
                                         <DataGridTextColumn Header="File status" Binding="{Binding FileStatus}" Width="68" MinWidth="68" ElementStyle="{StaticResource StatusCell}" />
                                         <DataGridTextColumn Header="Results status" Binding="{Binding ResultsStatus}" Width="85" MinWidth="85" ElementStyle="{StaticResource StatusCell}" />
                                     </DataGrid.Columns>
@@ -303,11 +307,12 @@
                                         <StackPanel Margin="6">
                                             <TextBox Text="{Binding Path, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                             <TextBox Text="{Binding Parameters, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
+                                            <TextBox Text="{Binding SuffixStagesDetails, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                             <TextBox Text="{Binding Details, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                         </StackPanel>
                                     </DataTemplate></DataGrid.RowDetailsTemplate>
                                 </DataGrid>
-                                <TextBlock Text="Select a file for its full path, parameters, and status details." TextWrapping="Wrap" FontSize="11"
+                                <TextBlock Text="Select a file for its full path, parameters, suggested suffix stages, and status details." TextWrapping="Wrap" FontSize="11"
                                            Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" Visibility="{Binding HasFiles, Converter={StaticResource WorkspaceBoolVisibility}}" />
                             </StackPanel>
                             <TextBlock Text="{Binding RunParameterPreviewSummary}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,12,0,4" />
