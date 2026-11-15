@@ -17,12 +17,12 @@
                   HeadersVisibility="Column" GridLinesVisibility="Horizontal" ColumnHeaderHeight="{x:Static sys:Double.NaN}" MaxHeight="320"
                   EnableRowVirtualization="True" EnableColumnVirtualization="True" FrozenColumnCount="1"
                   ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                  Visibility="{Binding HasRows, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Generated parameter sets">
+                  Visibility="{Binding HasRows, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Run parameter combinations preview">
             <DataGrid.Resources>
                 <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
             </DataGrid.Resources>
         </DataGrid>
-        <TextBlock Text="Defaults stay fixed; run spans supply the varying values. This preview does not execute the run."
+        <TextBlock Text="Defaults stay fixed; run spans supply the varying values. This preview creates no files and executes no functions."
                    Foreground="{DynamicResource Workspace.TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0" />
     </StackPanel>
 </UserControl>

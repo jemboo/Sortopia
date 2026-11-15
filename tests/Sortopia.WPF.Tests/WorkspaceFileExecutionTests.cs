@@ -33,9 +33,9 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var consumer = Project("Consumer", hierarchyKind.Branch, consumerSettings,
             failSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }] : null);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Outer", "Outer", [
-                WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", "Inner", [], [source])], []),
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Consumers", "Consumers", [], [consumer])]);
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Outer", [
+                WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", [], [source])], []),
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Consumers", [], [consumer])]);
         WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token);
         return WorkspaceFileStore.LoadDefinition(temporary.FullName);
     }
@@ -77,7 +77,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var testsProject = Project("Tests source", hierarchyKind.Root, testsSettings);
         var modelsProject = Project("Models source", hierarchyKind.Root, modelsSettings);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sources", "Sources", [], [testsProject, modelsProject])]);
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sources", [], [testsProject, modelsProject])]);
         WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token);
         world = WorkspaceFileStore.LoadDefinition(temporary.FullName);
         var publishedTests = Execute(world, "Tests source"); Completed(publishedTests);

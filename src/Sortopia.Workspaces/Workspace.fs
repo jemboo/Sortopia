@@ -38,11 +38,10 @@ type hierarchyKind =
     | Branch = 1
 
 type rootProject =
-    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: rootProjectConfig; inheritedDefaults: rootProjectConfig; localOverrides: rootDefaultOverrides; isSealed: bool; runs: rootRun array }
+    private { id: Guid<projectId>; projectName: string<projectName>; configuration: rootProjectConfig; inheritedDefaults: rootProjectConfig; localOverrides: rootDefaultOverrides; isSealed: bool; runs: rootRun array }
     member this.IsSealed = this.isSealed
     member this.Id = this.id
     member this.ProjectName = this.projectName
-    member this.FolderName = this.folderName
     member this.Configuration = this.configuration
     member this.InheritedDefaults = this.inheritedDefaults
     member this.LocalOverrides = this.localOverrides
@@ -58,10 +57,10 @@ type rootProject =
         member this.IsSealed = this.isSealed
         member this.ProjectName = this.projectName
         member this.Configuration = this.configuration
-    static member private createState isSealed (id: Guid<projectId>) (name: string<projectName>) folderName parent (local: rootDefaultOverrides) (runs: rootRun array) : rootProject =
+    static member private createState isSealed (id: Guid<projectId>) (name: string<projectName>) parent (local: rootDefaultOverrides) (runs: rootRun array) : rootProject =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
-        FolderName.validate folderName |> ignore
+        FolderName.validate (UMX.untag name) |> ignore
         Defaults.validateRoot local
         let configuration = if isSealed then parent else Defaults.resolveRoot parent local
         ProjectConfiguration.validateRoot configuration
@@ -75,28 +74,27 @@ type rootProject =
             invalidArg "configuration" "Existing runs require their original sealed project settings."
         let isSealed = isSealed || runs.Length > 0
         let local = if isSealed then Defaults.localRoot configuration else { local with ResultsDatabaseName = Some configuration.ResultsDatabaseName }
-        let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; inheritedDefaults = (if isSealed then configuration else parent); localOverrides = local; runs = [||] }
+        let value = { isSealed = isSealed; id = id; projectName = name; configuration = configuration; inheritedDefaults = (if isSealed then configuration else parent); localOverrides = local; runs = [||] }
         { value with runs = runs |> Array.map (fun r -> RootRun.create value r.Configuration) }
-    static member createInherited id name folderName parent local runs =
-        rootProject.createState false id name folderName parent local runs
-    static member restore id name folderName configuration local isSealed runs =
-        rootProject.createState isSealed id name folderName configuration (if isSealed then Defaults.localRoot configuration else local) runs
+    static member createInherited id name parent local runs =
+        rootProject.createState false id name parent local runs
+    static member restore id name configuration local isSealed runs =
+        rootProject.createState isSealed id name configuration (if isSealed then Defaults.localRoot configuration else local) runs
     static member seal (value: rootProject) =
         { value with isSealed = true; inheritedDefaults = value.Configuration; localOverrides = Defaults.localRoot value.Configuration }
     static member withRuns (value: rootProject) runs =
-        rootProject.restore value.Id value.ProjectName value.FolderName (if value.IsSealed then value.Configuration else value.InheritedDefaults) value.LocalOverrides value.IsSealed runs
-    static member create id name folderName configuration runs =
-        rootProject.createInherited id name folderName configuration (Defaults.localRoot configuration) runs
+        rootProject.restore value.Id value.ProjectName (if value.IsSealed then value.Configuration else value.InheritedDefaults) value.LocalOverrides value.IsSealed runs
+    static member create id name configuration runs =
+        rootProject.createInherited id name configuration (Defaults.localRoot configuration) runs
     static member rebind parent (value: rootProject) =
         if value.IsSealed || parent = value.InheritedDefaults then value
-        else rootProject.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
+        else rootProject.createInherited value.Id value.ProjectName parent value.LocalOverrides value.Runs
 
 type branchProject =
-    private { id: Guid<projectId>; projectName: string<projectName>; folderName: string; configuration: branchProjectConfig; inheritedDefaults: branchProjectConfig; localOverrides: branchDefaultOverrides; isSealed: bool; runs: branchRun array }
+    private { id: Guid<projectId>; projectName: string<projectName>; configuration: branchProjectConfig; inheritedDefaults: branchProjectConfig; localOverrides: branchDefaultOverrides; isSealed: bool; runs: branchRun array }
     member this.IsSealed = this.isSealed
     member this.Id = this.id
     member this.ProjectName = this.projectName
-    member this.FolderName = this.folderName
     member this.Configuration = this.configuration
     member this.InheritedDefaults = this.inheritedDefaults
     member this.LocalOverrides = this.localOverrides
@@ -119,10 +117,10 @@ type branchProject =
         member this.IsSealed = this.isSealed
         member this.ProjectName = this.projectName
         member this.Configuration = this.configuration
-    static member private createState isSealed (id: Guid<projectId>) (name: string<projectName>) folderName parent (local: branchDefaultOverrides) (runs: branchRun array) : branchProject =
+    static member private createState isSealed (id: Guid<projectId>) (name: string<projectName>) parent (local: branchDefaultOverrides) (runs: branchRun array) : branchProject =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
-        FolderName.validate folderName |> ignore
+        FolderName.validate (UMX.untag name) |> ignore
         Defaults.validateBranch local
         let configuration = if isSealed then parent else Defaults.resolveBranch parent local
         ProjectConfiguration.validateBranch configuration
@@ -137,21 +135,21 @@ type branchProject =
             invalidArg "configuration" "Existing runs require their original sealed project settings."
         let isSealed = isSealed || runs.Length > 0
         let local = if isSealed then Defaults.localBranch configuration else { local with ResultsDatabaseName = Some configuration.ResultsDatabaseName; SetupDatabaseName = Some configuration.SetupDatabaseName }
-        let value = { isSealed = isSealed; id = id; projectName = name; folderName = folderName; configuration = configuration; inheritedDefaults = (if isSealed then configuration else parent); localOverrides = local; runs = [||] }
+        let value = { isSealed = isSealed; id = id; projectName = name; configuration = configuration; inheritedDefaults = (if isSealed then configuration else parent); localOverrides = local; runs = [||] }
         { value with runs = runs |> Array.map (fun r -> BranchRun.create value r.Configuration) }
-    static member createInherited id name folderName parent local runs =
-        branchProject.createState false id name folderName parent local runs
-    static member restore id name folderName configuration local isSealed runs =
-        branchProject.createState isSealed id name folderName configuration (if isSealed then Defaults.localBranch configuration else local) runs
+    static member createInherited id name parent local runs =
+        branchProject.createState false id name parent local runs
+    static member restore id name configuration local isSealed runs =
+        branchProject.createState isSealed id name configuration (if isSealed then Defaults.localBranch configuration else local) runs
     static member seal (value: branchProject) =
         { value with isSealed = true; inheritedDefaults = value.Configuration; localOverrides = Defaults.localBranch value.Configuration }
     static member withRuns (value: branchProject) runs =
-        branchProject.restore value.Id value.ProjectName value.FolderName (if value.IsSealed then value.Configuration else value.InheritedDefaults) value.LocalOverrides value.IsSealed runs
-    static member create id name folderName configuration runs =
-        branchProject.createInherited id name folderName configuration (Defaults.localBranch configuration) runs
+        branchProject.restore value.Id value.ProjectName (if value.IsSealed then value.Configuration else value.InheritedDefaults) value.LocalOverrides value.IsSealed runs
+    static member create id name configuration runs =
+        branchProject.createInherited id name configuration (Defaults.localBranch configuration) runs
     static member rebind parent (value: branchProject) =
         if value.IsSealed || parent = value.InheritedDefaults then value
-        else branchProject.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
+        else branchProject.createInherited value.Id value.ProjectName parent value.LocalOverrides value.Runs
 
 type project =
     | RootProject of rootProject
@@ -160,7 +158,6 @@ type project =
     member this.Kind = match this with RootProject _ -> hierarchyKind.Root | BranchProject _ -> hierarchyKind.Branch
     member this.Id = match this with RootProject p -> p.Id | BranchProject p -> p.Id
     member this.ProjectName = match this with RootProject p -> p.ProjectName | BranchProject p -> p.ProjectName
-    member this.FolderName = match this with RootProject p -> p.FolderName | BranchProject p -> p.FolderName
     member this.Configuration = match this with RootProject p -> RootProjectConfig p.Configuration | BranchProject p -> BranchProjectConfig p.Configuration
     member this.InheritedDefaults = match this with RootProject p -> RootProjectConfig p.InheritedDefaults | BranchProject p -> BranchProjectConfig p.InheritedDefaults
     member this.LocalOverrides = match this with RootProject p -> RootOverrides p.LocalOverrides | BranchProject p -> BranchOverrides p.LocalOverrides
@@ -172,49 +169,48 @@ type project =
     member this.ResultsParameterDefaults = match this with RootProject p -> p.ResultsParameterDefaults | BranchProject p -> p.ResultsParameterDefaults
     member this.Runs = match this with RootProject p -> p.Runs |> Array.map run.RootRun | BranchProject p -> p.Runs |> Array.map run.BranchRun
     /// Rebuilds child runs using this project's shared settings and their saved overrides.
-    static member create id name folderName configuration (runs: run array) =
+    static member create id name configuration (runs: run array) =
         if isNull runs then nullArg "runs"
         match configuration with
         | RootProjectConfig config ->
             runs |> Array.map (function run.RootRun r -> r | _ -> invalidArg "runs" "A root project can only contain root runs.")
-            |> rootProject.create id name folderName config |> RootProject
+            |> rootProject.create id name config |> RootProject
         | BranchProjectConfig config ->
             runs |> Array.map (function run.BranchRun r -> r | _ -> invalidArg "runs" "A branch project can only contain branch runs.")
-            |> branchProject.create id name folderName config |> BranchProject
+            |> branchProject.create id name config |> BranchProject
 
-    static member createInherited id name folderName parent local (runs: run array) =
+    static member createInherited id name parent local (runs: run array) =
         if isNull runs then nullArg "runs"
         match parent, local with
         | RootProjectConfig p, RootOverrides l ->
             runs |> Array.map (function run.RootRun r -> r | _ -> invalidArg "runs" "A root project can only contain root runs.")
-            |> rootProject.createInherited id name folderName p l |> RootProject
+            |> rootProject.createInherited id name p l |> RootProject
         | BranchProjectConfig p, BranchOverrides l ->
             runs |> Array.map (function run.BranchRun r -> r | _ -> invalidArg "runs" "A branch project can only contain branch runs.")
-            |> branchProject.createInherited id name folderName p l |> BranchProject
+            |> branchProject.createInherited id name p l |> BranchProject
         | _ -> invalidArg "local" "Project defaults must match the parent's root/branch type."
     static member seal = function RootProject p -> rootProject.seal p |> RootProject | BranchProject p -> branchProject.seal p |> BranchProject
-    static member restore id name folderName configuration local isSealed (runs: run array) =
+    static member restore id name configuration local isSealed (runs: run array) =
         match configuration, local with
         | RootProjectConfig config, RootOverrides overrides ->
             runs |> Array.map (function run.RootRun r -> r | _ -> invalidArg "runs" "Root projects require root runs.")
-            |> rootProject.restore id name folderName config overrides isSealed |> RootProject
+            |> rootProject.restore id name config overrides isSealed |> RootProject
         | BranchProjectConfig config, BranchOverrides overrides ->
             runs |> Array.map (function run.BranchRun r -> r | _ -> invalidArg "runs" "Branch projects require branch runs.")
-            |> branchProject.restore id name folderName config overrides isSealed |> BranchProject
+            |> branchProject.restore id name config overrides isSealed |> BranchProject
         | _ -> invalidArg "configuration" "Project configuration and overrides must have the same family."
     static member withRuns (value: project) runs =
-        project.restore value.Id value.ProjectName value.FolderName (if value.IsSealed then value.Configuration else value.InheritedDefaults) value.LocalOverrides value.IsSealed runs
+        project.restore value.Id value.ProjectName (if value.IsSealed then value.Configuration else value.InheritedDefaults) value.LocalOverrides value.IsSealed runs
     static member rebind parent (value: project) =
-        if value.IsSealed then value else project.createInherited value.Id value.ProjectName value.FolderName parent value.LocalOverrides value.Runs
+        if value.IsSealed then value else project.createInherited value.Id value.ProjectName parent value.LocalOverrides value.Runs
     member this.Snapshot =
         let results = match this.Configuration with RootProjectConfig c -> c.Results | BranchProjectConfig c -> c.Results
         { ProjectId = this.Id; ProjectName = this.ProjectName; Results = results; IsSealed = this.IsSealed }
 
 type rootModule =
-    private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: rootModuleConfig; inheritedDefaults: rootModuleConfig; localOverrides: rootModuleOverrides; modules: rootModule array; projects: rootProject array }
+    private { id: Guid<moduleId>; moduleName: string<moduleName>; configuration: rootModuleConfig; inheritedDefaults: rootModuleConfig; localOverrides: rootModuleOverrides; modules: rootModule array; projects: rootProject array }
     member this.Id = this.id
     member this.ModuleName = this.moduleName
-    member this.FolderName = this.folderName
     member this.Configuration = this.configuration
     member this.InheritedDefaults = this.inheritedDefaults
     member this.LocalOverrides = this.localOverrides
@@ -225,10 +221,10 @@ type rootModule =
     member this.ResultsParameterDefaults = this.configuration.ResultsParameterDefaults
     member this.Modules = Array.copy this.modules
     member this.Projects = Array.copy this.projects
-    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: rootModuleOverrides) (modules: rootModule array) (projects: rootProject array) : rootModule =
+    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) parent (local: rootModuleOverrides) (modules: rootModule array) (projects: rootProject array) : rootModule =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
-        FolderName.validate folderName |> ignore
+        FolderName.validate (UMX.untag name) |> ignore
         ModuleDefaults.validateRoot local
         let configuration = ModuleDefaults.resolveRoot parent local
         if isNull modules then nullArg "modules"
@@ -236,21 +232,20 @@ type rootModule =
         if isNull projects then nullArg "projects"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         EntityName.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.ProjectName))
-        FolderName.unique "module and project children" (Seq.append (modules |> Seq.map (fun m -> m.FolderName)) (projects |> Seq.map (fun p -> p.FolderName)))
-        { id = id; moduleName = name; folderName = folderName; configuration = configuration; inheritedDefaults = parent; localOverrides = local
+        FolderName.unique "module and project children" (Seq.append (modules |> Seq.map (fun m -> UMX.untag m.ModuleName)) (projects |> Seq.map (fun p -> UMX.untag p.ProjectName)))
+        { id = id; moduleName = name; configuration = configuration; inheritedDefaults = parent; localOverrides = local
           modules = modules |> Array.map (rootModule.rebind configuration)
           projects = projects |> Array.map (rootProject.rebind (ModuleDefaults.toRootProject configuration)) }
-    static member create id name folderName modules projects =
-        rootModule.createInherited id name folderName ModuleDefaults.root ModuleDefaults.inheritRoot modules projects
+    static member create id name modules projects =
+        rootModule.createInherited id name ModuleDefaults.root ModuleDefaults.inheritRoot modules projects
     static member rebind parent (value: rootModule) =
         if parent = value.InheritedDefaults then value
-        else rootModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
+        else rootModule.createInherited value.Id value.ModuleName parent value.LocalOverrides value.Modules value.Projects
 
 type branchModule =
-    private { id: Guid<moduleId>; moduleName: string<moduleName>; folderName: string; configuration: branchModuleConfig; inheritedDefaults: branchModuleConfig; localOverrides: branchModuleOverrides; modules: branchModule array; projects: branchProject array }
+    private { id: Guid<moduleId>; moduleName: string<moduleName>; configuration: branchModuleConfig; inheritedDefaults: branchModuleConfig; localOverrides: branchModuleOverrides; modules: branchModule array; projects: branchProject array }
     member this.Id = this.id
     member this.ModuleName = this.moduleName
-    member this.FolderName = this.folderName
     member this.Configuration = this.configuration
     member this.InheritedDefaults = this.inheritedDefaults
     member this.LocalOverrides = this.localOverrides
@@ -267,10 +262,10 @@ type branchModule =
     member this.SetupParameterDefaults = this.configuration.SetupParameterDefaults
     member this.Modules = Array.copy this.modules
     member this.Projects = Array.copy this.projects
-    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) folderName parent (local: branchModuleOverrides) (modules: branchModule array) (projects: branchProject array) : branchModule =
+    static member createInherited (id: Guid<moduleId>) (name: string<moduleName>) parent (local: branchModuleOverrides) (modules: branchModule array) (projects: branchProject array) : branchModule =
         EntityId.validate (UMX.untag id)
         EntityName.validate (UMX.untag name) |> ignore
-        FolderName.validate folderName |> ignore
+        FolderName.validate (UMX.untag name) |> ignore
         ModuleDefaults.validateBranch local
         let configuration = ModuleDefaults.resolveBranch parent local
         if isNull modules then nullArg "modules"
@@ -278,15 +273,15 @@ type branchModule =
         if isNull projects then nullArg "projects"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         EntityName.unique "projects" (projects |> Seq.map (fun p -> UMX.untag p.ProjectName))
-        FolderName.unique "module and project children" (Seq.append (modules |> Seq.map (fun m -> m.FolderName)) (projects |> Seq.map (fun p -> p.FolderName)))
-        { id = id; moduleName = name; folderName = folderName; configuration = configuration; inheritedDefaults = parent; localOverrides = local
+        FolderName.unique "module and project children" (Seq.append (modules |> Seq.map (fun m -> UMX.untag m.ModuleName)) (projects |> Seq.map (fun p -> UMX.untag p.ProjectName)))
+        { id = id; moduleName = name; configuration = configuration; inheritedDefaults = parent; localOverrides = local
           modules = modules |> Array.map (branchModule.rebind configuration)
           projects = projects |> Array.map (branchProject.rebind (ModuleDefaults.toBranchProject configuration)) }
-    static member create id name folderName modules projects =
-        branchModule.createInherited id name folderName ModuleDefaults.branch ModuleDefaults.inheritBranch modules projects
+    static member create id name modules projects =
+        branchModule.createInherited id name ModuleDefaults.branch ModuleDefaults.inheritBranch modules projects
     static member rebind parent (value: branchModule) =
         if parent = value.InheritedDefaults then value
-        else branchModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
+        else branchModule.createInherited value.Id value.ModuleName parent value.LocalOverrides value.Modules value.Projects
 
 /// A workspace can hold either family; each concrete module has homogeneous children.
 [<RequireQualifiedAccess>]
@@ -296,7 +291,6 @@ type workspaceModule =
     member this.Kind = match this with workspaceModule.Root _ -> hierarchyKind.Root | workspaceModule.Branch _ -> hierarchyKind.Branch
     member this.Id = match this with workspaceModule.Root m -> m.Id | workspaceModule.Branch m -> m.Id
     member this.ModuleName = match this with workspaceModule.Root m -> m.ModuleName | workspaceModule.Branch m -> m.ModuleName
-    member this.FolderName = match this with workspaceModule.Root m -> m.FolderName | workspaceModule.Branch m -> m.FolderName
     member this.Configuration = match this with workspaceModule.Root m -> RootModuleConfig m.Configuration | workspaceModule.Branch m -> BranchModuleConfig m.Configuration
     member this.InheritedDefaults = match this with workspaceModule.Root m -> RootModuleConfig m.InheritedDefaults | workspaceModule.Branch m -> BranchModuleConfig m.InheritedDefaults
     member this.LocalOverrides = match this with workspaceModule.Root m -> RootModuleOverrides m.LocalOverrides | workspaceModule.Branch m -> BranchModuleOverrides m.LocalOverrides
@@ -307,35 +301,35 @@ type workspaceModule =
     member this.ResultsParameterDefaults = match this with workspaceModule.Root m -> m.ResultsParameterDefaults | workspaceModule.Branch m -> m.ResultsParameterDefaults
     member this.Modules = match this with workspaceModule.Root m -> m.Modules |> Array.map workspaceModule.Root | workspaceModule.Branch m -> m.Modules |> Array.map workspaceModule.Branch
     member this.Projects = match this with workspaceModule.Root m -> m.Projects |> Array.map project.RootProject | workspaceModule.Branch m -> m.Projects |> Array.map project.BranchProject
-    static member create kind id name folderName (modules: workspaceModule array) (projects: project array) =
+    static member create kind id name (modules: workspaceModule array) (projects: project array) =
         if isNull modules then nullArg "modules"
         if isNull projects then nullArg "projects"
         match kind with
         | hierarchyKind.Root ->
             let children = modules |> Array.map (function workspaceModule.Root m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
             let leaves = projects |> Array.map (function project.RootProject p -> p | _ -> invalidArg "projects" "A root module can only contain root projects.")
-            rootModule.create id name folderName children leaves |> workspaceModule.Root
+            rootModule.create id name children leaves |> workspaceModule.Root
         | hierarchyKind.Branch ->
             let children = modules |> Array.map (function workspaceModule.Branch m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
             let leaves = projects |> Array.map (function project.BranchProject p -> p | _ -> invalidArg "projects" "A branch module can only contain branch projects.")
-            branchModule.create id name folderName children leaves |> workspaceModule.Branch
+            branchModule.create id name children leaves |> workspaceModule.Branch
         | _ -> invalidArg "kind" "Module kind must be root or branch."
 
-    static member createInherited id name folderName parent local (modules: workspaceModule array) (projects: project array) =
+    static member createInherited id name parent local (modules: workspaceModule array) (projects: project array) =
         if isNull modules then nullArg "modules"
         if isNull projects then nullArg "projects"
         match parent, local with
         | RootModuleConfig p, RootModuleOverrides l ->
             let children = modules |> Array.map (function workspaceModule.Root m -> m | _ -> invalidArg "modules" "A root module can only contain root modules.")
             let leaves = projects |> Array.map (function project.RootProject x -> x | _ -> invalidArg "projects" "A root module can only contain root projects.")
-            rootModule.createInherited id name folderName p l children leaves |> workspaceModule.Root
+            rootModule.createInherited id name p l children leaves |> workspaceModule.Root
         | BranchModuleConfig p, BranchModuleOverrides l ->
             let children = modules |> Array.map (function workspaceModule.Branch m -> m | _ -> invalidArg "modules" "A branch module can only contain branch modules.")
             let leaves = projects |> Array.map (function project.BranchProject x -> x | _ -> invalidArg "projects" "A branch module can only contain branch projects.")
-            branchModule.createInherited id name folderName p l children leaves |> workspaceModule.Branch
+            branchModule.createInherited id name p l children leaves |> workspaceModule.Branch
         | _ -> invalidArg "local" "Module defaults must match the parent's root/branch type."
     static member rebind parent (value: workspaceModule) =
-        workspaceModule.createInherited value.Id value.ModuleName value.FolderName parent value.LocalOverrides value.Modules value.Projects
+        workspaceModule.createInherited value.Id value.ModuleName parent value.LocalOverrides value.Modules value.Projects
 
 module WorkspaceProjects =
     let rec inModule (value: workspaceModule) = seq {
@@ -402,7 +396,7 @@ type workspace =
         FolderName.validate folderName |> ignore
         if isNull modules then nullArg "modules"
         EntityName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
-        FolderName.unique "modules" (modules |> Seq.map (fun m -> m.FolderName))
+        FolderName.unique "modules" (modules |> Seq.map (fun m -> UMX.untag m.ModuleName))
         { id = id; workspaceName = name; folderName = folderName
           modules = modules |> Array.map (fun m -> workspaceModule.rebind (ModuleDefaults.configuration (m.Kind = hierarchyKind.Branch)) m) |> WorkspaceProjects.resolve }
     member this.ProjectIndex = WorkspaceProjects.index this.modules

@@ -23,10 +23,10 @@ public sealed class DisjointDefaultPersistenceTests
             var local = ModuleOverridesDto.toDomain(family, new moduleOverridesDto { excludedResultsDefaults = ["ChannelCount"], excludedSetupDefaults = branch ? ["ChannelCount"] : [] });
             var effective = ModuleDefaults.resolve(inherited, local);
             var query = new resultsDataTypeConfigDto { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount"] };
-            var project = Sortopia.Workspaces.project.createInherited(Guid.NewGuid(), "Project", "Project", ModuleDefaults.toProject(effective),
+            var project = Sortopia.Workspaces.project.createInherited(Guid.NewGuid(), "Project", ModuleDefaults.toProject(effective),
                 OverridesDto.toDomain(family, new projectOverridesDto { resultsQueries = [query], setupQueries = branch ? [query] : null }), []);
-            var module = workspaceModule.createInherited(Guid.NewGuid(), "Detached", "Detached", inherited, local, [], [project]);
-            var parentModule = workspaceModule.createInherited(Guid.NewGuid(), "Parent", "Parent", ModuleDefaults.configuration(branch), parentOverrides, [module], []);
+            var module = workspaceModule.createInherited(Guid.NewGuid(), "Detached", inherited, local, [], [project]);
+            var parentModule = workspaceModule.createInherited(Guid.NewGuid(), "Parent", ModuleDefaults.configuration(branch), parentOverrides, [module], []);
             var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [parentModule]);
             var root = Path.Combine(temporary.FullName, "Workspace"); Directory.CreateDirectory(root);
             WorkspaceFileStore.CreateWorkspace(root, world, TestContext.Current.CancellationToken);

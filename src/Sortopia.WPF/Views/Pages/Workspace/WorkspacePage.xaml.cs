@@ -59,7 +59,11 @@ public partial class WorkspacePage : UserControl
     {
         InitializeComponent();
         diskStatusTimer.Tick += (_, _) => RefreshDiskStatus();
-        Loaded += (_, _) => { RefreshDiskStatus(); diskStatusTimer.Start(); };
+        Loaded += async (_, _) =>
+        {
+            RefreshDiskStatus(); diskStatusTimer.Start();
+            if (DataContext is WorkspacePageViewModel { ShowExecutionEditor: true } viewModel) await viewModel.RefreshRunParameterFilesAsync();
+        };
         Unloaded += (_, _) => diskStatusTimer.Stop();
     }
     private void RefreshDiskStatus()

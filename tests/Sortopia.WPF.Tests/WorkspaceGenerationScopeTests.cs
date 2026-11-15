@@ -112,10 +112,10 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
         var unrelated = page.Roots[0].Children.Single(node => node.Id == unrelatedId);
         File.Delete(WorkspaceDefinitionFiles.Require(unrelated.SavedFolderPath!, "module"));
         await AssertGenerates(page);
-        unrelated.FolderName = "Unrelated move";
+        unrelated.Name = "Unrelated move";
         await AssertGenerates(page);
         var parentModule = page.Selected!.Parent!.Parent!;
-        parentModule.FolderName = "Relevant move";
+        parentModule.Name = "Relevant move";
         Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
         Assert.Contains("location change", page.GenerationHint);
         page.DiscardChangesCommand.Execute(null); WorkspaceRunExecutionTests.SelectRun(page);

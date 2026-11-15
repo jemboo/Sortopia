@@ -38,13 +38,13 @@ public sealed class DisjointParameterInputsTests
         var span = Assert.Single(setup ? editor.SetupParameters : editor.ResultsParameters);
         Assert.Equal("ChannelCount", span.Key); Assert.Equal("8", Assert.Single(span.Values).Text);
         Assert.DoesNotContain("SortableDataFormat", span.KeyChoices);
-        var output = (setup ? editor.SetupQueryOutputs : editor.ResultsQueryOutputs).Single();
+        var output = (setup ? project.Editor!.SetupQueryOutputs : project.Editor!.ResultsQueryOutputs).Single();
         var query = Assert.Single(output.Keys); Assert.Equal("ChannelCount", query.Key); Assert.True(query.CanChange);
         query.Selected = true;
         var settings = project.Editor!.ToProjectSettings();
         Assert.Equal(new[] { "ChannelCount" }, setup ? settings.setupDataTypes.Single().queryParameterKeys : settings.resultsDataTypes.Single().queryParameterKeys);
         Assert.Equal(new[] { "SortableDataFormat" }, (setup ? settings.setupParameterDefaults : settings.resultsParameterDefaults).Select(value => value.keyName));
-        var parent = Sortopia.Workspaces.project.create(project.Id, "Project", "Project", SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
+        var parent = Sortopia.Workspaces.project.create(project.Id, "Project", SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
         var domain = RunDto.toDomain(parent, editor.ToRunInputs(run.Id, "Run", project.Id));
         var sets = RunParameterSets.create(domain);
         Assert.Single(setup ? sets.Setup.Value : sets.Results);
@@ -80,7 +80,7 @@ public sealed class DisjointParameterInputsTests
                 Assert.DoesNotContain("ChannelCount", invalid.KeyChoices); Assert.Contains("already has a default", invalid.Error);
                 Assert.Empty(editor.ResultsParameterSetsPreview.Rows); invalid.RemoveCommand.Execute(null);
                 WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", false, "8");
-                editor.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
+                project.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
                 var view = new Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor { DataContext = editor, ActiveItemKey = "resultsTypes" };
                 var border = new System.Windows.Controls.Border { Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(24, 26, 31)), Padding = new System.Windows.Thickness(20), Child = view };
                 border.Measure(new System.Windows.Size(520, 720)); border.Arrange(new System.Windows.Rect(0, 0, 520, 720)); border.UpdateLayout();

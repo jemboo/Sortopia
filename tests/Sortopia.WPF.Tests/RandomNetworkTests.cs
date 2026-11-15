@@ -2167,6 +2167,7 @@ public sealed class RandomNetworkTests
             CheckSgdPrefixControls();
             CheckThreePaneWorkspace();
             CheckWorkspaceHierarchy();
+            CheckWorkspaceQueryInheritance();
             CheckWorkspaceParameterInheritance();
             CheckWorkspaceParameterSetPreviews();
             CheckWorkspaceFunctionCatalogs();
@@ -2174,6 +2175,65 @@ public sealed class RandomNetworkTests
         }
         finally { app.Shutdown(); }
     });
+
+    private static void CheckWorkspaceQueryInheritance()
+    {
+        var temporary = System.IO.Directory.CreateTempSubdirectory("Sortopia-query-inheritance-view-");
+        try
+        {
+            var vm = WorkspaceRunExecutionTests.Create(temporary.FullName, true);
+            WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
+            var run = vm.Selected!; var project = run.Parent!;
+            var page = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = vm };
+            var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
+            void Layout()
+            {
+                page.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+                page.Measure(new Size(1200, 900)); page.Arrange(new Rect(0, 0, 1200, 900)); page.UpdateLayout();
+            }
+            IEnumerable<DependencyObject> Descendants(DependencyObject node)
+            {
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+                {
+                    var child = VisualTreeHelper.GetChild(node, index); yield return child;
+                    foreach (var descendant in Descendants(child)) yield return descendant;
+                }
+            }
+            foreach (var setup in new[] { false, true })
+            foreach (var spans in new[] { false, true })
+            {
+                var phase = setup ? "Setup" : "Results";
+                var target = setup ? "setupOutputs" : "resultsTypes";
+                vm.Selected = run;
+                vm.SelectConfigurationItem(spans ? setup ? "setupSpans" : "resultsSpans" : target);
+                Layout();
+                var queries = (ItemsControl)fields.FindName(phase + (spans ? "SpanQueryOutputsList" : "QueryOutputsList"));
+                var checkboxes = Descendants(queries).OfType<CheckBox>().ToArray();
+                Assert.NotEmpty(checkboxes);
+                Assert.All(checkboxes, checkbox => Assert.False(checkbox.IsEnabled));
+                Assert.True(queries.ActualHeight > 0);
+                Assert.Contains(Descendants(fields).OfType<TextBlock>(), label => label.Text.Contains($"Inherited from project ‘{project.Name}’"));
+                var link = (System.Windows.Documents.Hyperlink)fields.FindName(phase + (spans ? "SpanProjectQueriesLink" : "ProjectQueriesLink"));
+                Assert.Equal(Visibility.Visible, ((TextBlock)link.Parent).Visibility);
+                Assert.True(((TextBlock)link.Parent).ActualHeight > 0);
+                Assert.True(link.IsEnabled);
+                Assert.Equal(target, link.CommandParameter);
+                var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(1200, 900, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(page);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                using (var file = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-inherited-{phase}-{(spans ? "spans" : "outputs")}.png"))) encoder.Save(file);
+                ((IInvokeProvider)new HyperlinkAutomationPeer(link).GetPattern(PatternInterface.Invoke)!).Invoke();
+                Layout();
+                Assert.Same(project, vm.Selected);
+                Assert.Equal(target, vm.ActiveItemKey);
+                var projectQueries = (ItemsControl)fields.FindName(phase + "QueryOutputsList");
+                Assert.Contains(Descendants(projectQueries).OfType<CheckBox>(), checkbox => checkbox.IsEnabled);
+                Assert.Same(run, project.Children.Single());
+            }
+        }
+        finally { temporary.Delete(true); }
+    }
 
     private static void CheckWorkspaceRunExecution()
     {
@@ -2212,6 +2272,16 @@ public sealed class RandomNetworkTests
             Assert.Equal(2, vm.SelectedExecution.Report.Setup.Length); Assert.Empty(vm.SelectedExecution.Report.Results);
             Assert.False(vm.HasUnsavedChanges); Layout();
             Assert.Contains("6 results parameter files", ((TextBlock)page.FindName("RunExecutionSummary")).Text);
+            Assert.Equal("Run parameter files", vm.ActiveItemTitle);
+            var files = (DataGrid)page.FindName("RunParameterFilesTable");
+            Assert.True(files.IsReadOnly); Assert.Equal(6, files.Items.Count);
+            Assert.Equal(new[] { "File", "Parameters", "File status", "Results status" }, files.Columns.Select(column => column.Header.ToString()));
+            Assert.All(files.Items.Cast<WorkspaceRunParameterFile>(), file =>
+            {
+                Assert.Equal("Ready", file.FileStatus); Assert.Equal("Not generated", file.ResultsStatus);
+                Assert.Contains("Setup set", file.Parameters);
+            });
+            Assert.Same(vm.RefreshRunParameterFilesCommand, ((Button)page.FindName("RefreshRunParameterFilesButton")).Command);
             navigate.Command.Execute(null); Assert.Equal(vm.RunParametersFolder, openedFolder); Assert.Equal(vm.Selected!.Id, openedRun);
             var outputs = (Expander)page.FindName("RunOutputsExpander"); Assert.Equal(Visibility.Visible, outputs.Visibility);
             outputs.IsExpanded = true;
@@ -2220,7 +2290,26 @@ public sealed class RandomNetworkTests
                 Layout(width);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport"); viewport.ScrollToTop(); Layout(width);
                 Assert.Equal(0, viewport.ScrollableWidth);
+                Assert.True(files.Columns[2].ActualWidth >= 68); Assert.True(files.Columns[3].ActualWidth >= 85);
+                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, 1000, 96, 96, PixelFormats.Pbgra32); image.Render(page);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                using var output = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-run-parameter-files-{width}.png")); encoder.Save(output);
             }
+            files.SelectedItem = files.Items[0]; Layout();
+            var selectedFile = (WorkspaceRunParameterFile)files.SelectedItem;
+            var row = (DataGridRow)files.ItemContainerGenerator.ContainerFromItem(selectedFile);
+            static IEnumerable<TextBox> TextBoxes(DependencyObject node)
+            {
+                if (node is TextBox text) yield return text;
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+                    foreach (var child in TextBoxes(VisualTreeHelper.GetChild(node, index))) yield return child;
+            }
+            var details = TextBoxes(row).ToArray();
+            Assert.Contains(details, text => text.Text == selectedFile.Path);
+            Assert.Contains(details, text => text.Text == selectedFile.Parameters);
+            Assert.Contains(details, text => text.Text == selectedFile.Details);
+            foreach (var text in details) { Assert.True(text.IsReadOnly); text.SelectAll(); Assert.Equal(text.Text, text.SelectedText); }
+            Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
             var badFormat = vm.Selected.Editor!.SetupParameters.Single(row => row.Key == "SortableDataFormat");
             badFormat.Values[0].Text = "invalid"; Layout();
             Assert.True(vm.SaveWorkspaceCommand.CanExecute(null)); Assert.False(button.IsEnabled);
@@ -2410,7 +2499,8 @@ public sealed class RandomNetworkTests
                 var project = vm.Selected!;
                 Layout();
                 Assert.True(settingsSection.IsExpanded);
-                Assert.Equal(Visibility.Collapsed, ((FrameworkElement)((Expander)FindWorkspaceField(fields, "ResultsPreviewSection")).Parent).Visibility);
+                Assert.Equal(Visibility.Collapsed, ((Expander)page.FindName("RunExecutionExpander")).Visibility);
+                Assert.DoesNotContain(vm.InspectorItems, item => item.Key is "resultsPreview" or "setupPreview");
                 vm.Selected = module; Layout();
                 Assert.True(settingsSection.IsExpanded); // Returning to the selected setting opens its editor.
                 vm.Selected = project;
@@ -2432,7 +2522,7 @@ public sealed class RandomNetworkTests
                 Assert.Contains("run span", channelColumn.Header.ToString());
                 Assert.Contains("run span", table.Columns.Single(column => column.Header.ToString()!.Contains("StageLength")).Header.ToString());
                 Assert.Equal("16", ((TextBlock)channelColumn.GetCellContent(table.Items[0])).Text);
-                Assert.Equal(branch ? Visibility.Visible : Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "SetupFields")).Visibility);
+                Assert.Equal(branch ? Visibility.Visible : Visibility.Collapsed, ((Expander)FindWorkspaceField(fields, "SetupPreviewSection")).Visibility);
                 if (branch) Assert.Equal(2, ((DataGrid)setup.FindName("ParameterSetsTable")).Items.Count);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
                 foreach (var width in new[] { 1000, 640 })
@@ -2457,6 +2547,7 @@ public sealed class RandomNetworkTests
                 Assert.True(((Expander)FindWorkspaceField(fields, "ResultsSpansSection")).IsExpanded);
                 if (branch) Assert.Equal(2, ((DataGrid)setup.FindName("ParameterSetsTable")).Items.Count);
                 span.Values[0].Text = "6";
+                FindWorkspaceField(fields, "ResultsSetsPreview");
                 Layout();
                 Assert.Equal(Visibility.Visible, table.Visibility);
                 Assert.Equal("6", ((TextBlock)table.Columns.Single(column => column.Header.ToString()!.Contains("StageLength")).GetCellContent(table.Items[0])).Text);
@@ -2621,8 +2712,10 @@ public sealed class RandomNetworkTests
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
                 using var output = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-three-pane-{width}.png")); encoder.Save(output);
             }
-            SelectItem("setupPreview"); Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("SetupPreviewSection")).Visibility);
             SelectItem("execution"); Assert.Equal(Visibility.Visible, ((Expander)page.FindName("RunExecutionExpander")).Visibility);
+            Assert.DoesNotContain(vm.InspectorItems, item => item.Key is "resultsPreview" or "setupPreview");
+            ((Expander)page.FindName("RunParameterPreviewExpander")).IsExpanded = true;
+            Assert.Equal(Visibility.Visible, ((Expander)page.FindName("SetupPreviewSection")).Visibility);
         }
         finally { temporary.Delete(recursive: true); }
     }
@@ -2638,13 +2731,13 @@ public sealed class RandomNetworkTests
             "ResultsQueryKeysList" => "resultsQueryKeys",
             "ResultsDefaultsSection" or "ResultsParameterDefaultsList" or "InheritedResultsParameterDefaultsList" or "AddResultsParameterDefaultButton" or "AddRequiredResultsDefaultsButton" => "resultsDefaults",
             "ResultsSpansSection" or "ResultsParametersList" or "AddRequiredResultsParametersButton" => "resultsSpans",
-            "ResultsPreviewSection" or "ResultsSetsPreview" => "resultsPreview",
+            "ResultsPreviewSection" or "ResultsSetsPreview" => "execution",
             "SetupSettingsSection" or "SetupFunctionOverrideEditor" => "setupFunction",
             "SetupDatabaseOverrideEditor" => "setupDatabase",
             "SetupDataTypesList" or "AddSetupDataTypeButton" => "setupOutputs",
             "SetupDefaultsSection" or "SetupParameterDefaultsList" or "InheritedSetupParameterDefaultsList" or "AddRequiredSetupDefaultsButton" => "setupDefaults",
             "SetupSpansSection" or "SetupParametersList" or "AddRequiredSetupParametersButton" => "setupSpans",
-            "SetupPreviewSection" or "SetupSetsPreview" => "setupPreview",
+            "SetupPreviewSection" or "SetupSetsPreview" => "execution",
             _ => null
         };
         DependencyObject? ancestor = fields;
@@ -2652,8 +2745,10 @@ public sealed class RandomNetworkTests
         if (key is not null && ancestor is Sortopia.WPF.Views.Pages.Workspace.WorkspacePage page && page.DataContext is WorkspacePageViewModel vm)
         {
             vm.SelectConfigurationItem(key);
+            if (key == "execution") ((Expander)page.FindName("RunParameterPreviewExpander")).IsExpanded = true;
             page.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
             page.UpdateLayout();
+            if (key == "execution") return page.FindName(name);
         }
         return fields.FindName(name);
     }
@@ -2778,6 +2873,24 @@ public sealed class RandomNetworkTests
             openFolder.Command.Execute(null);
             Assert.Equal(fullPath.Text, openedFolder);
             Assert.False(vm.HasUnsavedChanges);
+            vm.RemoveCommand.Execute(null);
+            LayoutWorkspace();
+            Assert.True(vm.HasPendingRemoval);
+            Assert.True(save.IsEnabled);
+            Assert.True(((Button)page.FindName("DiscardChangesButton")).IsEnabled);
+            Assert.True(((TreeView)page.FindName("WorkspaceTree")).IsEnabled);
+            Assert.False(((Border)page.FindName("EntityDetailsPanel")).IsEnabled);
+            var removalNotice = (TextBox)page.FindName("PendingRemovalNotice");
+            Assert.True(removalNotice.IsReadOnly);
+            Assert.True(removalNotice.IsEnabled);
+            Assert.Contains("Save workspace", removalNotice.Text);
+            removalNotice.SelectAll();
+            Assert.Equal(removalNotice.Text, removalNotice.SelectedText);
+            RenderWorkspaceState("pending-removal");
+            vm.DiscardChangesCommand.Execute(null);
+            LayoutWorkspace();
+            Assert.False(vm.HasPendingRemoval);
+            Assert.True(((Border)page.FindName("EntityDetailsPanel")).IsEnabled);
             vm.Selected = vm.Roots.Single();
             vm.AddModuleCommand.Execute(null);
             LayoutWorkspace();
@@ -2785,10 +2898,13 @@ public sealed class RandomNetworkTests
             var defaultName = newModule.Name;
             entityName.SetCurrentValue(TextBox.TextProperty, "SORTING");
             Assert.Equal(defaultName, newModule.Name);
-            Assert.Equal(defaultName, newModule.FolderName);
+            Assert.Equal(defaultName, newModule.Name);
             Assert.Equal("SORTING", entityName.Text);
-            var nameError = (TextBlock)page.FindName("EntityNameError");
+            var nameError = (TextBox)page.FindName("EntityNameError");
             Assert.Contains("saved workspace", nameError.Text);
+            Assert.True(nameError.IsReadOnly);
+            nameError.SelectAll();
+            Assert.Equal(nameError.Text, nameError.SelectedText);
             Assert.Equal(Visibility.Visible, nameError.Visibility);
             Assert.False(save.IsEnabled);
             RenderWorkspaceState("name-conflict");
@@ -2906,6 +3022,11 @@ public sealed class RandomNetworkTests
             LayoutWorkspace();
             var issueList = (ItemsControl)page.FindName("SaveIssuesList");
             var issueRow = (ContentPresenter)issueList.ItemContainerGenerator.ContainerFromIndex(0);
+            var issueMessage = (TextBox)issueList.ItemTemplate.FindName("SaveIssueMessage", issueRow);
+            Assert.True(issueMessage.IsReadOnly);
+            Assert.NotEmpty(issueMessage.Text);
+            issueMessage.SelectAll();
+            Assert.Equal(issueMessage.Text, issueMessage.SelectedText);
             var issueLink = (System.Windows.Documents.Hyperlink)issueList.ItemTemplate.FindName("SaveIssueLink", issueRow);
             ((IInvokeProvider)new HyperlinkAutomationPeer(issueLink).GetPattern(PatternInterface.Invoke)!).Invoke();
             LayoutWorkspace();
@@ -3015,7 +3136,7 @@ public sealed class RandomNetworkTests
             foreach (var value in branchRun.Editor.InheritedOutputDefaults.Where(value => value.Key != "CollectSortableTests").ToArray())
                 WorkspaceParameterSetsPreviewTests.AddSpan(branchRun, value.Key, false, value.Value);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(branchRun, true);
-            foreach (var output in branchRun.Editor.ResultsQueryOutputs.Concat(branchRun.Editor.SetupQueryOutputs).ToArray())
+            foreach (var output in branchRun.Parent!.Editor!.ResultsQueryOutputs.Concat(branchRun.Parent.Editor.SetupQueryOutputs).ToArray())
                 foreach (var key in output.Keys) key.Selected = true;
             LayoutWorkspace();
             Assert.True(save.IsEnabled);
@@ -3098,7 +3219,7 @@ public sealed class RandomNetworkTests
             vm.Selected = branchModule;
             vm.RemoveCommand.Execute(null);
             importSource = System.IO.Path.Combine(temporary.FullName, "library-project");
-            WorkspaceImportTests.WriteProject(importSource, "Imported project");
+            WorkspaceImportTests.WriteProject(importSource);
             vm.Selected = vm.Roots.Single().Children.Single();
             CompleteRun(() => vm.AddExistingAsync(WorkspaceEntityKind.Project));
             Assert.Empty(vm.Error);

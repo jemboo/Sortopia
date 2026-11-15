@@ -28,7 +28,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
             setupFunctionVersion = branch ? "1" : "", setupParameterDefaults = [],
             setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }] : []
         };
-        var parent = project.create(Guid.NewGuid(), "Search", "search", SettingsDto.toDomain(kind, settings), []);
+        var parent = project.create(Guid.NewGuid(), "search", SettingsDto.toDomain(kind, settings), []);
         parameterSpanDto[] spans = [new() { keyName = "ChannelCount", values = ["4", "6"] }, new() { keyName = "SortableDataFormat", values = ["Bools"] }];
         var run = RunDto.toDomain(parent, new runDto
         {
@@ -36,7 +36,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
             runKind = branch ? "branch" : "root", resultsParameterSpans = spans, setupParameterSpans = branch ? spans : []
         });
         parent = project.withRuns(parent, [run]);
-        var module = WorkspaceModule.createInherited(Guid.NewGuid(), "Sorting", "sorting", ModuleDefaults.configuration(branch),
+        var module = WorkspaceModule.createInherited(Guid.NewGuid(), "sorting", ModuleDefaults.configuration(branch),
             ModuleOverridesDto.toDomain(kind, new moduleOverridesDto { resultsFunctionName = settings.resultsFunctionName, setupFunctionName = branch ? settings.setupFunctionName : null }), [], [parent]);
         return workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]);
     }
@@ -63,8 +63,8 @@ public sealed class WorkspacePersistenceTests : IDisposable
         var module = loaded.Modules.Single();
         var project = module.Projects.Single();
         var run = project.Runs.Single();
-        var moduleFolder = Path.Combine(Root, module.FolderName);
-        var projectFolder = Path.Combine(moduleFolder, project.FolderName);
+        var moduleFolder = Path.Combine(Root, module.ModuleName);
+        var projectFolder = Path.Combine(moduleFolder, project.ProjectName);
         var runFile = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(run.Id));
         Assert.True(File.Exists(runFile));
         Assert.Empty(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
@@ -125,11 +125,11 @@ public sealed class WorkspacePersistenceTests : IDisposable
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep contents");
         var dto = WorkspaceDto.fromDomain(saved);
         dto.modules[0].projects[0].projectName = "Renamed";
-        dto.modules[0].projects[0].folderName = "Renamed";
+
         var destination = Path.Combine(Root, "sorting", "Renamed");
         var result = WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token, moves: [new(source, destination)]);
         var renamed = WorkspaceFileStore.LoadDefinition(Root).ProjectIndex[original.Id];
-        Assert.Equal("Renamed", renamed.ProjectName); Assert.Equal("Renamed", renamed.FolderName);
+        Assert.Equal("Renamed", renamed.ProjectName); Assert.Equal("Renamed", renamed.ProjectName);
         Assert.True(renamed.IsSealed); Assert.Equal(original.Configuration, renamed.Configuration);
         Assert.Equal(original.Runs[0].Id, renamed.Runs[0].Id); Assert.Equal(original.Id, renamed.Runs[0].ParentProjectId);
         Assert.Equal("Renamed", renamed.Runs[0].ProjectName);
@@ -239,7 +239,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
         var source = Path.Combine(Root, "sorting");
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep on move");
         var dto = WorkspaceDto.fromDomain(saved);
-        dto.modules[0].folderName = "moved";
+        dto.modules[0].moduleName = "moved";
         var destination = Path.Combine(Root, "moved");
         var result = WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token,
             moves: [new WorkspaceFolderMove(source, destination)]);

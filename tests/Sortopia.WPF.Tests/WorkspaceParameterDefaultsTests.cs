@@ -23,7 +23,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.resultsParameterDefaults = defaults;
         settings.setupParameterDefaults = setup ?? [];
-        return project.create(WorkspaceTestFiles.Id("parameter-defaults-project"), "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        return project.create(WorkspaceTestFiles.Id("parameter-defaults-project"), "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
     private static runDto Inputs(bool branch, parameterSpanDto[]? spans = null, parameterSpanDto[]? setup = null) => new()
     {
@@ -138,7 +138,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     public void Branch_setup_and_execution_defaults_and_spans_remain_independent_after_round_trip()
     {
         var value = RunExecutionTests.MakeRun(true, ModelSettings(true), [Span("Repl", "5", "7")], [Span("Repl", "10", "12", "14")]);
-        var parent = project.restore(value.ParentProjectId, value.ProjectName, "Project", projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration), Defaults.inherited(true), true, [value]);
+        var parent = project.restore(value.ParentProjectId, "Project", projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration), Defaults.inherited(true), true, [value]);
         var restored = WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)); var expanded = RunParameterSets.create(restored.Runs[0]);
         Assert.Equal(new[] { 5, 7 }, expanded.Results.Select(set => set.TryFind(ParamKeys.replKey).Value));
         Assert.Equal(new[] { 10, 12, 14 }, expanded.Setup.Value.Select(set => set.TryFind(ParamKeys.replKey).Value));

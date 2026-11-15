@@ -16,8 +16,8 @@ public sealed class WorkspaceImportTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?> picker, bool empty = false)
     {
-        var modules = empty ? Array.Empty<WorkspaceModule>() : [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Existing", "existing", [],
-            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [WorkspaceHierarchyTests.MakeRun("Parent project", "Trial")])])];
+        var modules = empty ? Array.Empty<WorkspaceModule>() : [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "existing", [],
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "parent-project", [WorkspaceHierarchyTests.MakeRun("Parent project", "Trial")])])];
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Root", modules), Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), pickExistingFolder: picker);
@@ -30,10 +30,11 @@ public sealed class WorkspaceImportTests : IDisposable
         while (node.Kind != kind) node = node.Children.First();
         return node;
     }
-    internal static void WriteProject(string folder, string name, hierarchyKind family = hierarchyKind.Root)
+    internal static void WriteProject(string folder, hierarchyKind family = hierarchyKind.Root)
     {
+        var name = Path.GetFileName(folder);
         var run = WorkspaceHierarchyTests.MakeRun(name, "Existing trial", family == hierarchyKind.Branch);
-        var value = WorkspaceHierarchyTests.MakeProject(family, Guid.NewGuid(), name, Path.GetFileName(folder), [run]);
+        var value = WorkspaceHierarchyTests.MakeProject(family, Guid.NewGuid(), name, [run]);
         var inputs = RunDto.fromDomain(value.Runs[0]);
         inputs.id = Guid.NewGuid();
         value = project.withRuns(value, [RunDto.toDomain(value, inputs)]);
@@ -42,12 +43,13 @@ public sealed class WorkspaceImportTests : IDisposable
         File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(value.Runs[0].Id)), WorkspaceCodec.encodeRun(value.Runs[0]));
         File.WriteAllText(Path.Combine(folder, "results.txt"), "Keep results");
     }
-    internal static void WriteModule(string folder, string name, hierarchyKind family = hierarchyKind.Root)
+    internal static void WriteModule(string folder, hierarchyKind family = hierarchyKind.Root)
     {
+        var name = Path.GetFileName(folder);
         Directory.CreateDirectory(folder);
-        WriteProject(Path.Combine(folder, "child-project"), "Child project", family);
+        WriteProject(Path.Combine(folder, "child-project"), family);
         var child = WorkspaceFileStore.LoadProjectFolder(Path.Combine(folder, "child-project"), Token);
-        var value = WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, Path.GetFileName(folder), [], [child]);
+        var value = WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, [], [child]);
         File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeModule(value));
     }
 
@@ -91,8 +93,8 @@ public sealed class WorkspaceImportTests : IDisposable
         };
         var container = parentFolder;
         selected = Path.Combine(container, "imported-folder");
-        if (childKind == WorkspaceEntityKind.Module) WriteModule(selected, "Imported module");
-        else WriteProject(selected, "Imported project");
+        if (childKind == WorkspaceEntityKind.Module) WriteModule(selected);
+        else WriteProject(selected);
         var before = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace"));
         var originalEntity = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(selected, childKind.ToString().ToLowerInvariant()));
         await page.AddExistingAsync(childKind);
@@ -103,8 +105,8 @@ public sealed class WorkspaceImportTests : IDisposable
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace")));
         Assert.Equal(originalEntity, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(selected, childKind.ToString().ToLowerInvariant())));
         Assert.True(page.HasUnsavedChanges);
-        Assert.Equal("imported-folder", page.Selected!.FolderName);
-        Assert.True(page.Selected.FolderFollowsName);
+        Assert.Equal("imported-folder", page.Selected!.Name);
+        Assert.True(page.Selected.HasNamedFolder);
         var importedProject = childKind == WorkspaceEntityKind.Module ? page.Selected.Children.Single() : page.Selected;
         Assert.Equal("Existing trial", importedProject.Children.Single().Name);
         Assert.False(importedProject.Children.Single().HasFolder);
@@ -115,7 +117,7 @@ public sealed class WorkspaceImportTests : IDisposable
         Assert.Equal("Keep results", File.ReadAllText(Path.Combine(output, "results.txt")));
         page = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
         Assert.Empty(page.Error);
-        Assert.Contains(Parent(page, parentKind).Children, child => child.FolderName == "imported-folder");
+        Assert.Contains(Parent(page, parentKind).Children, child => child.Name == "imported-folder");
     }
 
     [Fact]
@@ -150,10 +152,10 @@ public sealed class WorkspaceImportTests : IDisposable
         selected = Path.Combine(Root, "candidate");
         switch (problem)
         {
-            case "wrong type": WriteProject(selected, "A project"); break;
+            case "wrong type": WriteProject(selected); break;
             case "corrupt": Directory.CreateDirectory(selected); File.WriteAllBytes(WorkspaceTestFiles.DefinitionPath(selected, "module"), [0xc1]); break;
             case "illegal children": Directory.CreateDirectory(Path.Combine(selected, "runs")); break;
-            case "duplicate name": WriteModule(selected, "EXISTING"); break;
+            case "duplicate name": selected = Path.Combine(temporary.FullName, "EXISTING"); WriteModule(selected); break;
             case "duplicate folder": selected = Path.Combine(Root, "existing"); break;
             case "corrupt run":
                 var runsFolder = Directory.CreateDirectory(Path.Combine(selected, "P", "runs")).FullName;

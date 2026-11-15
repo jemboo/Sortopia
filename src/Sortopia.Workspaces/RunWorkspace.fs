@@ -59,8 +59,8 @@ module RunWorkspace =
         let needed = parent.Id :: sourceIds value |> Set.ofList
         let rec visit folder (modules: workspaceModule array) = seq {
             for m in modules do
-                let folder = Path.Combine(folder, m.FolderName)
+                let folder = Path.Combine(folder, (UMX.untag m.ModuleName))
                 for p in m.Projects do
-                    if Set.contains p.Id needed then yield { Snapshot = p.Snapshot; RelativeFolder = Path.Combine(folder, p.FolderName) }
+                    if Set.contains p.Id needed then yield { Snapshot = p.Snapshot; RelativeFolder = Path.Combine(folder, (UMX.untag p.ProjectName)) }
                 yield! visit folder m.Modules }
         create parent value (visit "" world.Modules |> Seq.toArray)

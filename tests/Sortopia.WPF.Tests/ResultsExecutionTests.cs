@@ -30,7 +30,7 @@ public sealed class ResultsExecutionTests : IDisposable
         var page = WorkspaceRunExecutionTests.Create(temporary.FullName, false);
         WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "SortableDataFormat", false,
             Enumerable.Range(0, repetitions).SelectMany(_ => new[] { "Bools", "Ints", "BitVector512" }).ToArray());
-        page.Selected!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
+        page.Selected!.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); WorkspaceRunExecutionTests.SelectRun(page);
         await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
         return page;

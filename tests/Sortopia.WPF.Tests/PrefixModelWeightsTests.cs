@@ -143,7 +143,7 @@ public sealed class PrefixModelWeightsTests
             foreach (var text in new[] { "0,1,0", "1,0,0" }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = text; }
             Assert.All(span.Values, value => Assert.True(value.IsWeights));
             Assert.Equal(2, run.Editor.ResultsParameterSetsPreview.Rows.Length);
-            run.Editor.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
+            run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             span.AddValueCommand.Execute(null); span.Values.Last().Text = "1,1,1;1,1,1";
             Assert.Contains("needs 1 unfolding", run.Editor.ResultsParametersError); Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows);
             span.Values.Last().RemoveCommand.Execute(null);

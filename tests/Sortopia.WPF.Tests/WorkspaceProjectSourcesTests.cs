@@ -34,7 +34,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         return RunExecutionTests.MakeProject("Consumer", true, settings, seal: seal);
     }
     private static workspace Workspace(params project[] projects) => workspace.create(Guid.NewGuid(), "Research", "Workspace",
-        [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Library", "Library", [], projects)]);
+        [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Library", [], projects)]);
 
     [Fact]
     public void Unified_entries_define_identical_map_keys_and_independent_source_and_setup_queries()
@@ -108,7 +108,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         Assert.True(node.IsSealed);
         node.Editor!.ResultsFunctionName = "Changed"; node.Name = "Changed";
         Assert.Equal("sortable-tests.standard", node.Editor.ResultsFunctionName); Assert.Equal("Changed", node.Name);
-        Assert.Equal("Changed", node.FolderName);
+        Assert.Equal("Changed", node.Name);
         node.Children.Clear();
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDefinition(Root);
@@ -213,7 +213,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         parent.Editor!.LoadProject(Settings());
         page.AddRunCommand.Execute(null);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
-        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Path.Combine(Root, page.Roots[0].Children[0].FolderName), "module"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Path.Combine(Root, page.Roots[0].Children[0].Name), "module"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
             Assert.NotEmpty(page.Error);

@@ -39,7 +39,7 @@ public sealed class ExplicitQuerySpanTests
     {
         var value = RunExecutionTests.MakeRun(setup);
         var config = value is run.RootRun root ? projectConfiguration.NewRootProjectConfig(root.Item.ProjectConfiguration) : projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration);
-        var parent = project.create(value.ParentProjectId, "Project", "Project", config, []);
+        var parent = project.create(value.ParentProjectId, "Project", config, []);
         var dto = RunDto.fromDomain(value);
         var key = setup ? dto.setupParameterSpans[0].keyName : dto.resultsParameterSpans[0].keyName;
         if (setup) dto.setupParameterSpans = dto.setupParameterSpans.Where(span => span.keyName != key).ToArray();
@@ -92,7 +92,8 @@ public sealed class ExplicitQuerySpanTests
             page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null); var editor = page.Selected!.Editor!;
             Assert.Empty(editor.ResultsParameters); Assert.Single(editor.ResultsParameterSetsPreview.Rows);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
-            foreach (var key in editor.ResultsQueryOutputs.Concat(editor.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
+            var projectEditor = page.Selected!.Parent!.Editor!;
+            foreach (var key in projectEditor.ResultsQueryOutputs.Concat(projectEditor.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); WorkspaceRunExecutionTests.SelectRun(page);
             var report = await WorkspaceRunExecutionTests.GenerateAndExecuteAsync(page); Assert.Empty(page.Error); Assert.Equal(runExecutionStatus.Completed, report.Status);
             var saved = WorkspaceFileStore.LoadDefinition(folder).Modules[0].Projects[0].Runs[0];

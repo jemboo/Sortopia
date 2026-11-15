@@ -100,9 +100,9 @@ public sealed class ProjectGenerationTests : IDisposable
         var document = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample());
         var source = document.Modules[0].Projects[0];
         var consumer = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample(true)).Modules[0];
-        consumer.Definition.moduleName = "Consumer"; consumer.Definition.folderName = "consumer";
+        consumer.Definition.moduleName = "consumer";
         consumer.Projects[0].Definition.configuration.setupDataTypes[0].sourceProjectId = source.Definition.id;
-        document.Definition.modules = [document.Definition.modules[0], new() { id = consumer.Definition.id, folderName = "consumer" }];
+        document.Definition.modules = [document.Definition.modules[0], new() { id = consumer.Definition.id, name = "consumer" }];
         document = new(document.Definition, [document.Modules[0], consumer]);
         var saved = WorkspaceFileStore.CreateDocument(Root, document, Token).Definition;
         Assert.Contains("use this source", WorkspaceFileStore.ResumeProjectEditingReason(Root, saved, source.Definition.id));

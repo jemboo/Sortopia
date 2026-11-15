@@ -91,11 +91,10 @@ module WorkspaceFileInspection =
             for collection in ["modules"; "projects"] do
                 if has collection then
                     for child in value.GetProperty(collection).EnumerateArray() do
-                        let name = child.GetProperty("folderName").GetString()
+                        let name = child.GetProperty("name").GetString()
                         let id = child.GetProperty("id").GetGuid()
                         Sortopia.Runs.FolderName.validate name |> ignore
-                        let oldLayout = has "schemaVersion" && value.GetProperty("schemaVersion").GetInt32() = 15
-                        add name (if oldLayout then Path.Combine(collection, name, string id + ".msgpack") else Path.Combine(name, string id + ".msgpack"))
+                        add name (Path.Combine(name, string id + ".msgpack"))
             if has "runs" then
                 for child in value.GetProperty("runs").EnumerateArray() do
                     let id = child.GetGuid()
@@ -108,7 +107,7 @@ module WorkspaceFileInspection =
             let versionNote =
                 if has "schemaVersion" then
                     let version = value.GetProperty("schemaVersion").GetInt32()
-                    let expected = if kind = "Run definition" then 14 else 16
+                    let expected = if kind = "Run definition" then 14 else Sortopia.Workspaces.Serialization.WorkspaceDefinitionCodec.schemaVersion
                     if version <> expected then $" Stored version {version} is not the current version ({expected})." else ""
                 else ""
             { Kind = kind; Description = description + versionNote + " This is a view of saved bytes, not a validation of the complete workspace."

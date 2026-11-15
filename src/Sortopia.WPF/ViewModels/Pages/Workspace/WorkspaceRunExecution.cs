@@ -24,6 +24,12 @@ public sealed partial class WorkspacePageViewModel
                 var id = Selected.Id;
                 executions[id] = state = new WorkspaceRunExecution();
                 state.PropertyChanged += (_, _) => { if (Selected?.Id == id) RefreshInspector(); };
+                state.Files.PropertyChanged += (_, _) =>
+                {
+                    if (Selected?.Id != id) return;
+                    RefreshInspector();
+                    RefreshRunParameterFilesCommand.RaiseCanExecuteChanged();
+                };
             }
             return state;
         }
@@ -57,7 +63,7 @@ public sealed partial class WorkspacePageViewModel
             var project = nodes.FirstOrDefault(node => node.IsProject && node.Id == location.Snapshot.ProjectId);
             if (project is null) return $"Required project '{location.Snapshot.ProjectName}' has been removed. Restore it before generating this run.";
             for (var ancestor = project; ancestor is { IsWorkspace: false }; ancestor = ancestor.Parent)
-                if (ancestor.FolderNameError.Length > 0) return $"Location of '{ancestor.Name}': {ancestor.FolderNameError}";
+                if (ancestor.NameError.Length > 0) return $"Location of '{ancestor.Name}': {ancestor.NameError}";
             var savedFolder = Path.Combine(WorkspaceFolder, location.RelativeFolder);
             if (!string.Equals(project.GetFolderPath(WorkspaceFolder), savedFolder, StringComparison.OrdinalIgnoreCase))
                 return $"Save the location change for required project '{project.Name}' before generating this run.";
@@ -74,6 +80,7 @@ public sealed partial class WorkspacePageViewModel
         {
             if (Selected?.IsRun != true) return "Select a run to generate its parameter files.";
             if (IsBusy) return "Wait for the current operation, or cancel it below.";
+            if (HasPendingRemoval) return PendingRemovalMessage;
             if (savedDocument is null || !HasSavedWorkspace || SelectedRunNode is not { Parent: not null } node)
                 return "Save this run and its project before generating parameter files.";
             if (node.NameError.Length > 0) return $"Run name: {node.NameError}";
@@ -96,8 +103,8 @@ public sealed partial class WorkspacePageViewModel
     }
     private bool CanGenerateRunParameters => CanEdit && GenerationHint.Length == 0;
     public string GenerationInstructions => (Selected?.IsBranch == true
-        ? "Generate run parameters runs setup locally and creates one file for each setup × results pairing. Open the Execute page to select saved files for results execution. "
-        : "Generate run parameters creates one file for every results parameter set. Open the Execute page to select saved files for results execution. ")
+        ? "Generate files runs setup locally and creates one file for each setup × results pairing. Open the execution page to produce results from saved files. "
+        : "Generate files creates one file for every results parameter combination. Open the execution page to produce results from saved files. ")
         + "Generation fixes the parent project's settings before writing setup data or parameter files. Cancel operation stops at database operations and between function calls.";
 
     private sealed class ThrottledExecutionProgress(IProgress<runExecutionProgress> target) : IProgress<runExecutionProgress>
@@ -119,6 +126,7 @@ public sealed record WorkspaceExecutionRow(string Heading, string Parameters, st
 /// The last attempt for one run, retained only while this workspace is open.
 public sealed class WorkspaceRunExecution : ViewModelBase
 {
+    public WorkspaceRunParameterFiles Files { get; } = new();
     public bool IsRunning { get; private set; }
     public bool HasAttempt { get; private set; }
     public bool HasReport => Report is not null;

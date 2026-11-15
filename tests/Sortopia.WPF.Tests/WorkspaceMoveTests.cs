@@ -19,9 +19,9 @@ public sealed class WorkspaceMoveTests : IDisposable
     private WorkspacePageViewModel Open(bool saved = true)
     {
         var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "A", "A", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Nested", "Nested", [], [])],
-                [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "B", "B", [], [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", "Destination", [])])]);
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "A", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Nested", [], [])],
+                [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "B", [], [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", [])])]);
         Directory.CreateDirectory(Root);
         if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -145,7 +145,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         Data(source);
         var before = Snapshot(Root);
         var filenames = Directory.GetFiles(source, "*.msgpack", SearchOption.AllDirectories).Select(Path.GetFileName).Order().ToArray();
-        node.FolderNameInput = folder;
+        node.NameInput = folder;
         var destination = node.GetFolderPath(Root);
         page.RefreshDiskStatus();
         Assert.Equal("Pending move", node.DiskStatus);
@@ -154,8 +154,8 @@ public sealed class WorkspaceMoveTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.Empty(page.RetainedFolders);
-        Assert.Equal(node.Id, Find(page, name).Id);
-        Assert.Equal(folder, WorkspaceFileStore.LoadModuleFolder(destination, Token).FolderName);
+        Assert.Equal(node.Id, Find(page, folder).Id);
+        Assert.Equal(folder, WorkspaceFileStore.LoadModuleFolder(destination, Token).ModuleName);
         // Enumerating checks the actual spelling on disk, including a case-only rename.
         Assert.Contains(destination, Directory.GetDirectories(Path.GetDirectoryName(destination)!));
         Assert.DoesNotContain(source, Directory.GetDirectories(Path.GetDirectoryName(source)!));
@@ -174,8 +174,8 @@ public sealed class WorkspaceMoveTests : IDisposable
         Data(source);
         Data(child.GetFolderPath(Root));
         var before = Snapshot(Root);
-        parent.FolderNameInput = "Renamed parent";
-        child.FolderNameInput = "Renamed child";
+        parent.NameInput = "Renamed parent";
+        child.NameInput = "Renamed child";
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             await page.SaveWorkspaceAsync();
@@ -186,8 +186,8 @@ public sealed class WorkspaceMoveTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.False(Directory.Exists(source));
-        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Find(page, "A").GetFolderPath(Root), "output", "result.txt")));
-        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Find(page, "Nested").GetFolderPath(Root), "output", "result.txt")));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Find(page, "Renamed parent").GetFolderPath(Root), "output", "result.txt")));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Find(page, "Renamed child").GetFolderPath(Root), "output", "result.txt")));
         Assert.Empty(Directory.GetDirectories(Root, ".sortopia-*"));
     }
 
@@ -196,7 +196,7 @@ public sealed class WorkspaceMoveTests : IDisposable
     {
         var page = Open();
         var node = Find(page, "A");
-        node.FolderNameInput = "Occupied";
+        node.NameInput = "Occupied";
         var destination = node.GetFolderPath(Root);
         Directory.CreateDirectory(destination);
         File.WriteAllText(Path.Combine(destination, "external.txt"), "Leave intact");
@@ -239,7 +239,6 @@ public sealed class WorkspaceMoveTests : IDisposable
         page.CancelCutCommand.Execute(null);
         page.Selected = Find(page, "B"); page.AddProjectCommand.Execute(null); WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         page.Selected!.Name = "P";
-        page.Selected.FolderName = "Different folder";
         var node = Find(page, "A").Children.Single(child => child.Name == "P");
         page.Selected = node; page.CutCommand.Execute(null); page.Selected = Find(page, "B");
         await page.PasteAsync();
@@ -247,9 +246,9 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.True(page.HasCutItem);
         Assert.Equal("A", node.Parent!.Name);
         var collision = Find(page, "B").Children.Single(child => child.Name == "P");
-        collision.Name = "Other"; collision.FolderName = "P";
+        collision.Name = "Other"; collision.Name = "P";
         await page.PasteAsync();
-        Assert.Contains("Duplicate folder name", page.Error);
+        Assert.Contains("Duplicate name", page.Error);
         Assert.Equal("A", node.Parent!.Name);
     }
 
@@ -329,7 +328,7 @@ public sealed class WorkspaceMoveTests : IDisposable
     {
         var page = Open();
         importSource = Path.Combine(temporary.FullName, "Imported");
-        WorkspaceImportTests.WriteModule(importSource, "Imported");
+        WorkspaceImportTests.WriteModule(importSource);
         var sourceBefore = Snapshot(importSource);
         var before = Snapshot(Root);
         if (moveIntoImport)
@@ -362,10 +361,10 @@ public sealed class WorkspaceMoveTests : IDisposable
         var page = Open();
         var beforeRoot = Snapshot(Root);
         importSource = Path.Combine(temporary.FullName, "Imported");
-        WorkspaceImportTests.WriteModule(importSource, "Imported");
+        WorkspaceImportTests.WriteModule(importSource);
         var before = Snapshot(importSource);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
-        await Move(page, "Child project", "B");
+        await Move(page, "child-project", "B");
         var importedProjectId = page.Selected!.Id;
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
@@ -402,26 +401,26 @@ public sealed class WorkspaceMoveTests : IDisposable
     {
         var page = Open();
         importSource = Path.Combine(temporary.FullName, "Imported");
-        WorkspaceImportTests.WriteModule(importSource, "Imported");
+        WorkspaceImportTests.WriteModule(importSource);
         var innerFolder = Path.Combine(importSource, "Inner");
-        WorkspaceImportTests.WriteModule(innerFolder, "Inner");
+        WorkspaceImportTests.WriteModule(innerFolder);
         var innerDefinition = WorkspaceFileStore.LoadModuleFolder(innerFolder, Token);
         var outerFile = WorkspaceDefinitionFiles.Require(importSource, "module");
         var outer = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(outerFile));
-        outer.modules = [.. outer.modules, new childFolderReferenceDto { id = innerDefinition.Id, folderName = "Inner" }];
+        outer.modules = [.. outer.modules, new childReferenceDto { id = innerDefinition.Id, name = "Inner" }];
         File.WriteAllBytes(outerFile, Sortopia.Core.Serialization.MessagePackSetup.serialize(outer));
         var before = Snapshot(importSource);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         Assert.Empty(page.Error);
-        Find(page, "Imported").FolderNameInput = "Relocated import";
+        Find(page, "Imported").NameInput = "Relocated import";
         var inner = Find(page, "Inner");
-        inner.FolderNameInput = "Renamed inner";
+        inner.NameInput = "Renamed inner";
         var id = inner.Id;
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.Equal(before, Snapshot(importSource));
-        Assert.Equal(id, Find(page, "Inner").Id);
-        var destination = Find(page, "Inner").GetFolderPath(Root);
+        Assert.Equal(id, Find(page, "Renamed inner").Id);
+        var destination = Find(page, "Renamed inner").GetFolderPath(Root);
         Assert.Equal("Keep results", File.ReadAllText(Path.Combine(destination, "child-project", "results.txt")));
         Assert.False(Directory.Exists(Path.Combine(Root, "Imported")));
         Assert.False(Directory.Exists(Path.Combine(Root, "Relocated import", "Inner")));
@@ -433,10 +432,10 @@ public sealed class WorkspaceMoveTests : IDisposable
     {
         var page = Open();
         importSource = Path.Combine(temporary.FullName, "Imported");
-        WorkspaceImportTests.WriteModule(importSource, "Imported");
+        WorkspaceImportTests.WriteModule(importSource);
         var before = Snapshot(importSource);
         await page.AddExistingAsync(WorkspaceEntityKind.Module); Assert.Empty(page.Error);
-        var project = Find(page, "Child project");
+        var project = Find(page, "child-project");
         var id = project.Id;
         project.Name = "Renamed project";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);

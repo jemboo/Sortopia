@@ -49,10 +49,10 @@ public partial class WorkspaceConfigurationEditor : UserControl
         Show(ResultsSettingsSection, "resultsDatabase", "resultsTypes", "resultsQueryKeys");
         Show(ResultsDatabaseItem, "resultsDatabase");
         Show(ResultsTypesItem, "resultsTypes");
-        Show(ResultsDefaultsSection, "resultsDefaults"); Show(ResultsSpansSection, "resultsSpans"); Show(ResultsPreviewSection, "resultsPreview");
+        Show(ResultsDefaultsSection, "resultsDefaults"); Show(ResultsSpansSection, "resultsSpans");
         Show(SetupSettingsSection, "setupDatabase", "setupOutputs");
         Show(SetupDatabaseItem, "setupDatabase"); Show(SetupOutputsItem, "setupOutputs");
-        Show(SetupDefaultsSection, "setupDefaults"); Show(SetupSpansSection, "setupSpans"); Show(SetupPreviewSection, "setupPreview");
+        Show(SetupDefaultsSection, "setupDefaults"); Show(SetupSpansSection, "setupSpans");
         ResultsSettingsSection.SetBinding(TagProperty, new Binding(ActiveItemKey switch
         {
             "resultsDatabase" => "ResultsDatabaseError", "resultsFunction" => "ResultsFunctionError",

@@ -32,15 +32,15 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         var config = SettingsDto.toDomain(kind, WorkspaceHierarchyTests.ProjectSettings(branch));
         var local = branch ? configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item))
             : configurationOverrides.NewRootOverrides(Defaults.localRoot(((projectConfiguration.RootProjectConfig)config).Item));
-        var parent = project.createInherited(Guid.NewGuid(), "P", "P", config, Defaults.inherited(branch), []);
+        var parent = project.createInherited(Guid.NewGuid(), "P", config, Defaults.inherited(branch), []);
         var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
         inputs.parentProjectId = parent.Id;
         inputs.resultsParameterSpans = []; inputs.setupParameterSpans = [];
-        parent = project.createInherited(parent.Id, parent.ProjectName, parent.FolderName, config, parent.LocalOverrides, [RunDto.toDomain(parent, inputs)]);
-        var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", "Nested", ModuleDefaults.fromProject(config), ModuleDefaults.fromOverrides(Defaults.inherited(branch)), [], [parent]);
+        parent = project.createInherited(parent.Id, parent.ProjectName, config, parent.LocalOverrides, [RunDto.toDomain(parent, inputs)]);
+        var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", ModuleDefaults.fromProject(config), ModuleDefaults.fromOverrides(Defaults.inherited(branch)), [], [parent]);
         var moduleLocal = ModuleOverridesDto.fromDomain(ModuleDefaults.fromOverrides(local));
         moduleLocal.resultsFunctionName = "sortable-tests.standard"; moduleLocal.setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : null;
-        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", "Top", ModuleDefaults.configuration(branch), ModuleOverridesDto.toDomain(kind, moduleLocal), [nested], []);
+        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", ModuleDefaults.configuration(branch), ModuleOverridesDto.toDomain(kind, moduleLocal), [nested], []);
     }
 
     [Theory]
@@ -97,7 +97,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         settings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiEvaluationInputs;
         settings.description = "Destination description";
         var config = SettingsDto.toDomain(kind, settings);
-        var destination = WorkspaceModule.createInherited(Guid.NewGuid(), "Destination", "Destination", ModuleDefaults.fromProject(config),
+        var destination = WorkspaceModule.createInherited(Guid.NewGuid(), "Destination", ModuleDefaults.fromProject(config),
             ModuleDefaults.fromOverrides(branch ? configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item))
                 : configurationOverrides.NewRootOverrides(Defaults.localRoot(((projectConfiguration.RootProjectConfig)config).Item))), [], []);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "W", "Workspace", [source, destination]), Token);

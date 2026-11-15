@@ -14,7 +14,7 @@ open WorkspaceDisk
 type private Transfer = { Source: string; Destination: string; Copy: WorkspaceFolderCopy option }
 
 module internal WorkspaceSavePlan =
-    let prepareWithContainers rootFolder (definition: WorkspaceDocument) (token: CancellationToken) (copies: IReadOnlyList<WorkspaceFolderCopy>) (moves: IReadOnlyList<WorkspaceFolderMove>) (emptyContainers: string array) =
+    let prepare rootFolder (definition: WorkspaceDocument) (token: CancellationToken) (copies: IReadOnlyList<WorkspaceFolderCopy>) (moves: IReadOnlyList<WorkspaceFolderMove>) =
         let root = normalizeRoot rootFolder
         let before = capture root token "workspace"
         let definition = WorkspaceDocument.validate { definition with Definition = { definition.Definition with folderName = folderName root } }
@@ -49,9 +49,8 @@ module internal WorkspaceSavePlan =
             let vacated =
                 (relocations |> Array.exists (fun move -> WorkspaceFolderCopy.Inside(move.SourceFolder, existing)))
                 || (enclosing |> Option.bind _.Copy |> Option.exists (fun copy -> not (copy.IncludesSourcePath(existing))))
-                || (emptyContainers |> Array.exists (fun path -> pathComparer.Equals(path, transfer.Destination)))
             if not vacated && (Directory.Exists(existing) || File.Exists(existing)) then
-                raise (IOException($"The destination already exists. Choose a different parent or folder name: {transfer.Destination}"))
+                raise (IOException($"The destination already exists. Choose a different parent or entity name: {transfer.Destination}"))
 
         let transferFor path = transfers |> Array.tryFindBack (fun transfer -> WorkspaceFolderCopy.Inside(transfer.Destination, path))
         let sourceIds = Dictionary<Guid, Guid>()
@@ -73,9 +72,9 @@ module internal WorkspaceSavePlan =
                         replacement
         let rec allocateModule (value: ModuleDocument) folder =
             copyId value.Definition.id folder |> ignore
-            for value in value.Modules do allocateModule value (child folder value.Definition.folderName)
-            for value in value.Projects do copyId value.Definition.id (child folder value.Definition.folderName) |> ignore
-        for value in definition.Modules do allocateModule value (child root value.Definition.folderName)
+            for value in value.Modules do allocateModule value (child folder value.Definition.moduleName)
+            for value in value.Projects do copyId value.Definition.id (child folder value.Definition.projectName) |> ignore
+        for value in definition.Modules do allocateModule value (child root value.Definition.moduleName)
         let remapSource folder id =
             match transferFor folder |> Option.bind _.Copy with
             | None -> id
@@ -98,16 +97,16 @@ module internal WorkspaceSavePlan =
               Runs = runs }
         let rec identifyModule (value: ModuleDocument) folder : ModuleDocument =
             let dto = value.Definition
-            let modules = value.Modules |> Array.map (fun value -> identifyModule value (child folder value.Definition.folderName))
-            let projects = value.Projects |> Array.map (fun value -> identifyProject value (child folder value.Definition.folderName))
+            let modules = value.Modules |> Array.map (fun value -> identifyModule value (child folder value.Definition.moduleName))
+            let projects = value.Projects |> Array.map (fun value -> identifyProject value (child folder value.Definition.projectName))
             { Definition = { dto with id = copyId dto.id folder
                                       inheritedDefaults = { dto.inheritedDefaults with setupDataTypes = remapSources folder dto.inheritedDefaults.setupDataTypes }
                                       localOverrides = { dto.localOverrides with setupSources = remapAssignments folder dto.localOverrides.setupSources }
-                                      modules = modules |> Array.map (fun m -> { id = m.Definition.id; folderName = m.Definition.folderName })
-                                      projects = projects |> Array.map (fun p -> { id = p.Definition.id; folderName = p.Definition.folderName }) }
+                                      modules = modules |> Array.map (fun m -> { id = m.Definition.id; name = m.Definition.moduleName })
+                                      projects = projects |> Array.map (fun p -> { id = p.Definition.id; name = p.Definition.projectName }) }
               Modules = modules; Projects = projects }
-        let modules = definition.Modules |> Array.map (fun value -> identifyModule value (child root value.Definition.folderName))
-        let definition = { definition with Modules = modules; Definition = { definition.Definition with modules = modules |> Array.map (fun m -> { id = m.Definition.id; folderName = m.Definition.folderName }) } } |> WorkspaceDocument.withOrigins
+        let modules = definition.Modules |> Array.map (fun value -> identifyModule value (child root value.Definition.moduleName))
+        let definition = { definition with Modules = modules; Definition = { definition.Definition with modules = modules |> Array.map (fun m -> { id = m.Definition.id; name = m.Definition.moduleName }) } } |> WorkspaceDocument.withOrigins
         let findRun projectFolder id =
             let path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name id)
             if File.Exists path then path else null
@@ -165,10 +164,10 @@ module internal WorkspaceSavePlan =
         let rec addModule inheritedFrom (value: ModuleDocument) folder depth =
             checkDepth depth
             let origin = { moduleId = value.Definition.id; moduleName = value.Definition.moduleName }
-            for value in value.Modules do addModule origin value (child folder value.Definition.folderName) (depth + 1)
-            for value in value.Projects do addProject origin value (child folder value.Definition.folderName) (depth + 1)
+            for value in value.Modules do addModule origin value (child folder value.Definition.moduleName) (depth + 1)
+            for value in value.Projects do addProject origin value (child folder value.Definition.projectName) (depth + 1)
             add folder "module" value.Definition.id (MessagePackSetup.serialize { value.Definition with inheritedFrom = inheritedFrom })
-        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root value.Definition.folderName) 1
+        for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root value.Definition.moduleName) 1
         add root "workspace" definition.Definition.id (MessagePackSetup.serialize definition.Definition) // Root references commit last.
         let hasOriginal path = writes |> Seq.exists (fun write -> pathComparer.Equals(write.OriginalPath, path))
         if transfers |> Array.exists (fun transfer -> not (expected.Contains(transfer.Destination)) && not (File.Exists(transfer.Source) && hasOriginal transfer.Destination)) then
@@ -191,9 +190,8 @@ module internal WorkspaceSavePlan =
         if before.Fingerprint <> (capture root token "workspace").Fingerprint then
             raise (IOException("Folders changed while preparing the save. Try saving again."))
         { RootFolder = root; Definition = definition; Fingerprint = before.Fingerprint; Writes = writes.ToArray()
-          RetainedFolders = retainedFolders.ToArray(); Copies = imports; Moves = relocations; EmptyContainers = emptyContainers; Removals = [||] }
+          RetainedFolders = retainedFolders.ToArray(); Copies = imports; Moves = relocations; Removals = [||] }
 
-    let prepare rootFolder definition token copies moves = prepareWithContainers rootFolder definition token copies moves [||]
 
     let withRemovals previous (plan: SavePlan) token =
         let removed = WorkspaceRemoval.plan plan.RootFolder previous plan.Definition plan.Moves token

@@ -42,7 +42,7 @@ public sealed class WorkspaceRenameTests : IDisposable
         Assert.NotEmpty(files);
         module.NameInput = caseOnly ? module.Name.ToUpperInvariant() : "Renamed module";
         project.NameInput = caseOnly ? project.Name.ToUpperInvariant() : "Renamed project";
-        Assert.Equal(module.Name, module.FolderName); Assert.Equal(project.Name, project.FolderName);
+        Assert.Equal(module.Name, module.PathName); Assert.Equal(project.Name, project.PathName);
         Assert.True(project.Editor.IsReadOnly); Assert.True(project.IsSealed);
         Assert.Equal(project.Name, page.Roots[0].ToWorkspace().ProjectIndex[projectId].Runs[0].ProjectName);
         Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
@@ -88,17 +88,17 @@ public sealed class WorkspaceRenameTests : IDisposable
     [InlineData("Bad:name")]
     [InlineData("CON")]
     [InlineData("Trailing.")]
-    public void Invalid_folder_names_do_not_change_either_accepted_name(string name)
+    public void Invalid_names_do_not_change_the_accepted_name_or_path(string name)
     {
         foreach (var kind in new[] { WorkspaceEntityKind.Module, WorkspaceEntityKind.Project })
         {
-            var node = new WorkspaceTreeNode(kind, "Original", "existing-folder");
+            var node = new WorkspaceTreeNode(kind, "Original");
             node.NameInput = node.NameInput;
-            Assert.Equal("existing-folder", node.FolderName);
+            Assert.Equal("Original", node.Name);
             node.NameInput = name;
-            Assert.NotEmpty(node.NameError); Assert.Equal("Original", node.Name); Assert.Equal("existing-folder", node.FolderName);
+            Assert.NotEmpty(node.NameError); Assert.Equal("Original", node.Name); Assert.Equal("Original", node.PathName);
             node.NameInput = "Valid name";
-            Assert.Empty(node.NameError); Assert.Equal("Valid name", node.FolderName);
+            Assert.Empty(node.NameError); Assert.Equal("Valid name", node.Name);
         }
     }
     public void Dispose() => temporary.Delete(true);

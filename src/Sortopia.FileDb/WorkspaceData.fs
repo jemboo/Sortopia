@@ -2,6 +2,7 @@ namespace Sortopia.FileDb
 
 open System
 open System.IO
+open FSharp.UMX
 open System.Threading
 open Sortopia.Runs
 open Sortopia.Functions
@@ -14,9 +15,9 @@ module WorkspaceData =
                       |> Option.defaultWith (fun () -> invalidOp $"Project '{projectId}' was not found in the workspace.")
         let rec find parent (items: workspaceModule array) =
             items |> Array.tryPick (fun item ->
-                let folder = Path.Combine(parent, item.FolderName)
+                let folder = Path.Combine(parent, (UMX.untag item.ModuleName))
                 if item.Projects |> Array.exists (fun value -> value.Id = project.Id) then
-                    Some (Path.Combine(folder, project.FolderName))
+                    Some (Path.Combine(folder, (UMX.untag project.ProjectName)))
                 else find folder item.Modules)
         find (Path.GetFullPath workspaceRoot) workspace.Modules |> Option.defaultWith (fun () -> invalidOp "Project folder was not found.")
 

@@ -68,12 +68,10 @@ public sealed class WorkspacePageTests : IDisposable
         page.BrowseWorkspaceFolderCommand.Execute(null);
         page.WorkspaceName = "Research";
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Name = "Sorting";
-        page.Selected.FolderName = "sorters";
+        page.Selected!.Name = "sorters";
         page.AddProjectCommand.Execute(null);
         WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
-        page.Selected!.Name = "Search";
-        page.Selected.FolderName = "search";
+        page.Selected!.Name = "search";
         page.AddRunCommand.Execute(null);
         page.Selected!.Name = "Trial";
         var runId = page.Selected.Id;
@@ -104,10 +102,8 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.Equal("Research: updated", saved.WorkspaceName);
         Assert.Equal("Root", saved.FolderName);
         Assert.Equal("Sorting updated", saved.Modules.Single().ModuleName);
-        Assert.Equal("Sorting updated", saved.Modules.Single().FolderName);
         var project = saved.Modules.Single().Projects.Single();
         Assert.Equal("Search updated", project.ProjectName);
-        Assert.Equal("Search updated", project.FolderName);
         Assert.Equal("Search updated", project.Runs.Single().ProjectName);
         Assert.Equal("Trial: renamed", project.Runs.Single().RunName);
         Assert.Equal(runId, project.Runs.Single().Id);
@@ -140,7 +136,6 @@ public sealed class WorkspacePageTests : IDisposable
         page.AddRunCommand.Execute(null);
         var first = page.Selected!;
         first.Name = "First";
-        first.FolderName = "trial";
         first.Editor!.LoadRun(Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun(parent.Name, first.Name)));
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
@@ -150,10 +145,9 @@ public sealed class WorkspacePageTests : IDisposable
         page.AddRunCommand.Execute(null);
         var second = page.Selected!;
         second.Name = "FIRST";
-        second.FolderName = "another-trial";
         second.Editor!.LoadRun(first.Editor!.ToRunInputs(second.Id, second.Name, parent.Id));
         await page.SaveWorkspaceAsync();
-        Assert.Contains("Duplicate name in runs", page.Error);
+        Assert.Contains("Duplicate run name", page.Error);
         Assert.Equal(before, File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(folder, "workspace")));
         second.Name = "Second";
         Assert.False(second.HasFolder);
@@ -203,18 +197,18 @@ public sealed class WorkspacePageTests : IDisposable
         page.BrowseWorkspaceFolderCommand.Execute(null);
         page.WorkspaceName = "Research";
         page.AddModuleCommand.Execute(null);
-        page.Selected!.FolderName = "../outside";
+        page.Selected!.Name = "../outside";
         await page.SaveWorkspaceAsync();
         Assert.NotEmpty(page.Error);
         Assert.False(page.HasSavedWorkspace);
         Assert.True(page.ShowNewWorkspace);
         Assert.False(File.Exists(WorkspaceTestFiles.DefinitionPath(folder, "workspace")));
         page.Selected.Name = "Sorting";
-        page.Selected.FolderName = "sorting";
+        page.Selected.Name = "sorting";
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.True(page.HasSavedWorkspace);
-        Assert.Equal("Sorting", WorkspaceFileStore.LoadDefinition(folder).Modules.Single().ModuleName);
+        Assert.Equal("sorting", WorkspaceFileStore.LoadDefinition(folder).Modules.Single().ModuleName);
     }
 
     [Fact]

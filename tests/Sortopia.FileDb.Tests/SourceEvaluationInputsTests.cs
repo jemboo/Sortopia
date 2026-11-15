@@ -40,7 +40,7 @@ public sealed partial class PreparedExecutionTests
             Results(ResultsFunctionNames.sorterEval, [Bind("ChannelCount", channels.ToString()),
                 Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]), setup)),
             setup: prefix ? [new() { keyName = "PrefixLibId", values = prefixes }] : null);
-        workspaceModule Module(project project) => workspaceModule.createInherited(Guid.NewGuid(), project.ProjectName, project.ProjectName,
+        workspaceModule Module(project project) => workspaceModule.createInherited(Guid.NewGuid(), project.ProjectName,
             ModuleDefaults.configuration(project.IsBranchProject), ModuleOverridesDto.toDomain(project.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
                 new moduleOverridesDto { resultsFunctionName = project.ResultsFunctionName, setupFunctionName = project.IsBranchProject ? setupName : null }), [], [project]);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [Module(modelsSource), Module(testsSource), Module(consumer)]);

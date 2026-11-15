@@ -20,10 +20,10 @@ public sealed class WorkspaceFamilyTests : IDisposable
     {
         var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", kind == hierarchyKind.Branch));
         dto.id = Guid.NewGuid();
-        return WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p", [WorkspaceHierarchyTests.FromRunDto(dto, "P")]);
+        return WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "p", [WorkspaceHierarchyTests.FromRunDto(dto, "P")]);
     }
-    private static WorkspaceModule Module(hierarchyKind kind) => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), kind.ToString(), kind.ToString(),
-        [WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "Nested", "nested", [], [Project(kind)])], [Project(kind)]);
+    private static WorkspaceModule Module(hierarchyKind kind) => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), kind.ToString(),
+        [WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "nested", [], [Project(kind)])], [Project(kind)]);
 
     [Fact]
     public void Concrete_types_express_the_allowed_children()
@@ -50,13 +50,13 @@ public sealed class WorkspaceFamilyTests : IDisposable
         foreach (var module in restored.Modules)
         {
             Assert.Equal(module.Kind, module.Modules.Single().Kind);
-            var folder = Path.Combine(Root, module.FolderName);
+            var folder = Path.Combine(Root, module.ModuleName);
             Assert.Equal(module.Kind, WorkspaceFileStore.LoadModuleFolder(folder, Token).Kind);
             var project = module.Projects.Single();
             Assert.Equal(module.Kind, project.Kind);
             var run = project.Runs.Single();
             Assert.Equal(module.Kind == hierarchyKind.Branch, run.HasSetup);
-            var file = Path.Combine(folder, project.FolderName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
+            var file = Path.Combine(folder, project.ProjectName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
             Assert.Equal(run.Id, WorkspaceCodec.decodeRun(project, File.ReadAllBytes(file)).Id);
         }
     }
@@ -67,9 +67,9 @@ public sealed class WorkspaceFamilyTests : IDisposable
     public void Factories_and_wire_contracts_reject_mixed_families(hierarchyKind kind, hierarchyKind other)
     {
         var otherProject = Project(other);
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "P", "p", otherProject.Runs));
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "M", "m", [], [otherProject]));
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "M", "m", [Module(other)], []));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "p", otherProject.Runs));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "m", [], [otherProject]));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "m", [Module(other)], []));
         var projectDto = ProjectDto.fromDomain(otherProject);
         projectDto.projectKind = kind.ToString().ToLowerInvariant();
         Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeProject(MessagePackSetup.serialize(projectDto)));
@@ -127,7 +127,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
     public async Task Imports_and_paste_require_a_matching_parent()
     {
         var source = Path.Combine(temporary.FullName, "Branch library");
-        WorkspaceImportTests.WriteModule(source, "Branch library", hierarchyKind.Branch);
+        WorkspaceImportTests.WriteModule(source, hierarchyKind.Branch);
         var page = Open(_ => source);
         page.AddModuleCommand.Execute(null);
         var rootModule = page.Selected!;

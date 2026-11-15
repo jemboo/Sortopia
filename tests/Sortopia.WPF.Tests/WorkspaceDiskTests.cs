@@ -16,8 +16,8 @@ public sealed class WorkspaceDiskTests : IDisposable
     private string ModuleFolder => Path.Combine(Root, "sorting");
     private string ProjectFolder => Path.Combine(ModuleFolder, "search");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sorting", "sorting", [],
-        [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Search", "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
+    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [],
+        [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?>? picker = null)
     {
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -75,7 +75,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Equal(2, Markers(destination).Length);
         Assert.Empty(Markers(sourceProject).Select(Path.GetFileName).Intersect(Markers(destination).Select(Path.GetFileName)));
         AssertFilesEqual(originalFiles, source);
-        Assert.Equal("Search", WorkspaceFileStore.LoadProjectFolder(destination, Token).ProjectName);
+        Assert.Equal("search", WorkspaceFileStore.LoadProjectFolder(destination, Token).ProjectName);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class WorkspaceDiskTests : IDisposable
         page.AddModuleCommand.Execute(null);
         var added = page.Selected!;
         var saved = page.Roots.Single().Children.First();
-        saved.FolderName = "new-location";
+        saved.Name = "new-location";
         page.RefreshDiskStatus();
         Assert.Equal("Not saved", added.DiskStatus);
         Assert.Equal("Pending move", saved.DiskStatus);

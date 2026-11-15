@@ -29,8 +29,8 @@ public sealed class WorkspaceProjectLifecycleTests : IDisposable
         Assert.False(page.Selected!.Parent!.IsSealed);
         page = Open(); WorkspaceRunExecutionTests.SelectRun(page);
         var run = page.Selected!; var parent = run.Parent!;
-        Assert.False(parent.IsSealed); Assert.True(run.Editor!.CanEditQuerySelection);
-        Assert.Single(run.Editor.ResultsQueryOutputs).Keys.Single(key => key.Key == "ChannelCount").Selected = true;
+        Assert.False(parent.IsSealed); Assert.True(parent.Editor!.CanEditQuerySelection); Assert.False(run.Editor!.CanEditQuerySelection);
+        Assert.Single(parent.Editor.ResultsQueryOutputs).Keys.Single(key => key.Key == "ChannelCount").Selected = true;
         Assert.False(page.GenerateRunParametersCommand.CanExecute(null)); Assert.Contains("Save the changes to project", page.GenerationHint);
         await page.SaveWorkspaceAsync(); WorkspaceRunExecutionTests.SelectRun(page);
         Assert.False(page.Selected!.Parent!.IsSealed);
@@ -78,12 +78,12 @@ public sealed class WorkspaceProjectLifecycleTests : IDisposable
         page.Selected = run.Parent;
         Assert.True(page.ResumeProjectEditingCommand.CanExecute(null), page.ResumeProjectEditingHint);
         await page.ResumeProjectEditingAsync(); Assert.Empty(page.OperationError);
-        Assert.False(page.Selected!.IsSealed); Assert.True(run.Editor.CanEditQuerySelection);
+        Assert.False(page.Selected!.IsSealed); Assert.True(page.Selected.Editor!.CanEditQuerySelection); Assert.False(run.Editor.CanEditQuerySelection);
         Assert.Equal("Unfinished run edit", run.Editor.Description); Assert.True(page.HasUnsavedChanges);
         Assert.Equal(id, Assert.Single(page.Selected.Children).Id);
         Assert.False(WorkspaceFileStore.LoadDocument(root).Modules[0].Projects[0].Definition.isSealed);
         page.Selected = run;
-        Assert.Single(run.Editor.ResultsQueryOutputs).Keys.Single(key => key.Key == "ChannelCount").Selected = true;
+        Assert.Single(run.Parent!.Editor!.ResultsQueryOutputs).Keys.Single(key => key.Key == "ChannelCount").Selected = true;
         await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError);
         Assert.False(Open().Roots[0].Children[0].Children[0].IsSealed);
     }

@@ -10,8 +10,8 @@ open WorkspaceFileSystem
 module internal WorkspaceProjectState =
     let rec projects folder (modules: ModuleDocument array) = seq {
         for m in modules do
-            let folder = Path.Combine(folder, m.Definition.folderName)
-            for p in m.Projects do yield p, Path.Combine(folder, p.Definition.folderName)
+            let folder = Path.Combine(folder, m.Definition.moduleName)
+            for p in m.Projects do yield p, Path.Combine(folder, p.Definition.projectName)
             yield! projects folder m.Modules }
 
     let find id (value: WorkspaceDocument) =

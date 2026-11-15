@@ -33,23 +33,22 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!ShowFunctionConfiguration) yield break;
         yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
             : Summary(EffectiveResultsDataTypes.Select(output => $"{output.dataType.kind} · query keys: {(output.queryParameterKeys.Length == 0 ? "none" : string.Join(", ", output.queryParameterKeys))}")), FirstError(OutputTypesError, ResultsQueryKeysError))
-            with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : CanEditQuerySelection ? "Project query choices" : "Fixed · sealed project" };
+            with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Fixed · sealed project", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
         yield return Defaults(false);
         if (IsRun)
         {
             yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
-            yield return new("resultsPreview", "Results", "Generated parameter sets", ResultsParameterSetsPreview.Summary, "Preview", ResultsParameterSetsPreview.Error);
         }
         if (!IsBranch) yield break;
 
 
         yield return List("setupOutputs", "Setup", SetupDataTypesOverride,
-            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")), FirstError(SetupDataTypesError, SetupQueryKeysError));
+            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")), FirstError(SetupDataTypesError, SetupQueryKeysError))
+            with { Source = IsRun ? Parent : SetupDataTypesOverride.InheritedSource };
         yield return Defaults(true);
         if (IsRun)
         {
             yield return new("setupSpans", "Setup", "Required parameters and spans", Spans(ActiveSetupParameters), SetupRequiredInputs.Summary, SetupParametersError);
-            yield return new("setupPreview", "Setup", "Generated parameter sets", SetupParameterSetsPreview.Summary, "Preview", SetupParameterSetsPreview.Error);
         }
     }
 }

@@ -25,8 +25,7 @@ type internal SavePlan =
       RetainedFolders: string array
       Copies: WorkspaceFolderCopy array
       Moves: WorkspaceFolderMove array
-      Removals: RemovedPath array
-      EmptyContainers: string array }
+      Removals: RemovedPath array }
 
 [<Sealed>]
 type WorkspaceDocumentSaveResult(definition: WorkspaceDocument, copiedFolders: int, retainedFolders: IReadOnlyList<string>, movedFolders: int,

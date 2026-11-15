@@ -23,7 +23,7 @@ public sealed partial class WorkspaceTreeNode
     internal static WorkspaceTreeNode FromDocument(WorkspaceDocument value)
     {
         var dto = value.Definition;
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, dto.workspaceName, dto.folderName, dto.id);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, dto.workspaceName, dto.id, workspaceFolderName: dto.folderName);
         foreach (var child in value.Modules) node.Children.Add(FromModuleDocument(child));
         node.RememberSavedChildren();
         return node;
@@ -32,7 +32,7 @@ public sealed partial class WorkspaceTreeNode
     private static WorkspaceTreeNode FromModuleDocument(ModuleDocument value)
     {
         var dto = value.Definition;
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, dto.moduleName, dto.folderName, dto.id, WorkspaceDefinitionCodec.kind(dto.moduleKind));
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, dto.moduleName, dto.id, WorkspaceDefinitionCodec.kind(dto.moduleKind));
         node.Editor!.LoadModuleOverrides(dto.localOverrides);
         foreach (var child in value.Modules) node.Children.Add(FromModuleDocument(child));
         foreach (var child in value.Projects) node.Children.Add(FromProjectDocument(child));
@@ -43,7 +43,7 @@ public sealed partial class WorkspaceTreeNode
     private static WorkspaceTreeNode FromProjectDocument(ProjectDocument value)
     {
         var dto = value.Definition;
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, dto.projectName, dto.folderName, dto.id, WorkspaceDefinitionCodec.kind(dto.projectKind));
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, dto.projectName, dto.id, WorkspaceDefinitionCodec.kind(dto.projectKind));
         if (dto.isSealed) node.Editor!.LoadProject(dto.configuration);
         else node.Editor!.LoadOverrides(dto.localOverrides);
         foreach (var child in value.Runs)
@@ -67,12 +67,12 @@ public sealed partial class WorkspaceTreeNode
         ValidateChildren();
         var modules = Children.Select(child => child.ToModuleDocument(1)).ToArray();
         return WorkspaceDocumentModule.validate(new(new workspaceDefinitionDto {
-            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, workspaceName = Name, folderName = FolderName,
-            modules = modules.Select(module => Reference(module.Definition.id, module.Definition.folderName)).ToArray()
+            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, workspaceName = Name, folderName = workspaceFolderName,
+            modules = modules.Select(module => Reference(module.Definition.id, module.Definition.moduleName)).ToArray()
         }, modules));
     }
 
-    private static childFolderReferenceDto Reference(Guid id, string folder) => new() { id = id, folderName = folder };
+    private static childReferenceDto Reference(Guid id, string name) => new() { id = id, name = name };
     private inheritedFromDto? ParentOrigin => Parent is { IsWorkspace: false } ? new() { moduleId = Parent.Id, moduleName = Parent.Name } : null;
     private projectSettingsDto ParentSettings => Parent?.Editor?.ToProjectSettings() ?? SettingsDto.fromDomain(Defaults.configuration(IsBranch));
 
@@ -82,11 +82,11 @@ public sealed partial class WorkspaceTreeNode
         var modules = Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModuleDocument(depth + 1)).ToArray();
         var projects = Children.Where(child => child.IsProject).Select(child => child.ToProjectDocument(depth + 1)).ToArray();
         return new(new moduleDefinitionDto {
-            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, moduleName = Name, folderName = FolderName,
+            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, moduleName = Name,
             moduleKind = IsBranch ? "branch" : "root", localOverrides = Editor!.ToModuleOverrides(),
             inheritedDefaults = ModuleSettingsDto.fromProjectSettings(ParentSettings), inheritedFrom = ParentOrigin,
-            modules = modules.Select(module => Reference(module.Definition.id, module.Definition.folderName)).ToArray(),
-            projects = projects.Select(project => Reference(project.Definition.id, project.Definition.folderName)).ToArray()
+            modules = modules.Select(module => Reference(module.Definition.id, module.Definition.moduleName)).ToArray(),
+            projects = projects.Select(project => Reference(project.Definition.id, project.Definition.projectName)).ToArray()
         }, modules, projects);
     }
 
@@ -100,7 +100,7 @@ public sealed partial class WorkspaceTreeNode
             return child.Editor!.ToRunInputs(child.Id, child.Name, Id);
         }).ToArray();
         return new(new projectDefinitionDto {
-            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, projectName = Name, folderName = FolderName,
+            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, projectName = Name,
             projectKind = IsBranch ? "branch" : "root", isSealed = IsSealed,
             configuration = IsSealed ? SettingsDto.fromDomain(sealedProject!.Configuration) : null,
             localOverrides = IsSealed ? null : Editor!.ToLocalOverrides(),

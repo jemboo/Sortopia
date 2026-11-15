@@ -80,7 +80,7 @@ public sealed class WorkspaceRequiredInputsTests
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "0", "1");
         var editor = run.Editor!;
         var beforeDefaults = editor.ToProjectSettings().setupParameterDefaults;
-        foreach (var output in editor.SetupQueryOutputs.ToArray()) {
+        foreach (var output in project.Editor!.SetupQueryOutputs.ToArray()) {
             Assert.Equal(new[] { "ChannelCount", "Repl" }, output.Keys.Select(key => key.Key));
             output.Keys.Single(key => key.Key == (output.Kind == "SortableTests" ? "ChannelCount" : "Repl")).Selected = true;
         }
@@ -101,14 +101,15 @@ public sealed class WorkspaceRequiredInputsTests
         Assert.True(output.HasEmptyProjection); Assert.Contains("all parameter sets share one output", output.Summary);
         Assert.Contains("No query keys selected for SortableTests", editor.ResultsProjectionNotice);
         var key = Assert.Single(output.Keys); Assert.Equal("PrefixLibId", key.Key);
-        key.Selected = true;
+        Assert.False(key.CanChange);
+        run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
         output = editor.ResultsQueryOutputs.Single();
         Assert.Empty(editor.ResultsProjectionNotice);
         Assert.False(output.HasEmptyProjection); Assert.Equal("Query parameters: PrefixLibId", output.SelectedKeysSummary);
         var settings = editor.ToProjectSettings();
         Assert.Equal(new[] { "PrefixLibId" }, settings.resultsDataTypes.Single().queryParameterKeys);
         Assert.Equal("SortableDataFormat", Assert.Single(settings.resultsParameterDefaults).keyName);
-        var parent = project.create(run.Parent!.Id, "Prefix tests", "PrefixTests", SettingsDto.toDomain(hierarchyKind.Root, settings), []);
+        var parent = project.create(run.Parent!.Id, "PrefixTests", SettingsDto.toDomain(hierarchyKind.Root, settings), []);
         var value = RunDto.toDomain(parent, editor.ToRunInputs(run.Id, "cc", run.Parent.Id));
         var sets = RunParameterSets.create(value).Results;
         Assert.Equal(2, sets.Length);
@@ -124,7 +125,7 @@ public sealed class WorkspaceRequiredInputsTests
         Exception? failure = null;
         var thread = new Thread(() => {
             try {
-                var run = PrefixRun(); run.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
+                var run = PrefixRun(); run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
                 var view = new Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor { DataContext = run.Editor, ActiveItemKey = "resultsSpans" };
                 var border = new System.Windows.Controls.Border { Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(24, 26, 31)), Padding = new System.Windows.Thickness(20), Child = view };
                 view.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);

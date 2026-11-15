@@ -18,8 +18,8 @@ public sealed class WorkspaceIdentityTests : IDisposable
     public void Empty_ids_and_duplicate_run_ids_are_rejected()
     {
         Assert.Throws<ArgumentException>(() => workspace.create(Guid.Empty, "W", "W", []));
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.Empty, "M", "M", [], []));
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.Empty, "P", "P", []));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.Empty, "M", [], []));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.Empty, "P", []));
         foreach (var branch in new[] { false, true })
         {
             var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
@@ -28,7 +28,7 @@ public sealed class WorkspaceIdentityTests : IDisposable
         }
         var first = WorkspaceHierarchyTests.MakeRun("P", "A");
         var second = WorkspaceRun.withNames("P", "B", first);
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", "P", [first, second]));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", [first, second]));
     }
 
 

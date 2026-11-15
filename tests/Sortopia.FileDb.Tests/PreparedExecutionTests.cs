@@ -37,7 +37,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         setup = Spans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
         settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
-        var parent = project.create(Guid.NewGuid(), name, name, SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        var parent = project.create(Guid.NewGuid(), name, SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
         var run = RunDto.toDomain(parent, new runDto
         {
             schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = parent.IsBranchProject ? "branch" : "root",
@@ -70,7 +70,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
                 invalidSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]
                     : [new() { keyName = "Repl", values = ["0", "1"] }]);
         }
-        workspaceModule Module(project p) => workspaceModule.createInherited(Guid.NewGuid(), p.ProjectName, p.ProjectName,
+        workspaceModule Module(project p) => workspaceModule.createInherited(Guid.NewGuid(), p.ProjectName,
             ModuleDefaults.configuration(p.IsBranchProject), ModuleOverridesDto.toDomain(p.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
                 new moduleOverridesDto { resultsFunctionName = p.ResultsFunctionName, setupFunctionName = p.IsBranchProject ? setupName : null }), [], [p]);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", branch ? [Module(source), Module(target)] : [Module(source)]);
@@ -96,7 +96,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
             ListModule.OfArray(new[] { Bind("ChannelCount", "4"), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) }));
         var target = Project("Subsets", projectConfiguration.NewBranchProjectConfig(new("Subsets", results, setup)),
             [new() { keyName = "CollectSortableTests", values = ["false", "true"] }], [new() { keyName = "Repl", values = ["0", "1"] }]);
-        var module = workspaceModule.createInherited(Guid.NewGuid(), "Module", "Module", ModuleDefaults.configuration(true),
+        var module = workspaceModule.createInherited(Guid.NewGuid(), "Module", ModuleDefaults.configuration(true),
             ModuleOverridesDto.toDomain(hierarchyKind.Branch, new moduleOverridesDto { setupFunctionName = SetupFunctionNames.evaluationStandardMssi, resultsFunctionName = ResultsFunctionNames.sorterEval }), [], [target]);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [module]);
         Directory.CreateDirectory(Root); WorkspaceFileStore.CreateWorkspace(Root, world, Token);
@@ -266,48 +266,6 @@ public sealed partial class PreparedExecutionTests : IDisposable
     private sealed class Progress(Action<runExecutionProgress> callback) : IProgress<runExecutionProgress>
     { public void Report(runExecutionProgress value) => callback(value); }
 
-    [Fact]
-    public void Shorter_layout_conversion_keeps_generated_work_executable_and_source_data_reusable()
-    {
-        var (world, project) = Create(true);
-        var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
-        Completed(RunParameterExecution.executeFile(Path.Combine(folder, "runParameters", prepared.WorkItemIds[0] + ".msgpack"), null!, Token));
-        var payloads = Directory.GetFiles(Root, "*", SearchOption.AllDirectories)
-            .Where(path => path.Contains(Path.DirectorySeparatorChar + "data" + Path.DirectorySeparatorChar)
-                || path.Contains(Path.DirectorySeparatorChar + "runParameters" + Path.DirectorySeparatorChar))
-            .ToDictionary(path => Path.GetRelativePath(Root, path), File.ReadAllBytes);
-        // Reconstruct the previous physical layout and its shallow version-15 definitions.
-        foreach (var module in world.Modules)
-        {
-            var moduleFolder = Path.Combine(Root, module.FolderName);
-            var moduleFile = WorkspaceDefinitionFiles.Require(moduleFolder, "module");
-            var m = Sortopia.Core.Serialization.MessagePackSetup.deserialize<moduleDefinitionDto>(File.ReadAllBytes(moduleFile));
-            m.schemaVersion = 15; File.WriteAllBytes(moduleFile, Sortopia.Core.Serialization.MessagePackSetup.serialize(m));
-            foreach (var child in module.Projects)
-            {
-                var projectFolder = Path.Combine(moduleFolder, child.FolderName);
-                var projectFile = WorkspaceDefinitionFiles.Require(projectFolder, "project");
-                var p = Sortopia.Core.Serialization.MessagePackSetup.deserialize<projectDefinitionDto>(File.ReadAllBytes(projectFile));
-                p.schemaVersion = 15; File.WriteAllBytes(projectFile, Sortopia.Core.Serialization.MessagePackSetup.serialize(p));
-                Directory.CreateDirectory(Path.Combine(moduleFolder, "projects"));
-                Directory.Move(projectFolder, Path.Combine(moduleFolder, "projects", child.FolderName));
-            }
-            Directory.CreateDirectory(Path.Combine(Root, "modules"));
-            Directory.Move(moduleFolder, Path.Combine(Root, "modules", module.FolderName));
-        }
-        var workspaceFile = WorkspaceDefinitionFiles.Require(Root, "workspace");
-        var w = Sortopia.Core.Serialization.MessagePackSetup.deserialize<workspaceDefinitionDto>(File.ReadAllBytes(workspaceFile));
-        w.schemaVersion = 15; File.WriteAllBytes(workspaceFile, Sortopia.Core.Serialization.MessagePackSetup.serialize(w));
-        var converted = WorkspaceFileStore.ConvertFolderLayout(Root, Token).Definition;
-        Assert.Equal(folder, WorkspaceData.projectFolder(converted, Root, project.Id));
-        foreach (var (path, bytes) in payloads) Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(Root, path)));
-        Assert.Equal(outputState.Complete, RunParameterExecution.inspectFile(Path.Combine(folder, "runParameters", prepared.WorkItemIds[0] + ".msgpack"), Token).Outputs.State);
-        Completed(RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token));
-        var regenerated = Prepare(converted, converted.FindProject(project.Id).Value); Completed(regenerated.Execution);
-        Assert.Equal(prepared.WorkItemIds, regenerated.WorkItemIds);
-        Assert.All(regenerated.Execution.Setup.SelectMany(result => result.StoredOutputs), output => Assert.True(output.Reused));
-    }
     private sealed class ItemProgress(Action<workItemExecutionProgress> callback) : IProgress<workItemExecutionProgress>
     { public void Report(workItemExecutionProgress value) => callback(value); }
 
@@ -592,7 +550,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         // A saved definition can be reconstructed without changing the project's sealed configuration.
         var module = world.Modules[0];
         var updated = workspace.create(world.Id, world.WorkspaceName, world.FolderName,
-            [workspaceModule.createInherited(module.Id, module.ModuleName, module.FolderName,
+            [workspaceModule.createInherited(module.Id, module.ModuleName,
                 ModuleDefaults.configuration(false), module.LocalOverrides, [], [parent])]);
         var second = Prepare(updated, parent); Completed(second.Execution);
         Assert.All(original.WorkItemIds, id => Assert.Contains(id, second.WorkItemIds));

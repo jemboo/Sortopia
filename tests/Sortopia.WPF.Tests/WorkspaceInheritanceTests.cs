@@ -23,7 +23,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.description = description;
         settings.resultsParameterDefaults = []; settings.setupParameterDefaults = [];
-        return project.create(Guid.NewGuid(), name, name, ProjectDto.settingsToDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        return project.create(Guid.NewGuid(), name, ProjectDto.settingsToDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
     private static runDto Inputs(project parent, string name = "R")
     {
@@ -33,7 +33,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         return dto;
     }
     private static project WithRuns(project parent, params runDto[] inputs) =>
-        project.create(parent.Id, parent.ProjectName, parent.FolderName, parent.Configuration, inputs.Select(input => RunDto.toDomain(parent, input)).ToArray());
+        project.create(parent.Id, parent.ProjectName, parent.Configuration, inputs.Select(input => RunDto.toDomain(parent, input)).ToArray());
 
     [Fact]
     public void Root_run_constructor_accepts_its_parent_and_only_run_inputs()
@@ -150,7 +150,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         destinationDto.localOverrides.resultsDatabaseName = "Destination results";
         if (branch) destinationDto.localOverrides.setupDatabaseName = "Destination setup";
         var destination = ProjectDto.toDomain(destinationDto);
-        var module = WorkspaceHierarchyTests.MakeModule(source.Kind, Guid.NewGuid(), "M", "M", [], [source, destination]);
+        var module = WorkspaceHierarchyTests.MakeModule(source.Kind, Guid.NewGuid(), "M", [], [source, destination]);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "W", "Workspace", [module]), Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
         settings.Save(Root);

@@ -148,8 +148,8 @@ public sealed class FunctionOutputContractTests : IDisposable
         var run = RunExecutionTests.MakeRun(branch, settings, results, setup);
         var config = branch ? projectConfiguration.NewBranchProjectConfig(((run.BranchRun)run).Item.ProjectConfiguration)
             : projectConfiguration.NewRootProjectConfig(((run.RootRun)run).Item.ProjectConfiguration);
-        var parent = project.withRuns(project.create(run.ParentProjectId, "Project", "Project", config, []), [run]);
-        var module = WorkspaceHierarchyTests.MakeModule(branch ? hierarchyKind.Branch : hierarchyKind.Root, Guid.NewGuid(), "Module", "Module", [], [parent]);
+        var parent = project.withRuns(project.create(run.ParentProjectId, "Project", config, []), [run]);
+        var module = WorkspaceHierarchyTests.MakeModule(branch ? hierarchyKind.Branch : hierarchyKind.Root, Guid.NewGuid(), "Module", [], [parent]);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [module]);
         WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token);
         return WorkspaceFileStore.LoadDefinition(temporary.FullName);

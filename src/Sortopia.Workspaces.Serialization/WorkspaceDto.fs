@@ -81,9 +81,9 @@ type runDto = {
     setupParameterSpans: parameterSpanDto array
 }
 [<CLIMutable>]
-type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; folderName: string; configuration: projectSettingsDto; inheritedDefaults: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
+type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; configuration: projectSettingsDto; inheritedDefaults: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
 [<CLIMutable>]
-type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string; configuration: moduleSettingsDto; inheritedDefaults: moduleSettingsDto; localOverrides: moduleOverridesDto; modules: moduleDto array; projects: projectDto array }
+type moduleDto = { schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; configuration: moduleSettingsDto; inheritedDefaults: moduleSettingsDto; localOverrides: moduleOverridesDto; modules: moduleDto array; projects: projectDto array }
 [<CLIMutable>]
 type workspaceDto = { schemaVersion: int; id: Guid; workspaceName: string; folderName: string; modules: moduleDto array }
 
@@ -339,7 +339,7 @@ module ProjectDto =
     let settingsFromDomain (value: project) = SettingsDto.fromDomain value.Configuration
     let settingsToDomain kind value = SettingsDto.toDomain kind value
     let fromDomain (value: project) : projectDto = {
-        schemaVersion = 14; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName; folderName = value.FolderName
+        schemaVersion = 14; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName
         configuration = settingsFromDomain value; localOverrides = OverridesDto.fromDomain value.LocalOverrides
         inheritedDefaults = SettingsDto.fromDomain value.InheritedDefaults
         runs = value.Runs |> Array.map RunDto.fromDomain }
@@ -362,13 +362,13 @@ module ProjectDto =
             if value.isSealed then snapshot
             else inherited |> Option.defaultWith (fun () ->
                 if isNull (box value.inheritedDefaults) then snapshot else SettingsDto.toDomain kind value.inheritedDefaults)
-        let parent = project.restore (UMX.tag value.id) (UMX.tag value.projectName) value.folderName configuration local value.isSealed [||]
+        let parent = project.restore (UMX.tag value.id) (UMX.tag value.projectName) configuration local value.isSealed [||]
         savedRuns |> Array.map (RunDto.toDomain parent) |> project.withRuns parent
     let toDomain value = read 0 None value
 
 module ModuleDto =
     let rec fromDomain (value: workspaceModule) : moduleDto = {
-        schemaVersion = 14; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName; folderName = value.FolderName
+        schemaVersion = 14; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName
         configuration = ModuleSettingsDto.fromDomain value.Configuration; localOverrides = ModuleOverridesDto.fromDomain value.LocalOverrides
         inheritedDefaults = ModuleSettingsDto.fromDomain value.InheritedDefaults
         modules = value.Modules |> Array.map fromDomain; projects = value.Projects |> Array.map ProjectDto.fromDomain }
@@ -379,7 +379,7 @@ module ModuleDto =
         let parent = inherited |> Option.defaultWith (fun () -> ModuleSettingsDto.toDomain kind (if isNull (box value.inheritedDefaults) then value.configuration else value.inheritedDefaults))
         let local = ModuleOverridesDto.toDomain kind value.localOverrides
         let effective = ModuleDefaults.resolve parent local
-        workspaceModule.createInherited (UMX.tag value.id) (UMX.tag value.moduleName) value.folderName parent local
+        workspaceModule.createInherited (UMX.tag value.id) (UMX.tag value.moduleName) parent local
             (Contract.array "modules" value.modules |> Array.map (read (depth + 1) (Some effective)))
             (Contract.array "projects" value.projects |> Array.map (ProjectDto.read (depth + 1) (Some (ModuleDefaults.toProject effective))))
     let toDomain value = read 0 None value

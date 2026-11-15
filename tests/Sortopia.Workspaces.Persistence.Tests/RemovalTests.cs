@@ -82,7 +82,7 @@ public sealed class RemovalTests : IDisposable
         }
         Assert.Equal(branch ? 4 : 2, Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories).Length);
         var edit = Clone(saved); RemoveFirstRun(edit);
-        edit.Definition.modules[0].folderName = "moved"; edit.Modules[0].Definition.folderName = "moved";
+        edit.Definition.modules[0].name = "moved"; edit.Modules[0].Definition.moduleName = "moved";
         saved = Save(edit, saved, [new(Path.Combine(Root, "sorting"), Path.Combine(Root, "moved"))]);
         folder = Path.Combine(Root, "moved", "search");
         Assert.Single(Directory.GetFiles(Path.Combine(folder, "runs"), "*.msgpack"));

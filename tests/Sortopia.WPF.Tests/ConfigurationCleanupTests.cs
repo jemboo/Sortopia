@@ -30,7 +30,7 @@ public sealed class ConfigurationCleanupTests : IDisposable
         var settings = WorkspaceHierarchyTests.ProjectSettings(true);
         if (setup) settings.setupFunctionName = "not-registered";
         else settings.resultsFunctionName = "not-registered";
-        Assert.Contains("Unknown", Assert.Throws<ArgumentException>(() => project.create(Guid.NewGuid(), "P", "P",
+        Assert.Contains("Unknown", Assert.Throws<ArgumentException>(() => project.create(Guid.NewGuid(), "P",
             SettingsDto.toDomain(hierarchyKind.Branch, settings), [])).Message);
     }
 
@@ -40,7 +40,7 @@ public sealed class ConfigurationCleanupTests : IDisposable
     public void Sealed_versions_round_trip_and_mismatched_execution_fails_before_work(bool setup)
     {
         var run = RunExecutionTests.MakeRun(true);
-        var parent = project.restore(run.ParentProjectId, "Project", "Project",
+        var parent = project.restore(run.ParentProjectId, "Project",
             projectConfiguration.NewBranchProjectConfig(((run.BranchRun)run).Item.ProjectConfiguration), Defaults.inherited(true), true, [run]);
         var dto = ProjectDto.fromDomain(parent);
         if (setup)
@@ -72,13 +72,13 @@ public sealed class ConfigurationCleanupTests : IDisposable
     public void Source_lookup_uses_the_sealed_version_after_the_catalog_has_changed()
     {
         var value = RunExecutionTests.MakeRun(false, WorkspaceHierarchyTests.ProjectSettings());
-        var parent = project.restore(value.ParentProjectId, value.ProjectName, "Source",
+        var parent = project.restore(value.ParentProjectId, "Source",
             projectConfiguration.NewRootProjectConfig(((run.RootRun)value).Item.ProjectConfiguration), Defaults.inherited(false), true,
             [value]);
         var dto = ProjectDto.fromDomain(parent); dto.configuration.resultsFunctionVersion = "previous";
         parent = ProjectDto.toDomain(dto);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root,
-            Guid.NewGuid(), "Sources", "Sources", [], [parent])]);
+            Guid.NewGuid(), "Sources", [], [parent])]);
         world = WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token).Definition;
         parent = world.ProjectIndex[parent.Id];
         var config = parent.Snapshot.Results;

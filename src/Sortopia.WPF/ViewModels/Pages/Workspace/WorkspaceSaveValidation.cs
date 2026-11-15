@@ -31,13 +31,12 @@ public sealed partial class WorkspacePageViewModel
     private static IEnumerable<WorkspaceSaveIssue> IssuesFor(WorkspaceTreeNode node)
     {
         if (node.NameError.Length > 0) yield return new(node, "Name", node.NameError);
-        if (node.FolderNameError.Length > 0) yield return new(node, "Location", node.FolderNameError);
         if (node.Editor is { } editor)
             foreach (var issue in editor.ValidationIssues) yield return new(node, issue.Section, issue.Message);
         if (node.DraftSourceError is { Length: > 0 } sourceError) yield return new(node, "Setup settings", sourceError);
     }
     public bool HasSaveIssues => SaveIssues.Count > 0;
-    private bool HasStructuralErrors => Roots.SelectMany(root => root.DescendantsAndSelf()).Any(node => node.NameError.Length > 0 || node.FolderNameError.Length > 0);
+    private bool HasStructuralErrors => Roots.SelectMany(root => root.DescendantsAndSelf()).Any(node => node.NameError.Length > 0);
     public string SaveIssueSummary => HasStructuralErrors ? "Fix the name or location errors before saving. Select an item below to review it."
         : $"{SaveIssues.Count} configuration {(SaveIssues.Count == 1 ? "issue" : "issues")} · {(HasUnsavedChanges ? "You can save this draft and finish later." : "Draft saved. Runs with valid settings and sources can still generate parameters.")} Select an item below to review it.";
     public string SaveHint

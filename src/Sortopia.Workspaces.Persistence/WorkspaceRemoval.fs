@@ -16,18 +16,18 @@ module internal WorkspaceRemoval =
     let private projects root (value: WorkspaceDocument) =
         let rec visit parent (modules: ModuleDocument array) = seq {
             for m in modules do
-                let folder = Path.Combine(parent, m.Definition.folderName)
-                for p in m.Projects do yield p, Path.Combine(folder, p.Definition.folderName)
+                let folder = Path.Combine(parent, m.Definition.moduleName)
+                for p in m.Projects do yield p, Path.Combine(folder, p.Definition.projectName)
                 yield! visit folder m.Modules }
         visit root value.Modules |> Seq.toArray
 
     let private entities root (value: WorkspaceDocument) =
         let rec visit parent (modules: ModuleDocument array) = seq {
             for m in modules do
-                let folder = Path.Combine(parent, m.Definition.folderName)
+                let folder = Path.Combine(parent, m.Definition.moduleName)
                 yield ("module", m.Definition.id), folder
                 for p in m.Projects do
-                    let folder = Path.Combine(folder, p.Definition.folderName)
+                    let folder = Path.Combine(folder, p.Definition.projectName)
                     yield ("project", p.Definition.id), folder
                     for r in p.Runs do yield ("run", r.id), Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name r.id)
                 yield! visit folder m.Modules }

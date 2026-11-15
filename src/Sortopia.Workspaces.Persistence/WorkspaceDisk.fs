@@ -86,14 +86,7 @@ module internal WorkspaceDisk =
             // entities. Membership is determined solely by child references.
             for file in Directory.GetFiles(folder) |> Array.filter (Path.GetFileName >> WorkspaceDefinitionFiles.HasGuid) |> Array.sort do
                 addFile file
-            let legacy =
-                match WorkspaceDefinitionFiles.Find folder kind with
-                | null -> false
-                | _ -> WorkspaceDefinitionFiles.Version folder kind = 15
-            let physicalContainers = if legacy && kind = "workspace" then [| "modules" |]
-                                     elif legacy && kind = "module" then [| "modules"; "projects" |]
-                                     else containers kind
-            for container in physicalContainers do
+            for container in containers kind do
                 let path = Path.Combine(folder, container)
                 if File.Exists(path) then raise (IOException($"A file occupies an entity container: {path}"))
                 if Directory.Exists(path) then
@@ -105,7 +98,7 @@ module internal WorkspaceDisk =
                             addEntity file
                     else
                         for child in children folder container do visit child (container.Substring(0, container.Length - 1)) (depth + 1)
-            if not legacy && (kind = "workspace" || kind = "module") then
+            if kind = "workspace" || kind = "module" then
                 for folder in Directory.GetDirectories(folder) |> Array.sort do
                     if not (Path.GetFileName(folder).StartsWith(".sortopia-", StringComparison.OrdinalIgnoreCase)) then
                         checkDirectory folder
@@ -155,12 +148,15 @@ module internal WorkspaceDisk =
                 if digest (readDefinition path) <> hash then
                     raise (IOException($"Entity definition changed while being read: {path}. Reopen the folder."))
 
-    let private referenceFolder legacy folder container (reference: childFolderReferenceDto) =
-        let directory = if legacy then Path.Combine(folder, container) else folder
-        if Directory.Exists directory then checkDirectory directory
-        let path = child directory reference.folderName
-        if not (Directory.Exists path) then raise (DirectoryNotFoundException($"Missing referenced {container} folder '{reference.folderName}' ({reference.id}) in {folder}."))
+    let private referenceFolder folder kind (reference: childReferenceDto) =
+        checkDirectory folder
+        let path = child folder reference.name
+        if not (Directory.Exists path) then raise (DirectoryNotFoundException($"Missing referenced {kind} folder '{reference.name}' ({reference.id}) in {folder}."))
         path
+
+    let private validateFolderName (folder: string) kind name =
+        if Path.GetFileName(folder) <> name then
+            raise (InvalidDataException($"The {kind} name '{name}' does not match its folder '{folder}'. Rename the folder to '{name}' before opening or importing it."))
 
     let private definition folder kind depth (reader: Reader) =
         reader.Token.ThrowIfCancellationRequested()
@@ -173,22 +169,11 @@ module internal WorkspaceDisk =
         let path = WorkspaceDefinitionFiles.Require folder kind
         path, reader.Read path
 
-    // Only the explicit converter reads version 15. Normal loading stays on the current layout.
-    let private upgradeBytes legacy kind bytes =
-        if not legacy then bytes
-        else
-            let upgrade version =
-                if version <> 15 then invalidOp "Folder conversion requires a consistent version-15 hierarchy."
-                WorkspaceDefinitionCodec.schemaVersion
-            match kind with
-            | "workspace" -> let value = MessagePackSetup.deserialize<workspaceDefinitionDto> bytes in { value with schemaVersion = upgrade value.schemaVersion } |> MessagePackSetup.serialize
-            | "module" -> let value = MessagePackSetup.deserialize<moduleDefinitionDto> bytes in { value with schemaVersion = upgrade value.schemaVersion } |> MessagePackSetup.serialize
-            | _ -> let value = MessagePackSetup.deserialize<projectDefinitionDto> bytes in { value with schemaVersion = upgrade value.schemaVersion } |> MessagePackSetup.serialize
-
-    let private readProjectFolder legacy folder depth (reader: Reader) parent expected =
+    let private readProjectFolder folder depth (reader: Reader) parent expected =
         let path, bytes = definition folder "project" depth reader
-        let dto = WorkspaceDefinitionCodec.decodeProject (upgradeBytes legacy "project" bytes)
+        let dto = WorkspaceDefinitionCodec.decodeProject bytes
         reader.Identity(path, "project", dto.id, expected)
+        validateFolderName folder "project" dto.projectName
         if not dto.isSealed && dto.runs.Length > 0 then invalidOp $"Project '{dto.projectName}' is a saved draft. Complete its configuration and run inputs before generating run parameters."
         let saved = WorkspaceDefinitionCodec.projectHeader parent dto
         let runs = dto.runs |> Array.map (fun id ->
@@ -197,20 +182,21 @@ module internal WorkspaceDisk =
             let value = WorkspaceCodec.decodeRun saved (reader.Read file)
             reader.Identity(file, "run", UMX.untag value.Id, Some id)
             value)
-        project.restore saved.Id saved.ProjectName (Path.GetFileName(folder))
+        project.restore saved.Id saved.ProjectName
             (if saved.IsSealed then saved.Configuration else saved.InheritedDefaults) saved.LocalOverrides saved.IsSealed runs
 
-    let rec private readModuleFolder legacy folder depth (reader: Reader) parent expected fromWorkspace =
+    let rec private readModuleFolder folder depth (reader: Reader) parent expected fromWorkspace =
         let path, bytes = definition folder "module" depth reader
-        let dto = WorkspaceDefinitionCodec.decodeModule (upgradeBytes legacy "module" bytes)
+        let dto = WorkspaceDefinitionCodec.decodeModule bytes
         reader.Identity(path, "module", dto.id, expected)
+        validateFolderName folder "module" dto.moduleName
         let parent = if fromWorkspace then Some (ModuleDefaults.configuration (WorkspaceDefinitionCodec.kind dto.moduleKind = hierarchyKind.Branch)) else parent
         let saved = WorkspaceDefinitionCodec.moduleHeader parent dto
         let modules = dto.modules |> Array.map (fun reference ->
-            readModuleFolder legacy (referenceFolder legacy folder "modules" reference) (depth + 1) reader (Some saved.Configuration) (Some reference.id) false)
+            readModuleFolder (referenceFolder folder "module" reference) (depth + 1) reader (Some saved.Configuration) (Some reference.id) false)
         let projects = dto.projects |> Array.map (fun reference ->
-            readProjectFolder legacy (referenceFolder legacy folder "projects" reference) (depth + 1) reader (Some (ModuleDefaults.toProject saved.Configuration)) (Some reference.id))
-        workspaceModule.createInherited saved.Id saved.ModuleName (Path.GetFileName(folder)) saved.InheritedDefaults saved.LocalOverrides modules projects
+            readProjectFolder (referenceFolder folder "project" reference) (depth + 1) reader (Some (ModuleDefaults.toProject saved.Configuration)) (Some reference.id))
+        workspaceModule.createInherited saved.Id saved.ModuleName saved.InheritedDefaults saved.LocalOverrides modules projects
 
     let private readEntityFolder folder token read =
         let root = normalizeRoot folder
@@ -220,25 +206,24 @@ module internal WorkspaceDisk =
         reader.Verify()
         result
 
-    let loadModuleFolder folder token = readEntityFolder folder token (fun root reader -> readModuleFolder false root 0 reader None None false)
-    let loadProjectFolder folder token = readEntityFolder folder token (fun root reader -> readProjectFolder false root 0 reader None None)
-    let loadDefinitionLayout legacy token rootFolder = readEntityFolder rootFolder token (fun root reader ->
+    let loadModuleFolder folder token = readEntityFolder folder token (fun root reader -> readModuleFolder root 0 reader None None false)
+    let loadProjectFolder folder token = readEntityFolder folder token (fun root reader -> readProjectFolder root 0 reader None None)
+    let loadDefinition rootFolder = readEntityFolder rootFolder CancellationToken.None (fun root reader ->
         let path, bytes = definition root "workspace" 0 reader
-        let dto = WorkspaceDefinitionCodec.decodeWorkspace (upgradeBytes legacy "workspace" bytes)
+        let dto = WorkspaceDefinitionCodec.decodeWorkspace bytes
         reader.Identity(path, "workspace", dto.id, None)
         let modules = dto.modules |> Array.map (fun reference ->
             // The workspace supplies no shared defaults. Top-level modules begin inheritance.
-            readModuleFolder legacy (referenceFolder legacy root "modules" reference) 1 reader None (Some reference.id) true)
+            readModuleFolder (referenceFolder root "module" reference) 1 reader None (Some reference.id) true)
         let value = workspace.create (UMX.tag dto.id) (UMX.tag dto.workspaceName) (folderName root) modules
         remember value reader.Files
         value)
-
-    let loadDefinition rootFolder = loadDefinitionLayout false CancellationToken.None rootFolder
 
     let private readProjectDocument folder depth (reader: Reader) expected : ProjectDocument =
         let path, bytes = definition folder "project" depth reader
         let dto = WorkspaceDefinitionCodec.decodeProject bytes
         reader.Identity(path, "project", dto.id, expected)
+        validateFolderName folder "project" dto.projectName
         let runs = dto.runs |> Array.map (fun id ->
             let file = Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name id)
             if not (File.Exists file) then raise (FileNotFoundException($"Missing referenced run {id} in project '{dto.projectName}'.", file))
@@ -246,15 +231,16 @@ module internal WorkspaceDisk =
             RunDto.readId run |> ignore
             reader.Identity(file, "run", run.id, Some id)
             run)
-        { Definition = { dto with folderName = Path.GetFileName(folder) }; Runs = runs }
+        { Definition = dto; Runs = runs }
 
     let rec private readModuleDocument folder depth (reader: Reader) expected : ModuleDocument =
         let path, bytes = definition folder "module" depth reader
         let dto = WorkspaceDefinitionCodec.decodeModule bytes
         reader.Identity(path, "module", dto.id, expected)
-        { Definition = { dto with folderName = Path.GetFileName(folder) }
-          Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder false folder "modules" reference) (depth + 1) reader (Some reference.id))
-          Projects = dto.projects |> Array.map (fun reference -> readProjectDocument (referenceFolder false folder "projects" reference) (depth + 1) reader (Some reference.id)) }
+        validateFolderName folder "module" dto.moduleName
+        { Definition = dto
+          Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder folder "module" reference) (depth + 1) reader (Some reference.id))
+          Projects = dto.projects |> Array.map (fun reference -> readProjectDocument (referenceFolder folder "project" reference) (depth + 1) reader (Some reference.id)) }
 
     let loadDocument rootFolder =
         let root = normalizeRoot rootFolder
@@ -264,7 +250,7 @@ module internal WorkspaceDisk =
         reader.Identity(path, "workspace", dto.id, None)
         let value = WorkspaceDocument.validate {
             Definition = { dto with folderName = folderName root }
-            Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder false root "modules" reference) 1 reader (Some reference.id)) }
+            Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder root "module" reference) 1 reader (Some reference.id)) }
         reader.Verify()
         remember value reader.Files
         value
@@ -274,13 +260,13 @@ module internal WorkspaceDisk =
         let add folder kind id value = files.Add(Path.Combine(folder, WorkspaceDefinitionFiles.Name id), kind, digest (MessagePackSetup.serialize value))
         let rec visit folder (value: ModuleDocument) =
             add folder "module" value.Definition.id value.Definition
-            for m in value.Modules do visit (child folder m.Definition.folderName) m
+            for m in value.Modules do visit (child folder m.Definition.moduleName) m
             for p in value.Projects do
-                let projectFolder = child folder p.Definition.folderName
+                let projectFolder = child folder p.Definition.projectName
                 add projectFolder "project" p.Definition.id p.Definition
                 for r in p.Runs do add (Path.Combine(projectFolder, "runs")) "run" r.id r
         add root "workspace" value.Definition.id value.Definition
-        for m in value.Modules do visit (child root m.Definition.folderName) m
+        for m in value.Modules do visit (child root m.Definition.moduleName) m
         remember value (files.ToArray())
 
     let rememberSavedFiles root (value: workspace) =
@@ -291,11 +277,11 @@ module internal WorkspaceDisk =
         let rec visit folder inheritedFrom (value: workspaceModule) =
             add folder "module" (UMX.untag value.Id) (WorkspaceDefinitionCodec.moduleWithOrigin inheritedFrom value |> MessagePackSetup.serialize)
             let origin = { moduleId = UMX.untag value.Id; moduleName = string value.ModuleName }
-            for m in value.Modules do visit (child folder m.FolderName) origin m
+            for m in value.Modules do visit (child folder (UMX.untag m.ModuleName)) origin m
             for p in value.Projects do
-                let projectFolder = child folder p.FolderName
+                let projectFolder = child folder (UMX.untag p.ProjectName)
                 add projectFolder "project" (UMX.untag p.Id) (WorkspaceDefinitionCodec.projectWithOrigin origin p |> MessagePackSetup.serialize)
                 for r in p.Runs do add (Path.Combine(projectFolder, "runs")) "run" (UMX.untag r.Id) (WorkspaceCodec.encodeRun r)
         add root "workspace" (UMX.untag value.Id) (WorkspaceDefinitionCodec.encodeWorkspace value)
-        for m in value.Modules do visit (child root m.FolderName) Unchecked.defaultof<_> m
+        for m in value.Modules do visit (child root (UMX.untag m.ModuleName)) Unchecked.defaultof<_> m
         remember value (files.ToArray())

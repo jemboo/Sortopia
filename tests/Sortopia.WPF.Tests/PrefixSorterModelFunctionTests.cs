@@ -176,7 +176,7 @@ public sealed class PrefixSorterModelFunctionTests
         foreach (var name in new[] { "Simple", "SimpleR", "SimpleS" }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = name; }
         Assert.Equal(family.Value.Choices, span.Values[0].Choices);
         Assert.Equal(3, editor.ResultsParameterSetsPreview.Rows.Length);
-        var query = editor.ResultsQueryOutputs.Single().Keys.Single(); Assert.Equal("SorterModelType", query.Key); query.Selected = true;
+        var query = project.Editor!.ResultsQueryOutputs.Single().Keys.Single(); Assert.Equal("SorterModelType", query.Key); query.Selected = true;
         Assert.Equal(new[] { "SorterModelType" }, editor.ToProjectSettings().resultsDataTypes.Single().queryParameterKeys);
         Assert.Equal(8, editor.ResultsRequiredInputs.DefaultCount);
         for (var index = 3; index < 51; ++index) { span.AddValueCommand.Execute(null); span.Values.Last().Text = "Simple"; }
@@ -250,7 +250,7 @@ public sealed class PrefixSorterModelFunctionTests
             run = page.Roots[0].Children[0].Children[0].Children[0];
             span = Assert.Single(run.Editor!.ResultsParameters);
             span.Values.Last().Text = Prefix(16);
-            run.Editor.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
+            run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
             page.Selected = run;
             await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);

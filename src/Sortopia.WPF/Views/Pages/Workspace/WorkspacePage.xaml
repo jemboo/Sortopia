@@ -72,10 +72,6 @@
             </Grid>
             <TextBlock x:Name="WorkspaceFileStatus" Text="{Binding WorkspaceFileStatus}" Margin="0,8,0,0"
                        TextWrapping="Wrap" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
-            <StackPanel Margin="0,8,0,0" Visibility="{Binding NeedsLayoutConversion, Converter={StaticResource WorkspaceBoolVisibility}}">
-                <TextBlock Text="This workspace uses the earlier folder layout. Conversion removes the modules/projects containers while preserving IDs and all project files. Conflicting folder names must be resolved before conversion." TextWrapping="Wrap" />
-                <Button Content="Convert folder layout" Command="{Binding ConvertFolderLayoutCommand}" HorizontalAlignment="Left" Margin="0,6,0,0" />
-            </StackPanel>
             <TextBlock x:Name="MissingComponentsNotice" Text="{Binding MissingComponentsMessage}" Margin="0,4,0,0"
                        TextWrapping="Wrap" Foreground="{StaticResource Workspace.Warning}" AutomationProperties.LiveSetting="Polite"
                        Visibility="{Binding HasMissingComponents, Converter={StaticResource WorkspaceBoolVisibility}}" />
@@ -88,18 +84,20 @@
                     </StackPanel>
                     <TextBlock Text="{Binding WorkspaceName}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 </DockPanel>
-                <TextBlock Text="{Binding WorkspaceNameError}" Style="{StaticResource InlineError}" />
+                <TextBox Text="{Binding WorkspaceNameError, Mode=OneWay}" Style="{StaticResource SelectableError}" />
+                <TextBox x:Name="PendingRemovalNotice" Text="{Binding PendingRemovalMessage, Mode=OneWay}"
+                         Style="{StaticResource SelectableError}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
                 <Border x:Name="SaveValidationSummary" Visibility="{Binding HasSaveIssues, Converter={StaticResource WorkspaceBoolVisibility}}"
                         BorderBrush="{StaticResource Workspace.Warning}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,8,0,0">
                     <StackPanel>
-                        <TextBlock Text="{Binding SaveIssueSummary}" Foreground="{StaticResource Workspace.Warning}" TextWrapping="Wrap" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
+                        <TextBox Text="{Binding SaveIssueSummary, Mode=OneWay}" Style="{StaticResource SelectableError}" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
                         <ScrollViewer MaxHeight="130" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <ItemsControl x:Name="SaveIssuesList" ItemsSource="{Binding SaveIssues}">
                                 <ItemsControl.ItemTemplate><DataTemplate>
                                     <StackPanel Margin="0,8,0,2">
                                         <TextBlock TextWrapping="Wrap"><Hyperlink x:Name="SaveIssueLink" Click="OnReviewSaveIssue" Command="{Binding DataContext.ReviewSaveIssueCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
                                             CommandParameter="{Binding}" Foreground="{StaticResource Workspace.Accent}"><Run Text="{Binding Location, Mode=OneWay}" /></Hyperlink></TextBlock>
-                                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                        <TextBox x:Name="SaveIssueMessage" Text="{Binding Message, Mode=OneWay}" Style="{StaticResource SelectableMessage}" Margin="0,3,0,0" />
                                     </StackPanel>
                                 </DataTemplate></ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -131,7 +129,7 @@
                             Visibility="{Binding HasCutItem, Converter={StaticResource WorkspaceBoolVisibility}}" />
                   </StackPanel>
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
-                            ToolTip="Remove from the draft. Saving deletes module/project folders and all contents, or the run's definition, parameter files and unshared data. Discard cancels removal." />
+                            ToolTip="{Binding RemoveHint}" ToolTipService.ShowOnDisabled="True" />
                 </WrapPanel>
                 <TextBlock x:Name="SelectionHint" Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8" />
                 <TreeView x:Name="WorkspaceTree" Grid.Row="2" Margin="0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
@@ -195,7 +193,7 @@
                 </DockPanel>
             </Border>
             <GridSplitter x:Name="EditorSplitter" Grid.Row="2" Grid.Column="3" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Focusable="True" KeyboardIncrement="16" Background="{StaticResource Workspace.StrokeSubtle}" ToolTip="Resize configuration and editor panels" AutomationProperties.Name="Resize configuration and editor panels" />
-            <Border x:Name="EntityDetailsPanel" Grid.Row="2" Grid.Column="4" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="12" Visibility="{Binding HasSelectedEntity, Converter={StaticResource WorkspaceBoolVisibility}}">
+            <Border x:Name="EntityDetailsPanel" Grid.Row="2" Grid.Column="4" IsEnabled="{Binding CanModifyWorkspace}" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" Padding="12" Visibility="{Binding HasSelectedEntity, Converter={StaticResource WorkspaceBoolVisibility}}">
                 <ScrollViewer x:Name="EntityInspectorViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,6,0">
                 <StackPanel DataContext="{Binding Selected}">
                     <TextBlock Text="{Binding DataContext.ActiveItemTitle, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
@@ -204,23 +202,24 @@
                         <TextBox x:Name="EntityNameInput" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name">
                             <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}"><Style.Triggers><DataTrigger Binding="{Binding IsWorkspace}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBox.Style>
                         </TextBox>
-                        <TextBlock x:Name="EntityNameError" Text="{Binding NameError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                        <TextBox x:Name="EntityNameError" Text="{Binding NameError, Mode=OneWay}" Style="{StaticResource SelectableError}" AutomationProperties.LiveSetting="Polite" />
                         <TextBlock Text="Renaming also changes the folder name. Save workspace moves the folder and all its contents."
                                    TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,0"
-                                   Visibility="{Binding FolderFollowsName, Converter={StaticResource WorkspaceBoolVisibility}}" />
+                                   Visibility="{Binding HasNamedFolder, Converter={StaticResource WorkspaceBoolVisibility}}" />
                     </StackPanel>
 
                     <Button Content="Edit parent defaults" HorizontalAlignment="Left" Margin="0,8,0,0"
                             Visibility="{Binding DataContext.ShowParentDefaultsAction, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}"
                             Command="{Binding DataContext.EditProjectDefaultsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" />
-                    <Expander x:Name="RunExecutionExpander" Header="Run parameters" IsExpanded="True" Margin="0,12,0,0"
+                    <Expander x:Name="RunExecutionExpander" Header="Preview, generation and saved files" IsExpanded="True" Margin="0,12,0,0"
                               Foreground="{StaticResource Workspace.TextPrimary}"
                               Visibility="{Binding DataContext.ShowExecutionEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <StackPanel Margin="0,8,0,8" DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}">
                             <WrapPanel>
-                                <Button x:Name="GenerateRunParametersButton" Content="Generate run parameters" Command="{Binding GenerateRunParametersCommand}" Margin="0,0,8,6"
-                                        AutomationProperties.Name="Generate run parameters" ToolTip="Run setup locally and save immutable results parameter files." />
-                                <Button x:Name="ExecutePageButton" Content="Execute page" Command="{Binding ExecutePageCommand}" Margin="0,0,0,6"
+                                <Button x:Name="GenerateRunParametersButton" Content="Generate files" Command="{Binding GenerateRunParametersCommand}" Margin="0,0,8,6"
+                                        AutomationProperties.Name="Generate run parameter files" ToolTip="Run setup locally and save immutable results parameter files." />
+                                <Button x:Name="RefreshRunParameterFilesButton" Content="Refresh" Command="{Binding RefreshRunParameterFilesCommand}" Margin="0,0,8,6" />
+                                <Button x:Name="ExecutePageButton" Content="Open execution page" Command="{Binding ExecutePageCommand}" Margin="0,0,0,6"
                                         AutomationProperties.Name="Open Results execution page" ToolTip="Open this run's saved parameter files on the Results execution page. Workspace drafts are retained." />
                             </WrapPanel>
                             <TextBlock Text="{Binding GenerationHint}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,6,0,0">
@@ -229,14 +228,68 @@
                                 </Style.Triggers></Style></TextBlock.Style>
                             </TextBlock>
                             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,8"
-                                       Text="{Binding GenerationInstructions}" />
-                            <StackPanel DataContext="{Binding SelectedExecution}">
+                                       Text="{Binding RunParameterFilesDraftNotice}" />
+                            <StackPanel DataContext="{Binding SelectedExecution.Files}">
+                                <TextBlock x:Name="RunParameterFilesSummary" Text="{Binding Summary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,4,0,8" />
+                                <TextBox Text="{Binding Error, Mode=OneWay}" Style="{StaticResource SelectableError}" />
+                                <DataGrid x:Name="RunParameterFilesTable" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True"
+                                          CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" ColumnHeaderHeight="42" MaxHeight="300" AreRowDetailsFrozen="True"
+                                          EnableRowVirtualization="True" EnableColumnVirtualization="True" SelectionUnit="FullRow" RowDetailsVisibilityMode="VisibleWhenSelected"
+                                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                          Visibility="{Binding HasFiles, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Run parameter files">
+                                    <DataGrid.Resources>
+                                        <Style x:Key="FileCell" TargetType="TextBlock">
+                                            <Setter Property="TextTrimming" Value="CharacterEllipsis" /><Setter Property="ToolTip" Value="{Binding FileName}" />
+                                        </Style>
+                                        <Style x:Key="ParameterCell" TargetType="TextBlock">
+                                            <Setter Property="TextWrapping" Value="Wrap" /><Setter Property="MaxHeight" Value="80" />
+                                            <Setter Property="TextTrimming" Value="CharacterEllipsis" /><Setter Property="ToolTip" Value="{Binding Parameters}" />
+                                        </Style>
+                                        <Style x:Key="StatusCell" TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /></Style>
+                                    </DataGrid.Resources>
+                                    <DataGrid.RowStyle><Style TargetType="DataGridRow"><Setter Property="ToolTip" Value="{Binding Path}" /></Style></DataGrid.RowStyle>
+                                    <DataGrid.ColumnHeaderStyle>
+                                        <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                            <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" /></DataTemplate></Setter.Value></Setter>
+                                        </Style>
+                                    </DataGrid.ColumnHeaderStyle>
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="80" MinWidth="80" ElementStyle="{StaticResource FileCell}" />
+                                        <DataGridTextColumn Header="Parameters" Binding="{Binding Parameters}" Width="*" MinWidth="100" ElementStyle="{StaticResource ParameterCell}" />
+                                        <DataGridTextColumn Header="File status" Binding="{Binding FileStatus}" Width="68" MinWidth="68" ElementStyle="{StaticResource StatusCell}" />
+                                        <DataGridTextColumn Header="Results status" Binding="{Binding ResultsStatus}" Width="85" MinWidth="85" ElementStyle="{StaticResource StatusCell}" />
+                                    </DataGrid.Columns>
+                                    <DataGrid.RowDetailsTemplate><DataTemplate>
+                                        <StackPanel Margin="6">
+                                            <TextBox Text="{Binding Path, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
+                                            <TextBox Text="{Binding Parameters, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
+                                            <TextBox Text="{Binding Details, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
+                                        </StackPanel>
+                                    </DataTemplate></DataGrid.RowDetailsTemplate>
+                                </DataGrid>
+                                <TextBlock Text="Select a file for its full path, parameters, and status details." TextWrapping="Wrap" FontSize="11"
+                                           Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" Visibility="{Binding HasFiles, Converter={StaticResource WorkspaceBoolVisibility}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding RunParameterPreviewSummary}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,12,0,4" />
+                            <Expander x:Name="RunParameterPreviewExpander" Header="Preview parameter combinations" IsExpanded="False" Foreground="{StaticResource Workspace.TextPrimary}">
+                                <StackPanel DataContext="{Binding Selected.Editor}">
+                                    <Expander x:Name="SetupPreviewSection" Header="Setup combinations" IsExpanded="{Binding Sections.SetupPreview, Mode=TwoWay}" Margin="0,8,0,4"
+                                              Foreground="{StaticResource Workspace.TextPrimary}" Visibility="{Binding IsBranch, Converter={StaticResource WorkspaceBoolVisibility}}">
+                                        <local:WorkspaceParameterSetsPreview x:Name="SetupSetsPreview" DataContext="{Binding SetupParameterSetsPreview}" Margin="4,8,0,0" />
+                                    </Expander>
+                                    <Expander x:Name="ResultsPreviewSection" Header="Results combinations" IsExpanded="{Binding Sections.ResultsPreview, Mode=TwoWay}" Margin="0,8,0,4" Foreground="{StaticResource Workspace.TextPrimary}">
+                                        <local:WorkspaceParameterSetsPreview x:Name="ResultsSetsPreview" DataContext="{Binding ResultsParameterSetsPreview}" Margin="4,8,0,0" />
+                                    </Expander>
+                                </StackPanel>
+                            </Expander>
+                            <TextBlock Text="{Binding GenerationInstructions}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,12,0,8" />
+                            <StackPanel DataContext="{Binding SelectedExecution}" Visibility="{Binding HasAttempt, Converter={StaticResource WorkspaceBoolVisibility}}">
                                 <TextBlock x:Name="RunExecutionSummary" Text="{Binding Summary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                                 <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" />
                                 <ProgressBar Value="{Binding Percent, Mode=OneWay}" Maximum="100" IsIndeterminate="{Binding IsIndeterminate}" Height="6" Margin="0,8,0,4"
                                              Visibility="{Binding IsRunning, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Run parameter generation progress" />
                                 <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Style="{StaticResource InlineError}" />
-                                <Expander x:Name="RunOutputsExpander" Header="Processed sets and output summaries" Margin="0,8,0,0" Foreground="{StaticResource Workspace.TextPrimary}"
+                                <Expander x:Name="RunOutputsExpander" Header="Last generation details" Margin="0,8,0,0" Foreground="{StaticResource Workspace.TextPrimary}"
                                           Visibility="{Binding HasReport, Converter={StaticResource WorkspaceBoolVisibility}}">
                                     <StackPanel Margin="0,6,0,0">
                                         <TextBlock Text="{Binding RowsHint}" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,0,0,4" />
@@ -281,7 +334,7 @@
                                     ToolTip="Open this folder in File Explorer. Available when the folder exists on disk."
                                     AutomationProperties.Name="Open selected folder in File Explorer" />
                         </Grid>
-                        <TextBlock Text="{Binding FolderNameHint}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Workspace.TextSecondary}"
+                        <TextBlock Text="{Binding LocationHint}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Workspace.TextSecondary}"
                                    Visibility="{Binding HasFolder, Converter={StaticResource WorkspaceBoolVisibility}}" />
                         <TextBlock x:Name="PendingCopyNotice" Text="{Binding PendingCopyDescription}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Workspace.TextSecondary}">
                             <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
@@ -309,7 +362,7 @@
                         Visibility="{Binding IsBusy, Converter={StaticResource WorkspaceBoolVisibility}}" />
                 <StackPanel>
                     <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" AutomationProperties.LiveSetting="Polite" />
-            <TextBlock Text="{Binding OperationError}" TextWrapping="Wrap" Style="{StaticResource InlineError}" AutomationProperties.LiveSetting="Polite" />
+            <TextBox Text="{Binding OperationError, Mode=OneWay}" Style="{StaticResource SelectableError}" AutomationProperties.LiveSetting="Polite" />
                 </StackPanel>
             </DockPanel>
         </StackPanel>

@@ -33,6 +33,7 @@ public sealed partial class WorkspacePageViewModel
     public ObservableCollection<WorkspaceInspectorItem> InspectorItems { get; } = [];
     public RelayCommand SelectConfigurationItemCommand { get; private set; } = null!;
     public RelayCommand SelectInspectorSourceCommand { get; private set; } = null!;
+    public RelayCommand EditProjectQueryProjectionsCommand { get; private set; } = null!;
     public string ActiveItemKey => activeItemKey;
     public string ActiveItemTitle => InspectorItems.FirstOrDefault(item => item.Key == activeItemKey) is { } item
         ? item.Group == "Functions" ? Selected?.Editor?.FunctionsTitle ?? "Functions"
@@ -46,6 +47,12 @@ public sealed partial class WorkspacePageViewModel
     public bool HasSelectedEntity => Selected is not null;
     private void InitializeInspector()
     {
+        EditProjectQueryProjectionsCommand = new RelayCommand(value =>
+        {
+            if (value is not string key || key is not ("resultsTypes" or "setupOutputs")) return;
+            Selected = Selected!.Parent;
+            SelectConfigurationItem(key);
+        }, () => CanEdit && Selected is { IsRun: true, Parent.IsProject: true });
         SelectConfigurationItemCommand = new RelayCommand(value => SelectConfigurationItem(value is WorkspaceInspectorItem item ? item.Key : value as string ?? "name"));
         SelectInspectorSourceCommand = new RelayCommand(value =>
         {
@@ -60,11 +67,13 @@ public sealed partial class WorkspacePageViewModel
         activeItemKey = key;
         if (Selected is not null) rememberedItems[Selected.Id] = key;
         RefreshInspector();
+        if (ShowExecutionEditor) _ = RefreshRunParameterFilesAsync();
     }
     private void InspectorSelectionChanged()
     {
         activeItemKey = Selected is not null && rememberedItems.TryGetValue(Selected.Id, out var key) ? key : DefaultInspectorItem;
         RefreshInspector();
+        if (ShowExecutionEditor) _ = RefreshRunParameterFilesAsync();
     }
     private string DefaultInspectorItem => Selected?.HasConfiguration == true ? Selected.IsBranch ? "setupFunction" : "resultsFunction" : "name";
     private IEnumerable<WorkspaceItemSnapshot> InspectorSnapshots()
@@ -73,11 +82,12 @@ public sealed partial class WorkspacePageViewModel
         if (node.Editor is { } module)
             foreach (var item in module.InspectorSnapshots().Where(item => item.Group == "Functions")) yield return item;
         yield return new("name", "Identity", "Name", node.NameInput, "Local", node.NameError);
-        yield return new("location", "Identity", "Location", SelectedFolderPath, node.DiskStatus.Length > 0 ? node.DiskStatus : "Saved", node.FolderNameError);
+        yield return new("location", "Identity", "Location", SelectedFolderPath, node.DiskStatus.Length > 0 ? node.DiskStatus : "Saved", node.NameError);
         if (node.Editor is { } editor)
             foreach (var item in editor.InspectorSnapshots().Where(item => item.Group != "Functions")) yield return item;
         if (node.IsRun)
-            yield return new("execution", "Run parameters", "Generate run parameters", SelectedExecution?.Summary ?? "Not generated yet", SelectedExecution?.IsRunning == true ? "Generating" : GenerationHint.Length > 0 ? "Not ready" : "Ready", SelectedExecution?.Error ?? "");
+            yield return new("execution", "Files", "Run parameter files", SelectedExecution!.Files.HasLoaded ? SelectedExecution.Files.Summary : RunParameterPreviewSummary,
+                SelectedExecution.IsRunning ? "Generating" : SelectedExecution.Files.HasFiles ? "Saved files" : "Preview and generation", SelectedExecution.Files.Error);
     }
     private void RefreshInspector()
     {

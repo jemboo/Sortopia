@@ -13,12 +13,10 @@ public enum WorkspaceEntityKind { Workspace, Module, Project, Run }
 public sealed partial class WorkspaceTreeNode : ViewModelBase
 {
     private string name;
-    private string folderName;
+    private readonly string workspaceFolderName;
     private string nameInput;
-    private string folderNameInput;
     private string nameError = "";
-    private string folderNameError = "";
-    private sealed record SavedChild(WorkspaceTreeNode Node, string Name, string FolderName);
+    private sealed record SavedChild(WorkspaceTreeNode Node, string Name);
     private SavedChild[] savedChildren = [];
     private bool isSelected;
     private string? savedFolderPath;
@@ -60,13 +58,15 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         Visit(this, false, null);
         return moves;
     }
-    public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, string? folderName = null, Guid? id = null, hierarchyKind family = hierarchyKind.Root)
+    public WorkspaceTreeNode(WorkspaceEntityKind kind, string name, Guid? id = null, hierarchyKind family = hierarchyKind.Root, string? workspaceFolderName = null)
     {
         if (!Enum.IsDefined(family)) throw new ArgumentException("Choose root or branch.", nameof(family));
         Family = family;
         Id = id ?? Guid.NewGuid();
-        Kind = kind; this.name = name; this.folderName = kind == WorkspaceEntityKind.Run ? "" : folderName ?? name;
-        nameInput = name; folderNameInput = this.folderName;
+        if (workspaceFolderName is not null && kind != WorkspaceEntityKind.Workspace)
+            throw new ArgumentException("Only the workspace has a separate root folder name.", nameof(workspaceFolderName));
+        Kind = kind; this.name = name; this.workspaceFolderName = workspaceFolderName ?? name;
+        nameInput = name;
         Children.CollectionChanged += (_, args) =>
         {
             if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.RefreshInheritedSubtree(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
@@ -144,7 +144,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     public string FamilyName => IsBranch ? "Branch" : "Root";
     public Guid Id { get; }
     public bool HasFolder => !IsRun;
-    internal string PathName => IsRun ? WorkspaceDefinitionFiles.Name(Id) : Sortopia.Runs.FolderName.validate(FolderName);
+    internal string PathName => IsRun ? WorkspaceDefinitionFiles.Name(Id) : Sortopia.Runs.FolderName.validate(IsWorkspace ? workspaceFolderName : Name);
     public WorkspaceEntityKind Kind { get; }
     public string KindLabel => IsWorkspace ? "Workspace" : $"{FamilyName} {Kind.ToString().ToLowerInvariant()}";
     public string ContainmentHint => IsWorkspace ? "Choose a root module for runs without setup, or a branch module for runs with setup."
@@ -270,84 +270,52 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         set
         {
             SetProperty(ref nameInput, value);
-            var conflict = Collision(value, folder: false);
-            // Rebinding an existing display name must not relocate an imported
-            // folder or an older definition with a different folder name.
-            if (conflict.Length == 0 && FolderFollowsName && !string.Equals(name, value, StringComparison.Ordinal))
-                conflict = Collision(value, folder: true);
+            var conflict = Collision(value);
             SetNameError(conflict);
             if (conflict.Length > 0) return;
             if (!SetProperty(ref name, value, nameof(Name))) return;
-            if (FolderFollowsName)
+            if (HasNamedFolder)
             {
-                SetProperty(ref folderName, value, nameof(FolderName));
-                SetProperty(ref folderNameInput, value, nameof(FolderNameInput));
-                SetFolderNameError("");
+                OnPropertyChanged(nameof(PathName));
                 MarkMoved();
             }
             foreach (var child in Children) child.RefreshInheritedSubtree();
             Changed?.Invoke();
         }
     }
-    public string FolderName
-    {
-        get => folderName;
-        set => FolderNameInput = value;
-    }
-    public string FolderNameInput
-    {
-        get => folderNameInput;
-        set
-        {
-            if (IsRun) return;
-            SetProperty(ref folderNameInput, value);
-            var conflict = Collision(value, folder: true);
-            SetFolderNameError(conflict);
-            if (conflict.Length > 0) return;
-            // Binding refreshes can write the current value back; they are not a manual location edit.
-            if (string.Equals(folderName, value, StringComparison.Ordinal)) return;
-            if (SetProperty(ref folderName, value, nameof(FolderName)))
-            {
-                if (FolderFollowsName) MarkMoved();
-                Changed?.Invoke();
-            }
-        }
-    }
-    public bool FolderFollowsName => Kind is WorkspaceEntityKind.Module or WorkspaceEntityKind.Project;
-    public string FolderNameHint => IsWorkspace ? "The workspace folder name follows the selected root location."
+    public bool HasNamedFolder => Kind is WorkspaceEntityKind.Module or WorkspaceEntityKind.Project;
+    public string LocationHint => IsWorkspace ? "The workspace folder name follows the selected root location."
         : "The folder follows the name. Rename this module or project to change its path, then Save workspace to move the folder and all contents.";
     public string NameError => nameError;
-    public string FolderNameError => folderNameError;
-    internal string EditError => nameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Name: {nameError}" : folderNameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Folder name: {folderNameError}"
+    internal string EditError => nameError.Length > 0 ? $"{KindLabel} ‘{Name}’ — Name: {nameError}"
         : Editor?.ValidationError is { Length: > 0 } error ? $"{KindLabel} '{Name}': {error}"
         : Children.Select(child => child.EditError).FirstOrDefault(message => message.Length > 0) ?? "";
     private void SetNameError(string value)
     {
         if (SetProperty(ref nameError, value, nameof(NameError))) ValidationChanged?.Invoke();
     }
-    private void SetFolderNameError(string value)
+    private string Collision(string value)
     {
-        if (SetProperty(ref folderNameError, value, nameof(FolderNameError))) ValidationChanged?.Invoke();
-    }
-    private string Collision(string value, bool folder)
-    {
-        try { if (folder) Sortopia.Runs.FolderName.validate(value); else EntityName.validate(value); }
+        try { EntityName.validate(value); if (HasNamedFolder) Sortopia.Runs.FolderName.validate(value); }
         catch (ArgumentException exception)
         {
-            return folder ? "Choose a folder name without reserved characters, trailing dots/spaces, or a reserved device name. " + exception.Message.Split(" (Parameter", StringSplitOptions.None)[0]
+            return HasNamedFolder ? "The name is also used for the folder. Choose a name without reserved characters, trailing dots/spaces, or a reserved device name. " + exception.Message.Split(" (Parameter", StringSplitOptions.None)[0]
                 : "Enter a name without leading/trailing spaces or control characters; the name cannot be blank.";
         }
-        return Parent?.ChildCollision(Kind, value, folder, this) ?? "";
+        return Parent?.ChildCollision(Kind, value, this) ?? "";
     }
-    private string ChildCollision(WorkspaceEntityKind kind, string value, bool folder, WorkspaceTreeNode? excluded = null)
+    private string ChildCollision(WorkspaceEntityKind kind, string value, WorkspaceTreeNode? excluded = null)
     {
-        if (folder && kind == WorkspaceEntityKind.Run) return "";
-        var saved = savedChildren.FirstOrDefault(child => child.Node != excluded && (folder ? !child.Node.IsRun : child.Node.Kind == kind)
-            && string.Equals(folder ? child.FolderName : child.Name, value, StringComparison.OrdinalIgnoreCase));
-        var current = Children.FirstOrDefault(child => child != excluded && (folder ? !child.IsRun : child.Kind == kind)
-            && string.Equals(folder ? child.FolderName : child.Name, value, StringComparison.OrdinalIgnoreCase));
+        bool SameNamespace(WorkspaceTreeNode child) => kind == WorkspaceEntityKind.Run ? child.IsRun : child.HasNamedFolder;
+        var saved = savedChildren.FirstOrDefault(child => child.Node != excluded && SameNamespace(child.Node)
+            && string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase));
+        var current = Children.FirstOrDefault(child => child != excluded && SameNamespace(child)
+            && string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase));
         if (saved is null && current is null) return "";
-        return $"Duplicate {(folder ? "folder name among module and project children" : "name in " + kind.ToString().ToLowerInvariant() + "s")}: '{value}' is already used by '{saved?.Name ?? current!.Name}'"
+        if (saved is not null && current is null)
+            return $"'{value}' is still reserved in the saved workspace. Save the previous item's removal, move, or rename before reusing this name. "
+                + $"Choose a temporary unused name for this item, choose Save workspace, then rename it to '{value}'.";
+        return $"Duplicate {(kind == WorkspaceEntityKind.Run ? "run name" : "name among module and project children")}: '{value}' is already used by '{saved?.Name ?? current!.Name}'"
             + (saved is not null ? " in the saved workspace. Choose another value." : " in this collection. Choose another value.");
     }
     internal void AddExistingChild(WorkspaceTreeNode child)
@@ -370,28 +338,25 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
             foreach (var descendant in node.Children) CheckSubtree(descendant, level + 1);
         }
         CheckSubtree(child, depth);
-        var conflict = ChildCollision(child.Kind, child.Name, folder: false, excluded: child);
-        if (conflict.Length == 0) conflict = ChildCollision(child.Kind, child.FolderName, folder: true, excluded: child);
+        EntityName.validate(child.Name);
+        if (child.HasNamedFolder) Sortopia.Runs.FolderName.validate(child.Name);
+        var conflict = ChildCollision(child.Kind, child.Name, excluded: child);
         if (conflict.Length > 0) throw new ArgumentException(conflict);
     }
-    internal bool HasChildIdentity(WorkspaceEntityKind kind, string value) =>
-        Children.Any(child => child.Kind == kind && string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)
-            || kind != WorkspaceEntityKind.Run && !child.IsRun && string.Equals(child.FolderName, value, StringComparison.OrdinalIgnoreCase))
-        || savedChildren.Any(child => child.Node.Kind == kind && string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)
-            || kind != WorkspaceEntityKind.Run && !child.Node.IsRun && string.Equals(child.FolderName, value, StringComparison.OrdinalIgnoreCase));
+    internal bool HasChildIdentity(WorkspaceEntityKind kind, string value) => ChildCollision(kind, value).Length > 0;
     private void RememberSavedChildren() =>
-        savedChildren = Children.Select(child => new SavedChild(child, child.Name, child.FolderName)).ToArray();
+        savedChildren = Children.Select(child => new SavedChild(child, child.Name)).ToArray();
 
     internal static WorkspaceTreeNode FromWorkspace(workspace value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, value.WorkspaceName, value.FolderName, value.Id);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, value.WorkspaceName, value.Id, workspaceFolderName: value.FolderName);
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         node.RememberSavedChildren();
         return node;
     }
     internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.FolderName, value.Id, value.Kind);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.Id, value.Kind);
         node.Editor!.LoadModuleOverrides(ModuleOverridesDto.fromDomain(value.LocalOverrides));
         foreach (var child in value.Modules) node.Children.Add(FromModule(child));
         foreach (var child in value.Projects) node.Children.Add(FromProject(child));
@@ -400,7 +365,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     }
     internal static WorkspaceTreeNode FromProject(project value)
     {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.FolderName, value.Id, value.Kind);
+        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.Id, value.Kind);
         node.Editor!.LoadOverrides(OverridesDto.fromDomain(value.LocalOverrides));
         foreach (var child in value.Runs)
         {
@@ -416,19 +381,19 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     internal workspace ToWorkspace()
     {
         ValidateChildren();
-        return workspace.create(Id, Name, FolderName, Children.Select(child => child.ToModule(1)).ToArray());
+        return workspace.create(Id, Name, workspaceFolderName, Children.Select(child => child.ToModule(1)).ToArray());
     }
     private WorkspaceModule ToModule(int depth)
     {
         CheckDepth(depth);
         ValidateChildren();
-        return WorkspaceModule.createInherited(Id, Name, FolderName, ModuleDefaults.fromProject(ParentConfiguration()), ModuleOverridesDto.toDomain(Family, Editor!.ToModuleOverrides()), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
+        return WorkspaceModule.createInherited(Id, Name, ModuleDefaults.fromProject(ParentConfiguration()), ModuleOverridesDto.toDomain(Family, Editor!.ToModuleOverrides()), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
             Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
     }
     private project ReadProject()
     {
-        if (sealedProject is not null) return project.restore(Id, Name, FolderName, sealedProject.Configuration, sealedProject.LocalOverrides, true, []);
-        return project.createInherited(Id, Name, FolderName, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), []);
+        if (sealedProject is not null) return project.restore(Id, Name, sealedProject.Configuration, sealedProject.LocalOverrides, true, []);
+        return project.createInherited(Id, Name, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), []);
     }
     private projectConfiguration ParentConfiguration() => Parent?.Editor is { } editor
         ? SettingsDto.toDomain(Family, editor.ToProjectSettings()) : Defaults.configuration(IsBranch);
@@ -447,8 +412,9 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     }
     private void ValidateChildren()
     {
-        if (nameError.Length > 0 || folderNameError.Length > 0) throw new ArgumentException(nameError.Length > 0 ? nameError : folderNameError);
+        if (nameError.Length > 0) throw new ArgumentException(nameError);
         EntityName.validate(Name);
+        if (HasNamedFolder) Sortopia.Runs.FolderName.validate(Name);
         if (Children.Any(child => !CanContain(child))) throw new ArgumentException($"Invalid child type inside {KindLabel} '{Name}'.");
     }
     private static void CheckDepth(int depth)

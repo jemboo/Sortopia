@@ -19,8 +19,8 @@ public sealed class WorkspaceCopyTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open()
     {
-        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Parent module", "parent-module", [],
-            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Parent project", "parent-project", [])])]);
+        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "parent-module", [],
+            [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "parent-project", [])])]);
         WorkspaceFileStore.CreateWorkspace(Root, definition, Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), () => WorkspaceUnsavedChoice.Discard,
@@ -54,8 +54,8 @@ public sealed class WorkspaceCopyTests : IDisposable
             WorkspaceEntityKind.Module => Path.Combine(Root, "parent-module"),
             _ => Path.Combine(Root, "parent-module", "parent-project")
         };
-        if (childKind == WorkspaceEntityKind.Module) WorkspaceImportTests.WriteModule(Source, "Imported module");
-        else WorkspaceImportTests.WriteProject(Source, "Imported project");
+        if (childKind == WorkspaceEntityKind.Module) WorkspaceImportTests.WriteModule(Source);
+        else WorkspaceImportTests.WriteProject(Source);
         AddData(Source);
         var before = Snapshot(Source);
         var destination = Path.Combine(parentFolder, "imported");
@@ -83,7 +83,7 @@ public sealed class WorkspaceCopyTests : IDisposable
         Assert.Empty(page.Error);
         var parent = page.Roots.Single();
         while (parent.Kind != parentKind) parent = parent.Children.First();
-        Assert.Contains(parent.Children, child => child.Name == importedName && child.FolderName == importedName);
+        Assert.Contains(parent.Children, child => child.Name == importedName && child.PathName == importedName);
     }
 
     [Theory]
@@ -92,7 +92,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     public async Task Discarding_or_removing_an_import_does_not_copy_files(bool remove)
     {
         var page = Open();
-        WorkspaceImportTests.WriteModule(Source, "Imported");
+        WorkspaceImportTests.WriteModule(Source);
         var before = Snapshot(Source);
         selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
@@ -109,7 +109,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     public async Task A_failed_commit_rolls_back_the_entire_copy_and_can_be_retried()
     {
         var page = Open();
-        WorkspaceImportTests.WriteModule(Source, "Imported");
+        WorkspaceImportTests.WriteModule(Source);
         AddData(Source);
         var before = Snapshot(Source);
         var rootBefore = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace"));
@@ -136,7 +136,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     [Fact]
     public async Task Removing_a_project_from_a_pending_import_excludes_its_contents_and_preserves_source()
     {
-        var page = Open(); WorkspaceImportTests.WriteModule(Source, "Imported");
+        var page = Open(); WorkspaceImportTests.WriteModule(Source);
         var before = Snapshot(Source); selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         var imported = page.Selected!; var folder = imported.GetFolderPath(Root);
@@ -152,12 +152,12 @@ public sealed class WorkspaceCopyTests : IDisposable
     public async Task Nested_pending_imports_are_copied_together_on_save()
     {
         var page = Open();
-        WorkspaceImportTests.WriteModule(Source, "Imported module");
+        WorkspaceImportTests.WriteModule(Source);
         selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         Assert.Empty(page.Error);
         var second = Path.Combine(temporary.FullName, "Library", "second-project");
-        WorkspaceImportTests.WriteProject(second, "Second project");
+        WorkspaceImportTests.WriteProject(second);
         var firstBefore = Snapshot(Source);
         var secondBefore = Snapshot(second);
         selection = second;
@@ -180,12 +180,12 @@ public sealed class WorkspaceCopyTests : IDisposable
         page.AddModuleCommand.Execute(null);
         page.Selected!.Name = "New parent";
         var parent = page.Selected;
-        WorkspaceImportTests.WriteProject(Source, "Imported project");
+        WorkspaceImportTests.WriteProject(Source);
         selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Project);
         Assert.Empty(page.Error);
-        page.Selected!.FolderName = "renamed-folder";
-        Assert.Equal("renamed-folder", page.Selected.FolderName);
+        page.Selected!.Name = "renamed-folder";
+        Assert.Equal("renamed-folder", page.Selected.Name);
         parent.Name = "Renamed parent";
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
@@ -197,7 +197,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     public async Task A_changed_source_after_adding_is_not_copied_or_overwritten()
     {
         var page = Open();
-        WorkspaceImportTests.WriteModule(Source, "Imported");
+        WorkspaceImportTests.WriteModule(Source);
         AddData(Source);
         selection = Source;
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
@@ -216,7 +216,7 @@ public sealed class WorkspaceCopyTests : IDisposable
     public async Task Occupied_destinations_are_rejected_without_merging_or_overwriting(bool file)
     {
         var page = Open();
-        WorkspaceImportTests.WriteModule(Source, "Imported");
+        WorkspaceImportTests.WriteModule(Source);
         var destination = Path.Combine(Root, "imported");
         var sentinel = file ? destination : Path.Combine(Directory.CreateDirectory(destination).FullName, "keep.txt");
         File.WriteAllText(sentinel, "Existing content");

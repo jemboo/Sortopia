@@ -210,7 +210,7 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
         await page.SaveWorkspaceAsync();
         var module = Module(page); var id = module.Id; var oldPath = module.GetFolderPath(Root);
         File.WriteAllText(Path.Combine(oldPath, "notes.txt"), "unfinished");
-        module.FolderName = "Moved";
+        module.Name = "Moved";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError);
         Assert.False(Directory.Exists(oldPath)); Assert.Equal("unfinished", File.ReadAllText(Path.Combine(Root, "Moved", "notes.txt")));
         Assert.Equal(id, Module(Open()).Id);

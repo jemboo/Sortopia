@@ -7,26 +7,26 @@ open Sortopia.Workspaces
 open Sortopia.Core.Serialization
 
 [<CLIMutable>]
-type childFolderReferenceDto = { id: Guid; folderName: string }
+type childReferenceDto = { id: Guid; name: string }
 [<CLIMutable>]
 type inheritedFromDto = { moduleId: Guid; moduleName: string }
 [<CLIMutable>]
 type workspaceDefinitionDto = {
     schemaVersion: int; id: Guid; workspaceName: string; folderName: string
-    modules: childFolderReferenceDto array
+    modules: childReferenceDto array
 }
 [<CLIMutable>]
 type moduleDefinitionDto = {
-    schemaVersion: int; id: Guid; moduleKind: string; moduleName: string; folderName: string
+    schemaVersion: int; id: Guid; moduleKind: string; moduleName: string
     localOverrides: moduleOverridesDto
     inheritedDefaults: moduleSettingsDto
     inheritedFrom: inheritedFromDto
-    modules: childFolderReferenceDto array
-    projects: childFolderReferenceDto array
+    modules: childReferenceDto array
+    projects: childReferenceDto array
 }
 [<CLIMutable>]
 type projectDefinitionDto = {
-    schemaVersion: int; id: Guid; projectKind: string; projectName: string; folderName: string; isSealed: bool
+    schemaVersion: int; id: Guid; projectKind: string; projectName: string; isSealed: bool
     // Sealed projects own their fixed settings; drafts own overrides and parent context.
     configuration: projectSettingsDto
     localOverrides: projectOverridesDto
@@ -38,41 +38,40 @@ type projectDefinitionDto = {
 /// Versioned, shallow entity files. Child references are authoritative and ordered.
 /// File resolution and hierarchy assembly belong to Workspaces.Persistence.
 module WorkspaceDefinitionCodec =
-    let schemaVersion = 16
+    let schemaVersion = 17
     let private kindName = function hierarchyKind.Root -> "root" | hierarchyKind.Branch -> "branch" | _ -> invalidArg "kind" "Unknown entity family."
     let kind = function "root" -> hierarchyKind.Root | "branch" -> hierarchyKind.Branch | _ -> invalidArg "kind" "Kind must be root or branch."
     let private validate version id name folder =
-        if version = 15 then invalidArg "schemaVersion" "This folder uses the earlier modules/projects layout. Convert its folder layout before opening or importing it."
         if version <> schemaVersion then invalidArg "schemaVersion" $"Unsupported entity definition version: {version}. Create a new workspace in the current format."
         EntityId.validate id
         EntityName.validate name |> ignore
         FolderName.validate folder |> ignore
-    let private references name (values: childFolderReferenceDto array) =
+    let private references name (values: childReferenceDto array) =
         if isNull values then invalidArg name "Required child references are missing."
         let ids = Collections.Generic.HashSet<Guid>()
         let folders = Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for value in values do
             if isNull (box value) then invalidArg name "A child reference is missing."
             EntityId.validate value.id
-            FolderName.validate value.folderName |> ignore
-            if not (ids.Add value.id) || not (folders.Add value.folderName) then invalidArg name "Duplicate child ID or folder reference."
+            FolderName.validate value.name |> ignore
+            if not (ids.Add value.id) || not (folders.Add value.name) then invalidArg name "Duplicate child ID or folder reference."
     let private origin (value: inheritedFromDto) =
         if not (isNull (box value)) then
             EntityId.validate value.moduleId
             EntityName.validate value.moduleName |> ignore
     let private required name value = if isNull (box value) then invalidArg name $"Missing {name}."
-    let private moduleRef (value: workspaceModule) = { id = UMX.untag value.Id; folderName = value.FolderName }
-    let private projectRef (value: project) = { id = UMX.untag value.Id; folderName = value.FolderName }
+    let private moduleRef (value: workspaceModule) = { id = UMX.untag value.Id; name = UMX.untag value.ModuleName }
+    let private projectRef (value: project) = { id = UMX.untag value.Id; name = UMX.untag value.ProjectName }
 
     let workspace (value: workspace) : workspaceDefinitionDto = {
         schemaVersion = schemaVersion; id = UMX.untag value.Id; workspaceName = string value.WorkspaceName; folderName = value.FolderName
         modules = value.Modules |> Array.map moduleRef }
     let moduleWithOrigin inheritedFrom (value: workspaceModule) : moduleDefinitionDto = {
-        schemaVersion = schemaVersion; id = UMX.untag value.Id; moduleName = string value.ModuleName; folderName = value.FolderName; moduleKind = kindName value.Kind
+        schemaVersion = schemaVersion; id = UMX.untag value.Id; moduleName = string value.ModuleName; moduleKind = kindName value.Kind
         localOverrides = ModuleOverridesDto.fromDomain value.LocalOverrides; inheritedDefaults = ModuleSettingsDto.fromDomain value.InheritedDefaults
         inheritedFrom = inheritedFrom; modules = value.Modules |> Array.map moduleRef; projects = value.Projects |> Array.map projectRef }
     let projectWithOrigin inheritedFrom (value: project) : projectDefinitionDto = {
-        schemaVersion = schemaVersion; id = UMX.untag value.Id; projectName = string value.ProjectName; folderName = value.FolderName; projectKind = kindName value.Kind
+        schemaVersion = schemaVersion; id = UMX.untag value.Id; projectName = string value.ProjectName; projectKind = kindName value.Kind
         isSealed = value.IsSealed
         configuration = if value.IsSealed then SettingsDto.fromDomain value.Configuration else Unchecked.defaultof<_>
         localOverrides = if value.IsSealed then Unchecked.defaultof<_> else OverridesDto.fromDomain value.LocalOverrides
@@ -92,19 +91,19 @@ module WorkspaceDefinitionCodec =
     let decodeModule bytes =
         let value = MessagePackSetup.deserialize<moduleDefinitionDto> bytes
         required "module definition" value
-        validate value.schemaVersion value.id value.moduleName value.folderName
+        validate value.schemaVersion value.id value.moduleName value.moduleName
         kind value.moduleKind |> ignore
         required "inherited defaults" value.inheritedDefaults
         required "local overrides" value.localOverrides
         origin value.inheritedFrom
         references "modules" value.modules
         references "projects" value.projects
-        FolderName.unique "module and project children" (Seq.append (value.modules |> Seq.map _.folderName) (value.projects |> Seq.map _.folderName))
+        FolderName.unique "module and project children" (Seq.append (value.modules |> Seq.map _.name) (value.projects |> Seq.map _.name))
         value
     let decodeProject bytes =
         let value = MessagePackSetup.deserialize<projectDefinitionDto> bytes
         required "project definition" value
-        validate value.schemaVersion value.id value.projectName value.folderName
+        validate value.schemaVersion value.id value.projectName value.projectName
         kind value.projectKind |> ignore
         if isNull value.runs then invalidArg "runs" "Required run references are missing."
         value.runs |> Array.iter EntityId.validate
@@ -119,7 +118,7 @@ module WorkspaceDefinitionCodec =
     let moduleHeader parent (value: moduleDefinitionDto) =
         let kind = kind value.moduleKind
         let captured = ModuleSettingsDto.toDomain kind value.inheritedDefaults
-        workspaceModule.createInherited (UMX.tag value.id) (UMX.tag value.moduleName) value.folderName
+        workspaceModule.createInherited (UMX.tag value.id) (UMX.tag value.moduleName)
             (Option.defaultValue captured parent) (ModuleOverridesDto.toDomain kind value.localOverrides) [||] [||]
     let projectHeader parent (value: projectDefinitionDto) =
         let kind = kind value.projectKind
@@ -128,4 +127,4 @@ module WorkspaceDefinitionCodec =
             else
                 let captured = SettingsDto.toDomain kind value.inheritedDefaults
                 Option.defaultValue captured parent, OverridesDto.toDomain kind value.localOverrides
-        project.restore (UMX.tag value.id) (UMX.tag value.projectName) value.folderName configuration local value.isSealed [||]
+        project.restore (UMX.tag value.id) (UMX.tag value.projectName) configuration local value.isSealed [||]

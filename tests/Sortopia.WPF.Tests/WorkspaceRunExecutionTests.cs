@@ -61,7 +61,8 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
                     if (source is not null) WorkspaceParameterSetsPreviewTests.AddSpan(node, key.Name, setup, source.Values.Take(1).Select(value => value.Text).ToArray());
                 }
             }
-            foreach (var key in editor.ResultsQueryOutputs.Concat(editor.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
+            var project = node.Parent!.Editor!;
+            foreach (var key in project.ResultsQueryOutputs.Concat(project.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
         }
     }
     internal static async Task ExecuteSourceAsync(WorkspacePageViewModel page)

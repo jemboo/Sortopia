@@ -38,7 +38,7 @@ module WorkspaceDocument =
         project.withRuns header (value.Runs |> Array.map (RunDto.toDomain header))
     let rec moduleToDomain parent (value: ModuleDocument) =
         let header = WorkspaceDefinitionCodec.moduleHeader parent value.Definition
-        workspaceModule.createInherited header.Id header.ModuleName header.FolderName header.InheritedDefaults header.LocalOverrides
+        workspaceModule.createInherited header.Id header.ModuleName header.InheritedDefaults header.LocalOverrides
             (value.Modules |> Array.map (moduleToDomain (Some header.Configuration)))
             (value.Projects |> Array.map (projectToDomain (Some (ModuleDefaults.toProject header.Configuration))))
     let toDomain (value: WorkspaceDocument) =
@@ -56,8 +56,8 @@ module WorkspaceDocument =
                 if not (seen.Add name) then invalidArg label "Duplicate entity name."
         let ids = Collections.Generic.HashSet<struct (string * Guid)>()
         let identity kind id = if not (ids.Add(struct (kind, id))) then invalidArg "id" $"Duplicate {kind} ID: {id}."
-        let children (refs: childFolderReferenceDto array) (actual: (Guid * string) array) =
-            if (refs |> Array.map (fun r -> r.id, r.folderName)) <> actual then invalidArg "children" "Child references do not match their documents."
+        let children (refs: childReferenceDto array) (actual: (Guid * string) array) =
+            if (refs |> Array.map (fun r -> r.id, r.name)) <> actual then invalidArg "children" "Child references do not match their documents."
         let depth value = if value > 64 then invalidArg "hierarchy" "Workspace nesting must not exceed 64 levels."
         let project family (value: ProjectDocument) =
             let dto = MessagePackSetup.serialize value.Definition |> WorkspaceDefinitionCodec.decodeProject
@@ -75,14 +75,14 @@ module WorkspaceDocument =
             let dto = MessagePackSetup.serialize value.Definition |> WorkspaceDefinitionCodec.decodeModule
             identity "module" dto.id
             if family |> Option.exists ((<>) dto.moduleKind) then invalidArg "moduleKind" "A module can contain modules only of its own kind."
-            children dto.modules (value.Modules |> Array.map (fun m -> m.Definition.id, m.Definition.folderName))
-            children dto.projects (value.Projects |> Array.map (fun p -> p.Definition.id, p.Definition.folderName))
+            children dto.modules (value.Modules |> Array.map (fun m -> m.Definition.id, m.Definition.moduleName))
+            children dto.projects (value.Projects |> Array.map (fun p -> p.Definition.id, p.Definition.projectName))
             uniqueNames "modules" (value.Modules |> Seq.map _.Definition.moduleName)
             uniqueNames "projects" (value.Projects |> Seq.map _.Definition.projectName)
             for child in value.Modules do modules (Some dto.moduleKind) (level + 1) child
             for child in value.Projects do depth (level + 1); project dto.moduleKind child
         let dto = MessagePackSetup.serialize value.Definition |> WorkspaceDefinitionCodec.decodeWorkspace
-        children dto.modules (value.Modules |> Array.map (fun m -> m.Definition.id, m.Definition.folderName))
+        children dto.modules (value.Modules |> Array.map (fun m -> m.Definition.id, m.Definition.moduleName))
         uniqueNames "modules" (value.Modules |> Seq.map _.Definition.moduleName)
         for child in value.Modules do modules None 1 child
         value

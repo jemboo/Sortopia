@@ -26,6 +26,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private WorkspaceTreeNode? cutNode;
     private IReadOnlyList<string> retainedFolders = [];
     private WorkspaceDocument? savedDocument;
+    private HashSet<Guid> savedNodeIds = [];
+    private string? pendingRemovalName;
     private string savedConfigurationError = "";
     private bool hasUnsavedChanges;
     private bool resolvingNavigation;
@@ -34,7 +36,6 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private WorkspaceFileState workspaceFileState;
     private string workspaceFileIssue = "";
     private int missingComponents;
-    private bool needsLayoutConversion;
 
     public WorkspacePageViewModel(Action returnHome, Func<string?, string?> pickFolder, WorkspaceFolderSettings settings,
         Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null,
@@ -56,8 +57,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         AddBranchModuleCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Module, hierarchyKind.Branch), () => CanAddModule(hierarchyKind.Branch));
         AddProjectCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Project), () => CanAdd(WorkspaceEntityKind.Project));
         AddRunCommand = new RelayCommand(() => Add(WorkspaceEntityKind.Run), () => CanAdd(WorkspaceEntityKind.Run));
-        CreateProjectVersionCommand = new RelayCommand(CreateProjectVersion, () => CanEdit && Selected is { IsProject: true, IsSealed: true, Parent: not null });
-        ResumeProjectEditingCommand = new RelayCommand(async () => await ResumeProjectEditingAsync(), () => CanEdit && Selected is { IsProject: true, IsSealed: true } && ResumeProjectEditingHint.Length == 0);
+        CreateProjectVersionCommand = new RelayCommand(CreateProjectVersion, () => CanModifyWorkspace && Selected is { IsProject: true, IsSealed: true, Parent: not null });
+        ResumeProjectEditingCommand = new RelayCommand(async () => await ResumeProjectEditingAsync(), () => CanModifyWorkspace && Selected is { IsProject: true, IsSealed: true } && ResumeProjectEditingHint.Length == 0);
         EditProjectDefaultsCommand = new RelayCommand(() =>
         { var key = ActiveItemKey; Selected = Selected!.Parent; SelectConfigurationItem(key); }, () => CanEdit && Selected?.HasParentDefaults == true);
         SelectValueSourceCommand = new RelayCommand(source =>
@@ -68,12 +69,11 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         }, () => CanEdit);
         AddExistingModuleCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Module), () => CanAddExisting(WorkspaceEntityKind.Module));
         AddExistingProjectCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Project), () => CanAddExisting(WorkspaceEntityKind.Project));
-        RemoveCommand = new RelayCommand(Remove, () => CanEdit && Selected?.Parent is not null);
-        CutCommand = new RelayCommand(Cut, () => CanEdit && !HasEditErrors && Selected?.Parent is not null);
+        RemoveCommand = new RelayCommand(Remove, () => CanModifyWorkspace && Selected?.Parent is not null && !RemovalWouldBlockSave);
+        CutCommand = new RelayCommand(Cut, () => CanModifyWorkspace && !HasEditErrors && Selected?.Parent is not null);
         PasteCommand = new RelayCommand(async () => await PasteAsync(), () => CanPaste);
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
-        ConvertFolderLayoutCommand = new RelayCommand(async () => await ConvertFolderLayoutAsync(), () => !IsBusy && NeedsLayoutConversion);
         InitializeRunParameterCommands(openResultsExecution);
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasStructuralErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
@@ -112,8 +112,6 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public RelayCommand ReturnHomeCommand { get; }
     public RelayCommand InspectFilesCommand { get; }
     public RelayCommand BrowseWorkspaceFolderCommand { get; }
-    public RelayCommand ConvertFolderLayoutCommand { get; }
-    public bool NeedsLayoutConversion => needsLayoutConversion;
     public RelayCommand OpenFolderCommand { get; }
     public RelayCommand AddModuleCommand { get; }
     public RelayCommand AddBranchModuleCommand { get; }
@@ -205,10 +203,15 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         }
     }
     public bool IsBusy => cancellation is not null;
-    public bool CanEdit => !IsBusy && WorkspaceFolder.Length > 0 && !NeedsLayoutConversion;
+    public bool CanEdit => !IsBusy && WorkspaceFolder.Length > 0;
+    public bool CanModifyWorkspace => CanEdit && !HasPendingRemoval;
+    public bool HasPendingRemoval => pendingRemovalName is not null;
+    public string PendingRemovalMessage => HasPendingRemoval
+        ? $"Removal of '{pendingRemovalName}' is pending. Choose Save workspace to finish deleting it, or Discard changes to undo it. Further edits are paused until then."
+        : "";
     public bool HasSavedWorkspace => workspaceFileState == WorkspaceFileState.Saved;
     public bool ShowNewWorkspace => workspaceFileState == WorkspaceFileState.Missing && savedDocument is null;
-    public bool ShowWorkspaceEditor => !NeedsLayoutConversion && (savedDocument is not null || workspaceFileState is WorkspaceFileState.Missing or WorkspaceFileState.Saved);
+    public bool ShowWorkspaceEditor => (savedDocument is not null || workspaceFileState is WorkspaceFileState.Missing or WorkspaceFileState.Saved);
     public bool HasMissingComponents => missingComponents > 0;
     public string MissingComponentsMessage => missingComponents == 1 ? "1 saved component is missing from disk."
         : $"{missingComponents} saved components are missing from disk.";
@@ -259,6 +262,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private void ReplaceDraft(workspace value) => ReplaceDraft(WorkspaceTreeNode.FromWorkspace(value));
     private void ReplaceDraft(WorkspaceTreeNode root)
     {
+        pendingRemovalName = null;
+        savedNodeIds = savedDocument is null ? [] : root.DescendantsAndSelf().Select(node => node.Id).ToHashSet();
         ClearCut();
         if (Roots.Count > 0)
         {
@@ -299,18 +304,10 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private void OpenSelectedFolder()
     {
         executions.Clear();
-        needsLayoutConversion = false;
         ResetDraft();
         try
         {
             if (WorkspaceDefinitionFiles.Find(WorkspaceFolder, "workspace") is null) return;
-            if (WorkspaceDefinitionFiles.Version(WorkspaceFolder, "workspace") == 15)
-            {
-                needsLayoutConversion = true;
-                Status = "This workspace uses the earlier modules/projects folder layout. Convert it to open it with shorter paths.";
-                Error = "";
-                return;
-            }
             AcceptSavedDocument(WorkspaceFileStore.LoadDocument(WorkspaceFolder));
             Status = HasSaveIssues ? "Loaded the saved draft. Configuration issues are shown below; you can finish it later." : "Loaded the saved workspace definition.";
         }
@@ -345,7 +342,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         Status = "Created an editable project version with a new ID and no runs.";
     }
     private bool CanAddModule(hierarchyKind family) => CanAdd(WorkspaceEntityKind.Module) && (Selected!.IsWorkspace || Selected.Family == family);
-    private bool CanAdd(WorkspaceEntityKind kind) => CanEdit && Selected?.CanContain(kind) == true
+    private bool CanAdd(WorkspaceEntityKind kind) => CanModifyWorkspace && Selected?.CanContain(kind) == true
         && (kind != WorkspaceEntityKind.Run || !HasStructuralErrors && Selected.Editor?.ValidationIssues.Any() != true);
     private bool CanAddExisting(WorkspaceEntityKind kind)
     {
@@ -397,10 +394,18 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         }
         catch (Exception exception) when (IsFolderError(exception)) { Error = exception.GetBaseException().Message; }
     }
+    private bool RequiresRemovalSave(WorkspaceTreeNode node) => node.DescendantsAndSelf().Any(item => savedNodeIds.Contains(item.Id));
+    // Don't pause the editors with a name error that would prevent committing the removal.
+    private bool RemovalWouldBlockSave => Selected is { } node && RequiresRemovalSave(node)
+        && Roots.SelectMany(root => root.DescendantsAndSelf()).Except(node.DescendantsAndSelf()).Any(item => item.NameError.Length > 0);
+    public string RemoveHint => HasPendingRemoval ? PendingRemovalMessage
+        : RemovalWouldBlockSave ? "Fix name errors on other items before removing this saved item."
+        : "Remove from the draft. Save workspace deletes its saved files; Discard changes cancels removal. Further edits pause until the removal is saved or discarded.";
     private void Remove()
     {
         var removed = Selected!;
-        if (Selected!.DescendantsAndSelf().Contains(cutNode)) ClearCut();
+        if (RequiresRemovalSave(removed)) pendingRemovalName = removed.Name;
+        if (HasPendingRemoval || removed.DescendantsAndSelf().Contains(cutNode)) ClearCut();
         var parent = Selected!.Parent!;
         parent.Children.Remove(Selected);
         Selected = parent;
@@ -408,7 +413,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             ? $"Removed run '{removed.Name}' from the draft. Save workspace to delete its definition, generated parameter files, and data unused by remaining runs. Discard changes cancels removal."
             : $"Removed '{removed.Name}' from the draft. Save workspace to delete its folder and all contents. Discard changes cancels removal.";
     }
-    private bool CanPaste => CanEdit && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
+    private bool CanPaste => CanModifyWorkspace && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
         && !cutNode.DescendantsAndSelf().Contains(Selected);
     private void Cut()
     {
@@ -474,7 +479,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         // Visit parents before children so nested location edits use their nearest pending copy.
         foreach (var node in nodes)
         {
-            if (!node.FolderFollowsName || node.PendingCopy is not null
+            if (!node.HasNamedFolder || node.PendingCopy is not null
                 || node.ImportOriginId is not { } originId || node.ImportSourcePath is not { } source) continue;
             var origin = nodes.Single(item => item.PendingCopy?.Id == originId);
             var inheritedLocation = Path.Combine(origin.GetFolderPath(WorkspaceFolder), Path.GetRelativePath(origin.PendingCopy!.SourceFolder, source));
@@ -523,7 +528,6 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasSavedWorkspace));
         OnPropertyChanged(nameof(ShowNewWorkspace));
         OnPropertyChanged(nameof(ShowWorkspaceEditor));
-        OnPropertyChanged(nameof(NeedsLayoutConversion));
         OnPropertyChanged(nameof(WorkspaceFileStatus));
         OnPropertyChanged(nameof(WorkspaceNameError));
         NotifyCommands();
@@ -539,19 +543,14 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         NotifyRunParameterCommands();
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(CanModifyWorkspace)); OnPropertyChanged(nameof(HasPendingRemoval));
+        OnPropertyChanged(nameof(PendingRemovalMessage)); OnPropertyChanged(nameof(RemoveHint));
+        EditProjectQueryProjectionsCommand.RaiseCanExecuteChanged();
         foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, ResumeProjectEditingCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
-            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, ConvertFolderLayoutCommand, DiscardChangesCommand, CancelCommand })
+            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
     public void Cancel() => cancellation?.Cancel();
-    public Task ConvertFolderLayoutAsync() => !ConvertFolderLayoutCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
-    {
-        var result = await Task.Run(() => WorkspaceFileStore.ConvertFolderLayout(WorkspaceFolder, token), token);
-        needsLayoutConversion = false;
-        AcceptSavedDefinition(result.Definition);
-        RetainedFolders = result.RetainedFolders;
-        Status = "Converted to shorter folder paths. Project IDs, runs, run parameters, and results were preserved.";
-    }, convertingLayout: true);
     public Task SaveWorkspaceAsync() => !CanSaveWorkspace ? Task.CompletedTask : RunAsync(async token =>
     {
         try
@@ -577,9 +576,9 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             Status = "Workspace changes have not been saved.";
         }
     });
-    private async Task RunAsync(Func<CancellationToken, Task> action, bool convertingLayout = false)
+    private async Task RunAsync(Func<CancellationToken, Task> action)
     {
-        if (IsBusy || (!CanEdit && !(convertingLayout && NeedsLayoutConversion))) return;
+        if (IsBusy || !CanEdit) return;
         using var source = new CancellationTokenSource();
         cancellation = source;
         NotifyCommands();

@@ -33,9 +33,13 @@ public sealed partial class WorkspaceConfigurationViewModel
     private readonly HashSet<string> excludedSetupDefaults = new(StringComparer.Ordinal);
     private resultsDataTypeConfigDto[] resultsQueries = [], setupQueries = [];
     public bool ShowQueryConfiguration => !IsModule;
-    public bool CanEditQuerySelection => IsProject ? IsEditable : IsRun && Parent is { IsProject: true, IsEditable: true };
+    public bool CanEditQuerySelection => IsProject && IsEditable;
+    private string QuerySelectionGuidance => CanEditQuerySelection ? "Select span keys to distinguish those outputs."
+        : IsRun && Parent is { IsEditable: true } ? "Edit query projections on the project before generating run parameters."
+        : "Select the project to resume editing if it has no generated work, or create a new version to choose different query keys.";
     public string QueryConfigurationHint => IsModule ? "Query keys are selected on each project."
-        : CanEditQuerySelection ? $"Project ‘{(IsRun ? Parent?.Name : Name)}’: choose query keys from explicit spans shared by its runs. Add run spans first. Each output can use a different subset. Choices are fixed when run parameters are generated."
+        : IsRun ? $"Inherited from project ‘{Parent?.Name}’ · Read-only on this run. Every selected key requires an explicit span in this run. {QuerySelectionGuidance}"
+        : CanEditQuerySelection ? $"Project ‘{Name}’: choose query keys from explicit spans shared by its runs. Add run spans first. Each output can use a different subset. Choices are fixed when run parameters are generated."
         : "Query keys are fixed by the sealed project. Select the project to resume editing if it has no generated work, or create a new version. Every selected key requires an explicit span in each run.";
     public IEnumerable<WorkspaceOutputQuery> ResultsQueryOutputs => QueryRows(false);
     public IEnumerable<WorkspaceOutputQuery> SetupQueryOutputs => QueryRows(true);
@@ -46,8 +50,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!IsRun || !ActiveParameters(setup).Any(span => span.Key.Length > 0)) return "";
         var empty = QueryRows(setup).Where(output => output.HasEmptyProjection).Select(output => output.Kind).ToArray();
         return empty.Length == 0 ? "" : $"No query keys selected for {string.Join(", ", empty)}. Different span values share the same output when input data is unchanged. "
-            + (CanEditQuerySelection ? "Choose each output's projection below before generating run parameters."
-                : "Select the project to resume editing if unused, or create a new version to choose different query keys.");
+            + QuerySelectionGuidance;
     }
     public IEnumerable<WorkspaceExcludedDefault> ExcludedResultsDefaults => Exclusions(false);
     public IEnumerable<WorkspaceExcludedDefault> ExcludedSetupDefaults => Exclusions(true);
@@ -91,14 +94,13 @@ public sealed partial class WorkspaceConfigurationViewModel
     }
     private void SetQueryKey(sortopiaDataTypeDto type, bool setup, string key, bool selected)
     {
-        var owner = IsRun ? Parent : this;
-        if (!CanEditQuerySelection || owner is null || selected && !QueryCandidates(setup).Contains(key, StringComparer.Ordinal)) return;
-        var entries = (setup ? owner.setupQueries : owner.resultsQueries).Where(entry => !SameType(entry.dataType, type)).ToList();
-        var keys = owner.SelectedQueryKeys(type, setup).ToHashSet(StringComparer.Ordinal);
+        if (!CanEditQuerySelection || selected && !QueryCandidates(setup).Contains(key, StringComparer.Ordinal)) return;
+        var entries = (setup ? setupQueries : resultsQueries).Where(entry => !SameType(entry.dataType, type)).ToList();
+        var keys = SelectedQueryKeys(type, setup).ToHashSet(StringComparer.Ordinal);
         if (selected) keys.Add(key); else keys.Remove(key);
         entries.Add(new() { dataType = type, queryParameterKeys = keys.Order(StringComparer.Ordinal).ToArray() });
-        if (setup) owner.setupQueries = entries.ToArray(); else owner.resultsQueries = entries.ToArray();
-        owner.NotifyChanged();
+        if (setup) setupQueries = entries.ToArray(); else resultsQueries = entries.ToArray();
+        NotifyChanged();
     }
     private IEnumerable<WorkspaceOutputQuery> QueryRows(bool setup)
     {
@@ -116,7 +118,7 @@ public sealed partial class WorkspaceConfigurationViewModel
             }).ToArray();
             yield return new(output.dataType.kind, output.dataType.value, keys, chosen.Length == 0
                 ? "No query keys selected: all parameter sets share one output for the same project and input data, even when span values differ. "
-                    + (CanEditQuerySelection ? "Select span keys to distinguish those outputs." : "Use a new project with the desired query keys to distinguish those outputs.")
+                    + QuerySelectionGuidance
                 : "Only the selected span keys distinguish this output. Other span changes reuse it for the same input data.");
         }
     }

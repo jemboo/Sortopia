@@ -63,7 +63,7 @@ public sealed class FileInspectorTests : IDisposable
     public async Task References_navigate_to_saved_children_and_refresh_keeps_the_selection()
     {
         var id = Guid.NewGuid();
-        var module = workspaceModule.createInherited(id, "Sorting", "Sorting", ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], []);
+        var module = workspaceModule.createInherited(id, "Sorting", ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], []);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
         using var page = new FileInspectorPageViewModel(() => { }, _ => null);
         await page.OpenRootAsync(Root);
@@ -131,7 +131,7 @@ public sealed class FileInspectorTests : IDisposable
             description = "Create reusable binary tests", resultsFunctionName = "sortable-tests.standard",
             resultsParameterDefaults = [new() { keyName = "ChannelCount", valueType = 1, value = "16" }, new() { keyName = "SortableDataFormat", valueType = 0, value = "Bools" }]
         });
-        var module = workspaceModule.createInherited(Guid.NewGuid(), "Standard tests", "StandardTests", ModuleDefaults.configuration(false), local, [], []);
+        var module = workspaceModule.createInherited(Guid.NewGuid(), "StandardTests", ModuleDefaults.configuration(false), local, [], []);
         WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
         var folder = Path.Combine(Root, "StandardTests");
         var path = WorkspaceDefinitionFiles.Require(folder, "module");

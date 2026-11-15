@@ -55,7 +55,7 @@ public sealed class RunExecutionTests
             setup = QuerySpans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
             settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
         }
-        var parent = project.create(id, "Project", "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        var parent = project.create(id, "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
         return RunDto.toDomain(parent, new runDto
         {
             schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
@@ -67,7 +67,7 @@ public sealed class RunExecutionTests
     {
         var value = MakeRun(branch, settings, results, setup);
         var config = value is run.RootRun root ? projectConfiguration.NewRootProjectConfig(root.Item.ProjectConfiguration) : projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration);
-        var parent = project.create(value.ParentProjectId, name, name, config, []);
+        var parent = project.create(value.ParentProjectId, name, config, []);
         return seal ? project.withRuns(parent, [RunDto.toDomain(parent, RunDto.fromDomain(value))]) : parent;
     }
     private sealed class Progress(Action<runExecutionProgress> action) : IProgress<runExecutionProgress>

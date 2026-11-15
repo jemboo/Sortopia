@@ -37,11 +37,17 @@ public sealed class ChildReferenceTests : IDisposable
         var w = WorkspaceDefinitionCodec.decodeWorkspace(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(Root, "workspace")));
         var m = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ModuleFolder, "module")));
         var p = WorkspaceDefinitionCodec.decodeProject(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ProjectFolder, "project")));
-        Assert.Equal(16, w.schemaVersion);
+        Assert.Equal(17, w.schemaVersion);
         Assert.Equal(saved.Modules[0].Id, Assert.Single(w.modules).id);
         Assert.Equal(saved.Modules[0].Projects[0].Id, Assert.Single(m.projects).id);
         Assert.Equal(saved.Modules[0].Projects[0].Runs[0].Id, Assert.Single(p.runs));
-        Assert.Equal(new[] { "id", "folderName" }, typeof(childFolderReferenceDto).GetProperties().Select(property => property.Name));
+        Assert.Equal(new[] { "id", "name" }, typeof(childReferenceDto).GetProperties().Select(property => property.Name));
+        foreach (var type in new[] { typeof(rootModule), typeof(branchModule), typeof(workspaceModule), typeof(rootProject), typeof(branchProject), typeof(project) })
+            Assert.Null(type.GetProperty("FolderName"));
+        foreach (var type in new[] { typeof(moduleDto), typeof(projectDto), typeof(moduleDefinitionDto), typeof(projectDefinitionDto) })
+            Assert.Null(type.GetProperty("folderName"));
+        Assert.DoesNotContain("folderName", MessagePack.MessagePackSerializer.ConvertToJson(MessagePackSetup.serialize(m), MessagePackSetup.options, Token));
+        Assert.DoesNotContain("folderName", MessagePack.MessagePackSerializer.ConvertToJson(MessagePackSetup.serialize(p), MessagePackSetup.options, Token));
         Assert.Null(typeof(moduleDefinitionDto).GetProperty("configuration"));
         Assert.NotNull(p.configuration);
         Assert.Null(p.inheritedDefaults);
@@ -55,7 +61,7 @@ public sealed class ChildReferenceTests : IDisposable
         Assert.Single(changed);
         Assert.Equal(Path.Combine(ProjectFolder, "runs", p.runs[0] + ".msgpack"), changed[0]);
         Assert.Equal("Run edit only", WorkspaceFileStore.LoadDefinition(Root).Modules[0].Projects[0].Runs[0].Description);
-        var portable = Path.Combine(temporary.FullName, "Portable project");
+        var portable = Path.Combine(temporary.FullName, "Portable", "search");
         Copy(ProjectFolder, portable);
         Directory.Delete(Root, true);
         var detached = WorkspaceFileStore.LoadProjectFolder(portable, Token);
@@ -70,14 +76,14 @@ public sealed class ChildReferenceTests : IDisposable
             resultsFunctionName = "sortable-tests.standard", resultsParameterDefaults = [Binding(16), new() { keyName = "SortableDataFormat", valueType = (int)parameterValueType.Text, value = "Bools" }],
             setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : null,
             setupParameterDefaults = branch ? [Binding(16), new() { keyName = "SortableDataFormat", valueType = (int)parameterValueType.Text, value = "Bools" }] : null });
-        var parent = workspaceModule.createInherited(Guid.NewGuid(), "Parent", "parent", ModuleDefaults.configuration(branch), top, [], []);
-        var child = workspaceModule.createInherited(Guid.NewGuid(), "Child", "child", parent.Configuration,
+        var parent = workspaceModule.createInherited(Guid.NewGuid(), "parent", ModuleDefaults.configuration(branch), top, [], []);
+        var child = workspaceModule.createInherited(Guid.NewGuid(), "child", parent.Configuration,
             ModuleOverridesDto.toDomain(family, new moduleOverridesDto { resultsParameterDefaults = [Binding(32)], setupParameterDefaults = branch ? [Binding(32)] : null }), [], []);
-        var p = project.createInherited(Guid.NewGuid(), "Draft", "draft", ModuleDefaults.toProject(child.Configuration),
+        var p = project.createInherited(Guid.NewGuid(), "draft", ModuleDefaults.toProject(child.Configuration),
             OverridesDto.toDomain(family, new projectOverridesDto { resultsDatabaseName = "Own results", setupDatabaseName = branch ? "Own setup" : null,
                 resultsParameterDefaults = [Binding(64)], setupParameterDefaults = branch ? [Binding(64)] : null }), []);
-        child = workspaceModule.createInherited(child.Id, child.ModuleName, child.FolderName, child.InheritedDefaults, child.LocalOverrides, [], [p]);
-        parent = workspaceModule.createInherited(parent.Id, parent.ModuleName, parent.FolderName, parent.InheritedDefaults, parent.LocalOverrides, [child], []);
+        child = workspaceModule.createInherited(child.Id, child.ModuleName, child.InheritedDefaults, child.LocalOverrides, [], [p]);
+        parent = workspaceModule.createInherited(parent.Id, parent.ModuleName, parent.InheritedDefaults, parent.LocalOverrides, [child], []);
         return workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [parent]);
     }
 
@@ -88,8 +94,8 @@ public sealed class ChildReferenceTests : IDisposable
     {
         var saved = WorkspaceFileStore.CreateWorkspace(Root, Inherited(branch), Token).Definition;
         var source = Path.Combine(Root, "parent", "child");
-        var moduleCopy = Path.Combine(temporary.FullName, "Detached module");
-        var projectCopy = Path.Combine(temporary.FullName, "Detached project");
+        var moduleCopy = Path.Combine(temporary.FullName, "Detached", "child");
+        var projectCopy = Path.Combine(temporary.FullName, "Detached", "draft");
         Copy(source, moduleCopy);
         Copy(Path.Combine(source, "draft"), projectCopy);
         Directory.Delete(Root, true); // Only this test's generated workspace.
@@ -99,10 +105,10 @@ public sealed class ChildReferenceTests : IDisposable
         Assert.Equal(64, Channel(p.ResultsParameterDefaults));
         Assert.Equal("Own results", p.ResultsDatabaseName);
         var family = branch ? hierarchyKind.Branch : hierarchyKind.Root;
-        var withoutLocal = workspaceModule.createInherited(m.Id, m.ModuleName, m.FolderName, m.InheritedDefaults,
+        var withoutLocal = workspaceModule.createInherited(m.Id, m.ModuleName, m.InheritedDefaults,
             ModuleOverridesDto.toDomain(family, new moduleOverridesDto()), m.Modules, m.Projects);
         Assert.Equal(16, Channel(withoutLocal.ResultsParameterDefaults));
-        var draft = project.createInherited(p.Id, p.ProjectName, p.FolderName, p.InheritedDefaults,
+        var draft = project.createInherited(p.Id, p.ProjectName, p.InheritedDefaults,
             OverridesDto.toDomain(family, new projectOverridesDto { resultsDatabaseName = "Own results", setupDatabaseName = branch ? "Own setup" : null }), []);
         Assert.Equal(32, Channel(draft.ResultsParameterDefaults));
         Assert.Equal("sortable-tests.standard", draft.ResultsFunctionName);
@@ -166,9 +172,9 @@ public sealed class ChildReferenceTests : IDisposable
         var dto = WorkspaceDefinitionCodec.decodeWorkspace(File.ReadAllBytes(path));
         switch (problem)
         {
-            case "missing-child": dto.modules[0].folderName = "missing"; break;
+            case "missing-child": dto.modules[0].name = "missing"; break;
             case "wrong-id": dto.modules[0].id = Guid.NewGuid(); break;
-            case "escape": dto.modules[0].folderName = "../sorting"; break;
+            case "escape": dto.modules[0].name = "../sorting"; break;
             case "duplicate": dto.modules = [dto.modules[0], dto.modules[0]]; break;
             case "missing-run": File.Delete(Directory.GetFiles(Path.Combine(ProjectFolder, "runs")).Single()); break;
         }

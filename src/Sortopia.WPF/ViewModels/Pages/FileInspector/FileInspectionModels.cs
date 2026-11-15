@@ -70,7 +70,7 @@ internal sealed record InspectionReport(string Kind, string Description, IReadOn
                 {
                     var itemName = $"[{children.Count + 1}]";
                     if (item.ValueKind == JsonValueKind.Object)
-                        foreach (var key in new[] { "keyName", "Key", "folderName", "kind", "Kind" })
+                        foreach (var key in new[] { "keyName", "Key", "name", "kind", "Kind" })
                             if (item.TryGetProperty(key, out var label) && label.ValueKind == JsonValueKind.String)
                             { itemName = label.GetString()!; break; }
                     children.Add(Build(itemName, item, local));

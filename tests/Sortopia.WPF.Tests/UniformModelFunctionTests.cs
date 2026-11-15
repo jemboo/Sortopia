@@ -174,10 +174,10 @@ public sealed class UniformModelFunctionTests
             page.AddRunCommand.Execute(null); var run = page.Selected!;
             WorkspaceParameterSetsPreviewTests.AddSpan(run, "UnfoldingWeights", false, "1,0,0", "0,1,0");
             Assert.All(run.Editor!.ResultsParameters.Single().Values, value => Assert.True(value.IsWeights));
-            run.Editor.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
+            run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             if (branch) {
                 WorkspaceParameterSetsPreviewTests.AddSpan(run, "UnfoldingWeights", true, "1,0,0");
-                run.Editor.SetupQueryOutputs.Single().Keys.Single().Selected = true;
+                run.Parent!.Editor!.SetupQueryOutputs.Single().Keys.Single().Selected = true;
             }
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); page.Selected = run;
             await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);

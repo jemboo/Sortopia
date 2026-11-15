@@ -69,7 +69,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         : IsBranch && !HasSetupContract ? "Choose a setup function to see compatible results functions."
         : !HasResultsContract ? "Choose a results function to configure this module."
         : FunctionCompatibilityError.Length > 0 ? "Choose a compatible setup/results pair to continue."
-        : IsRun ? "Select parameter spans, outputs, or generated parameter sets in Configuration to continue."
+        : IsRun ? "Select parameter spans, outputs, or Run parameter files in Configuration to continue."
         : "Select parameter defaults or outputs in Configuration to continue.";
     public string RetainedResultsDefaultsHint => RetainedDefaultsHint(false);
     public string RetainedSetupDefaultsHint => RetainedDefaultsHint(true);
