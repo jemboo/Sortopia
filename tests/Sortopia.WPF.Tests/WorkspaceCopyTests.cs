@@ -54,7 +54,7 @@ public sealed class WorkspaceCopyTests : IDisposable
             WorkspaceEntityKind.Module => Path.Combine(Root, "parent-module"),
             _ => Path.Combine(Root, "parent-module", "parent-project")
         };
-        if (childKind == WorkspaceEntityKind.Module) WorkspaceImportTests.WriteModule(Source);
+        if (childKind == WorkspaceEntityKind.Module) WorkspaceImportTests.WriteModule(Source, defineFunctions: parentKind != WorkspaceEntityKind.Module);
         else WorkspaceImportTests.WriteProject(Source);
         AddData(Source);
         var before = Snapshot(Source);

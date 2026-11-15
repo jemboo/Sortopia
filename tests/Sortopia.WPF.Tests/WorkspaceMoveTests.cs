@@ -16,12 +16,15 @@ public sealed class WorkspaceMoveTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private string? importSource;
     private static CancellationToken Token => TestContext.Current.CancellationToken;
+    // These containers leave function definitions to A; moving A beneath B stays valid.
+    private static WorkspaceModule Container(string name, project[] projects) => WorkspaceModule.createInherited(
+        Guid.NewGuid(), name, ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], projects.Select(value => project.seal.Invoke(value)).ToArray());
     private WorkspacePageViewModel Open(bool saved = true)
     {
         var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "A", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Nested", [], [])],
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "A", [Container("Nested", [])],
                 [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
-            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "B", [], [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", [])])]);
+            Container("B", [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", [])])]);
         Directory.CreateDirectory(Root);
         if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
@@ -328,7 +331,7 @@ public sealed class WorkspaceMoveTests : IDisposable
     {
         var page = Open();
         importSource = Path.Combine(temporary.FullName, "Imported");
-        WorkspaceImportTests.WriteModule(importSource);
+        WorkspaceImportTests.WriteModule(importSource, defineFunctions: moveIntoImport);
         var sourceBefore = Snapshot(importSource);
         var before = Snapshot(Root);
         if (moveIntoImport)
@@ -403,7 +406,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         importSource = Path.Combine(temporary.FullName, "Imported");
         WorkspaceImportTests.WriteModule(importSource);
         var innerFolder = Path.Combine(importSource, "Inner");
-        WorkspaceImportTests.WriteModule(innerFolder);
+        WorkspaceImportTests.WriteModule(innerFolder, defineFunctions: false);
         var innerDefinition = WorkspaceFileStore.LoadModuleFolder(innerFolder, Token);
         var outerFile = WorkspaceDefinitionFiles.Require(importSource, "module");
         var outer = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(outerFile));

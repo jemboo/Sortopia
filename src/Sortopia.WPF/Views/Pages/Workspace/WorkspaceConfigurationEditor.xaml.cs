@@ -8,7 +8,7 @@ namespace Sortopia.WPF.Views.Pages.Workspace;
 
 public partial class WorkspaceConfigurationEditor : UserControl
 {
-    private bool functionsReady;
+    private bool configurationVisible;
     public static readonly DependencyProperty ActiveItemKeyProperty = DependencyProperty.Register(nameof(ActiveItemKey), typeof(string),
         typeof(WorkspaceConfigurationEditor), new PropertyMetadata("description", (owner, _) => ((WorkspaceConfigurationEditor)owner).ShowActiveItem()));
     public string ActiveItemKey { get => (string)GetValue(ActiveItemKeyProperty); set => SetValue(ActiveItemKeyProperty, value); }
@@ -25,15 +25,15 @@ public partial class WorkspaceConfigurationEditor : UserControl
     }
     private void ConfigurationChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(WorkspaceConfigurationViewModel.FunctionsReady))
-            && functionsReady != (DataContext as WorkspaceConfigurationViewModel)?.FunctionsReady) ShowActiveItem();
+        if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(WorkspaceConfigurationViewModel.ShowFunctionConfiguration))
+            && configurationVisible != (DataContext as WorkspaceConfigurationViewModel)?.ShowFunctionConfiguration) ShowActiveItem();
     }
     private void ShowActiveItem()
     {
         if (DescriptionSection is null) return;
         var configuration = DataContext as WorkspaceConfigurationViewModel;
-        functionsReady = configuration?.FunctionsReady ?? false;
-        var activeKey = configuration is { FunctionsReady: false }
+        configurationVisible = configuration?.ShowFunctionConfiguration ?? false;
+        var activeKey = configuration is { ShowFunctionConfiguration: false }
             && ActiveItemKey is not ("description" or "resultsFunction" or "setupFunction" or "resultsDatabase" or "setupDatabase")
                 ? configuration.IsBranch ? "setupFunction" : "resultsFunction" : ActiveItemKey;
         void Show(FrameworkElement element, params string[] keys)

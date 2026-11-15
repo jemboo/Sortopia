@@ -87,6 +87,8 @@ public sealed record WorkspaceOutputType(string Kind, string Text)
     internal sortopiaDataTypeDto ToDto() => new() { kind = Kind, value = Text };
 }
 
+public sealed record WorkspaceFunctionDefinitionSource(WorkspaceConfigurationViewModel Module, string Path, string FunctionName);
+
 /// <summary>A local value wins over the nearest ancestor; disabling it restores inheritance.</summary>
 public abstract class WorkspaceOverrideState : WorkspaceFormItem
 {
@@ -94,36 +96,59 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     private readonly string ownerKind;
     private bool isOverridden, hasDraft;
     protected WorkspaceOverrideState(string title, string ownerKind, Func<WorkspaceConfigurationViewModel?> inheritedSource, bool canOverride = true, bool projectValue = false)
-    { Title = title; this.ownerKind = ownerKind; this.inheritedSource = inheritedSource; this.canOverride = canOverride; IsProjectValue = projectValue; }
+    {
+        Title = title; this.ownerKind = ownerKind; this.inheritedSource = inheritedSource; this.canOverride = canOverride; IsProjectValue = projectValue;
+        UseInheritedFunctionCommand = new RelayCommand(() => IsOverridden = false, () => CanClearFunctionDefinition);
+    }
     public bool IsProjectValue { get; }
     public string Title { get; }
     private readonly bool canOverride;
     internal Func<bool>? FixedByFunction { get; set; }
+    internal bool IsFunctionDefinition { get; set; }
+    internal Func<IReadOnlyList<WorkspaceFunctionDefinitionSource>>? FindDescendantDefinitions { get; set; }
+    public IReadOnlyList<WorkspaceFunctionDefinitionSource> DescendantFunctionDefinitions { get; private set; } = [];
+    public bool HasDescendantFunctionDefinitions => DescendantFunctionDefinitions.Count > 0;
     public bool IsReadOnly { get; internal set; }
-    public bool CanOverride => canOverride && !IsReadOnly && !IsProjectValue && FixedByFunction?.Invoke() != true;
-    public string OverrideCaption => ownerKind == "run" ? "Override for this run" : $"Override on this {ownerKind}";
+    public bool ShowOverrideToggle => canOverride && !IsReadOnly && !IsProjectValue && FixedByFunction?.Invoke() != true;
+    private WorkspaceConfigurationViewModel? ParentFunctionDefinition => IsFunctionDefinition && ownerKind == "module" ? inheritedSource() : null;
+    public bool CanOverride => ShowOverrideToggle && ParentFunctionDefinition is null && !HasDescendantFunctionDefinitions;
+    public bool CanClearFunctionDefinition => ShowOverrideToggle && IsOverridden && (ParentFunctionDefinition is not null || HasDescendantFunctionDefinitions);
+    public RelayCommand UseInheritedFunctionCommand { get; }
+    public string ClearFunctionDefinitionCaption => ParentFunctionDefinition is not null ? "Use inherited function" : "Remove local definition";
+    public string ClearFunctionDefinitionHint => ParentFunctionDefinition is not null
+        ? "Remove this local function definition and use the function defined on the parent module."
+        : "Remove this local function definition. Descendant modules keep their definitions.";
+    public string? DefinitionHint => ParentFunctionDefinition is { } source
+        ? $"This function is already defined on {source.Name}. Follow the source link to edit it there."
+        : HasDescendantFunctionDefinitions ? "This function is already defined in descendant modules. Follow the links below to edit those definitions." : null;
+    public string OverrideCaption => IsFunctionDefinition ? "Define on this module" : ownerKind == "run" ? "Override for this run" : $"Override on this {ownerKind}";
+    public string OverrideAutomationName => $"{(IsFunctionDefinition ? "Define" : "Override")} {Title}";
     public bool IsOverridden
     {
         get => isOverridden;
         set
         {
-            if (!CanOverride || isOverridden == value) return;
+            if (!(value ? CanOverride : ShowOverrideToggle) || isOverridden == value) return;
             if (value && !hasDraft) { SeedOverride(); hasDraft = true; }
             isOverridden = value;
             RefreshInherited(); NotifyChanged();
         }
     }
     public bool IsInherited => !IsOverridden;
-    public bool CanEditValue => IsOverridden && !IsReadOnly && FixedByFunction?.Invoke() != true;
+    public bool CanEditValue => IsOverridden && !IsReadOnly && FixedByFunction?.Invoke() != true && ParentFunctionDefinition is null && !HasDescendantFunctionDefinitions;
     public bool ShowPreview => !CanEditValue;
-    public WorkspaceConfigurationViewModel? InheritedSource => IsInherited || FixedByFunction?.Invoke() == true ? inheritedSource() : null;
+    public WorkspaceConfigurationViewModel? InheritedSource => ParentFunctionDefinition ?? (IsInherited || FixedByFunction?.Invoke() == true ? inheritedSource() : null);
     public bool HasInheritedSource => InheritedSource is not null;
-    public string SourceLabel => IsReadOnly ? "Fixed when this project was sealed" : FixedByFunction?.Invoke() == true ? "Defined by the selected function" : IsProjectValue ? "Defined on this project" : IsOverridden ? ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
-        : InheritedSource is { } source ? $"Inherited from {source.Name}" : "Default value · no ancestor override";
+    public string SourceLabel => IsReadOnly ? "Fixed when this project was sealed" : ParentFunctionDefinition is { } definition ? $"{(IsOverridden ? "Also defined on" : "Defined on")} {definition.Name}" : FixedByFunction?.Invoke() == true ? "Defined by the selected function" : IsProjectValue ? "Defined on this project" : IsOverridden ? IsFunctionDefinition ? "Defined on this module" : ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
+        : InheritedSource is { } source ? $"Inherited from {source.Name}" : HasDescendantFunctionDefinitions ? "This module leaves the function to its descendants." : IsFunctionDefinition ? "Not defined on the module path" : "Default value · no ancestor override";
     protected abstract void SeedOverride();
     internal void MarkLocal() { isOverridden = hasDraft = true; RefreshInherited(); }
     protected void LoadState(bool local) { isOverridden = hasDraft = local; RefreshInherited(); }
-    internal virtual void RefreshInherited() => OnPropertyChanged("");
+    internal virtual void RefreshInherited()
+    {
+        DescendantFunctionDefinitions = FindDescendantDefinitions?.Invoke() ?? [];
+        OnPropertyChanged(""); UseInheritedFunctionCommand.RaiseCanExecuteChanged();
+    }
 }
 
 public sealed class WorkspaceOverrideField : WorkspaceOverrideState
@@ -137,10 +162,11 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
     private readonly string[] catalogChoices;
     internal Func<string[]>? AvailableChoices { get; set; }
     internal Func<bool>? SelectionEnabled { get; set; }
+    internal bool EmptyMeansInherited { get; set; }
     public string[] Choices => AvailableChoices?.Invoke() ?? catalogChoices;
     public bool HasChoices => catalogChoices.Length > 0;
     public bool IsSetupCatalog { get; internal set; }
-    public bool ShowCatalogPicker => HasChoices && CanOverride;
+    public bool ShowCatalogPicker => HasChoices && ShowOverrideToggle;
     public bool CanSelectValue => CanEditValue && SelectionEnabled?.Invoke() != false;
     public bool IsMultiline => !required;
     protected override void SeedOverride() => value = inherited();
@@ -150,6 +176,8 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
         set
         {
             if (IsReadOnly || !IsOverridden || this.value == value) return;
+            if (EmptyMeansInherited && string.IsNullOrWhiteSpace(value)) { Load(null); NotifyChanged(); return; }
+            if (!CanEditValue) return;
             this.value = value; RefreshInherited(); NotifyChanged();
         }
     }
@@ -164,12 +192,17 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
             if (IsOverridden) return $"{Title} is empty. In {section}, {action}."
                 + (!string.IsNullOrWhiteSpace(inherited()) ? $" You can also clear ‘{OverrideCaption}’ to use the inherited value." : "");
             if (CanOverride) return $"No {Title.ToLowerInvariant()} is selected. Open {section}, check ‘{OverrideCaption}’, and {action}. You can also select the function on a parent module to share it with its projects.";
-            return $"No {Title.ToLowerInvariant()} is selected. Select a parent module in the tree, click ‘{Title}’, enable ‘Override on this module’, and {action}. Functions can only be selected on modules.";
+            return $"No {Title.ToLowerInvariant()} is selected. Select a parent module in the tree, click ‘{Title}’, enable ‘Define on this module’, and {action}. Functions can only be selected on modules.";
         }
     }
     public string? OverrideValue => IsOverridden ? value : null;
-    internal void Load(string? input) { value = input ?? ""; LoadState(input is not null); }
-    internal void SetLocal(string input) { if (IsReadOnly || (!CanOverride && !IsProjectValue)) return; value = input; MarkLocal(); NotifyChanged(); }
+    internal void Load(string? input) { if (EmptyMeansInherited && string.IsNullOrWhiteSpace(input)) input = null; value = input ?? ""; LoadState(input is not null); }
+    internal void SetLocal(string input)
+    {
+        if (EmptyMeansInherited && string.IsNullOrWhiteSpace(input) && ShowOverrideToggle) { Load(null); NotifyChanged(); return; }
+        if (IsReadOnly || (!CanOverride && !IsProjectValue)) return;
+        value = input; MarkLocal(); NotifyChanged();
+    }
 }
 
 public sealed class WorkspaceListOverride : WorkspaceOverrideState
@@ -218,15 +251,21 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         }
         DescriptionOverride = Field(nameof(Description), "Description", false, () => Parent?.Description ?? "");
         ResultsDatabaseOverride = Field(nameof(ResultsDatabaseName), "Results database", !IsModule, () => IsRun ? Parent?.ResultsDatabaseName ?? "" : "Results", false, projectValue: IsProject);
-        ResultsFunctionOverride = Field(nameof(ResultsFunctionName), "Results function", true, () => Parent?.ResultsFunctionName ?? "", IsModule,
+        ResultsFunctionOverride = Field(nameof(ResultsFunctionName), "Results function", !IsModule, () => Parent?.ResultsFunctionName ?? "", IsModule,
             ResultsFunctionCatalog.functions.Keys.ToArray());
         SetupDatabaseOverride = Field(nameof(SetupDatabaseName), "Setup database", !IsModule, () => IsRun ? Parent?.SetupDatabaseName ?? "" : "Setup", false, projectValue: IsProject);
         if (IsProject) { ResultsDatabaseOverride.Load("Results"); if (IsBranch) SetupDatabaseOverride.Load("Setup"); }
-        SetupFunctionOverride = Field(nameof(SetupFunctionName), "Setup function", true, () => Parent?.SetupFunctionName ?? "", IsModule, choices:
+        SetupFunctionOverride = Field(nameof(SetupFunctionName), "Setup function", !IsModule, () => Parent?.SetupFunctionName ?? "", IsModule, choices:
             SetupFunctionCatalog.functions.Keys.ToArray());
+        ResultsFunctionOverride.EmptyMeansInherited = SetupFunctionOverride.EmptyMeansInherited = true;
+        ResultsFunctionOverride.IsFunctionDefinition = SetupFunctionOverride.IsFunctionDefinition = true;
+        if (IsModule)
+        {
+            ResultsFunctionOverride.FindDescendantDefinitions = () => DescendantFunctionSources(false).ToArray();
+            SetupFunctionOverride.FindDescendantDefinitions = () => DescendantFunctionSources(true).ToArray();
+        }
         SetupFunctionOverride.IsSetupCatalog = true;
         ResultsFunctionOverride.AvailableChoices = () => IsModule ? CompatibleResultsFunctions : ResultsFunctionCatalog.functions.Keys.ToArray();
-        ResultsFunctionOverride.SelectionEnabled = () => !IsModule || !IsBranch || HasSetupContract;
         WorkspaceListOverride List(string key, string title, Action seed)
         {
             var field = new WorkspaceListOverride(title, owner, () => key switch {
@@ -261,7 +300,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     {
         if (HasResultsContract && property is nameof(OutputTypesOverride)) property = nameof(ResultsFunctionName);
         if (SetupGeneratesAllOutputs && property == nameof(SetupDataTypes)) property = nameof(SetupFunctionName);
-        return properties[property].IsOverridden ? this : Parent?.ValueSource(property);
+        var field = properties[property];
+        var definesValue = field.IsOverridden && (field is not WorkspaceOverrideField { IsFunctionDefinition: true } function || !string.IsNullOrWhiteSpace(function.OverrideValue));
+        return definesValue ? this : Parent?.ValueSource(property);
     }
     public bool IsProject { get; }
     public bool IsModule { get; }
@@ -488,9 +529,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private string[] RequiredSetupKeys => EffectiveSetupKeys.Concat(EffectiveSetupDataTypes.Where(row => NeedsSource(row.dataType)).SelectMany(row =>
         sources().FirstOrDefault(p => p.Id == row.sourceProjectId)?.Settings.resultsDataTypes?.FirstOrDefault(output => SameType(output.dataType, row.dataType))?.queryParameterKeys ?? [])).Distinct(StringComparer.Ordinal).ToArray();
     public string ResultsDatabaseError => ResultsDatabaseOverride.Error;
-    public string ResultsFunctionError => FirstError(ResultsFunctionOverride.Error, ResultsFunctionName.Length > 0 && !HasResultsContract ? $"Unknown results function ‘{ResultsFunctionName}’. Choose a registered function on the module." : "", FunctionCompatibilityError);
+    public string ResultsFunctionError => FirstError(FunctionDefinitionError(false), ResultsFunctionOverride.Error, ResultsFunctionName.Length > 0 && !HasResultsContract ? $"Unknown results function ‘{ResultsFunctionName}’. Choose a registered function on the module." : "", FunctionCompatibilityError);
     public string SetupDatabaseError => SetupDatabaseOverride.Error;
-    public string SetupFunctionError => FirstError(SetupFunctionOverride.Error, SetupFunctionName.Length > 0 && !HasSetupContract ? $"Unknown setup function ‘{SetupFunctionName}’. Choose a registered function on the module." : "");
+    public string SetupFunctionError => FirstError(FunctionDefinitionError(true), SetupFunctionOverride.Error, SetupFunctionName.Length > 0 && !HasSetupContract ? $"Unknown setup function ‘{SetupFunctionName}’. Choose a registered function on the module." : "");
     private static string KeysError(string[] values) => values.Any(string.IsNullOrWhiteSpace) ? "Enter a name for each query key, or remove its row."
         : values.Distinct(StringComparer.Ordinal).Count() != values.Length ? "Query keys must be unique." : "";
     private static string[] MissingKeys(IEnumerable<WorkspaceParameterSpan> spans, IEnumerable<string>? keys) =>

@@ -7,6 +7,21 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed partial class WorkspaceConfigurationViewModel
 {
+    private IEnumerable<WorkspaceFunctionDefinitionSource> DescendantFunctionSources(bool setup, string prefix = "")
+    {
+        foreach (var child in childEditors().Where(child => child.IsModule))
+        {
+            var path = prefix.Length == 0 ? child.Name : $"{prefix} / {child.Name}";
+            var field = setup ? child.SetupFunctionOverride : child.ResultsFunctionOverride;
+            if (!string.IsNullOrWhiteSpace(field.OverrideValue)) yield return new(child, path, field.OverrideValue);
+            foreach (var definition in child.DescendantFunctionSources(setup, path)) yield return definition;
+        }
+    }
+    internal void RefreshFunctionDefinitions()
+    {
+        ResultsFunctionOverride.RefreshInherited(); SetupFunctionOverride.RefreshInherited();
+    }
+
     private string FunctionInputsError(bool setup, bool includeSpans)
     {
         if (!PhaseVersionCurrent(setup)) return "";
@@ -52,22 +67,37 @@ public sealed partial class WorkspaceConfigurationViewModel
     public string ResultsContractHint => HasResultsContract ? "Saved data types and their text are defined by the results function. Query keys are chosen on the project from explicit run spans." : "";
     public string SetupContractHint => HasSetupContract ? "Saved data types and their text are defined by the setup function. Query keys are chosen on the project from explicit run spans. Choose source projects only for outputs that consume source data." : "";
     public string[] CompatibleResultsFunctions => ResultsFunctionCatalog.functions
-        .Where(entry => IsBranch ? HasSetupContract && entry.Value.SourceDataTypes.All(input =>
+        .Where(entry => IsBranch ? !HasSetupContract || entry.Value.SourceDataTypes.All(input =>
             SetupFunctionCatalog.functions[SetupFunctionName].SortopiaDataTypes.Contains(input)) : entry.Value.SourceDataTypes.IsEmpty)
         .Select(entry => entry.Key).ToArray();
-    public bool FunctionsReady => HasResultsContract && (!IsBranch || HasSetupContract) && FunctionCompatibilityError.Length == 0;
-    public bool ShowFunctionConfiguration => FunctionsReady;
+    private string FunctionDefinitionError(bool setup)
+    {
+        if (IsModule) return "";
+        var modules = new List<string>();
+        for (var current = this; current is not null; current = current.Parent)
+        {
+            if (current.IsReadOnly) return ""; // Sealed projects own their recorded function choices.
+            if (current.IsModule && !string.IsNullOrWhiteSpace((setup ? current.SetupFunctionOverride : current.ResultsFunctionOverride).OverrideValue))
+                modules.Add(current.Name);
+        }
+        return modules.Count <= 1 ? "" : $"The {(setup ? "setup" : "results")} function is defined on multiple modules: {string.Join(", ", modules)}. Keep its definition on exactly one module along the path to a run. Choose ‘Use inherited function’ on a child module to remove its extra definition.";
+    }
+    public bool FunctionsReady => HasResultsContract && (!IsBranch || HasSetupContract) && FunctionCompatibilityError.Length == 0
+        && FunctionDefinitionError(false).Length == 0 && (!IsBranch || FunctionDefinitionError(true).Length == 0);
+    public bool ShowFunctionConfiguration => FunctionsReady || IsModule && (HasResultsContract || HasSetupContract) && FunctionCompatibilityError.Length == 0;
     public string FunctionsTitle => IsModule ? "Choose functions" : "Inherited functions";
     public string FunctionsHint => IsModule
-        ? IsBranch ? "Choose or inherit a setup function, then a compatible results function. Their required parameters, saved outputs, and source inputs determine the available settings."
-            : "Choose or inherit a results function first. Its required parameters and saved outputs determine the available settings."
-        : IsReadOnly ? "These functions were fixed when this project’s first run was saved. Create a new project version to use different functions."
+        ? IsBranch ? "A module may leave either function undefined. Each branch run needs exactly one setup definition and one compatible results definition along its module path; they may be on different modules. Clear ‘Define on this module’ to inherit or leave the choice to a child module."
+            : "A module may leave the results function undefined. Each root run needs exactly one results-function definition along its module path. Clear ‘Define on this module’ to inherit or leave the choice to a child module."
+        : IsReadOnly ? "These functions were fixed when this project first generated work. Create a new project version to use different functions."
         : IsRun ? "Functions come from the parent project. Saved runs keep that project’s fixed function choices. Supply spans only for the required keys below."
         : "Functions are inherited from the module. Follow a source link to change a function there; this project can override its allowed defaults and source projects.";
-    public string FunctionsStatus => !FunctionVersionsCurrent ? "This project uses a different function version. Saved settings and data remain available; create a new project version to execute the installed functions." : !FunctionsReady && !IsModule
-        ? "The inherited functions are missing, unavailable, or incompatible. Select the parent module and choose compatible catalog functions before configuring parameters and outputs."
-        : IsBranch && !HasSetupContract ? "Choose a setup function to see compatible results functions."
-        : !HasResultsContract ? "Choose a results function to configure this module."
+    public string FunctionsStatus => !FunctionVersionsCurrent ? "This project uses a different function version. Saved settings and data remain available; create a new project version to execute the installed functions."
+        : FunctionDefinitionError(false).Length > 0 ? FunctionDefinitionError(false)
+        : IsBranch && FunctionDefinitionError(true).Length > 0 ? FunctionDefinitionError(true)
+        : !FunctionsReady && !IsModule ? "The inherited functions are missing, unavailable, or incompatible. Select the parent module and choose compatible catalog functions before configuring parameters and outputs."
+        : ResultsFunctionError.Length > 0 || IsBranch && SetupFunctionError.Length > 0 ? "Review the function issues below before configuring parameters and outputs."
+        : IsModule && (!HasResultsContract || IsBranch && !HasSetupContract) ? "Functions not defined here can be supplied by a child module before a run is configured. This module can be saved as it is."
         : FunctionCompatibilityError.Length > 0 ? "Choose a compatible setup/results pair to continue."
         : IsRun ? "Select parameter spans, outputs, or Run parameter files in Configuration to continue."
         : "Select parameter defaults or outputs in Configuration to continue.";

@@ -105,7 +105,7 @@ public sealed class FunctionCatalogTests
             var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
             var module = page.Selected!;
-            Assert.Equal(branch ? [] : ResultsFunctionCatalog.functions.Where(entry => entry.Value.SourceDataTypes.IsEmpty).Select(entry => entry.Key), module.Editor!.ResultsFunctionOverride.Choices);
+            Assert.Equal(branch ? ResultsFunctionCatalog.functions.Keys : ResultsFunctionCatalog.functions.Where(entry => entry.Value.SourceDataTypes.IsEmpty).Select(entry => entry.Key), module.Editor!.ResultsFunctionOverride.Choices);
             Assert.Equal(SetupFunctionCatalog.functions.Keys, module.Editor.SetupFunctionOverride.Choices);
             Assert.False(module.Editor.ResultsDatabaseOverride.HasChoices);
             module.Editor.ResultsFunctionOverride.IsOverridden = true;

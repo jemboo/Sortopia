@@ -48,6 +48,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         this.openFolder = openFolder;
         this.settings = settings;
         InitializeSaveValidation();
+        InitializeMoveValidation();
+        InitializeImportValidation();
         InitializeInspector();
         ReturnHomeCommand = new RelayCommand(async () => await ReturnHomeAsync(), () => !IsBusy && !resolvingNavigation);
         InspectFilesCommand = new RelayCommand(inspectFiles ?? (() => { }), () => inspectFiles is not null && !IsBusy);
@@ -104,7 +106,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public bool HasEditErrors => DraftEditError.Length > 0;
     public string Error
     {
-        get => error.Length > 0 ? error : DraftEditError;
+        get => error.Length > 0 ? error : HasImportFunctionConflicts ? ImportFunctionConflictSummary : DraftEditError;
         private set { if (SetProperty(ref error, value)) OnPropertyChanged(nameof(OperationError)); }
     }
     // Draft errors are already shown beside Save, with links to their fields.
@@ -124,7 +126,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public string SelectionHint => Selected?.ContainmentHint ?? "Select an item in the tree.";
     public string PasteHint => cutNode is not null && Selected is not null && !Selected.CanContain(cutNode)
         ? $"A {cutNode.KindLabel.ToLowerInvariant()} cannot be placed in a {Selected.KindLabel.ToLowerInvariant()}. Choose a matching parent."
-        : "Paste under the selected parent (Ctrl+V in the tree).";
+        : HasMoveFunctionConflicts ? MoveFunctionConflictSummary : "Paste under the selected parent (Ctrl+V in the tree).";
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand AddRunCommand { get; }
     public RelayCommand CreateProjectVersionCommand { get; }
@@ -262,6 +264,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private void ReplaceDraft(workspace value) => ReplaceDraft(WorkspaceTreeNode.FromWorkspace(value));
     private void ReplaceDraft(WorkspaceTreeNode root)
     {
+        rejectedModuleImport = null;
         pendingRemovalName = null;
         savedNodeIds = savedDocument is null ? [] : root.DescendantsAndSelf().Select(node => node.Id).ToHashSet();
         ClearCut();
@@ -364,6 +367,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             if (selectedFolder is null) return;
             await RunAsync(async token =>
             {
+                rejectedModuleImport = null;
                 if (!Path.IsPathFullyQualified(selectedFolder)) throw new ArgumentException("Choose an absolute source folder.");
                 var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(selectedFolder));
                 var folderName = Sortopia.Runs.FolderName.validate(Path.GetFileName(folder));
@@ -383,6 +387,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
                     copy = import.Copy;
                 }
                 token.ThrowIfCancellationRequested();
+                parent.ValidateChildPlacement(child);
+                if (kind == WorkspaceEntityKind.Module && FindModuleFunctionConflicts(child, parent).Count > 0)
+                {
+                    rejectedModuleImport = new(child, parent.Id, folder);
+                    Status = $"Module '{child.Name}' was not imported because its function definitions conflict.";
+                    return;
+                }
                 child.PendingCopy = copy;
                 if (copy is not null) child.RememberImportLocations(copy.SourceFolder, copy.Id, copy.OriginalIds);
                 parent.AddExistingChild(child);
@@ -414,7 +425,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             : $"Removed '{removed.Name}' from the draft. Save workspace to delete its folder and all contents. Discard changes cancels removal.";
     }
     private bool CanPaste => CanModifyWorkspace && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
-        && !cutNode.DescendantsAndSelf().Contains(Selected);
+        && !cutNode.DescendantsAndSelf().Contains(Selected) && !HasMoveFunctionConflicts;
     private void Cut()
     {
         ClearCut();
@@ -536,6 +547,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     {
         RefreshInspector();
         NotifySaveValidation();
+        NotifyMoveValidation();
+        NotifyImportValidation();
         OnPropertyChanged(nameof(SelectedExecution));
         OnPropertyChanged(nameof(GenerationHint));
         OnPropertyChanged(nameof(GenerationInstructions));

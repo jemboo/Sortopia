@@ -13,8 +13,8 @@
             </Style></Label.Style>
         </Label>
         <CheckBox x:Name="OverrideToggle" Content="{Binding OverrideCaption}" IsChecked="{Binding IsOverridden}" MinHeight="28"
-                  Visibility="{Binding CanOverride, Converter={StaticResource VisibleWhen}}"
-                  Foreground="{DynamicResource Workspace.TextPrimary}" AutomationProperties.Name="{Binding Title, StringFormat=Override {0}}" />
+                  Visibility="{Binding ShowOverrideToggle, Converter={StaticResource VisibleWhen}}" IsEnabled="{Binding CanOverride}" ToolTip="{Binding DefinitionHint}" ToolTipService.ShowOnDisabled="True"
+                  Foreground="{DynamicResource Workspace.TextPrimary}" AutomationProperties.Name="{Binding OverrideAutomationName}" />
         <TextBox x:Name="OverrideValueInput" Text="{Binding EffectiveValue, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding ShowPreview}"
                  AcceptsReturn="{Binding IsMultiline}" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MaxHeight="140"
                  AutomationProperties.Name="{Binding Title}">
@@ -33,6 +33,24 @@
                                     IsEnabled="{Binding CanSelectValue}"
                                     Visibility="{Binding ShowCatalogPicker, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Title}" />
         <local:WorkspaceValueSource x:Name="ValueSource" />
+        <StackPanel Margin="0,4,0,0" Visibility="{Binding HasDescendantFunctionDefinitions, Converter={StaticResource VisibleWhen}}">
+            <TextBlock Text="Defined in descendant modules:" TextWrapping="Wrap" Foreground="{DynamicResource Workspace.TextSecondary}" FontSize="12" />
+            <ItemsControl x:Name="DescendantFunctionLinks" ItemsSource="{Binding DescendantFunctionDefinitions}">
+                <ItemsControl.ItemTemplate><DataTemplate>
+                    <TextBlock TextWrapping="Wrap" Margin="0,3,0,0" FontSize="12">
+                        <Hyperlink x:Name="DescendantFunctionLink" Foreground="{DynamicResource Workspace.Accent}"
+                                   Command="{Binding DataContext.SelectValueSourceCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                                   CommandParameter="{Binding Module}" ToolTip="{Binding FunctionName}"
+                                   AutomationProperties.Name="{Binding Path, StringFormat=Function defined on {0}}">
+                            <Run Text="{Binding Path, Mode=OneWay}" />
+                        </Hyperlink>
+                    </TextBlock>
+                </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+        <Button x:Name="UseInheritedFunctionButton" Content="{Binding ClearFunctionDefinitionCaption}" Command="{Binding UseInheritedFunctionCommand}"
+                HorizontalAlignment="Left" Margin="0,4,0,0" Visibility="{Binding CanClearFunctionDefinition, Converter={StaticResource VisibleWhen}}"
+                ToolTip="{Binding ClearFunctionDefinitionHint}" />
         <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
     </StackPanel>
 </UserControl>

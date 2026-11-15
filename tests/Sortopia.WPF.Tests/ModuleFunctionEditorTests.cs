@@ -29,8 +29,8 @@ public sealed class ModuleFunctionEditorTests
             if (branch)
             {
                 editor.ResultsFunctionOverride.IsOverridden = true;
-                Assert.False(editor.ResultsFunctionOverride.CanSelectValue);
-                Assert.Empty(editor.ResultsFunctionOverride.Choices);
+                Assert.True(editor.ResultsFunctionOverride.CanSelectValue);
+                Assert.Equal(ResultsFunctionCatalog.functions.Keys, editor.ResultsFunctionOverride.Choices);
                 editor.SetupFunctionName = SetupFunctionNames.standardTests;
                 Assert.True(editor.ResultsFunctionOverride.CanSelectValue);
             }
@@ -49,7 +49,7 @@ public sealed class ModuleFunctionEditorTests
     }
 
     [Fact]
-    public void Inherited_function_pairs_constrain_defaults_and_switching_setup_exposes_incompatibility()
+    public void Inherited_function_pairs_prevent_redefinition_and_parent_setup_edits_expose_incompatibility()
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent", family: hierarchyKind.Branch);
         parent.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
@@ -66,11 +66,14 @@ public sealed class ModuleFunctionEditorTests
                 .Where(key => key is not ("AMax" or "ActivationProbability")).Order(StringComparer.Ordinal),
             editor.SetupParameterDefaults.Single().KeyChoices);
         editor.SetupFunctionName = SetupFunctionNames.standardTests;
+        Assert.Equal(SetupFunctionNames.evaluationStandardMssi, editor.SetupFunctionName);
+        Assert.False(editor.SetupFunctionOverride.CanOverride); Assert.True(editor.SetupFunctionOverride.ShowOverrideToggle);
+        parent.Editor.SetupFunctionName = SetupFunctionNames.standardTests;
         Assert.DoesNotContain(ResultsFunctionNames.sorterEval, editor.ResultsFunctionOverride.Choices);
         Assert.False(editor.FunctionsReady);
         Assert.Contains("SorterModelSet", editor.FunctionCompatibilityError);
         Assert.Equal(ResultsFunctionNames.sorterEval, editor.ResultsFunctionName);
-        editor.SetupFunctionOverride.IsOverridden = false;
+        parent.Editor.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
         Assert.True(editor.FunctionsReady);
     }
 

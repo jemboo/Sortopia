@@ -77,6 +77,7 @@ public sealed class FunctionParameterContractTests
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent");
         parent.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        parent.Editor.ResultsFunctionOverride.IsOverridden = false; // This container supplies defaults; its child owns the function.
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child"); parent.Children.Add(child);
         child.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
         Assert.Equal(new[] { "SortableDataFormat" }, child.Editor.InheritedOutputDefaults.Select(value => value.Key));

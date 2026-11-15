@@ -71,12 +71,13 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         {
             if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.RefreshInheritedSubtree(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
             if (args.NewItems is not null) foreach (WorkspaceTreeNode child in args.NewItems) { child.Parent = this; child.RefreshInheritedSubtree(); child.Changed += ChildChanged; child.ValidationChanged += ChildValidationChanged; }
+            Editor?.RefreshFunctionDefinitions();
             Changed?.Invoke();
             ValidationChanged?.Invoke();
         };
         if (kind != WorkspaceEntityKind.Workspace)
         {
-            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name, SourceProjects, () => Children.Where(node => node.IsRun).Select(node => node.Editor!));
+            Editor = new(kind, IsBranch, () => Parent?.Editor, () => Name, SourceProjects, () => Children.Where(node => node.Editor is not null).Select(node => node.Editor!));
             Editor.Changed += ConfigurationChanged;
         }
     }
@@ -134,6 +135,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     internal event Action? ValidationChanged;
     private void ChildChanged()
     {
+        Editor?.RefreshFunctionDefinitions();
         Editor?.RefreshQueryChoices();
         foreach (var child in Children) child.Editor?.RefreshQueryChoices();
         Changed?.Invoke();

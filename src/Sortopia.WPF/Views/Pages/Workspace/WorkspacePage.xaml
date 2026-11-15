@@ -131,7 +131,47 @@
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
                             ToolTip="{Binding RemoveHint}" ToolTipService.ShowOnDisabled="True" />
                 </WrapPanel>
-                <TextBlock x:Name="SelectionHint" Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Margin="0,0,0,8">
+                    <TextBlock x:Name="SelectionHint" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" />
+                    <Border x:Name="MoveFunctionConflictNotice" Margin="0,6,0,0" Padding="8" BorderThickness="1" CornerRadius="5"
+                            BorderBrush="{StaticResource Workspace.Warning}" Visibility="{Binding HasMoveFunctionConflicts, Converter={StaticResource WorkspaceBoolVisibility}}">
+                        <StackPanel>
+                            <TextBox Text="{Binding MoveFunctionConflictSummary, Mode=OneWay}" Style="{StaticResource SelectableError}" AutomationProperties.LiveSetting="Polite" />
+                            <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="MoveFunctionConflictLinks" ItemsSource="{Binding MoveFunctionConflicts}">
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <TextBlock TextWrapping="Wrap" Margin="0,4,0,0">
+                                            <Hyperlink x:Name="MoveFunctionConflictLink" Foreground="{StaticResource Workspace.Accent}"
+                                                       Command="{Binding DataContext.ReviewMoveFunctionConflictCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                                                       CommandParameter="{Binding}" ToolTip="{Binding FunctionName}" AutomationProperties.Name="{Binding Location}">
+                                                <Run Text="{Binding Location, Mode=OneWay}" />
+                                            </Hyperlink>
+                                        </TextBlock>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="ImportFunctionConflictNotice" Margin="0,6,0,0" Padding="8" BorderThickness="1" CornerRadius="5"
+                            BorderBrush="{StaticResource Workspace.Warning}" Visibility="{Binding HasRejectedModuleImport, Converter={StaticResource WorkspaceBoolVisibility}}">
+                        <StackPanel>
+                            <TextBox Text="{Binding ImportFunctionConflictSummary, Mode=OneWay}" Style="{StaticResource SelectableError}" AutomationProperties.LiveSetting="Polite" />
+                            <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="ImportFunctionConflictLinks" ItemsSource="{Binding ImportFunctionConflicts}">
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <TextBlock TextWrapping="Wrap" Margin="0,4,0,0">
+                                            <Hyperlink x:Name="ImportFunctionConflictLink" Foreground="{StaticResource Workspace.Accent}"
+                                                       Command="{Binding DataContext.ReviewImportFunctionConflictCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                                                       CommandParameter="{Binding}" ToolTip="{Binding LinkHint}" AutomationProperties.Name="{Binding Location}">
+                                                <Run Text="{Binding Location, Mode=OneWay}" />
+                                            </Hyperlink>
+                                        </TextBlock>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
                 <TreeView x:Name="WorkspaceTree" Grid.Row="2" Margin="0" ItemsSource="{Binding Roots}" SelectedItemChanged="OnSelectedItemChanged" PreviewMouseRightButtonDown="OnTreeRightClick"
                           Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}"
                           BorderBrush="{StaticResource Workspace.StrokeSubtle}" AutomationProperties.Name="Workspace hierarchy">

@@ -43,13 +43,15 @@ public sealed class WorkspaceImportTests : IDisposable
         File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(value.Runs[0].Id)), WorkspaceCodec.encodeRun(value.Runs[0]));
         File.WriteAllText(Path.Combine(folder, "results.txt"), "Keep results");
     }
-    internal static void WriteModule(string folder, hierarchyKind family = hierarchyKind.Root)
+    internal static void WriteModule(string folder, hierarchyKind family = hierarchyKind.Root, bool defineFunctions = true)
     {
         var name = Path.GetFileName(folder);
         Directory.CreateDirectory(folder);
         WriteProject(Path.Combine(folder, "child-project"), family);
         var child = WorkspaceFileStore.LoadProjectFolder(Path.Combine(folder, "child-project"), Token);
-        var value = WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, [], [child]);
+        var value = defineFunctions ? WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, [], [child])
+            : WorkspaceModule.createInherited(Guid.NewGuid(), name, ModuleDefaults.configuration(family == hierarchyKind.Branch),
+                ModuleOverridesDto.toDomain(family, new moduleOverridesDto()), [], [child]);
         File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeModule(value));
     }
 
@@ -93,7 +95,7 @@ public sealed class WorkspaceImportTests : IDisposable
         };
         var container = parentFolder;
         selected = Path.Combine(container, "imported-folder");
-        if (childKind == WorkspaceEntityKind.Module) WriteModule(selected);
+        if (childKind == WorkspaceEntityKind.Module) WriteModule(selected, defineFunctions: parentKind != WorkspaceEntityKind.Module);
         else WriteProject(selected);
         var before = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace"));
         var originalEntity = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(selected, childKind.ToString().ToLowerInvariant()));

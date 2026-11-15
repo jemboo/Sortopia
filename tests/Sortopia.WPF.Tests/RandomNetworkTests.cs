@@ -2355,7 +2355,7 @@ public sealed class RandomNetworkTests
             }
             Assert.Equal(Visibility.Collapsed, ((TextBox)resultsEditor.FindName("OverrideValueInput")).Visibility);
             Assert.False(results.IsEnabled);
-            Assert.Empty(results.Choices);
+            Assert.Equal(Sortopia.Functions.ResultsFunctionCatalog.functions.Keys, results.Choices);
             Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("FunctionsSection")).Visibility);
             Assert.Equal(Visibility.Visible, ((FrameworkElement)fields.FindName("SetupFunctionItem")).Visibility);
             Assert.Equal(Visibility.Visible, ((FrameworkElement)fields.FindName("ResultsFunctionItem")).Visibility);
@@ -3072,7 +3072,7 @@ public sealed class RandomNetworkTests
             Assert.Single(branchProject.Editor.ResultsOutputContracts, row => row.Kind == "SorterSetEval");
             RenderWorkspaceState("project-fixed-output-contracts", 1400, 900);
             var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source catalog", family: Sortopia.Workspaces.hierarchyKind.Branch);
-            branchModule.Children.Add(sourceModule);
+            vm.Roots[0].Children.Add(sourceModule); // Source functions need their own module path.
             sourceModule.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardSortableTests;
             sourceModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.standardTests;
             sourceModule.Editor.AddRequiredResultsDefaultsCommand.Execute(null); sourceModule.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
@@ -3217,6 +3217,8 @@ public sealed class RandomNetworkTests
             vm.EditProjectDefaultsCommand.Execute(null);
             Assert.Same(branchProject, vm.Selected);
             vm.Selected = branchModule;
+            vm.RemoveCommand.Execute(null);
+            vm.Selected = sourceModule;
             vm.RemoveCommand.Execute(null);
             importSource = System.IO.Path.Combine(temporary.FullName, "library-project");
             WorkspaceImportTests.WriteProject(importSource);

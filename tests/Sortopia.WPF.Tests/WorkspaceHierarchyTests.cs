@@ -84,7 +84,9 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         container.Editor!.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssi;
         container.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source module", family: container.Family);
-        container.Children.Add(sourceModule);
+        var root = container;
+        while (root.Parent is not null) root = root.Parent;
+        root.Children.Add(sourceModule); // Its functions belong on a separate module path from the consumer.
         sourceModule.Editor!.LoadProject(ProjectSettings(container.IsBranch));
         var source = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Setup source", family: container.Family);
         sourceModule.Children.Add(source);

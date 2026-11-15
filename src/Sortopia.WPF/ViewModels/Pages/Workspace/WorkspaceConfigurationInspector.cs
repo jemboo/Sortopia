@@ -31,15 +31,16 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!IsModule) yield return Field("resultsDatabase", "Results", ResultsDatabaseOverride);
         if (!IsModule && IsBranch) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
         if (!ShowFunctionConfiguration) yield break;
-        yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
-            : Summary(EffectiveResultsDataTypes.Select(output => $"{output.dataType.kind} · query keys: {(output.queryParameterKeys.Length == 0 ? "none" : string.Join(", ", output.queryParameterKeys))}")), FirstError(OutputTypesError, ResultsQueryKeysError))
-            with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Fixed · sealed project", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
-        yield return Defaults(false);
-        if (IsRun)
+        if (HasResultsContract)
         {
-            yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
+            yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
+                : Summary(EffectiveResultsDataTypes.Select(output => $"{output.dataType.kind} · query keys: {(output.queryParameterKeys.Length == 0 ? "none" : string.Join(", ", output.queryParameterKeys))}")), FirstError(OutputTypesError, ResultsQueryKeysError))
+                with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Fixed · sealed project", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
+            yield return Defaults(false);
+            if (IsRun)
+                yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
         }
-        if (!IsBranch) yield break;
+        if (!IsBranch || !HasSetupContract) yield break;
 
 
         yield return List("setupOutputs", "Setup", SetupDataTypesOverride,

@@ -46,6 +46,10 @@ type moduleConfiguration = RootModuleConfig of rootModuleConfig | BranchModuleCo
 type moduleOverrides = RootModuleOverrides of rootModuleOverrides | BranchModuleOverrides of branchModuleOverrides
 
 module ModuleDefaults =
+    let private defined value = not (System.String.IsNullOrWhiteSpace(string value))
+    // A module can be an unfinished container. Definition counts are checked on
+    // the module path when a draft project is prepared for generation.
+    let private resolveFunction parent local = local |> Option.filter defined |> Option.defaultValue parent
     let fromRootProject (value: rootProjectConfig) : rootModuleConfig = {
         Description = value.Description
         ResultsFunctionName = value.ResultsFunctionName
@@ -75,13 +79,13 @@ module ModuleDefaults =
     let root = fromRootProject Defaults.root
     let inheritRoot = fromRootOverrides Defaults.inheritRoot
     let resolveRoot (parent: rootModuleConfig) (local: rootModuleOverrides) =
-        let name = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
+        let name = resolveFunction parent.ResultsFunctionName local.ResultsFunctionName
         let parent = { parent with ResultsFunctionName = name
                                    ResultsParameterDefaults = if name = parent.ResultsFunctionName then parent.ResultsParameterDefaults else Defaults.resultsDefaultsFor name parent.ResultsParameterDefaults }
         Defaults.resolveRoot (toRootProject parent) (toRootOverrides local) |> fromRootProject
     let validateRoot local =
         toRootOverrides local |> Defaults.validateRoot
-        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.ResultsFunctionCatalog.require >> ignore)
+        local.ResultsFunctionName |> Option.filter defined |> Option.iter (Sortopia.Functions.ResultsFunctionCatalog.require >> ignore)
     let validateRootConfiguration value = toRootProject value |> Defaults.validateRootModule
 
     let fromBranchProject (value: branchProjectConfig) : branchModuleConfig = {
@@ -127,16 +131,16 @@ module ModuleDefaults =
     let branch = fromBranchProject Defaults.branch
     let inheritBranch = fromBranchOverrides Defaults.inheritBranch
     let resolveBranch (parent: branchModuleConfig) (local: branchModuleOverrides) =
-        let resultsName = local.ResultsFunctionName |> Option.defaultValue parent.ResultsFunctionName
-        let setupName = local.SetupFunctionName |> Option.defaultValue parent.SetupFunctionName
+        let resultsName = resolveFunction parent.ResultsFunctionName local.ResultsFunctionName
+        let setupName = resolveFunction parent.SetupFunctionName local.SetupFunctionName
         let parent = { parent with ResultsFunctionName = resultsName; SetupFunctionName = setupName
                                    ResultsParameterDefaults = if resultsName = parent.ResultsFunctionName then parent.ResultsParameterDefaults else Defaults.resultsDefaultsFor resultsName parent.ResultsParameterDefaults
                                    SetupParameterDefaults = if setupName = parent.SetupFunctionName then parent.SetupParameterDefaults else Defaults.setupDefaultsFor setupName parent.SetupParameterDefaults }
         Defaults.resolveBranch (toBranchProject parent) (toBranchOverrides local) |> fromBranchProject
     let validateBranch local =
         toBranchOverrides local |> Defaults.validateBranch
-        local.ResultsFunctionName |> Option.iter (Sortopia.Functions.ResultsFunctionCatalog.require >> ignore)
-        local.SetupFunctionName |> Option.iter (Sortopia.Functions.SetupFunctionCatalog.require >> ignore)
+        local.ResultsFunctionName |> Option.filter defined |> Option.iter (Sortopia.Functions.ResultsFunctionCatalog.require >> ignore)
+        local.SetupFunctionName |> Option.filter defined |> Option.iter (Sortopia.Functions.SetupFunctionCatalog.require >> ignore)
     let validateBranchConfiguration value = toBranchProject value |> Defaults.validateBranchModule
 
     let fromProject = function RootProjectConfig value -> RootModuleConfig (fromRootProject value) | BranchProjectConfig value -> BranchModuleConfig (fromBranchProject value)

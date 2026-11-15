@@ -67,7 +67,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         var issue = Assert.Single(page.SaveIssues, value => value.Message.Contains("No results function"));
         Assert.Contains("SingleStage", issue.Location); Assert.Contains("Shared module", issue.Location);
         Assert.Equal("Results settings", issue.Section);
-        Assert.Contains("Override on this module", issue.Message); Assert.Contains("catalog", issue.Message);
+        Assert.Contains("Define on this module", issue.Message); Assert.Contains("catalog", issue.Message);
         Assert.DoesNotContain("ancestor", issue.Message);
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         project.Editor!.Sections.ResultsSettings = false; page.Selected = page.Roots[0];
