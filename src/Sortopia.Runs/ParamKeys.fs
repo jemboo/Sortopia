@@ -70,6 +70,7 @@ module ParamKeys =
     let activationProbabilityKey = ParamKey.floating "ActivationProbability"
     let controlledSeedAMaxKey = ParamKey.integer "ControlledSeedAMax"
     let aMaxKey = ParamKey.integer "AMax"
+    let aInitialKey = ParamKey.integer "AInitial"
     let activatorMutationRateKey = ParamKey.floating "ActivatorMutationRate"
     let ceLengthKey = ParamKey.integer "CeLength"
     let codeModKey = ParamKey.text "CodeModKey"
@@ -158,6 +159,7 @@ module ParamKeys =
         ParamKey.describe activationProbabilityKey
         ParamKey.describe controlledSeedAMaxKey
         ParamKey.describe aMaxKey
+        ParamKey.describe aInitialKey
         ParamKey.describe activatorMutationRateKey
         ParamKey.describe ceLengthKey
         ParamKey.describe codeModKey

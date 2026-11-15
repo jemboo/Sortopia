@@ -16,7 +16,7 @@ public sealed class SourceEvaluationInputsTests
     private static functionData Models(int channels = 4)
     {
         var parameters = parameterSet.fromBindings(RunExecutionTests.UniformModelDefaults(channels).Select(ParameterBindingDto.toDomain));
-        return Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.uniformMssiSorterModels, parameters));
+        return Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels, parameters));
     }
 
     private static functionData Tests(int channels = 4)

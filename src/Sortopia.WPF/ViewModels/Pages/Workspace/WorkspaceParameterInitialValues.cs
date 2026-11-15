@@ -47,8 +47,8 @@ internal static class WorkspaceParameterInitialValues
             "ExcludeSelfCe" => "true",
             "CollectSortableTests" => "false",
             "SortableDataFormat" => "Bools",
-            "SorterModelType" => "Simple",
             "AMax" => "1",
+            "AInitial" => "0",
             "ActivationProbability" => "0.5",
             "StageWeights" or "Seed4Weights" => "1,1,1",
             "Seed6Weights" => "1,1,1,1,1,1,1",
@@ -62,7 +62,7 @@ internal static class WorkspaceParameterInitialValues
     internal static int SuggestedChannelCount(int channels, string functionName)
     {
         if (!IsModelFunction(functionName)) return channels;
-        var model = SimpleSorterModelType.fromString(functionName[(functionName.LastIndexOf('.') + 1)..]);
+        var model = SimpleSorterModelType.fromString(functionName.Split('.').First(part => part is "msce" or "mssi" or "msrs" or "msuf4" or "msuf6"));
         return channels > 1 && SimpleSorterModelType.supportsChannelCount(channels, model)
             ? channels : IsUf6(functionName) ? 12 : DefaultChannels;
     }
@@ -75,7 +75,7 @@ internal static class WorkspaceParameterInitialValues
         return levels;
     }
 
-    private static bool IsUf6(string functionName) => IsModelFunction(functionName) && functionName.EndsWith(".msuf6", StringComparison.Ordinal);
+    private static bool IsUf6(string functionName) => IsModelFunction(functionName) && functionName.Split('.').Contains("msuf6");
 
     private static string ForType(paramKeyDescriptor key, int channels) => key.ValueType switch
     {

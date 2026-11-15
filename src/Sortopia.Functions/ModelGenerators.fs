@@ -25,14 +25,10 @@ module internal ModelGenerators =
         | simpleSorterModelType.Msuf4 -> "4-channel seed unfolding (MSUF4)"
         | simpleSorterModelType.Msuf6 -> "6-channel seed unfolding (MSUF6)"
 
-    let description source modelType =
-        let prefix = match source with PrefixInput -> "with a fixed library prefix and a generated suffix" | ChannelCountInput -> "with no fixed prefix"
-        $"Generate {algorithmDescription modelType} sorter models {prefix}. SorterModelType selects Simple, SimpleR, or SimpleS; Repl selects a reproducible batch."
-
     let private commonKeys source = [
         ParamKey.describe ParamKeys.sorterModelTypeKey
         (match source with PrefixInput -> ParamKey.describe ParamKeys.prefixLibIdKey | ChannelCountInput -> ParamKey.describe ParamKeys.channelCountKey)
-        ParamKey.describe ParamKeys.aMaxKey; ParamKey.describe ParamKeys.activationProbabilityKey
+        ParamKey.describe ParamKeys.aMaxKey; ParamKey.describe ParamKeys.aInitialKey; ParamKey.describe ParamKeys.activationProbabilityKey
         ParamKey.describe ParamKeys.rngTypeKey; ParamKey.describe ParamKeys.stageLengthKey
         ParamKey.describe ParamKeys.sorterCountKey; ParamKey.describe ParamKeys.replKey ]
     let msceKeys source = commonKeys source @ [ParamKey.describe ParamKeys.excludeSelfCeKey]
@@ -40,6 +36,28 @@ module internal ModelGenerators =
     let msrsKeys source = commonKeys source @ [ParamKey.describe ParamKeys.stageWeightsKey]
     let msuf4Keys source = commonKeys source @ [ParamKey.describe ParamKeys.seed4WeightsKey; ParamKey.describe ParamKeys.unfoldingWeightsKey]
     let msuf6Keys source = commonKeys source @ [ParamKey.describe ParamKeys.seed6WeightsKey; ParamKey.describe ParamKeys.unfoldingWeightsKey]
+
+    /// Model-generation functions fix the outer model family as part of their catalog identity.
+    let familyKeys family keys =
+        if not (List.contains family ["Simple"; "SimpleR"; "SimpleS"]) then invalidArg "family" "Choose Simple, SimpleR, or SimpleS."
+        keys |> List.filter (fun (key: paramKeyDescriptor) ->
+            match string key.Name with
+            | "SorterModelType" -> false
+            | "AMax" | "AInitial" -> family = "SimpleR"
+            | "ActivationProbability" -> family = "SimpleS"
+            | _ -> true)
+
+    let withFamily family make (parameters: parameterSet) =
+        make (parameters.WithBinding(ParameterBinding.create ParamKeys.sorterModelTypeKey family))
+
+    let familyDescription source modelType family =
+        let prefix = match source with PrefixInput -> "with a fixed library prefix and a generated suffix" | ChannelCountInput -> "with no fixed prefix"
+        let activators =
+            match family with
+            | "SimpleR" -> "Every suffix activator starts at AInitial, within [-AMax, AMax]; only positive activators enable entries."
+            | "SimpleS" -> "ActivationProbability controls Boolean suffix activators."
+            | _ -> "All generated suffix entries are enabled."
+        $"Generate {family} {algorithmDescription modelType} sorter models {prefix}. {activators} Repl selects a reproducible batch."
 
     // Check every participating value, including partial defaults, without expanding unrelated spans.
     let inputError source modelType (defaults: parameterBinding list) (spans: parameterSpan list) =
@@ -77,6 +95,10 @@ module internal ModelGenerators =
                         invalidArg "UnfoldingWeights" $"{widthKey} has {width} channels: {SimpleSorterModelType.toString modelType} needs {levels.Length} unfolding levels, but UnfoldingWeights has {weights.Levels.Length}. These levels repeat in every stage. All width and weight span combinations must match."
             if values ParamKeys.aMaxKey |> List.exists (fun value -> value < 0) then
                 invalidArg "AMax" "AMax must be nonnegative; it bounds SimpleR activators."
+            for initial in values ParamKeys.aInitialKey do
+                for maximum in values ParamKeys.aMaxKey do
+                    if int64 initial < -int64 maximum || int64 initial > int64 maximum then
+                        invalidArg "AInitial" "AInitial must be within [-AMax, AMax] for every parameter combination."
             if values ParamKeys.activationProbabilityKey |> List.exists (fun value -> not (Double.IsFinite value) || value < 0. || value > 1.) then
                 invalidArg "ActivationProbability" "ActivationProbability must be finite and between 0 and 1; it controls SimpleS activators."
             let stages = values ParamKeys.stageLengthKey
@@ -118,7 +140,7 @@ module internal ModelGenerators =
         let generator =
             match SorterModelType.fromCaseName (required ParamKeys.sorterModelTypeKey parameters) modelType with
             | sorterModelType.Simple _ -> sorterModelGen.Simple baseGenerator
-            | sorterModelType.SimpleR _ -> simpleSorterModelRGen.create baseGenerator (required ParamKeys.aMaxKey parameters) |> sorterModelGen.SimpleR
+            | sorterModelType.SimpleR _ -> simpleSorterModelRGen.create baseGenerator (required ParamKeys.aMaxKey parameters) (required ParamKeys.aInitialKey parameters) |> sorterModelGen.SimpleR
             | sorterModelType.SimpleS _ -> simpleSorterModelSGen.create baseGenerator (required ParamKeys.activationProbabilityKey parameters) |> sorterModelGen.SimpleS
             | sorterModelType.Unknown -> invalidArg "SorterModelType" "Unknown cannot generate models."
         let count = required ParamKeys.sorterCountKey parameters

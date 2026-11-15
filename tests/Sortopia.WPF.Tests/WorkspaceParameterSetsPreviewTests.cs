@@ -58,8 +58,8 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
     }
     private static WorkspaceTreeNode AddRun(WorkspacePageViewModel page, bool branch)
     {
-        if (page.Selected!.Editor!.ResultsFunctionName.Length == 0) page.Selected.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels;
-        if (branch && page.Selected.Editor.SetupFunctionName.Length == 0) page.Selected.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels;
+        if (page.Selected!.Editor!.ResultsFunctionName.Length == 0) page.Selected.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSimpleSorterModels;
+        if (branch && page.Selected.Editor.SetupFunctionName.Length == 0) page.Selected.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSimpleSorterModels;
         page.Selected.Editor.AddRequiredResultsDefaultsCommand.Execute(null); if (branch) page.Selected.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);

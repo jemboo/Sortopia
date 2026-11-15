@@ -19,7 +19,7 @@ public sealed partial class PreparedExecutionTests
     {
         var modelsType = sortopiaDataType.NewSorterModelSet("");
         var testsType = sortopiaDataType.NewSortableTests("");
-        var modelConfig = new resultsConfig("Model archive", ResultsFunctionNames.uniformMssiSorterModels, "1",
+        var modelConfig = new resultsConfig("Model archive", ResultsFunctionNames.uniformMssiSimpleSorterModels, "1",
             ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("ChannelCount"))), ListModule.OfArray(Models));
         var modelsSource = Project("Models", projectConfiguration.NewRootProjectConfig(new("Models by width", modelConfig)),
             [new() { keyName = "ChannelCount", values = ["4", "8"] }]);

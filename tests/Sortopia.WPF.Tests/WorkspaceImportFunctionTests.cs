@@ -25,16 +25,16 @@ public sealed class WorkspaceImportFunctionTests : IDisposable
     private static WorkspaceOverrideField Field(WorkspaceTreeNode node, bool setup) => setup ? node.Editor!.SetupFunctionOverride : node.Editor!.ResultsFunctionOverride;
     private static void Define(WorkspaceTreeNode node, bool setup)
     {
-        if (setup) node.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
-        else node.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        if (setup) node.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
+        else node.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
     }
     internal static WorkspaceModule Module(string name, bool branch, bool setup, bool defines, params WorkspaceModule[] children)
     {
         var local = new moduleOverridesDto();
         if (defines)
         {
-            if (setup) local.setupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
-            else local.resultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+            if (setup) local.setupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
+            else local.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         }
         return WorkspaceModule.createInherited(Guid.NewGuid(), name, ModuleDefaults.configuration(branch),
             ModuleOverridesDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, local), children, []);

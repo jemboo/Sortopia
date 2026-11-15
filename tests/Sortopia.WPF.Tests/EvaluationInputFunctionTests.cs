@@ -14,11 +14,12 @@ public sealed class EvaluationInputFunctionTests
 {
     private static bool IsSetup(string group) => group != "sorter-eval-inputs.standard";
     private static bool HasSource(string group) => group is "sorter-eval.merge" or "sorter-eval.prefix";
-    private static WorkspaceConfigurationViewModel Module(string group, string model)
+    private static string Function(string group, string model, string family = "Simple") => $"{group}.{model}" + ModelFamilyResultsTests.Suffix(family);
+    private static WorkspaceConfigurationViewModel Module(string group, string model, string family = "Simple")
     {
         var setup = IsSetup(group);
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: setup ? hierarchyKind.Branch : hierarchyKind.Root).Editor!;
-        if (setup) editor.SetupFunctionName = $"{group}.{model}"; else editor.ResultsFunctionName = $"{group}.{model}";
+        if (setup) editor.SetupFunctionName = Function(group, model, family); else editor.ResultsFunctionName = Function(group, model, family);
         (setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
         defaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
@@ -51,9 +52,9 @@ public sealed class EvaluationInputFunctionTests
     [MemberData(nameof(Choices))]
     public void Catalog_entries_generate_the_fixed_model_and_keep_test_projections_and_prefixes_separate(string group, string model, string family)
     {
-        var setup = IsSetup(group); var name = $"{group}.{model}";
-        var editor = Module(group, model);
-        var parameters = Parameters(editor, setup).WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family));
+        var setup = IsSetup(group); var name = Function(group, model, family);
+        var editor = Module(group, model, family);
+        var parameters = Parameters(editor, setup);
         var required = setup ? SetupFunctionCatalog.require(name).RequiredParameters : ResultsFunctionCatalog.require(name).RequiredParameters;
         var dataTypes = setup ? SetupFunctionCatalog.require(name).DataTypes : ResultsFunctionCatalog.require(name).DataTypes;
         var sourceTypes = setup ? SetupFunctionCatalog.require(name).SourceDataTypes : ResultsFunctionCatalog.require(name).SourceDataTypes;
@@ -69,7 +70,8 @@ public sealed class EvaluationInputFunctionTests
         var testsType = sortopiaDataType.NewSortableTests(""); var modelsType = sortopiaDataType.NewSorterModelSet("");
         Assert.Equal(new[] { testsType, modelsType }.Order(), dataTypes.Keys.Order());
         Assert.Equal(HasSource(group) ? new[] { testsType } : [], sourceTypes);
-        Assert.Equal(ResultsFunctionCatalog.require($"sorter-model-set.uniform.{model}").DataTypes[modelsType], dataTypes[modelsType]);
+        Assert.Equal(setup ? SetupFunctionCatalog.require($"sorter-model-set.uniform.{model}{ModelFamilyResultsTests.Suffix(family)}").DataTypes[modelsType]
+            : ResultsFunctionCatalog.require($"sorter-model-set.uniform.{model}{ModelFamilyResultsTests.Suffix(family)}").DataTypes[modelsType], dataTypes[modelsType]);
         var libraryKey = group.EndsWith(".merge") ? "MergeLibId" : group.EndsWith(".prefix") ? "PrefixLibId" : "ChannelCount";
         Assert.Equal(new[] { libraryKey, "SortableDataFormat" }.Order(), dataTypes[testsType].Order());
         Assert.Equal(model == "msuf6" ? 12 : 8, parameters.TryFind(ParamKeys.channelCountKey).Value);
@@ -114,7 +116,7 @@ public sealed class EvaluationInputFunctionTests
         foreach (var mode in unfolding.Weights.Rows.Single().Modes) mode.Text = mode.Name == "Para" ? "1" : "0";
         Assert.True(unfolding.IsWeights); Assert.False(unfolding.IsTextEditor);
         var parameters = Parameters(editor, setup);
-        var models = Assert.Single(CatalogTestHost.Invoke(setup, $"{group}.{model}", parameters, Source(group, parameters)).OfType<functionData.SorterModelSet>()).Item;
+        var models = Assert.Single(CatalogTestHost.Invoke(setup, Function(group, model), parameters, Source(group, parameters)).OfType<functionData.SorterModelSet>()).Item;
         foreach (var value in models.SorterModels) {
             if (Simple(value) is simpleSorterModel.Msuf4 uf4)
                 Assert.All(uf4.Item.TwoOrbitUnfolder4s, stage => {
@@ -129,7 +131,7 @@ public sealed class EvaluationInputFunctionTests
         unfolding.Weights.RemoveLevelCommand.Execute(null);
         Assert.Contains("needs 1 unfolding levels", setup ? editor.SetupParameterDefaultsError : editor.ResultsParameterDefaultsError);
         Assert.Contains("needs 1 unfolding levels", Assert.Throws<ArgumentException>(() =>
-            CatalogTestHost.Invoke(setup, $"{group}.{model}", Parameters(editor, setup))).Message);
+            CatalogTestHost.Invoke(setup, Function(group, model), Parameters(editor, setup))).Message);
     }
 
     [Theory]
@@ -140,10 +142,10 @@ public sealed class EvaluationInputFunctionTests
         var editor = Module(group, "mssi");
         var parameters = Parameters(editor, true).WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 12));
         var key = group.EndsWith(".merge") ? "MergeLibId" : "PrefixLibId";
-        Assert.Contains($"must match {key}", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true, $"{group}.mssi", parameters)).Message);
+        Assert.Contains($"must match {key}", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true, Function(group, "mssi"), parameters)).Message);
         editor.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "12";
         Assert.Contains($"must match {key}", editor.SetupParameterDefaultsError);
-        var definition = SetupFunctionCatalog.require($"{group}.mssi");
+        var definition = SetupFunctionCatalog.require(Function(group, "mssi"));
         var defaults = ListModule.OfSeq(parameters.ParamMap.Values.Where(binding => binding.KeyName != "ChannelCount"));
         var span = ParameterSpan.create(ParamKeys.channelCountKey, ListModule.OfSeq(Enumerable.Repeat(8, 50).Append(12)));
         Assert.Contains($"must match {key}", definition.InputError.Invoke(defaults).Invoke(ListModule.OfArray(new[] { span })));
@@ -155,8 +157,8 @@ public sealed class EvaluationInputFunctionTests
     public void Inherited_weight_defaults_and_explicit_spans_use_the_same_typed_editors(bool setup)
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.SetupFunctionName = $"sorter-eval.standard.{(setup ? "msuf6" : "mssi")}";
-        module.Editor.ResultsFunctionName = $"sorter-eval-inputs.standard.{(setup ? "mssi" : "msuf6")}";
+        module.Editor!.SetupFunctionName = $"sorter-eval.standard.{(setup ? "msuf6" : "mssi")}.simple";
+        module.Editor.ResultsFunctionName = $"sorter-eval-inputs.standard.{(setup ? "mssi" : "msuf6")}.simple";
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);

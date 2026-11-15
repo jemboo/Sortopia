@@ -15,7 +15,7 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
         if (branch)
         {
             var module = page.Selected!.Parent!.Parent!;
-            module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationMergeMssi;
+            module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationMergeMssiSimple;
             module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
             module.Editor.SetupParameterDefaults.Single(row => row.Key == "MergeLibId").Value.Text =
                 RunExecutionTests.Settings(false).resultsParameterDefaults.Single(row => row.keyName == "MergeLibId").value;

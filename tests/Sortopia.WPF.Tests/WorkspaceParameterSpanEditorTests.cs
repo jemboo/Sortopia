@@ -21,8 +21,8 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         if (page.HasSavedWorkspace) return page;
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var value = WorkspaceHierarchyTests.ProjectSettings(branch);
-        value.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSorterModels; value.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();
-        if (branch) { value.setupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSorterModels; value.setupParameterDefaults = RunExecutionTests.UniformModelDefaults(); }
+        value.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSimpleSorterModels; value.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();
+        if (branch) { value.setupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSimpleSorterModels; value.setupParameterDefaults = RunExecutionTests.UniformModelDefaults(); }
         page.Selected!.Editor!.LoadProject(value);
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         return page;
@@ -32,7 +32,6 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     [Theory]
     [InlineData("RngType", "SplitMix64", "NET")]
     [InlineData("SortableDataFormat", "Bools", "BoolArray")]
-    [InlineData("SorterModelType", "SimpleR", "MssiR")]
     [InlineData("SorterEvalType", "V2", "V4")]
     [InlineData("MergeSuffixType", "NoSuffix", "unknown")]
     public void Named_choices_use_the_domain_contract_and_validate_unknown_values(string key, string valid, string invalid)

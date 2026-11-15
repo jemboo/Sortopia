@@ -125,7 +125,7 @@ let ``generator identity includes prefix order and all generation paths preserve
     Assert.NotEqual(SimpleSorterModel.getId indexedA, SimpleSorterModel.getId indexedB)
     Assert.Equal<ce>(prefix (), SimpleSorterModel.getPrefix indexedA)
     for gen in [| sorterModelGen.Simple a
-                  simpleSorterModelRGen.create a 2 |> sorterModelGen.SimpleR
+                  simpleSorterModelRGen.create a 2 1 |> sorterModelGen.SimpleR
                   simpleSorterModelSGen.create a 0.5 |> sorterModelGen.SimpleS |] do
         let restored = gen |> SorterModelGenDto.fromDomain |> MessagePackSetup.serialize
                        |> MessagePackSetup.deserialize<sorterModelGenDto> |> SorterModelGenDto.toDomain

@@ -25,7 +25,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         sourceSettings.resultsQueryParameterKeys = [];
         var source = Project("Source", hierarchyKind.Root, sourceSettings);
         var consumerSettings = RunExecutionTests.Settings(true);
-        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationMergeMssi;
+        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationMergeMssiSimple;
         consumerSettings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), .. sourceSettings.resultsParameterDefaults];
         consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] }];
         consumerSettings.resultsFunctionName = ResultsFunctionNames.sorterEval;
@@ -70,7 +70,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         testsSettings.resultsDatabaseName = "Test archive";
         testsSettings.resultsParameterDefaults = [Binding("ChannelCount", "4"), Binding("SortableDataFormat", "Bools", parameterValueType.Text)];
         var modelsSettings = RunExecutionTests.Settings(false);
-        modelsSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        modelsSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         modelsSettings.resultsDatabaseName = "Model archive";
         modelsSettings.resultsSortopiaDataTypes = [new() { kind = "SorterModelSet", value = "" }];
         modelsSettings.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();

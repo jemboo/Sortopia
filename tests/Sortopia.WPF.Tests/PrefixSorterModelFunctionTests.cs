@@ -17,10 +17,8 @@ public sealed class PrefixSorterModelFunctionTests
 {
     private static string Prefix(int width) => PrefixLibId.toString(prefixLibId.create(width, 1, prefixLibVariant.Prefix1));
     private static parameterBinding Bind(string key, string text, parameterValueType type = parameterValueType.Integer) => ParameterBinding.fromText(key, type, text);
-    private static string Function(string model) => $"sorter-model-set.prefix.{model.ToLowerInvariant()}";
+    private static string Function(string model, string family = "Simple") => $"sorter-model-set.prefix.{model.ToLowerInvariant()}{ModelFamilyResultsTests.Suffix(family)}";
     private static parameterBinding[] Defaults(string model = "Mssi", int width = 8, int repl = 0) => [
-        Bind("SorterModelType", "Simple", parameterValueType.Text), Bind("AMax", "1"),
-        Bind("ActivationProbability", "0.5", parameterValueType.Floating),
         ParameterBinding.create(ParamKeys.prefixLibIdKey, prefixLibId.create(width, 1, prefixLibVariant.Prefix1)),
         Bind("RngType", "SplitMix64", parameterValueType.Text),
         Bind("StageLength", "2"), Bind("SorterCount", "3"), Bind("Repl", repl.ToString()), .. ModelDefaults(model, width)];
@@ -33,8 +31,8 @@ public sealed class PrefixSorterModelFunctionTests
         _ => []
     };
     private static parameterSet Parameters(string model = "Mssi", int width = 8, int repl = 0) => parameterSet.fromBindings(ListModule.OfArray(Defaults(model, width, repl)));
-    private static sorterModelSet Generate(parameterSet parameters, string model = "Mssi") => Assert.IsType<functionData.SorterModelSet>(
-        Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
+    private static sorterModelSet Generate(parameterSet parameters, string model = "Mssi", string family = "Simple") => Assert.IsType<functionData.SorterModelSet>(
+        Assert.Single(CatalogTestHost.Invoke(false, Function(model, family), parameters))).Item;
 
     private static void AssertFamily(string family, sorterModel model) => Assert.True(family switch {
         "Simple" => model.IsSimple, "SimpleR" => model.IsSimpleR, "SimpleS" => model.IsSimpleS, _ => false
@@ -49,8 +47,8 @@ public sealed class PrefixSorterModelFunctionTests
     [MemberData(nameof(ModelChoices))]
     public void Generates_selected_models_with_the_catalog_prefix_and_random_suffix(string family, string type, int width)
     {
-        parameterSet Inputs(int repl = 0) => Parameters(type, width, repl).WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family));
-        var set = Generate(Inputs(), type);
+        parameterSet Inputs(int repl = 0) => ModelFamilyResultsTests.WithFamilyParameters(Parameters(type, width, repl), family);
+        var set = Generate(Inputs(), type, family);
         var expectedPrefix = SorterDataParse.getCeArrayFromPrefixLib(prefixLibId.create(width, 1, prefixLibVariant.Prefix1)).Value;
         Assert.Equal(3, set.Count);
         Assert.True(set.RawCeLength > 0);
@@ -75,11 +73,11 @@ public sealed class PrefixSorterModelFunctionTests
             if (family == "Simple") Assert.True(sorter.Ces.Length > expectedPrefix.Length);
             if (model is sorterModel.SimpleR r) Assert.All(r.Item.Activators, value => Assert.InRange(value, -1, 1));
         });
-        var repeated = Generate(Inputs(), type);
+        var repeated = Generate(Inputs(), type, family);
         Assert.Equal(set.SorterModels.Select(SorterModel.getId), repeated.SorterModels.Select(SorterModel.getId));
         foreach (var pair in set.SorterModels.Zip(repeated.SorterModels))
             Assert.Equal(SorterModel.makeSorterWithPrefix(pair.First, null!).Ces, SorterModel.makeSorterWithPrefix(pair.Second, null!).Ces);
-        Assert.Empty(set.SorterModels.Select(SorterModel.getId).Intersect(Generate(Inputs(1), type).SorterModels.Select(SorterModel.getId)));
+        Assert.Empty(set.SorterModels.Select(SorterModel.getId).Intersect(Generate(Inputs(1), type, family).SorterModels.Select(SorterModel.getId)));
     }
 
     [Theory]
@@ -104,25 +102,24 @@ public sealed class PrefixSorterModelFunctionTests
     [InlineData("Repl", "-1", "nonnegative")]
     [InlineData("Repl", "2147483647", "indices")]
     [InlineData("RngType", "missing", "rngType")]
-    [InlineData("SorterModelType", "Unknown", "Unknown cannot generate")]
-    [InlineData("SorterModelType", "missing", "Choose Simple")]
-    [InlineData("AMax", "-1", "AMax must be nonnegative")]
+    [InlineData("SorterModelType", "Unknown", "not used")]
+    [InlineData("SorterModelType", "missing", "not used")]
     [InlineData("ActivationProbability", "-0.1", "between 0 and 1")]
     [InlineData("ActivationProbability", "1.1", "between 0 and 1")]
     [InlineData("PrefixLibId", "PrefixLibId(channelCount=16, stageLength=2, Variant=PrefixA)", "not available")]
     public void Invalid_values_fail_before_generation(string key, string text, string reason)
     {
-        var defaults = Defaults(); var original = defaults.Single(value => value.KeyName == key);
-        defaults[Array.IndexOf(defaults, original)] = Bind(key, text, original.ValueType);
-        Assert.Contains(reason, Assert.Throws<ArgumentException>(() => Generate(parameterSet.fromBindings(ListModule.OfArray(defaults)))).Message);
+        var family = key == "ActivationProbability" ? "SimpleS" : "Simple";
+        var values = ModelFamilyResultsTests.WithFamilyParameters(Parameters(), family);
+        Assert.Contains(reason, Assert.Throws<ArgumentException>(() => Generate(values.WithBinding(Bind(key, text, ParamKeys.tryFind(key).Value.ValueType)), family: family)).Message);
     }
 
     [Fact]
     public void Domain_validation_checks_partial_defaults_and_all_span_values_beyond_the_preview_limit()
     {
-        var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf4SorterModels);
+        var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf4SimpleSorterModels);
         Assert.Empty(definition.SourceDataTypes);
-        Assert.Equal(new[] { "ActivationProbability", "AMax", "PrefixLibId", "Repl", "RngType", "Seed4Weights", "SorterCount", "SorterModelType", "StageLength", "UnfoldingWeights" }, definition.RequiredParameters.Select(key => key.Name).Order());
+        Assert.Equal(new[] { "PrefixLibId", "Repl", "RngType", "Seed4Weights", "SorterCount", "StageLength", "UnfoldingWeights" }, definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.True(Assert.Single(definition.SortopiaDataTypes).IsSorterModelSet);
         var defaults = ListModule.OfSeq(Defaults("Msuf4").Where(value => value.KeyName != "PrefixLibId"));
         FunctionValidation.validateDefaults(definition, defaults);
@@ -145,10 +142,9 @@ public sealed class PrefixSorterModelFunctionTests
     [InlineData("SimpleS", 1.0)]
     public void Activator_controls_affect_the_suffix_and_preserve_the_prefix(string family, double probability)
     {
-        var inputs = Parameters().WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family))
-            .WithBinding(ParameterBinding.create(ParamKeys.aMaxKey, 0))
-            .WithBinding(ParameterBinding.create(ParamKeys.activationProbabilityKey, probability));
-        foreach (var model in Generate(inputs).SorterModels) {
+        var inputs = family == "SimpleR" ? Parameters().WithBinding(ParameterBinding.create(ParamKeys.aMaxKey, 0)).WithBinding(ParameterBinding.create(ParamKeys.aInitialKey, 0))
+            : Parameters().WithBinding(ParameterBinding.create(ParamKeys.activationProbabilityKey, probability));
+        foreach (var model in Generate(inputs, family: family).SorterModels) {
             var prefix = SorterModel.getPrefix(model);
             var full = SorterModel.makeSorterWithPrefix(model, null!).Ces;
             if (probability == 0) Assert.Equal(prefix, full);
@@ -159,36 +155,19 @@ public sealed class PrefixSorterModelFunctionTests
     }
 
     [Fact]
-    public void Family_picker_works_in_defaults_and_spans_and_rejects_unknown_before_preview()
+    public void Family_is_fixed_by_the_results_function_and_is_not_an_editable_parameter()
     {
-        var module = Module(); var defaults = module.Editor!.ResultsParameterDefaults;
-        var family = defaults.Single(row => row.Key == "SorterModelType");
-        Assert.Equal(new[] { "Simple", "SimpleR", "SimpleS", "Unknown" }, family.Value.Choices);
-        Assert.Equal("Simple", family.Value.Text);
-        Assert.Equal("1", defaults.Single(row => row.Key == "AMax").Value.Text);
-        Assert.Equal("0.5", defaults.Single(row => row.Key == "ActivationProbability").Value.Text);
-        family.Value.Text = "Unknown"; Assert.Contains("Unknown cannot generate", module.Editor.ResultsParameterDefaultsError);
-        family.RemoveCommand.Execute(null);
+        var module = Module(); var editor = module.Editor!;
+        Assert.DoesNotContain(editor.ResultsParameterDefaults, row => row.Key is "SorterModelType" or "AMax" or "AInitial" or "ActivationProbability");
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
-        var editor = run.Editor!; editor.AddMissingResultsParametersCommand.Execute(null);
-        var span = Assert.Single(editor.ResultsParameters); Assert.Equal("SorterModelType", span.Key);
-        foreach (var name in new[] { "Simple", "SimpleR", "SimpleS" }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = name; }
-        Assert.Equal(family.Value.Choices, span.Values[0].Choices);
-        Assert.Equal(3, editor.ResultsParameterSetsPreview.Rows.Length);
-        var query = project.Editor!.ResultsQueryOutputs.Single().Keys.Single(); Assert.Equal("SorterModelType", query.Key); query.Selected = true;
-        Assert.Equal(new[] { "SorterModelType" }, editor.ToProjectSettings().resultsDataTypes.Single().queryParameterKeys);
-        Assert.Equal(8, editor.ResultsRequiredInputs.DefaultCount);
-        for (var index = 3; index < 51; ++index) { span.AddValueCommand.Execute(null); span.Values.Last().Text = "Simple"; }
-        span.Values.Last().Text = "Unknown";
-        Assert.Contains("Unknown cannot generate", editor.ResultsParametersError); Assert.Empty(editor.ResultsParameterSetsPreview.Rows);
-        span.Values.Last().Text = "SimpleR";
-        Assert.Empty(editor.ResultsParametersError); Assert.True(editor.ResultsParameterSetsPreview.HasRows);
+        run.Editor!.AddMissingResultsParametersCommand.Execute(null);
+        Assert.Empty(run.Editor.ResultsParameters);
+        Assert.DoesNotContain(project.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys), key => key.Key == "SorterModelType");
     }
-
-    private static void Configure(WorkspaceTreeNode module)
+    private static void Configure(WorkspaceTreeNode module, string family = "Simple")
     {
-        module.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixMsrsSorterModels;
+        module.Editor!.ResultsFunctionName = Function("Msrs", family);
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
         module.Editor.ResultsParameterDefaults.Single(value => value.Key == "SorterCount").Value.Text = "3";
     }
@@ -197,17 +176,17 @@ public sealed class PrefixSorterModelFunctionTests
     public void Editors_validate_inherited_defaults_and_spans_without_moving_defaults()
     {
         var module = Module(); var editor = module.Editor!;
-        Assert.Equal(9, editor.ResultsParameterDefaults.Count); Assert.Empty(editor.ResultsParameterDefaultsError);
+        Assert.Equal(6, editor.ResultsParameterDefaults.Count); Assert.Empty(editor.ResultsParameterDefaultsError);
         var prefix = editor.ResultsParameterDefaults.Single(value => value.Key == "PrefixLibId");
         prefix.Value.Text = Prefix(9); Assert.Contains("incompatible", editor.ResultsParameterDefaultsError);
         prefix.Value.Text = Prefix(16); Assert.Empty(editor.ResultsParameterDefaultsError);
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
-        Assert.Equal(9, project.Editor!.InheritedOutputDefaults.Count());
+        Assert.Equal(6, project.Editor!.InheritedOutputDefaults.Count());
         prefix.Value.Text = Prefix(9); Assert.Contains("incompatible", project.Editor.ResultsParameterDefaultsError);
         prefix.RemoveCommand.Execute(null);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
         var inputs = run.Editor!;
-        Assert.Equal(8, inputs.ResultsRequiredInputs.DefaultCount);
+        Assert.Equal(5, inputs.ResultsRequiredInputs.DefaultCount);
         inputs.AddMissingResultsParametersCommand.Execute(null);
         var span = Assert.Single(inputs.ResultsParameters); Assert.Equal("PrefixLibId", span.Key); Assert.Empty(span.Values);
         span.AddValueCommand.Execute(null); span.Values.Last().Text = Prefix(8);
@@ -216,7 +195,7 @@ public sealed class PrefixSorterModelFunctionTests
         Assert.Empty(inputs.ResultsParameterSetsPreview.Rows);
         span.Values.Last().Text = Prefix(16);
         Assert.Empty(inputs.ResultsParametersError); Assert.Equal(2, inputs.ResultsParameterSetsPreview.Rows.Length);
-        Assert.Equal(8, inputs.ResultsRequiredInputs.DefaultCount); Assert.Equal(1, inputs.ResultsRequiredInputs.SpanCount);
+        Assert.Equal(5, inputs.ResultsRequiredInputs.DefaultCount); Assert.Equal(1, inputs.ResultsRequiredInputs.SpanCount);
         Assert.Equal("PrefixLibId", Assert.Single(Assert.Single(inputs.ResultsQueryOutputs).Keys).Key);
         Assert.Contains("random suffix", inputs.ResultsInputGuidance);
     }
@@ -233,8 +212,8 @@ public sealed class PrefixSorterModelFunctionTests
             var root = Directory.CreateDirectory(Path.Combine(temp.FullName, "Workspace")).FullName;
             var settings = new WorkspaceFolderSettings(Path.Combine(temp.FullName, "settings.txt")); settings.Save(root);
             page = new WorkspacePageViewModel(() => { }, _ => null, settings);
-            page.AddModuleCommand.Execute(null); var module = page.Selected!; Configure(module);
-            module.Editor!.ResultsParameterDefaults.Single(value => value.Key == "SorterModelType").Value.Text = family;
+            page.AddModuleCommand.Execute(null); var module = page.Selected!; Configure(module, family);
+            if (family == "SimpleR") module.Editor!.ResultsParameterDefaults.Single(value => value.Key == "AInitial").Value.Text = "-1";
             var prefix = module.Editor!.ResultsParameterDefaults.Single(value => value.Key == "PrefixLibId");
             prefix.Value.Text = Prefix(9);
             await page.SaveWorkspaceAsync(); Assert.Contains("incompatible", page.Error);
@@ -276,6 +255,7 @@ public sealed class PrefixSorterModelFunctionTests
                 var width = call.Parameters.TryFind(ParamKeys.prefixLibIdKey).Value.ChannelCount;
                 Assert.All(models.SorterModels, model => {
                     AssertFamily(family, model); Assert.Equal(width, SorterModel.getChannelCount(model));
+                    if (model is sorterModel.SimpleR r) Assert.All(r.Item.Activators, value => Assert.Equal(-1, value));
                     Assert.Equal(SorterDataParse.getCeArrayFromPrefixLib(prefixLibId.create(width, 1, prefixLibVariant.Prefix1)).Value, SorterModel.getPrefix(model));
                 });
             }

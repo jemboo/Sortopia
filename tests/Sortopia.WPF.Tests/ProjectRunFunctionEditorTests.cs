@@ -67,9 +67,9 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         var page = Open();
         (setup ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var module = page.Selected!;
-        module.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        module.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
-        if (setup) { module.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels; module.Editor.AddRequiredSetupDefaultsCommand.Execute(null); }
+        if (setup) { module.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels; module.Editor.AddRequiredSetupDefaultsCommand.Execute(null); }
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         var local = WorkspaceParameterInheritanceTests.AddDefault(project.Editor!, "StageLength", "5", setup);
         page.AddRunCommand.Execute(null); var run = page.Selected!;
@@ -77,8 +77,8 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         void Change(bool standard)
         {
-            if (setup) module.Editor.SetupFunctionName = standard ? SetupFunctionNames.standardTests : SetupFunctionNames.uniformMssiSorterModels;
-            else module.Editor.ResultsFunctionName = standard ? ResultsFunctionNames.standardSortableTests : ResultsFunctionNames.uniformMssiSorterModels;
+            if (setup) module.Editor.SetupFunctionName = standard ? SetupFunctionNames.standardTests : SetupFunctionNames.uniformMssiSimpleSorterModels;
+            else module.Editor.ResultsFunctionName = standard ? ResultsFunctionNames.standardSortableTests : ResultsFunctionNames.uniformMssiSimpleSorterModels;
         }
         Change(true);
         Assert.DoesNotContain(setup ? project.Editor!.LocalSetupParameterDefaults : project.Editor!.LocalResultsParameterDefaults, row => row.Key == "StageLength");
@@ -118,8 +118,8 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var module = page.Roots[0].Children[0]; var project = module.Children[0]; var run = project.Children[0];
         page.Selected = run; await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
-        module.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
-        if (branch) module.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
+        module.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+        if (branch) module.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
         foreach (var node in new[] { project, run })
         {
             page.Selected = node;

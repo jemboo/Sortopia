@@ -116,7 +116,7 @@ let ``typed initializers reject invalid rates dimensions and unfolding counts`` 
 [<Fact>]
 let ``configured base generators also support activated models`` () =
     let baseGen = Msuf6RandGen.create rngFactory.SmxFactory 12<channelCount> prefix 5<stageLength> para4Seed [ops 1. 0. 0.] |> SmmMsuf6RandGen
-    let r = (simpleSorterModelRGen.create baseGen 0).MakeSorterModelFromIndex (UMX.tag 0)
+    let r = (simpleSorterModelRGen.create baseGen 0 0).MakeSorterModelFromIndex (UMX.tag 0)
     let s = (simpleSorterModelSGen.create baseGen 0.0).MakeSorterModelFromIndex (UMX.tag 0)
     Assert.Equal<ce>(prefix, (r.MakeSorterWithPrefix None).Ces)
     Assert.Equal<ce>(prefix, (s.MakeSorterWithPrefix None).Ces)

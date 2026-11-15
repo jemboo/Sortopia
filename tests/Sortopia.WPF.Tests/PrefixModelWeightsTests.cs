@@ -16,7 +16,7 @@ namespace Sortopia.WPF.Tests;
 
 public sealed class PrefixModelWeightsTests
 {
-    private static string Function(string model) => $"sorter-model-set.prefix.{model}";
+    private static string Function(string model) => $"sorter-model-set.prefix.{model}.simple";
     private static WorkspaceConfigurationViewModel Module(string model)
     {
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models").Editor!;
@@ -37,7 +37,7 @@ public sealed class PrefixModelWeightsTests
     public void Each_function_exposes_only_its_algorithm_inputs_with_valid_initial_values(string model, string extras)
     {
         var editor = Module(model); var definition = ResultsFunctionCatalog.require(Function(model));
-        string[] common = ["SorterModelType", "PrefixLibId", "AMax", "ActivationProbability", "RngType", "StageLength", "SorterCount", "Repl"];
+        string[] common = ["PrefixLibId", "RngType", "StageLength", "SorterCount", "Repl"];
         Assert.Equal(common.Concat(extras.Split(',', StringSplitOptions.RemoveEmptyEntries)).Order(), definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
         Assert.Equal("1", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);

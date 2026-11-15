@@ -38,11 +38,12 @@ module ResultsFunctions =
         generator "1" testsType InputGenerators.standardKeys InputGenerators.standardTests
         |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format, with an empty prefix. Save the tests in the results database."
 
-    let private modelGenerator source modelType keys make =
+    let private modelGenerator source modelType keys make family =
+        let keys = ModelGenerators.familyKeys family keys
         FunctionDefinition.resultsValidated "1" keys
             [modelsType, InputGenerators.queryKeys keys] (ModelGenerators.inputError source modelType)
-            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> make host.Parameters))
-        |> FunctionDefinition.describe (ModelGenerators.description source modelType + " Save the models in the results database.")
+            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> ModelGenerators.withFamily family make host.Parameters))
+        |> FunctionDefinition.describe (ModelGenerators.familyDescription source modelType family + " Save the models in the results database.")
 
     let prefixMsceSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msce (ModelGenerators.msceKeys PrefixInput) (ModelGenerators.msce PrefixInput)
     let prefixMssiSorterModels = modelGenerator PrefixInput simpleSorterModelType.Mssi (ModelGenerators.mssiKeys PrefixInput) (ModelGenerators.mssi PrefixInput)
@@ -56,15 +57,16 @@ module ResultsFunctions =
     let uniformMsuf4SorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
     let uniformMsuf6SorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
 
-    let private standardInputs modelType modelKeys makeModels =
+    let private standardInputs modelType modelKeys makeModels family =
+        let modelKeys = ModelGenerators.familyKeys family modelKeys
         FunctionDefinition.resultsValidated "1"
             (InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys modelKeys]
             (InputGenerators.evaluationInputError InputGenerators.standardKeys modelType)
             (fun host ->
-                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> makeModels host.Parameters)
+                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> ModelGenerators.withFamily family makeModels host.Parameters)
                 host.ResultsDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
-        |> FunctionDefinition.describe ($"Generate full binary sortable tests and {ModelGenerators.algorithmDescription modelType} sorter models with no fixed prefix. Save both outputs in the results database for use by other projects.")
+        |> FunctionDefinition.describe ($"Generate full binary sortable tests. {ModelGenerators.familyDescription ChannelCountInput modelType family} Save both outputs in the results database for use by other projects.")
 
     let standardMsceEvaluationInputs = standardInputs simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
     let standardMssiEvaluationInputs = standardInputs simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)

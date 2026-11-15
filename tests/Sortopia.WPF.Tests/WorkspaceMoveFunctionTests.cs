@@ -27,8 +27,8 @@ public sealed class WorkspaceMoveFunctionTests : IDisposable
     private static WorkspaceOverrideField Field(WorkspaceTreeNode node, bool setup) => setup ? node.Editor!.SetupFunctionOverride : node.Editor!.ResultsFunctionOverride;
     private static void Define(WorkspaceTreeNode node, bool setup)
     {
-        if (setup) node.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
-        else node.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        if (setup) node.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
+        else node.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
     }
     private static void CutTo(WorkspacePageViewModel page, WorkspaceTreeNode source, WorkspaceTreeNode destination)
     {
@@ -139,7 +139,7 @@ public sealed class WorkspaceMoveFunctionTests : IDisposable
         var page = Open(); var root = page.Roots[0];
         var ancestor = Module(root, "Ancestor"); Define(ancestor, false);
         var moving = Module(ancestor, "Moving");
-        var legacy = moving.Editor!.ToModuleOverrides(); legacy.resultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        var legacy = moving.Editor!.ToModuleOverrides(); legacy.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         moving.Editor.LoadModuleOverrides(legacy);
         CutTo(page, moving, root);
         Assert.Empty(page.MoveFunctionConflicts); Assert.True(page.PasteCommand.CanExecute(null));

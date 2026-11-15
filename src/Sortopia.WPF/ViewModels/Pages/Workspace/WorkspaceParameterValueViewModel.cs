@@ -52,23 +52,21 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     private readonly Func<string, parameterBindingDto?> inheritedValue;
     private readonly Func<paramKeyDescriptor[]?> requirements;
     private readonly Func<IEnumerable<string>> spanKeys;
-    private readonly Func<string, bool> keyVisible;
     private string[] keyChoices = [];
     private string key;
     private parameterValueType customType;
-    public static string[] KnownKeys { get; } = ParamKeys.all.Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
+    public static string[] KnownKeys { get; } = ParamKeys.all.Where(key => key.Name != ParamKeys.sorterModelTypeKey.Name)
+        .Select(key => key.Name).Order(StringComparer.Ordinal).ToArray();
     public static WorkspaceParameterTypeChoice[] ValueTypes { get; } = Enum.GetValues<parameterValueType>()
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
         Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
-        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null,
-        Func<string, bool>? keyVisible = null)
+        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null)
     {
         this.key = key; customType = type; this.source = source;
         this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
         this.requirements = requirements ?? (() => null);
         this.spanKeys = spanKeys ?? (() => []);
-        this.keyVisible = keyVisible ?? (_ => true);
         Value = new(value, () => ValueType, key: () => Key);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => remove(this));
@@ -95,7 +93,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 
     private void RefreshKeyChoices()
     {
-        var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value) && keyVisible(value))
+        var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value))
             .Except(spanKeys(), StringComparer.Ordinal)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (keyChoices.SequenceEqual(choices)) return;

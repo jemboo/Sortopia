@@ -41,16 +41,15 @@ let private assertSameModel (expected: sorterModel) (actual: sorterModel) =
 [<InlineData("Msrs")>]
 [<InlineData("Msuf4")>]
 [<InlineData("Msuf6")>]
-let ``All SimpleR generators initialize one bounded activator per entry and replay by ID`` kind =
+let ``All SimpleR generators initialize each activator to AInitial and replay by ID`` kind =
     let underlying = generator rngFactory.LcgFactory kind
-    let configured = simpleSorterModelRGen.create underlying 3
+    let configured = simpleSorterModelRGen.create underlying 3 2
     let wrapped = sorterModelGen.SimpleR configured
     let restored = roundTrip wrapped
     Assert.Equal(configured.Id, SorterModelGen.getId wrapped)
     Assert.Equal(configured.Id, SorterModelGen.getId restored)
     Assert.Equal(SimpleSorterModelGen.getChannelCount underlying, SorterModelGen.getChannelCount wrapped)
     Assert.Equal(SimpleSorterModelGen.getCeLength underlying, SorterModelGen.getCeLength wrapped)
-    let mutable observed = Set.empty
     for index in 0 .. 31 do
         let child = SorterModelGen.makeSorterModelFromIndex (UMX.tag index) wrapped
         let actual = SorterModel.asSimpleSorterModelR child
@@ -59,8 +58,7 @@ let ``All SimpleR generators initialize one bounded activator per entry and repl
         Assert.Equal(3, actual.AMax)
         Assert.Equal(SimpleSorterModel.getLength actual.Model, actual.Activators.Length)
         Assert.Equal((if kind = "Msce" then 40 else 5), actual.Activators.Length)
-        Assert.All(actual.Activators, fun value -> Assert.InRange(value, -3, 3))
-        observed <- Set.union observed (Set.ofArray actual.Activators)
+        Assert.All(actual.Activators, fun value -> Assert.Equal(2, value))
         let ordinary = SimpleSorterModelGen.makeSorterModelFromId id underlying
         Assert.Equal<ce>((SimpleSorterModel.makeSorterWithoutPrefix None ordinary).Ces, (SimpleSorterModel.makeSorterWithoutPrefix None actual.Model).Ces)
         assertSameModel child (SorterModelGen.makeSorterModelFromId id wrapped)
@@ -72,7 +70,6 @@ let ``All SimpleR generators initialize one bounded activator per entry and repl
         let bytes = MessagePackSerializer.Serialize(SorterModelDto.fromDomain child, options)
         let decoded = MessagePackSerializer.Deserialize<sorterModelDto>(bytes, options) |> SorterModelDto.toDomain
         assertSameModel child decoded
-    Assert.Equal<Set<int>>(set [-3 .. 3], observed)
 
 [<Theory>]
 [<InlineData(0)>]
@@ -81,22 +78,17 @@ let ``All SimpleR generators initialize one bounded activator per entry and repl
 [<InlineData(Int32.MaxValue)>]
 let ``Activator generation supports inclusive bounds across the full nonnegative maximum range`` maximum =
     for factory in [rngFactory.LcgFactory; rngFactory.NetFactory; rngFactory.SmxFactory] do
-        let configured = simpleSorterModelRGen.create (generator factory "Msrs") maximum
-        let values = [| for index in 0 .. 63 -> configured.MakeSorterModelFromIndex (UMX.tag index) |]
-                     |> Array.collect (fun model -> model.Activators)
-        Assert.All(values, fun value -> Assert.InRange(value, -maximum, maximum))
-        if maximum = 0 then
-            Assert.All(values, fun value -> Assert.Equal(0, value))
-            Assert.Empty((configured.MakeSorterModelFromIndex (UMX.tag 0)).MakeSorterWithoutPrefix(None).Ces)
-        elif maximum = 1 then
-            Assert.Equal<Set<int>>(set [-1; 0; 1], Set.ofArray values)
-        else
-            Assert.Contains(values, fun value -> value < 0)
-            Assert.Contains(values, fun value -> value > 0)
+        for initial in [-maximum; 0; maximum] do
+            let configured = simpleSorterModelRGen.create (generator factory "Msrs") maximum initial
+            let restored = roundTrip (sorterModelGen.SimpleR configured)
+            let model = SorterModelGen.makeSorterModelFromIndex (UMX.tag 0) restored |> SorterModel.asSimpleSorterModelR
+            Assert.All(model.Activators, fun value -> Assert.Equal(initial, value))
+            if initial <= 0 then Assert.Empty(model.MakeSorterWithoutPrefix(None).Ces)
+            else Assert.NotEmpty(model.MakeSorterWithoutPrefix(None).Ces)
 
 [<Fact>]
 let ``SimpleR batch and model set generation agree with individual index and ID generation`` () =
-    let configured = simpleSorterModelRGen.create (generator rngFactory.LcgFactory "Msrs") 2 |> sorterModelGen.SimpleR
+    let configured = simpleSorterModelRGen.create (generator rngFactory.LcgFactory "Msrs") 2 1 |> sorterModelGen.SimpleR
     let models = SorterModelGen.makeSorterModelsFromIndexSpan 7<sorterCount> 4<sorterCount> configured
     let ids = models |> Array.map SorterModel.getId
     Assert.Equal(4, ids |> Array.distinct |> Array.length)
@@ -116,9 +108,10 @@ let ``SimpleR batch and model set generation agree with individual index and ID 
 [<Fact>]
 let ``Generator identity includes bounds and differs from the underlying generator`` () =
     let underlying = generator rngFactory.LcgFactory "Msrs"
-    let a = simpleSorterModelRGen.create underlying 2
-    let b = simpleSorterModelRGen.create underlying 3
-    Assert.Equal(a.Id, (simpleSorterModelRGen.create underlying 2).Id)
+    let a = simpleSorterModelRGen.create underlying 2 1
+    let b = simpleSorterModelRGen.create underlying 3 1
+    Assert.Equal(a.Id, (simpleSorterModelRGen.create underlying 2 1).Id)
+    Assert.NotEqual(a.Id, (simpleSorterModelRGen.create underlying 2 0).Id)
     Assert.NotEqual(a.Id, b.Id)
     Assert.NotEqual(a.Id, SimpleSorterModelGen.getId underlying)
     Assert.NotEqual(a.MakeSorterModelId (UMX.tag 0), a.MakeSorterModelId (UMX.tag 1))
@@ -128,12 +121,16 @@ let ``Generator identity includes bounds and differs from the underlying generat
 let ``Creation and deserialization reject negative activator bounds`` () =
     let underlying = generator rngFactory.LcgFactory "Msrs"
     for maximum in [-1; Int32.MinValue] do
-        Assert.Throws<ArgumentException>(fun () -> simpleSorterModelRGen.create underlying maximum |> ignore) |> ignore
-        let dto = { ModelGen = SimpleSorterModelGenDto.fromDomain underlying; AMax = maximum }
+        Assert.Throws<ArgumentException>(fun () -> simpleSorterModelRGen.create underlying maximum 0 |> ignore) |> ignore
+        let dto = { ModelGen = SimpleSorterModelGenDto.fromDomain underlying; AMax = maximum; AInitial = 0 }
         let bytes = MessagePackSerializer.Serialize(sorterModelGenDto.SimpleR dto, options)
         let decoded = MessagePackSerializer.Deserialize<sorterModelGenDto>(bytes, options)
         Assert.Throws<ArgumentException>(fun () -> SorterModelGenDto.toDomain decoded |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> simpleSorterModelRGen.create Unchecked.defaultof<simpleSorterModelGen> 2 |> ignore) |> ignore
+    for initial in [Int32.MinValue; -3; 3; Int32.MaxValue] do
+        Assert.Throws<ArgumentException>(fun () -> simpleSorterModelRGen.create underlying 2 initial |> ignore) |> ignore
+        let dto = { ModelGen = SimpleSorterModelGenDto.fromDomain underlying; AMax = 2; AInitial = initial }
+        Assert.Throws<ArgumentException>(fun () -> SimpleSorterModelRGenDto.toDomain dto |> ignore) |> ignore
+    Assert.Throws<ArgumentNullException>(fun () -> simpleSorterModelRGen.create Unchecked.defaultof<simpleSorterModelGen> 2 0 |> ignore) |> ignore
 
 [<Fact>]
 let ``Existing Simple and Unknown generator cases still serialize`` () =

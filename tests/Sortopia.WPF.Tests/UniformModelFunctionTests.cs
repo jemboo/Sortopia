@@ -15,11 +15,11 @@ namespace Sortopia.WPF.Tests;
 
 public sealed class UniformModelFunctionTests
 {
-    private static string Function(string model) => $"sorter-model-set.uniform.{model}";
-    private static WorkspaceConfigurationViewModel Module(bool setup, string model)
+    private static string Function(string model, bool setup = false, string family = "Simple") => $"sorter-model-set.uniform.{model}" + ModelFamilyResultsTests.Suffix(family);
+    private static WorkspaceConfigurationViewModel Module(bool setup, string model, string family = "Simple")
     {
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: setup ? hierarchyKind.Branch : hierarchyKind.Root).Editor!;
-        if (setup) editor.SetupFunctionName = Function(model); else editor.ResultsFunctionName = Function(model);
+        if (setup) editor.SetupFunctionName = Function(model, true, family); else editor.ResultsFunctionName = Function(model, false, family);
         (setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
         defaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
@@ -31,8 +31,8 @@ public sealed class UniformModelFunctionTests
         var settings = editor.ToProjectSettings();
         return parameterSet.fromBindings((setup ? settings.setupParameterDefaults : settings.resultsParameterDefaults).Select(ParameterBindingDto.toDomain));
     }
-    private static sorterModelSet Generate(bool setup, string model, parameterSet parameters) =>
-        Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(setup, Function(model), parameters))).Item;
+    private static sorterModelSet Generate(bool setup, string model, parameterSet parameters, string family = "Simple") =>
+        Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(setup, Function(model, setup, family), parameters))).Item;
     private static simpleSorterModel Simple(sorterModel model) => model switch {
         sorterModel.Simple value => value.Item, sorterModel.SimpleR value => value.Item.Model, sorterModel.SimpleS value => value.Item.Model,
         _ => throw new InvalidOperationException()
@@ -47,13 +47,14 @@ public sealed class UniformModelFunctionTests
     [MemberData(nameof(Choices))]
     public void Both_catalogs_generate_the_fixed_algorithm_without_a_prefix_and_preserve_replay(bool setup, string model, string family)
     {
-        var editor = Module(setup, model);
-        var values = Parameters(editor, setup).WithBinding(ParameterBinding.create(ParamKeys.sorterModelTypeKey, family));
+        var editor = Module(setup, model, family);
+        var values = Parameters(editor, setup);
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.uniform"));
         Assert.False(SetupFunctionCatalog.functions.ContainsKey("sorter-model-set.uniform"));
-        var results = ResultsFunctionCatalog.require(Function(model)); var preparation = SetupFunctionCatalog.require(Function(model));
+        var results = ResultsFunctionCatalog.require(Function(model, false, family)); var preparation = SetupFunctionCatalog.require(Function(model, true, family));
         Assert.Equal(results.RequiredParameters, preparation.RequiredParameters);
         Assert.Equal(results.DataTypes, preparation.DataTypes);
+        Assert.Equal(results.RequiredParameters.Select(key => key.Name), Assert.Single(results.DataTypes).Value);
         Assert.Empty(results.SourceDataTypes); Assert.Empty(preparation.SourceDataTypes);
         Assert.DoesNotContain(results.RequiredParameters, key => key.Name is "SimpleSorterModelType" or "PrefixLibId");
         Assert.Equal(model == "msce", results.RequiredParameters.Any(key => key.Name == "ExcludeSelfCe"));
@@ -62,7 +63,7 @@ public sealed class UniformModelFunctionTests
         Assert.Equal(model == "msuf6", results.RequiredParameters.Any(key => key.Name == "Seed6Weights"));
         Assert.Equal(model is "msuf4" or "msuf6", results.RequiredParameters.Any(key => key.Name == "UnfoldingWeights"));
         Assert.Equal(model == "msuf6" ? 12 : 8, values.TryFind(ParamKeys.channelCountKey).Value);
-        var generated = Generate(setup, model, values);
+        var generated = Generate(setup, model, values, family);
         Assert.Equal(2, generated.Count);
         Assert.All(generated.SorterModels, value => {
             Assert.Empty(SorterModel.getPrefix(value));
@@ -70,10 +71,11 @@ public sealed class UniformModelFunctionTests
             var simple = Simple(value);
             Assert.True(model switch { "msce" => simple.IsMsce, "mssi" => simple.IsMssi, "msrs" => simple.IsMsrs, "msuf4" => simple.IsMsuf4, _ => simple.IsMsuf6 });
         });
-        var repeated = Generate(!setup, model, values);
+        var otherValues = Parameters(Module(!setup, model, family), !setup);
+        var repeated = Generate(!setup, model, otherValues, family);
         Assert.Equal(generated.SorterModels.Select(SorterModel.getId), repeated.SorterModels.Select(SorterModel.getId));
         Assert.Equal(generated.SorterModels.Select(value => SorterModel.makeSorterWithPrefix(value, null!)), repeated.SorterModels.Select(value => SorterModel.makeSorterWithPrefix(value, null!)));
-        var next = Generate(setup, model, values.WithBinding(ParameterBinding.create(ParamKeys.replKey, 1)));
+        var next = Generate(setup, model, values.WithBinding(ParameterBinding.create(ParamKeys.replKey, 1)), family);
         Assert.Empty(generated.SorterModels.Select(SorterModel.getId).Intersect(next.SorterModels.Select(SorterModel.getId)));
     }
 
@@ -138,7 +140,7 @@ public sealed class UniformModelFunctionTests
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
         module.Editor!.ResultsFunctionName = Function(setup ? "mssi" : "msuf6");
-        module.Editor.SetupFunctionName = Function(setup ? "msuf6" : "mssi");
+        module.Editor.SetupFunctionName = Function(setup ? "msuf6" : "mssi", true);
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null); module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var defaults = setup ? module.Editor.SetupParameterDefaults : module.Editor.ResultsParameterDefaults;
         Assert.Equal("12", defaults.Single(row => row.Key == "ChannelCount").Value.Text);
@@ -166,7 +168,7 @@ public sealed class UniformModelFunctionTests
             var settings = new WorkspaceFolderSettings(Path.Combine(temp.FullName, "settings.txt")); settings.Save(root);
             page = new WorkspacePageViewModel(() => { }, _ => null, settings);
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); var editor = page.Selected!.Editor!;
-            if (branch) editor.SetupFunctionName = Function("msuf6");
+            if (branch) editor.SetupFunctionName = Function("msuf6", true);
             editor.ResultsFunctionName = Function(branch ? "msuf4" : "msuf6");
             editor.AddRequiredResultsDefaultsCommand.Execute(null); if (branch) editor.AddRequiredSetupDefaultsCommand.Execute(null);
             foreach (var row in editor.ResultsParameterDefaults.Concat(editor.SetupParameterDefaults).Where(row => row.Key == "SorterCount")) row.Value.Text = "2";

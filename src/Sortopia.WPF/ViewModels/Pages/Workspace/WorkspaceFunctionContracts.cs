@@ -54,7 +54,14 @@ public sealed partial class WorkspaceConfigurationViewModel
                 ? "PrefixLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
                 : functionName.StartsWith("sorter-eval.standard.", StringComparison.Ordinal) || functionName.StartsWith("sorter-eval-inputs.standard.", StringComparison.Ordinal)
                     ? "Generates full sortable tests using ChannelCount and SortableDataFormat. Tests and models have separate output projections. " : "";
-        return "The function fixes the model algorithm. SorterModelType selects Simple, SimpleR, or SimpleS. AMax is shown for SimpleR; ActivationProbability is shown for SimpleS. Spans containing both families show both controls. Hidden inputs retain their values; use ‘Show inputs for other model families’ to inspect or correct them. "
+        var family = functionName.EndsWith(".simple-r", StringComparison.Ordinal)
+            ? "The function fixes the algorithm and SimpleR model type. AInitial sets every suffix activator's starting value and must be within [-AMax, AMax]. Only positive activators enable entries. "
+            : functionName.EndsWith(".simple-s", StringComparison.Ordinal)
+                ? "The function fixes the algorithm and SimpleS model type. ActivationProbability controls Boolean suffix activators. "
+                : functionName.EndsWith(".simple", StringComparison.Ordinal)
+                    ? "The function fixes the algorithm and Simple model type. All suffix entries are enabled; no activator parameters are required. "
+                    : "";
+        return family
             + dimensions + tests + "Repl selects a reproducible batch of SorterCount models. Mode weights are shared by every stage; UF4/UF6 have separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
     }
     public string ResultsInputGuidance => HasResultsContract ? ModelInputGuidance(ResultsFunctionName) : "";

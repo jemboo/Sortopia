@@ -18,8 +18,8 @@ public sealed class WorkspaceRequiredDefaultsTests
     {
         var family = setup ? hierarchyKind.Branch : hierarchyKind.Root;
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent", family: family);
-        if (setup) parent.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
-        else parent.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        if (setup) parent.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
+        else parent.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         var inherited = WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "ChannelCount", "16", setup);
         WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "StageLength", "2", setup);
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child", family: family); parent.Children.Add(child);
@@ -33,18 +33,16 @@ public sealed class WorkspaceRequiredDefaultsTests
 
         Assert.True(command.CanExecute(null));
         command.Execute(null);
-        Assert.Equal(7, rows.Count);
+        Assert.Equal(4, rows.Count);
         Assert.Same(local, rows.Single(row => row.Key == "StageLength")); Assert.Equal("5", local.Value.Text);
         Assert.Same(draft, rows.Single(row => row.Key == "RngType")); Assert.Equal("unfinished edit", draft.Value.Text);
         Assert.DoesNotContain(rows, row => row.Key == "ChannelCount");
         Assert.Empty(otherPhase);
         var added = rows.Except(new[] { local, draft }).ToArray();
-        Assert.Equal(5, added.Length);
+        Assert.Equal(2, added.Length);
         Assert.All(added, row => { Assert.Equal(ParamKeys.tryFind(row.Key).Value.ValueType, row.ValueType); Assert.NotEmpty(row.Value.Text); Assert.Empty(row.Error); });
-        Assert.True(rows.Single(row => row.Key == "ActivationProbability").Value.IsNumeric);
-        Assert.True(rows.Single(row => row.Key == "SorterModelType").Value.HasChoices);
         Assert.False(command.CanExecute(null));
-        command.Execute(null); Assert.Equal(7, rows.Count);
+        command.Execute(null); Assert.Equal(4, rows.Count);
         Assert.True(changes > 0);
 
         var preview = Assert.Single(setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults);
@@ -104,9 +102,9 @@ public sealed class WorkspaceRequiredDefaultsTests
             var settings = editor.ToProjectSettings();
             var parameters = parameterSet.fromBindings((function.Setup ? settings.setupParameterDefaults : settings.resultsParameterDefaults).Select(ParameterBindingDto.toDomain));
             Assert.Empty(FunctionParameters.validationError(function.Keys, parameters));
-            if (function.Name == SetupFunctionNames.evaluationStandardMssi)
+            if (function.Name == SetupFunctionNames.evaluationStandardMssiSimple)
             {
-                var generated = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationStandardMssi, parameters);
+                var generated = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationStandardMssiSimple, parameters);
                 Assert.Equal(100, ((functionData.SorterModelSet)generated.Single(value => value.IsSorterModelSet)).Item.Count);
             }
         }
@@ -118,7 +116,7 @@ public sealed class WorkspaceRequiredDefaultsTests
     public void New_library_defaults_match_the_inherited_channel_count(bool prefix)
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent", family: hierarchyKind.Branch);
-        parent.Editor!.SetupFunctionName = prefix ? SetupFunctionNames.evaluationPrefixMssi : SetupFunctionNames.evaluationMergeMssi;
+        parent.Editor!.SetupFunctionName = prefix ? SetupFunctionNames.evaluationPrefixMssiSimple : SetupFunctionNames.evaluationMergeMssiSimple;
         WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "ChannelCount", "16", true);
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child", family: hierarchyKind.Branch); parent.Children.Add(child);
         child.Editor!.AddRequiredSetupDefaultsCommand.Execute(null);
@@ -142,7 +140,7 @@ public sealed class WorkspaceRequiredDefaultsTests
     {
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch).Editor!;
         editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        editor.SetupFunctionName = SetupFunctionNames.evaluationPrefixMssi;
+        editor.SetupFunctionName = SetupFunctionNames.evaluationPrefixMssiSimple;
         var library = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 16 && id.StageLength == 1));
         var existing = WorkspaceParameterInheritanceTests.AddDefault(editor, "PrefixLibId", library, true);
         editor.AddRequiredSetupDefaultsCommand.Execute(null);

@@ -31,8 +31,8 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         page.Selected!.Name = "SorterModelSets";
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); page.Selected!.Name = "Prefix";
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); page.Selected!.Name = "msuf4";
-        page.Selected.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixMsuf4SorterModels;
-        if (branch) page.Selected.Editor.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
+        page.Selected.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixMsuf4SimpleSorterModels;
+        if (branch) page.Selected.Editor.SetupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
         Assert.Empty(page.SaveIssues);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var saved = WorkspaceFileStore.LoadDocument(page.WorkspaceFolder);
@@ -63,7 +63,7 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         {
             if (setup)
             {
-                node.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
+                node.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
                 node.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
                 node.Editor.SetupParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "4";
                 node.Editor.SetupParameterDefaults.Single(value => value.Key == "SorterCount").Value.Text = "2";
@@ -89,7 +89,7 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         page.Selected = page.Roots[0].DescendantsAndSelf().Single(node => node.Id == runId);
         var scope = WorkspaceRunDocument.resolveByRunId(WorkspaceFileStore.LoadDocument(page.WorkspaceFolder), runId);
         Assert.Equal(ResultsFunctionNames.sorterEval, scope.Run.ResultsFunctionName);
-        Assert.Equal(SetupFunctionNames.evaluationStandardMssi, scope.Run.SetupFunctionName.Value);
+        Assert.Equal(SetupFunctionNames.evaluationStandardMssiSimple, scope.Run.SetupFunctionName.Value);
         Assert.True(page.GenerateRunParametersCommand.CanExecute(null), page.GenerationHint);
         await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
         Assert.True(page.Selected.Parent!.IsSealed);
@@ -148,7 +148,7 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         first.Children.Add(leaf);
         leaf.Children.Add(new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Inherits function", family: hierarchyKind.Branch));
         WorkspaceOverrideField Field(WorkspaceTreeNode node) => setup ? node.Editor!.SetupFunctionOverride : node.Editor!.ResultsFunctionOverride;
-        var function = setup ? SetupFunctionNames.uniformMssiSorterModels : ResultsFunctionNames.uniformMssiSorterModels;
+        var function = setup ? SetupFunctionNames.uniformMssiSimpleSorterModels : ResultsFunctionNames.uniformMssiSimpleSorterModels;
         Field(leaf).IsOverridden = true;
         Assert.True(Field(first).CanOverride); Assert.Empty(Field(first).DescendantFunctionDefinitions);
         Field(leaf).EffectiveValue = function;

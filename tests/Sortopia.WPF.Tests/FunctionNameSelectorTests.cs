@@ -21,8 +21,8 @@ public sealed class FunctionNameSelectorTests
     {
         Assert.All(SetupFunctionCatalog.functions.Values, definition => Assert.False(string.IsNullOrWhiteSpace(definition.Description)));
         Assert.All(ResultsFunctionCatalog.functions.Values, definition => Assert.False(string.IsNullOrWhiteSpace(definition.Description)));
-        var setup = FunctionPreview.Find(SetupFunctionNames.uniformMsceSorterModels, true)!;
-        var results = FunctionPreview.Find(ResultsFunctionNames.uniformMsceSorterModels, false)!;
+        var setup = FunctionPreview.Find(SetupFunctionNames.uniformMsceSimpleSorterModels, true)!;
+        var results = FunctionPreview.Find(ResultsFunctionNames.uniformMsceSimpleSorterModels, false)!;
         Assert.Contains("setup database", setup.Description);
         Assert.Contains("results database", results.Description);
         Assert.Equal(setup.RequiredParameters, results.RequiredParameters);
@@ -113,9 +113,11 @@ public sealed class FunctionNameSelectorTests
         Assert.True(popup.IsOpen, "The function popup should stay open.");
         Assert.True(source.IsSelected, "Reopening should restore the selected function.");
         var standard = root.Children.Single(node => node.Segment == "standard");
-        standard.IsExpanded = true; standard.Children.Single(node => node.Segment == "mssi").IsSelected = true;
+        standard.IsExpanded = true;
+        var mssi = standard.Children.Single(node => node.Segment == "mssi"); mssi.IsExpanded = true;
+        var simple = mssi.Children.Single(node => node.Segment == "simple"); simple.IsSelected = true;
         UpdatePopup();
-        Assert.Equal(SetupFunctionCatalog.functions[SetupFunctionNames.evaluationStandardMssi].Description, description.Text);
+        Assert.Equal(SetupFunctionCatalog.functions[SetupFunctionNames.evaluationStandardMssiSimple].Description, description.Text);
         Assert.Contains(parameters.Items.Cast<FunctionParameterPreview>(), parameter => parameter.Name == "Repl");
         Assert.Equal(SetupFunctionNames.evaluationSource, model.SetupFunctionName);
         Assert.True(((ScrollViewer)setup.FindName("DetailsViewport")).ScrollableHeight > 0);
@@ -124,7 +126,7 @@ public sealed class FunctionNameSelectorTests
 
         Click((Button)setup.FindName("OpenPicker")); UpdatePopup();
         Assert.Equal(SetupFunctionCatalog.functions[SetupFunctionNames.evaluationSource].Description, description.Text);
-        standard.Children.Single(node => node.Segment == "mssi").IsSelected = true; UpdatePopup();
+        simple.IsSelected = true; UpdatePopup();
         if (Environment.GetEnvironmentVariable("SORTOPIA_FUNCTION_PICKER_SNAPSHOT") is { Length: > 0 } path)
         {
             var content = (FrameworkElement)popup.Child;
@@ -136,7 +138,7 @@ public sealed class FunctionNameSelectorTests
             using var output = File.Create(path); encoder.Save(output);
         }
         Press(tree, Key.Enter); Layout(view);
-        Assert.Equal(SetupFunctionNames.evaluationStandardMssi, model.SetupFunctionName);
+        Assert.Equal(SetupFunctionNames.evaluationStandardMssiSimple, model.SetupFunctionName);
         Assert.False(popup.IsOpen);
 
         // Changing setup can filter out an existing results function, without silently replacing it.
@@ -152,34 +154,34 @@ public sealed class FunctionNameSelectorTests
     public void Inherited_and_unknown_names_are_preserved_and_catalog_changes_clear_stale_candidates() => OnSta(() =>
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent");
-        parent.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        parent.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child"); parent.Children.Add(child);
         var view = new WorkspaceOverrideEditor { DataContext = child.Editor!.ResultsFunctionOverride }; Layout(view);
         var picker = (FunctionNameSelector)view.FindName("FunctionNameInput");
         Assert.False(picker.IsEnabled);
-        Assert.Equal(ResultsFunctionNames.uniformMssiSorterModels, picker.SelectedFunction);
+        Assert.Equal(ResultsFunctionNames.uniformMssiSimpleSorterModels, picker.SelectedFunction);
         child.Editor.ResultsFunctionOverride.IsOverridden = true; Layout(view);
         Assert.False(child.Editor.ResultsFunctionOverride.IsOverridden); Assert.False(picker.IsEnabled);
         parent.Editor.ResultsFunctionOverride.IsOverridden = false; Layout(view);
-        child.Editor.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels; Layout(view);
+        child.Editor.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels; Layout(view);
         Assert.True(picker.IsEnabled);
         var tree = (TreeView)picker.FindName("FunctionTree");
         var root = tree.Items.Cast<FunctionNameNode>().Single(node => node.Segment == "sorter-model-set");
         Assert.True(root.IsExpanded);
-        Assert.True(root.Children.Single(node => node.Segment == "uniform").Children.Single(node => node.Segment == "mssi").IsSelected);
+        Assert.True(root.Children.Single(node => node.Segment == "uniform").Children.Single(node => node.Segment == "mssi").Children.Single(node => node.Segment == "simple").IsSelected);
         child.Editor.ResultsFunctionName = "unavailable.saved-function"; Layout(view);
         Assert.Equal("unavailable.saved-function", picker.SelectedFunction);
         Assert.Equal(Visibility.Collapsed, ((StackPanel)picker.FindName("FunctionDetails")).Visibility);
         Assert.False(((Button)picker.FindName("ChooseFunction")).IsEnabled);
-        parent.Editor.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        parent.Editor.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         Assert.False(parent.Editor.ResultsFunctionOverride.IsOverridden);
-        var legacy = parent.Editor.ToModuleOverrides(); legacy.resultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+        var legacy = parent.Editor.ToModuleOverrides(); legacy.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         parent.Editor.LoadModuleOverrides(legacy); Layout(view); // A saved duplicate remains repairable.
         Assert.False(((CheckBox)view.FindName("OverrideToggle")).IsEnabled);
         var inherit = (Button)view.FindName("UseInheritedFunctionButton");
         Assert.Equal(Visibility.Visible, inherit.Visibility);
         inherit.Command.Execute(null); Layout(view);
-        Assert.Equal(ResultsFunctionNames.uniformMssiSorterModels, picker.SelectedFunction);
+        Assert.Equal(ResultsFunctionNames.uniformMssiSimpleSorterModels, picker.SelectedFunction);
         Assert.False(picker.IsEnabled);
 
         var isolated = new FunctionNameSelector { Choices = new[] { "a.b", "a.c" }, SelectedFunction = "a.b" };
@@ -202,7 +204,7 @@ public sealed class FunctionNameSelectorTests
             settings.Save(temporary.FullName);
             var model = new WorkspacePageViewModel(() => { }, _ => null, settings);
             model.AddBranchModuleCommand.Execute(null); var parent = model.Selected!; parent.Name = "Shared functions";
-            if (setup) parent.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandardMssi;
+            if (setup) parent.Editor!.SetupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
             else parent.Editor!.ResultsFunctionName = ResultsFunctionNames.sorterEval;
             var definition = setup ? parent.Editor.SetupFunctionOverride : parent.Editor.ResultsFunctionOverride;
             model.AddBranchModuleCommand.Execute(null); model.AddBranchModuleCommand.Execute(null);
@@ -260,8 +262,8 @@ public sealed class FunctionNameSelectorTests
             {
                 model.Selected = parent; model.AddBranchModuleCommand.Execute(null); model.Selected!.Name = name;
                 model.AddBranchModuleCommand.Execute(null); var leaf = model.Selected!; leaf.Name = "Functions";
-                if (setup) leaf.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
-                else leaf.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
+                if (setup) leaf.Editor!.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
+                else leaf.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
                 leaves.Add(leaf);
             }
             model.Selected = parent; var key = setup ? "setupFunction" : "resultsFunction"; model.SelectConfigurationItem(key);
@@ -312,11 +314,11 @@ public sealed class FunctionNameSelectorTests
             var model = new WorkspacePageViewModel(() => { }, _ => null, settings);
             model.AddBranchModuleCommand.Execute(null); var moving = model.Selected!; moving.Name = "Moving";
             model.AddBranchModuleCommand.Execute(null); var leaf = model.Selected!; leaf.Name = "Functions";
-            leaf.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
-            leaf.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
+            leaf.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+            leaf.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
             model.Selected = model.Roots[0]; model.AddBranchModuleCommand.Execute(null); var destination = model.Selected!; destination.Name = "Destination";
-            destination.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
-            destination.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
+            destination.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+            destination.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
             model.Selected = moving; model.CutCommand.Execute(null); model.Selected = destination;
             var page = new WorkspacePage { DataContext = model }; using var window = new TestWindow(page);
             void Draw()
@@ -363,8 +365,8 @@ public sealed class FunctionNameSelectorTests
             string? opened = null;
             var model = new WorkspacePageViewModel(() => { }, _ => null, settings, pickExistingFolder: _ => source, openFolder: value => opened = value);
             model.AddBranchModuleCommand.Execute(null); var destination = model.Selected!; destination.Name = "Destination";
-            destination.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSorterModels;
-            destination.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSorterModels;
+            destination.Editor!.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+            destination.Editor.SetupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
             model.AddExistingAsync(WorkspaceEntityKind.Module).GetAwaiter().GetResult();
             Assert.Empty(destination.Children); Assert.True(model.HasImportFunctionConflicts);
             var page = new WorkspacePage { DataContext = model }; using var window = new TestWindow(page);

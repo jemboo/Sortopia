@@ -28,9 +28,7 @@ public sealed class RunExecutionTests
         new() { keyName = key, value = value, valueType = (int)type };
     internal static parameterBindingDto[] UniformModelDefaults(int channels = 4) => [
         Binding("ChannelCount", channels.ToString(), parameterValueType.Integer), Binding("StageLength", "3", parameterValueType.Integer),
-        Binding("RngType", "SplitMix64"), Binding("SorterCount", "3", parameterValueType.Integer), Binding("Repl", "0", parameterValueType.Integer),
-        Binding("SorterModelType", "Simple"), Binding("AMax", "1", parameterValueType.Integer),
-        Binding("ActivationProbability", "0.5", parameterValueType.Floating)];
+        Binding("RngType", "SplitMix64"), Binding("SorterCount", "3", parameterValueType.Integer), Binding("Repl", "0", parameterValueType.Integer)];
     // Successful execution fixtures explicitly supply fixed query inputs as one-value spans.
     // Production run construction never fills these in implicitly.
     internal static parameterSpanDto[] QuerySpans(IEnumerable<string> keys, IEnumerable<parameterBinding> defaults, parameterSpanDto[]? supplied = null)
@@ -91,7 +89,7 @@ public sealed class RunExecutionTests
     public void Branch_finishes_all_setup_before_the_full_product_and_passes_the_matching_batch()
     {
         var settings = Settings(true);
-        settings.setupFunctionName = SetupFunctionNames.evaluationStandardMssi;
+        settings.setupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
         settings.setupParameterDefaults = [.. UniformModelDefaults(), Binding("SortableDataFormat", "Bools")];
         settings.resultsFunctionName = ResultsFunctionNames.sorterEval;
         settings.resultsParameterDefaults = [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SorterEvalType", "V1"), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
