@@ -115,13 +115,17 @@ public sealed class WorkspaceRequiredDefaultsTests
     [InlineData(true)]
     public void New_library_defaults_match_the_inherited_channel_count(bool prefix)
     {
-        var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent", family: hierarchyKind.Branch);
-        parent.Editor!.SetupFunctionName = prefix ? SetupFunctionNames.evaluationPrefixMssiSimple : SetupFunctionNames.evaluationMergeMssiSimple;
-        WorkspaceParameterInheritanceTests.AddDefault(parent.Editor, "ChannelCount", "16", true);
-        var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child", family: hierarchyKind.Branch); parent.Children.Add(child);
-        child.Editor!.AddRequiredSetupDefaultsCommand.Execute(null);
-        Assert.DoesNotContain(child.Editor.SetupParameterDefaults, row => row.Key == "ChannelCount");
-        var text = child.Editor.SetupParameterDefaults.Single(row => row.Key == (prefix ? "PrefixLibId" : "MergeLibId")).Value.Text;
+        var models = SourceEvaluationInputsTests.Source("SorterModelSet", "ChannelCount");
+        var tests = SourceEvaluationInputsTests.Source("SortableTests", prefix ? "PrefixLibId" : "MergeLibId");
+        var parent = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Parent", () => [models, tests]);
+        parent.SetupFunctionName = SetupFunctionNames.evaluationSource; parent.SetupDataTypesOverride.IsOverridden = true;
+        parent.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
+        parent.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
+        WorkspaceParameterInheritanceTests.AddDefault(parent, "ChannelCount", "16", true);
+        var child = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => parent, () => "Child", () => [models, tests]);
+        child.AddRequiredSetupDefaultsCommand.Execute(null);
+        Assert.DoesNotContain(child.SetupParameterDefaults, row => row.Key == "ChannelCount");
+        var text = child.SetupParameterDefaults.Single(row => row.Key == (prefix ? "PrefixLibId" : "MergeLibId")).Value.Text;
         if (prefix)
         {
             var id = PrefixLibId.fromString(text);
@@ -132,22 +136,26 @@ public sealed class WorkspaceRequiredDefaultsTests
             var id = MergeLibId.fromString(text);
             Assert.Equal(16, id.ChannelCount); Assert.Equal(2, id.MergeDimension); Assert.Contains(id, MergeLibId.availableForChannelCount(16));
         }
-        Assert.All(child.Editor.SetupParameterDefaults, row => Assert.Empty(row.Error));
+        Assert.All(child.SetupParameterDefaults, row => Assert.Empty(row.Error));
     }
 
     [Fact]
     public void New_channel_default_uses_existing_library_or_other_phase_without_editing_existing_values()
     {
-        var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch).Editor!;
-        editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        editor.SetupFunctionName = SetupFunctionNames.evaluationPrefixMssiSimple;
+        var models = SourceEvaluationInputsTests.Source("SorterModelSet", "ChannelCount");
+        var tests = SourceEvaluationInputsTests.Source("SortableTests", "PrefixLibId");
+        var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [models, tests]);
+        editor.ResultsFunctionName = ResultsFunctionNames.sorterEval; editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
+        editor.SetupDataTypesOverride.IsOverridden = true;
+        editor.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
+        editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         var library = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 16 && id.StageLength == 1));
         var existing = WorkspaceParameterInheritanceTests.AddDefault(editor, "PrefixLibId", library, true);
         editor.AddRequiredSetupDefaultsCommand.Execute(null);
         Assert.Equal("16", editor.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text);
         Assert.Same(existing, editor.SetupParameterDefaults.Single(row => row.Key == "PrefixLibId")); Assert.Equal(library, existing.Value.Text);
         editor.AddRequiredResultsDefaultsCommand.Execute(null);
-        Assert.Equal("16", editor.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text);
+        Assert.DoesNotContain(editor.ResultsParameterDefaults, row => row.Key == "ChannelCount");
         var oldBlank = editor.ResultsParameterDefaults.Single(row => row.Key == "CollectSortableTests"); oldBlank.Value.Text = "";
         editor.ResultsParameterDefaults.Single(row => row.Key == "SorterEvalType").RemoveCommand.Execute(null);
         editor.AddRequiredResultsDefaultsCommand.Execute(null);

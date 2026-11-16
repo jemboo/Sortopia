@@ -51,7 +51,7 @@ public sealed class FileInspectionTests : IDisposable
     {
         var dto = new runParametersDto(1, Guid.NewGuid(), Guid.NewGuid(), "sortable-tests.standard", "1", "Results",
             [new preparedOutputDto("SortableTests", "Binary", ["ChannelCount"])],
-            [new preparedBindingDto("ChannelCount", (int)parameterValueType.Integer, MessagePackSetup.serialize(16))], [], 1, null!);
+            [new preparedBindingDto("ChannelCount", (int)parameterValueType.Integer, MessagePackSetup.serialize(16))], [], 1, null!, null!, null!);
         var payload = MessagePackSetup.serialize(dto);
         var id = new Guid(SHA256.HashData(payload)[..16]);
         var options = MessagePackSetup.options.WithCompression(MessagePackCompression.Lz4BlockArray);

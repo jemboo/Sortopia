@@ -1,4 +1,5 @@
 using Microsoft.FSharp.Collections;
+using Sortopia.FileDb;
 using Sortopia.Functions;
 using Sortopia.Models.Sorting;
 using Sortopia.Runs;
@@ -12,161 +13,120 @@ namespace Sortopia.WPF.Tests;
 
 public sealed class SourceEvaluationInputsTests
 {
-    private static parameterSet Parameters(int channels) => parameterSet.fromBindings([ParameterBinding.create(ParamKeys.channelCountKey, channels)]);
-    private static functionData Models(int channels = 4)
+    private static readonly sortopiaDataType ModelsType = sortopiaDataType.NewSorterModelSet("");
+    private static readonly sortopiaDataType TestsType = sortopiaDataType.NewSortableTests("");
+    private static functionData Models(int channels = 4) => Assert.Single(CatalogTestHost.Invoke(false,
+        ResultsFunctionNames.uniformMssiSimpleSorterModels,
+        parameterSet.fromBindings(RunExecutionTests.UniformModelDefaults(channels).Select(ParameterBindingDto.toDomain))));
+    private static functionData Tests(int channels = 4) => Assert.Single(CatalogTestHost.Invoke(false,
+        ResultsFunctionNames.mergeSortableTests, parameterSet.fromBindings([
+            ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(channels).First(value => value.MergeDimension == 2)),
+            ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")])));
+    internal static WorkspaceSourceProject Source(string kind, params string[] keys)
     {
-        var parameters = parameterSet.fromBindings(RunExecutionTests.UniformModelDefaults(channels).Select(ParameterBindingDto.toDomain));
-        return Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels, parameters));
-    }
-
-    private static functionData Tests(int channels = 4)
-    {
-        var library = MergeLibId.availableForChannelCount(channels).First(value => value.MergeDimension == 2);
-        return Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.mergeSortableTests,
-            parameterSet.fromBindings([ParameterBinding.create(ParamKeys.mergeLibIdKey, library),
-                ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")])));
+        var type = new sortopiaDataTypeDto { kind = kind, value = "" };
+        return new(Guid.NewGuid(), kind + " source", true, new projectSettingsDto {
+            resultsSortopiaDataTypes = [type], resultsDataTypes = [new() { dataType = type, queryParameterKeys = keys }]
+        }, new WorkspaceTreeNode(WorkspaceEntityKind.Project, kind + " source").Editor!);
     }
 
     [Fact]
-    public void Catalog_function_copies_models_and_tests_unchanged_with_independent_dependencies()
+    public void One_generic_copy_entry_preserves_both_payloads_and_independent_dependencies()
     {
-        var definition = SetupFunctionCatalog.functions[SetupFunctionNames.evaluationSource];
-        var types = new[] { sortopiaDataType.NewSorterModelSet(""), sortopiaDataType.NewSortableTests("") };
-        Assert.Equal(new[] { "ChannelCount" }, definition.RequiredParameters.Select(key => key.Name));
-        Assert.Equal(types.Order(), definition.SourceDataTypes.Order());
-        Assert.Equal(types.Order(), definition.SortopiaDataTypes.Order());
-        foreach (var type in types)
+        Assert.Equal(new[] { SetupFunctionNames.evaluationSource }, SetupFunctionCatalog.functions.Keys.Where(name => name.StartsWith("sorter-eval.")));
+        var definition = SetupFunctionCatalog.require(SetupFunctionNames.evaluationSource);
+        Assert.True(definition.ParametersFromSources); Assert.Empty(definition.RequiredParameters);
+        Assert.Equal("2", definition.Version);
+        foreach (var type in new[] { ModelsType, TestsType })
         {
+            Assert.Contains(type, definition.SourceDataTypes);
+            Assert.Empty(definition.DataTypes[type]);
             Assert.Equal(new[] { type }, definition.OutputDependencies[type]);
-            Assert.Equal(new[] { "ChannelCount" }, definition.DataTypes[type]);
         }
         var models = Models(); var tests = Tests();
-        Assert.NotEmpty(Assert.IsType<functionData.SortableTests>(tests).Item2); // Preserve the generating prefix too.
-        var copies = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationSource, Parameters(4), models, tests);
-        Assert.Equal(2, copies.Length);
+        var copies = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationSource, parameterSet.fromBindings([]), models, tests);
         Assert.Same(models, copies.Single(copy => copy.IsSorterModelSet));
         Assert.Same(tests, copies.Single(copy => copy.IsSortableTests));
-        var evaluation = CatalogTestHost.Invoke(false, ResultsFunctionNames.sorterEval,
-            parameterSet.fromBindings([ParameterBinding.create(ParamKeys.channelCountKey, 4),
-                ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V1"), ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)]),
-            copies.ToArray());
-        Assert.True(Assert.Single(evaluation).IsSorterSetEval);
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(8)]
-    public void Copy_requires_positive_matching_channel_count(int channels)
-    {
-        var error = Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
-            SetupFunctionNames.evaluationSource, Parameters(channels), Models(), Tests()));
-        Assert.Contains("ChannelCount", error.Message);
+        Assert.True(Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.sorterEval, parameterSet.fromBindings([
+            ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V1"),
+            ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)]), copies.ToArray())).IsSorterSetEval);
     }
 
     [Fact]
-    public void Copy_rejects_mixed_channel_counts()
+    public void Copy_validates_the_actual_widths_without_requiring_a_channel_count_lookup_key()
     {
-        var four = Assert.IsType<functionData.SorterModelSet>(Models(4)).Item;
-        var eight = Assert.IsType<functionData.SorterModelSet>(Models(8)).Item;
-        var mixed = functionData.NewSorterModelSet(sorterModelSet.create(Guid.NewGuid(), [.. four.SorterModels, .. eight.SorterModels], four.RawCeLength));
-        Assert.Contains("Every model", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
-            SetupFunctionNames.evaluationSource, Parameters(4), mixed, Tests())).Message);
+        Assert.Contains("same channel count", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
+            SetupFunctionNames.evaluationSource, parameterSet.fromBindings([]), Models(8), Tests(4))).Message);
+        Assert.Contains("queried ChannelCount", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
+            SetupFunctionNames.evaluationSource, parameterSet.fromBindings([ParameterBinding.create(ParamKeys.channelCountKey, 8)]), Models(), Tests())).Message);
     }
 
     [Fact]
-    public void Copy_rejects_tests_with_a_different_channel_count()
+    public void Source_selection_drives_required_parameters_instead_of_model_generation_settings()
     {
-        var error = Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
-            SetupFunctionNames.evaluationSource, Parameters(8), Models(8), Tests(4)));
-        Assert.Contains("SortableTests must have ChannelCount 8", error.Message);
-    }
-
-    [Fact]
-    public void Module_editor_offers_channel_count_two_sources_and_compatible_evaluation()
-    {
-        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: hierarchyKind.Branch);
-        var editor = module.Editor!;
-        editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
-        editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
+        var models = Source("SorterModelSet", "ChannelCount", "Repl");
+        var tests = Source("SortableTests", "PrefixLibId", "SortableDataFormat");
+        var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Evaluation", () => [models, tests]);
+        editor.SetupFunctionName = SetupFunctionNames.evaluationSource; editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
+        editor.SetupDataTypesOverride.IsOverridden = true;
+        Assert.All(editor.SetupDataTypes, row => Assert.True(row.RequiresSource));
+        Assert.Empty(editor.SetupParameterDefaults);
+        editor.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
+        editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         editor.AddRequiredSetupDefaultsCommand.Execute(null);
-        Assert.Equal("ChannelCount", Assert.Single(editor.SetupParameterDefaults).Key);
-        Assert.Equal(new[] { "SortableTests", "SorterModelSet" }, editor.SetupDataTypes.Select(output => output.DataType.Kind).Order());
-        Assert.All(editor.SetupDataTypes, output => Assert.True(output.RequiresSource));
-        Assert.Contains(ResultsFunctionNames.sorterEval, editor.CompatibleResultsFunctions);
-
-        foreach (var kind in new[] { "SorterModelSet", "SortableTests" })
-        {
-            var matching = RunExecutionTests.Settings(false);
-            matching.resultsSortopiaDataTypes = [new() { kind = kind, value = "" }];
-            matching.resultsDataTypes = [new() { dataType = matching.resultsSortopiaDataTypes[0], queryParameterKeys = ["ChannelCount"] }];
-            var extraKeys = RunExecutionTests.Settings(false);
-            extraKeys.resultsSortopiaDataTypes = matching.resultsSortopiaDataTypes;
-            extraKeys.resultsDataTypes = [new() { dataType = matching.resultsSortopiaDataTypes[0], queryParameterKeys = ["ChannelCount", "Repl"] }];
-            var source = new WorkspaceSourceProject(Guid.NewGuid(), "Matching source", true, matching, editor);
-            var other = new WorkspaceSourceProject(Guid.NewGuid(), "Extra query keys", true, extraKeys, editor);
-            var wrongType = RunExecutionTests.Settings(false);
-            wrongType.resultsSortopiaDataTypes = [new() { kind = kind == "SorterModelSet" ? "SortableTests" : "SorterModelSet", value = "" }];
-            wrongType.resultsDataTypes = [new() { dataType = wrongType.resultsSortopiaDataTypes[0], queryParameterKeys = ["ChannelCount"] }];
-            var wrongSource = new WorkspaceSourceProject(Guid.NewGuid(), "Other data type", true, wrongType, editor);
-            var row = new WorkspaceSetupDataTypeEntry(new() { dataType = matching.resultsSortopiaDataTypes[0], queryParameterKeys = [] }, () => [source, other, wrongSource]);
-            row.SetContract(true, true, ["ChannelCount"], ["ChannelCount"]);
-            Assert.Equal(3, row.SourceProjects.Count());
-            Assert.Equal(source.Id, Assert.Single(row.SourceProjects, choice => choice.IsCompatible).Id);
-            Assert.Contains("Repl", row.SourceProjects.Single(choice => choice.Id == other.Id).IncompatibilityReason);
-            Assert.Contains("exact data type", row.SourceProjects.Single(choice => choice.Id == wrongSource.Id).IncompatibilityReason);
-            row.SourceProjectId = source.Id; Assert.Empty(row.Error);
-            row.SourceProjectId = other.Id; Assert.Contains("query parameters", row.Error);
-        }
+        Assert.Equal(new[] { "ChannelCount", "PrefixLibId", "Repl", "SortableDataFormat" }, editor.LocalSetupParameterDefaults.Select(row => row.Key).Order());
+        Assert.DoesNotContain(editor.LocalSetupParameterDefaults, row => row.Key is "SorterSuccessFraction" or "SorterCount" or "ActivationProbability");
+        Assert.Empty(editor.SetupDataTypesError); Assert.Empty(editor.SetupParameterDefaultsError);
+        Assert.Contains("Copy both", editor.SetupInputGuidance);
     }
 
     [Fact]
-    public void Prefix_copy_declares_separate_projections_and_preserves_source_payloads()
+    public void Module_defaults_survive_until_a_child_project_selects_its_copy_sources()
     {
-        var definition = SetupFunctionCatalog.require(SetupFunctionNames.evaluationSourcePrefix);
-        var modelsType = sortopiaDataType.NewSorterModelSet(""); var testsType = sortopiaDataType.NewSortableTests("");
-        Assert.Equal(new[] { "ChannelCount", "PrefixLibId" }, definition.RequiredParameters.Select(key => key.Name));
-        Assert.Equal(new[] { "ChannelCount" }, definition.DataTypes[modelsType]);
-        Assert.Equal(new[] { "PrefixLibId" }, definition.DataTypes[testsType]);
-        Assert.Equal(new[] { modelsType }, definition.OutputDependencies[modelsType]);
-        Assert.Equal(new[] { testsType }, definition.OutputDependencies[testsType]);
-        var prefix = PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1);
-        var models = Models(8);
-        var tests = Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.prefixSortableTests,
-            parameterSet.fromBindings([ParameterBinding.create(ParamKeys.prefixLibIdKey, prefix), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")])));
-        var parameters = Parameters(8).WithBinding(ParameterBinding.create(ParamKeys.prefixLibIdKey, prefix));
-        var copies = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationSourcePrefix, parameters, models, tests);
-        Assert.Same(models, copies.Single(copy => copy.IsSorterModelSet)); Assert.Same(tests, copies.Single(copy => copy.IsSortableTests));
-        Assert.NotEmpty(Assert.IsType<functionData.SortableTests>(tests).Item2);
-        Assert.Contains("must match PrefixLibId", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
-            SetupFunctionNames.evaluationSourcePrefix, parameters.WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 4)), models, tests)).Message);
-        Assert.Contains("Every model", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
-            SetupFunctionNames.evaluationSourcePrefix, parameters, Models(4), tests)).Message);
-        Assert.Contains("SortableTests must have ChannelCount 8", Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(true,
-            SetupFunctionNames.evaluationSourcePrefix, parameters, models, Tests(4))).Message);
-        var defaults = ListModule.Singleton(ParameterBinding.create(ParamKeys.prefixLibIdKey, prefix));
-        var span = ParameterSpan.create(ParamKeys.channelCountKey, ListModule.OfSeq(Enumerable.Repeat(8, 60).Append(16)));
-        Assert.Empty(definition.InputError.Invoke(defaults).Invoke([]));
-        Assert.Contains("must match PrefixLibId", definition.InputError.Invoke(defaults).Invoke([span]));
+        var models = Source("SorterModelSet", "ChannelCount", "Repl");
+        var tests = Source("SortableTests", "ChannelCount");
+        var module = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [models, tests]);
+        module.SetupFunctionName = SetupFunctionNames.evaluationSource;
+        WorkspaceParameterInheritanceTests.AddDefault(module, "ChannelCount", "8", true);
+        WorkspaceParameterInheritanceTests.AddDefault(module, "Repl", "3", true);
+        Assert.Equal(2, module.ToProjectSettings().setupParameterDefaults.Length);
+        Assert.Empty(module.SetupParameterDefaultsError);
+        var project = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Project, true, () => module, () => "Evaluation", () => [models, tests]);
+        project.SetupDataTypesOverride.IsOverridden = true;
+        project.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
+        project.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
+        Assert.Equal(new[] { "ChannelCount", "Repl" }, project.InheritedSetupDefaults.Select(value => value.Key).Order());
+        Assert.Equal("3", project.InheritedSetupDefaults.Single(value => value.Key == "Repl").Value);
+        Assert.Empty(project.SetupParameterDefaultsError);
     }
 
     [Fact]
-    public void Prefix_copy_editor_accepts_the_prefix_tests_project_and_reports_missing_keys_for_the_original_function()
+    public void Source_query_keys_can_exceed_local_keys_but_must_contain_them_for_the_same_type()
     {
-        var sourceSettings = WorkspaceHierarchyTests.ProjectSettings(false);
-        sourceSettings.resultsDataTypes[0].queryParameterKeys = ["PrefixLibId"];
-        var source = new WorkspaceSourceProject(Guid.NewGuid(), "smallCC", true, sourceSettings,
-            new WorkspaceTreeNode(WorkspaceEntityKind.Project, "smallCC").Editor!, Location: "SortableTests / Prefix");
-        var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [source]);
-        editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
-        var choice = Assert.Single(editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjects);
-        Assert.False(choice.IsCompatible); Assert.Contains("PrefixLibId", choice.IncompatibilityReason); Assert.Contains("ChannelCount", choice.IncompatibilityReason);
-        editor.SetupFunctionName = SetupFunctionNames.evaluationSourcePrefix;
-        editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        editor.AddRequiredSetupDefaultsCommand.Execute(null);
-        Assert.Equal(new[] { "ChannelCount", "PrefixLibId" }, editor.SetupParameterDefaults.Select(row => row.Key).Order());
-        Assert.Empty(editor.SetupParameterDefaultsError);
-        choice = Assert.Single(editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjects);
-        Assert.True(choice.IsCompatible); Assert.Contains("PrefixLibId", choice.QuerySummary);
+        var matching = Source("SortableTests", "PrefixLibId", "SortableDataFormat");
+        var extra = Source("SortableTests", "PrefixLibId", "SortableDataFormat", "Repl");
+        var missing = Source("SortableTests", "ChannelCount");
+        var wrong = Source("SorterModelSet", "PrefixLibId");
+        var row = new WorkspaceSetupDataTypeEntry(new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["PrefixLibId"] }, () => [matching, extra, missing, wrong]);
+        row.SetContract(true, false, ["PrefixLibId"], [], true);
+        Assert.Equal(new[] { extra.Id, matching.Id }.Order(), row.SourceProjects.Where(choice => choice.IsCompatible).Select(choice => choice.Id).Order());
+        row.SourceProjectId = missing.Id; Assert.Contains("subset", row.Error); Assert.Contains("PrefixLibId", row.Error);
+        row.SourceProjectId = wrong.Id; Assert.Contains("exact data type", row.Error);
+        row.SourceProjectId = extra.Id; Assert.Empty(row.Error);
+    }
+
+    [Fact]
+    public void Changing_one_source_changes_only_its_own_local_output_identity()
+    {
+        var definition = SetupFunctionCatalog.require(SetupFunctionNames.evaluationSource);
+        var models = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false, ModelsType);
+        var tests = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false, TestsType);
+        var changed = new storedDataReference(models.ProjectId, Guid.NewGuid(), models.QueryId, false, ModelsType);
+        var project = Guid.NewGuid();
+        var parameters = parameterSet.fromBindings([]);
+        var first = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [models, tests]);
+        var second = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [changed, tests]);
+        Assert.NotEqual(first[ModelsType].Key.Id, second[ModelsType].Key.Id);
+        Assert.Equal(first[TestsType].Key.Id, second[TestsType].Key.Id);
     }
 }

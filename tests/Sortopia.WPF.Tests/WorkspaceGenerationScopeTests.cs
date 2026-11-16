@@ -14,13 +14,20 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
         var page = WorkspaceRunExecutionTests.Create(temporary.FullName, branch);
         if (branch)
         {
-            var module = page.Selected!.Parent!.Parent!;
-            module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationMergeMssiSimple;
-            module.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
-            module.Editor.SetupParameterDefaults.Single(row => row.Key == "MergeLibId").Value.Text =
-                RunExecutionTests.Settings(false).resultsParameterDefaults.Single(row => row.keyName == "MergeLibId").value;
-            module.Editor.SetupParameterDefaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-            module.Editor.SetupParameterDefaults.Single(row => row.Key == "SorterSuccessFraction").Value.Text = "50%";
+            var project = page.Selected!.Parent!;
+            var module = project.Parent!;
+            var sourceModule = page.Roots[0].Children[1];
+            var source = sourceModule.Children[0];
+            var sourceSettings = FunctionOutputContractTests.Combined(false);
+            sourceModule.Editor!.LoadProject(sourceSettings);
+            WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(source.Children[0], false);
+            foreach (var key in source.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys)) key.Selected = true;
+            module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationSource;
+            project.Editor!.SetupDataTypesOverride.IsOverridden = true;
+            foreach (var row in project.Editor.SetupDataTypes) row.SourceProjectId = source.Id;
+            foreach (var binding in sourceSettings.resultsParameterDefaults)
+                if (!project.Editor.SetupParameterDefaults.Any(row => row.Key == binding.keyName))
+                    WorkspaceParameterInheritanceTests.AddDefault(project.Editor, binding.keyName, binding.value, true);
         }
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync();

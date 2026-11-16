@@ -181,7 +181,7 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
                 else Assert.Null(item.SetupSuffixStages);
                 if (mode != "setup")
                 {
-                    var expected = ModelGenerationStageLengths.tryForFunction(item.Results.FunctionName, item.Parameters).Value;
+                    var expected = ModelGenerationStageLengths.tryForDefinition(ResultsFunctionCatalog.require(item.Results.FunctionName), item.Parameters).Value;
                     Assert.Equal(expected, item.ResultsSuffixStages.Value);
                     Assert.Equal(resultsPreview.Rows.Single(preview => preview.Number == item.SetNumber).SuffixStages, item.ResultsSuffixStages.Value);
                     Assert.Contains($"Results: {expected:N0}", row.SuffixStages);

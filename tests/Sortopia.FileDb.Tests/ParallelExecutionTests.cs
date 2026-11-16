@@ -120,7 +120,8 @@ public sealed partial class PreparedExecutionTests
         var envelope = MessagePack.MessagePackSerializer.Deserialize<runParametersEnvelopeDto>(File.ReadAllBytes(paths[0]), options, Token);
         var original = Sortopia.Core.Serialization.MessagePackSetup.deserialize<runParametersDto>(envelope.Payload);
         var copy = new runParametersDto(original.Version, original.ProjectId, original.RunId, original.FunctionName,
-            original.FunctionVersion, original.DatabaseName, original.Outputs, original.Parameters, original.SetupInputs, original.SetNumber + 100, original.SetupSetNumber);
+            original.FunctionVersion, original.DatabaseName, original.Outputs, original.Parameters, original.SetupInputs, original.SetNumber + 100, original.SetupSetNumber,
+            original.SetupSuffixStages, original.ResultsSuffixStages);
         var payload = Sortopia.Core.Serialization.MessagePackSetup.serialize(copy);
         var hash = System.Security.Cryptography.SHA256.HashData(payload);
         var id = new Guid(hash[..16]);

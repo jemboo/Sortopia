@@ -30,6 +30,7 @@ public sealed class ModelFamilyResultsTests
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey(oldName));
         Assert.Throws<ArgumentException>(() => ResultsFunctionCatalog.require(oldName));
         var definition = ResultsFunctionCatalog.require(name);
+        FunctionMetadataTests.AssertModelMetadata(definition.ModelGeneration?.Value, algorithm, family, group == "sorter-model-set.prefix");
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models").Editor!;
         editor.ResultsFunctionName = name; editor.AddRequiredResultsDefaultsCommand.Execute(null);
         var keys = definition.RequiredParameters.Select(key => key.Name).ToArray();

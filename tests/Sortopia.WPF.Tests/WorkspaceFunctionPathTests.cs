@@ -73,7 +73,6 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
             {
                 node.Editor!.ResultsFunctionName = ResultsFunctionNames.sorterEval;
                 node.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
-                node.Editor.ResultsParameterDefaults.Single(value => value.Key == "ChannelCount").Value.Text = "4";
             }
         }
         Define(parent, setupFirst);

@@ -11,9 +11,6 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 internal static class WorkspaceParameterInitialValues
 {
     private const int DefaultChannels = 8;
-    private static readonly string[] modelFunctionPrefixes = ["sorter-model-set.uniform.", "sorter-model-set.prefix.",
-        "sorter-eval.standard.", "sorter-eval.merge.", "sorter-eval.prefix.", "sorter-eval-inputs.standard."];
-    internal static bool IsModelFunction(string functionName) => modelFunctionPrefixes.Any(prefix => functionName.StartsWith(prefix, StringComparison.Ordinal));
 
     internal static int ChannelCount(IEnumerable<parameterBindingDto> values)
     {
@@ -35,9 +32,9 @@ internal static class WorkspaceParameterInitialValues
         return 0;
     }
 
-    internal static string For(paramKeyDescriptor key, int channels, string functionName = "")
+    internal static string For(paramKeyDescriptor key, int channels, modelGenerationMetadata? model = null)
     {
-        if (channels <= 0) channels = IsUf6(functionName) ? 12 : DefaultChannels;
+        if (channels <= 0) channels = model?.Algorithm.IsMsuf6 == true ? 12 : DefaultChannels;
         return key.Name switch
         {
             "ChannelCount" => channels.ToString(CultureInfo.InvariantCulture),
@@ -54,30 +51,27 @@ internal static class WorkspaceParameterInitialValues
             "OrthoRate" or "ParaRate" or "SelfSymRate" => "1",
             "StageWeights" or "Seed4Weights" => "1,1,1",
             "Seed6Weights" => "1,1,1,1,1,1,1",
-            "UnfoldingWeights" => string.Join(";", Enumerable.Repeat("1,1,1", UnfoldingLevels(channels, functionName))),
+            "UnfoldingWeights" => string.Join(";", Enumerable.Repeat("1,1,1", UnfoldingLevels(channels, model))),
             "RngType" => "SplitMix64",
             "SorterEvalType" => "V1",
             _ => ForType(key, channels)
         };
     }
 
-    internal static int SuggestedChannelCount(int channels, string functionName)
+    internal static int SuggestedChannelCount(int channels, modelGenerationMetadata? model)
     {
-        if (!IsModelFunction(functionName)) return channels;
-        var model = SimpleSorterModelType.fromString(functionName.Split('.').First(part => part is "msce" or "mssi" or "msrs" or "msuf4" or "msuf6"));
-        return channels > 1 && SimpleSorterModelType.supportsChannelCount(channels, model)
-            ? channels : IsUf6(functionName) ? 12 : DefaultChannels;
+        if (model is null) return channels;
+        return channels > 1 && SimpleSorterModelType.supportsChannelCount(channels, model.Algorithm)
+            ? channels : model.Algorithm.IsMsuf6 ? 12 : DefaultChannels;
     }
 
-    private static int UnfoldingLevels(int channels, string functionName)
+    private static int UnfoldingLevels(int channels, modelGenerationMetadata? model)
     {
-        int seedWidth = IsUf6(functionName) ? 6 : 4;
+        int seedWidth = model?.Algorithm.IsMsuf6 == true ? 6 : 4;
         int levels = 0;
         for (long width = seedWidth; width < channels; width *= 2) ++levels;
         return levels;
     }
-
-    private static bool IsUf6(string functionName) => IsModelFunction(functionName) && functionName.Split('.').Contains("msuf6");
 
     private static string ForType(paramKeyDescriptor key, int channels) => key.ValueType switch
     {

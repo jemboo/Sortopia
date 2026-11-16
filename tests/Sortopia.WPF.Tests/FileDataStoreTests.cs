@@ -106,7 +106,7 @@ public sealed class FileDataStoreTests : IDisposable
         var prefixed = CatalogTestHost.Invoke(false, ResultsFunctionNames.mergeSortableTests, Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"),
             ParameterBinding.create(ParamKeys.mergeLibIdKey, name))).Head;
         var models = Models(); var tests = Tests();
-        var evaluation = CatalogTestHost.Invoke(false, ResultsFunctionNames.sorterEval, Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4),
+        var evaluation = CatalogTestHost.Invoke(false, ResultsFunctionNames.sorterEval, Parameters(
             ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V2"), ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)), models, tests).Head;
         foreach (var value in new[] { prefixed, models, evaluation })
         {

@@ -19,8 +19,8 @@ public sealed class FunctionOutputContractTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static parameterSet Parameters(IEnumerable<parameterBindingDto> values) => parameterSet.fromBindings(values.Select(ParameterBindingDto.toDomain));
     private static parameterBindingDto Format => RunExecutionTests.Binding("SortableDataFormat", "Bools");
-    private static parameterBindingDto[] EvaluationDefaults => [RunExecutionTests.Binding("ChannelCount", "4", parameterValueType.Integer),
-        RunExecutionTests.Binding("SorterEvalType", "V1"), RunExecutionTests.Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
+    private static parameterBindingDto[] EvaluationDefaults => [RunExecutionTests.Binding("SorterEvalType", "V1"),
+        RunExecutionTests.Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
     internal static projectSettingsDto Combined(bool branch)
     {
         var settings = RunExecutionTests.Settings(branch);
@@ -95,8 +95,8 @@ public sealed class FunctionOutputContractTests : IDisposable
         module.Editor.SetupFunctionName = SetupFunctionNames.standardTests;
         Assert.Contains("SorterModelSet", run.Editor.FunctionCompatibilityError);
         Assert.Contains("not required", span.Error);
-        module.Editor.SetupFunctionName = SetupFunctionNames.evaluationMergeMssiSimple;
-        Assert.Single(project.Editor!.InheritedSetupDataTypes, row => row.RequiresSource);
+        module.Editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
+        Assert.Equal(2, project.Editor!.InheritedSetupDataTypes.Count(row => row.RequiresSource));
         Assert.Contains("source project", project.Editor.SetupDataTypesError);
         Assert.Empty(module.Editor.SetupDataTypesError);
     }
@@ -125,22 +125,24 @@ public sealed class FunctionOutputContractTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Combined_merge_and_prefix_setup_consume_matching_tests_and_generate_models(bool prefix)
+    public void Generic_copy_setup_preserves_models_and_merge_or_prefix_tests(bool prefix)
     {
         var library = prefix ? ParameterBinding.create(ParamKeys.prefixLibIdKey, PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1))
             : ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(4).First(id => id.MergeDimension == 2));
         var sourceParameters = parameterSet.fromBindings([ParameterBindingDto.toDomain(Format), library]);
         var source = Assert.Single(Invoke(false, prefix ? ResultsFunctionNames.prefixSortableTests : ResultsFunctionNames.mergeSortableTests, sourceParameters));
         var parameters = Parameters([.. RunExecutionTests.UniformModelDefaults(prefix ? 8 : 4), Format]).WithBinding(library);
-        var name = prefix ? SetupFunctionNames.evaluationPrefixMssiSimple : SetupFunctionNames.evaluationMergeMssiSimple;
-        var generated = Invoke(true, name, parameters, source);
+        var name = SetupFunctionNames.evaluationSource;
+        var models = Assert.Single(Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels, Parameters(RunExecutionTests.UniformModelDefaults(prefix ? 8 : 4))));
+        var generated = Invoke(true, name, parameters, source, models);
         var sourceTests = Assert.IsType<functionData.SortableTests>(source);
         var reused = Assert.IsType<functionData.SortableTests>(generated.Single(value => value.IsSortableTests));
         Assert.Same(sourceTests.Item1, reused.Item1); Assert.Same(sourceTests.Item2, reused.Item2);
         Assert.Equal(3, Assert.IsType<functionData.SorterModelSet>(generated.Single(value => value.IsSorterModelSet)).Item.Count);
-        Assert.Single(SetupFunctionCatalog.functions[name].SourceDataTypes);
+        Assert.Equal(2, SetupFunctionCatalog.functions[name].SourceDataTypes.Length);
+        Assert.Same(models, generated.Single(value => value.IsSorterModelSet));
         var wrongChannels = parameters.WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 6));
-        Assert.Contains("ChannelCount", Assert.ThrowsAny<Exception>(() => Invoke(true, name, wrongChannels, source)).Message);
+        Assert.Contains("ChannelCount", Assert.ThrowsAny<Exception>(() => Invoke(true, name, wrongChannels, source, models)).Message);
     }
 
     private workspace SaveRun(bool branch, projectSettingsDto settings, parameterSpanDto[] results, parameterSpanDto[] setup)

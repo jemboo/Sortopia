@@ -86,7 +86,7 @@ public sealed class FunctionNameSelectorTests
         Assert.True(button.IsEnabled);
         Assert.Equal(Visibility.Visible, details.Visibility);
         Assert.Equal(SetupFunctionCatalog.functions[SetupFunctionNames.evaluationSource].Description, description.Text);
-        Assert.Equal("ChannelCount", Assert.Single(parameters.Items.Cast<FunctionParameterPreview>()).Name);
+        Assert.Empty(parameters.Items);
         Assert.Equal(new[] { "SortableTests \"\"", "SorterModelSet \"\"" }, outputs.Items.Cast<string>().Order());
         Assert.Empty(model.SetupFunctionName); // Merely browsing does not change defaults or the function.
         root.IsSelected = true; Layout(tree);
@@ -112,7 +112,8 @@ public sealed class FunctionNameSelectorTests
         Click((Button)setup.FindName("OpenPicker")); Layout(view);
         Assert.True(popup.IsOpen, "The function popup should stay open.");
         Assert.True(source.IsSelected, "Reopening should restore the selected function.");
-        var standard = root.Children.Single(node => node.Segment == "standard");
+        var inputs = tree.Items.Cast<FunctionNameNode>().Single(node => node.Segment == "sorter-eval-inputs"); inputs.IsExpanded = true;
+        var standard = inputs.Children.Single(node => node.Segment == "standard");
         standard.IsExpanded = true;
         var mssi = standard.Children.Single(node => node.Segment == "mssi"); mssi.IsExpanded = true;
         var simple = mssi.Children.Single(node => node.Segment == "simple"); simple.IsSelected = true;

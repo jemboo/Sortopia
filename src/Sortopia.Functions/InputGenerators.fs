@@ -18,7 +18,7 @@ module internal InputGenerators =
 
     let evaluationInputError testsKeys modelType defaults spans =
         let values key = inputValues key defaults spans
-        let modelError = ModelGenerators.inputError ChannelCountInput modelType defaults spans
+        let modelError = ModelGenerators.inputError modelPrefixMode.NoPrefix modelType defaults spans
         if modelError <> "" then modelError
         else
             try
@@ -55,12 +55,3 @@ module internal InputGenerators =
         let library = required ParamKeys.prefixLibIdKey parameters
         let prefix = SorterDataParse.getCeArrayFromPrefixLib library |> Option.defaultWith (fun () -> invalidArg "PrefixLibId" "The prefix is unavailable.")
         tests (msasPfx.create library |> sortableTestsModel.MsasPfx) prefix parameters
-
-    let sourceTests parameters inputs =
-        match inputs |> List.choose (function functionData.SortableTests (tests, prefix) -> Some (tests, prefix) | _ -> None) with
-        | [tests, prefix] ->
-            let channels = required ParamKeys.channelCountKey parameters
-            if int (Sortopia.Sorting.Inputs.SortableTests.getChannelCount tests) <> channels then
-                invalidArg "ChannelCount" "The source tests and generated models must have the same ChannelCount."
-            functionData.SortableTests (tests, prefix)
-        | _ -> invalidArg "inputs" "Expected exactly one source SortableTests output."

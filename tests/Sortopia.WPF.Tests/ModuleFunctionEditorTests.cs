@@ -110,18 +110,18 @@ public sealed class ModuleFunctionEditorTests
         var wrongLabel = Source("Wrong text", "named", "ChannelCount");
         var wrongKeys = Source("Wrong keys", "", "Repl");
         var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [compatible, wrongLabel, wrongKeys]);
-        editor.SetupFunctionName = SetupFunctionNames.evaluationPrefixMssiSimple;
+        editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
         editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
         editor.SetupDataTypesOverride.IsOverridden = true;
         var output = editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
-        // Repl is a model input for this function, so use a key outside its complete required set.
-        wrongKeys.Settings.resultsQueryParameterKeys = ["Message"];
+        // Copy functions accept any registered source query key, but reject unknown keys.
+        wrongKeys.Settings.resultsQueryParameterKeys = ["UnknownSourceKey"];
         Assert.Equal(3, output.SourceProjects.Count());
         Assert.Equal(compatible.Id, Assert.Single(output.SourceProjects, choice => choice.IsCompatible).Id);
         Assert.Contains("named", output.SourceProjects.Single(choice => choice.Id == wrongLabel.Id).IncompatibilityReason);
-        Assert.Contains("Message", output.SourceProjects.Single(choice => choice.Id == wrongKeys.Id).IncompatibilityReason);
+        Assert.Contains("UnknownSourceKey", output.SourceProjects.Single(choice => choice.Id == wrongKeys.Id).IncompatibilityReason);
         output.SourceProjectId = wrongKeys.Id;
-        Assert.Contains("not accepted", output.Error);
+        Assert.Contains("Unknown", output.Error);
         output.SourceProjectId = compatible.Id;
         Assert.Empty(output.Error);
         Assert.All(editor.SetupDataTypes.Where(row => row.GeneratesData), row => Assert.Empty(row.SourceProjects));

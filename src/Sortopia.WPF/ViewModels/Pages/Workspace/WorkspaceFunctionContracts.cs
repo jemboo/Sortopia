@@ -45,28 +45,29 @@ public sealed partial class WorkspaceConfigurationViewModel
         catch (ArgumentException error) { return error.Message; }
     }
 
-    private static string ModelInputGuidance(string functionName)
+    private modelGenerationMetadata? ModelGeneration(bool setup) => setup
+        ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.ModelGeneration?.Value : null
+        : ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.ModelGeneration?.Value : null;
+
+    private string ModelInputGuidance(bool setup)
     {
-        bool prefix = functionName.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal);
-        bool sourcePrefix = functionName.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal) || functionName.StartsWith("sorter-eval.merge.", StringComparison.Ordinal);
-        if (!WorkspaceParameterInitialValues.IsModelFunction(functionName)) return "";
+        var model = ModelGeneration(setup);
+        if (model is null) return "";
+        bool prefix = model.PrefixMode.IsCatalogPrefix;
         var dimensions = prefix ? "Channel count and prefix stage length come from PrefixLibId. SorterSuccessFraction determines the random suffix capacity; the fixed prefix is always added. "
-            : sourcePrefix ? "ChannelCount sets the width. Models retain the exact prefix stored with the source SortableTests; its depth and SorterSuccessFraction determine the suffix capacity. Previews use the selected library prefix; generation uses the actual source prefix. Evaluation applies only the suffix to the prefix-processed tests. "
             : "ChannelCount sets the width; SorterSuccessFraction determines the stage capacity with zero prefix stages. The generated models have no fixed prefix. ";
-        var tests = functionName.StartsWith("sorter-eval.merge.", StringComparison.Ordinal)
-            ? "MergeLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
-            : functionName.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal)
-                ? "PrefixLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
-                : functionName.StartsWith("sorter-eval.standard.", StringComparison.Ordinal) || functionName.StartsWith("sorter-eval-inputs.standard.", StringComparison.Ordinal)
-                    ? "Generates full sortable tests using ChannelCount and SortableDataFormat. Tests and models have separate output projections. " : "";
-        var family = functionName.EndsWith(".simple-r", StringComparison.Ordinal)
+        var outputs = setup ? SetupFunctionCatalog.require(SetupFunctionName).SortopiaDataTypes
+            : ResultsFunctionCatalog.require(ResultsFunctionName).SortopiaDataTypes;
+        var tests = outputs.Any(output => output.IsSortableTests)
+            ? "Generates full sortable tests using ChannelCount and SortableDataFormat. Tests and models have separate output projections. " : "";
+        var family = model.Family.IsSimpleR
             ? "The function fixes the algorithm and SimpleR model type. AInitial sets every suffix activator's starting value and must be within [-AMax, AMax]. Only positive activators enable entries. "
-            : functionName.EndsWith(".simple-s", StringComparison.Ordinal)
+            : model.Family.IsSimpleS
                 ? "The function fixes the algorithm and SimpleS model type. ActivationProbability controls Boolean suffix activators. "
-                : functionName.EndsWith(".simple", StringComparison.Ordinal)
+                : model.Family.IsSimple
                     ? "The function fixes the algorithm and Simple model type. All suffix entries are enabled; no activator parameters are required. "
                     : "";
-        var weights = functionName.Split('.').Contains("msuf4")
+        var weights = model.Algorithm.IsMsuf4
             ? "OrthoRate, ParaRate, and SelfSymRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
             : "Mode weights are shared by every stage; UF6 has separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
         return family
@@ -75,8 +76,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     }
     private string ModelStageLengthSuggestion(bool setup)
     {
-        var name = setup ? SetupFunctionName : ResultsFunctionName;
-        if (!PhaseVersionCurrent(setup) || !WorkspaceParameterInitialValues.IsModelFunction(name)) return "";
+        var model = ModelGeneration(setup);
+        if (!PhaseVersionCurrent(setup) || model is null) return "";
         var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
         var spans = IsRun ? ActiveParameters(setup).ToArray() : [];
         parameterValue[] Values(string key)
@@ -91,15 +92,12 @@ public sealed partial class WorkspaceConfigurationViewModel
         var fractions = Values("SorterSuccessFraction").OfType<parameterValue.SorterSuccessFractionValue>().Select(value => value.Item).ToArray();
         try
         {
-            var dimensions = name.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal) || name.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal)
+            var dimensions = model.PrefixMode.IsCatalogPrefix
                 ? Values("PrefixLibId").OfType<parameterValue.PrefixLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: value.Item.StageLength)).ToArray()
-                : name.StartsWith("sorter-eval.merge.", StringComparison.Ordinal)
-                    ? Values("MergeLibId").OfType<parameterValue.MergeLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: ModelGenerationStageLengths.mergePrefixDepth(value.Item))).ToArray()
-                    : Values("ChannelCount").OfType<parameterValue.IntegerValue>().Select(value => (Width: value.Item, Prefix: 0)).ToArray();
+                : Values("ChannelCount").OfType<parameterValue.IntegerValue>().Select(value => (Width: value.Item, Prefix: 0)).ToArray();
             if (fractions.Length == 0 || dimensions.Length == 0) return "Select a success fraction and channel count or prefix to see the suggested stage length. ";
-            var model = SimpleSorterModelType.fromString(name.Split('.').First(part => part is "msce" or "mssi" or "msrs" or "msuf4" or "msuf6"));
             var suggestions = (from dimension in dimensions from fraction in fractions
-                select SimpleSorterStageLengths.forSuccessFraction(fraction, dimension.Width, dimension.Prefix, model)).ToArray();
+                select SimpleSorterStageLengths.forSuccessFraction(fraction, dimension.Width, dimension.Prefix, model.Algorithm)).ToArray();
             if (suggestions.Any(value => !value.IsSupported)) return "Stage suggestion unavailable for an unsupported channel count. ";
             var minimum = suggestions.Min(value => value.Stages); var maximum = suggestions.Max(value => value.Stages);
             if (suggestions.Length == 1)
@@ -108,8 +106,10 @@ public sealed partial class WorkspaceConfigurationViewModel
         }
         catch (ArgumentException error) { return $"Stage suggestion unavailable: {error.Message} "; }
     }
-    public string ResultsInputGuidance => HasResultsContract ? ModelStageLengthSuggestion(false) + ModelInputGuidance(ResultsFunctionName) : "";
-    public string SetupInputGuidance => HasSetupContract ? ModelStageLengthSuggestion(true) + ModelInputGuidance(SetupFunctionName) : "";
+    public string ResultsInputGuidance => HasResultsContract ? ModelStageLengthSuggestion(false) + ModelInputGuidance(false) : "";
+    public string SetupInputGuidance => SetupParametersFromSources
+        ? "Copy both evaluation inputs unchanged from the selected source projects. Their results query keys determine the required parameters. Supply every source key through a default or span; each local setup projection may select a subset of its source's keys. Model families, prefixes, suffix lengths, and activators are inherited from the source data."
+        : HasSetupContract ? ModelStageLengthSuggestion(true) + ModelInputGuidance(true) : "";
     public bool HasResultsInputGuidance => ResultsInputGuidance.Length > 0;
     public bool HasSetupInputGuidance => SetupInputGuidance.Length > 0;
     public bool HasResultsContract => ResultsFunctionCatalog.functions.ContainsKey(ResultsFunctionName);
@@ -207,7 +207,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!local.Select(entry => (entry.dataType.kind, entry.dataType.value)).SequenceEqual(outputs.Select(entry => (entry.dataType.kind, entry.dataType.value))))
             Quietly(() => LoadSetupDataTypes(ResolveSetupTypes(SetupDataTypesOverride.IsOverridden ? local : Parent?.EffectiveSetupDataTypes ?? [])));
         Quietly(() => { foreach (var row in SetupDataTypes) row.SetContract(NeedsSource(row.DataType.ToDto()), IsModule,
-            SelectedQueryKeys(row.DataType.ToDto(), true), Requirements(true)?.Select(key => key.Name).ToArray()); });
+            SelectedQueryKeys(row.DataType.ToDto(), true), Requirements(true)?.Select(key => key.Name).ToArray(), SetupParametersFromSources); });
     }
 }
 

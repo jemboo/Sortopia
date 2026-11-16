@@ -2672,7 +2672,10 @@ public sealed class RandomNetworkTests
                 for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
                 { var child = VisualTreeHelper.GetChild(node, index); yield return child; foreach (var descendant in Descendants(child)) yield return descendant; }
             }
-            Assert.DoesNotContain(Descendants(summary), element => element is TextBox or ComboBox or CheckBox);
+            Assert.DoesNotContain(Descendants(summary), element => element is ComboBox or CheckBox || element is TextBox text && !text.IsReadOnly);
+            var configurationPath = Assert.IsType<TextBox>(page.FindName("ConfigurationPath"));
+            Assert.True(configurationPath.IsReadOnly);
+            Assert.Equal(vm.SelectedConfigurationPath, configurationPath.Text);
             var items = (ItemsControl)page.FindName("ConfigurationItems");
             void SelectItem(string key)
             {
@@ -2980,16 +2983,17 @@ public sealed class RandomNetworkTests
             {
                 var rows = setup ? branchModule.Editor.SetupParameterDefaults : branchModule.Editor.ResultsParameterDefaults;
                 var count = rows.Count;
-                rows.Single(row => row.Key == "ChannelCount").RemoveCommand.Execute(null);
+                var key = setup ? "ChannelCount" : "SorterEvalType";
+                rows.Single(row => row.Key == key).RemoveCommand.Execute(null);
                 var populate = (Button)FindWorkspaceField(fields, setup ? "AddRequiredSetupDefaultsButton" : "AddRequiredResultsDefaultsButton");
                 LayoutWorkspace(); Assert.True(populate.IsEnabled);
                 Assert.Equal(Visibility.Visible, ((FrameworkElement)populate.Parent).Visibility);
                 populate.Command.Execute(null); LayoutWorkspace();
                 Assert.Equal(count, rows.Count); Assert.False(populate.IsEnabled);
-                Assert.Equal("4", rows.Single(row => row.Key == "ChannelCount").Value.Text);
-                Assert.Empty(rows.Single(row => row.Key == "ChannelCount").Error);
+                Assert.Equal(setup ? "8" : "V1", rows.Single(row => row.Key == key).Value.Text);
+                Assert.Empty(rows.Single(row => row.Key == key).Error);
                 RenderWorkspaceState($"required-{(setup ? "setup" : "results")}-defaults", 1000, 800);
-                rows.Single(row => row.Key == "ChannelCount").Value.Text = "4";
+                if (setup) rows.Single(row => row.Key == "ChannelCount").Value.Text = "4";
             }
             branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
             branchModule.Editor.ResultsParameterDefaultsOverride.IsOverridden = false;
@@ -3067,7 +3071,7 @@ public sealed class RandomNetworkTests
             var branchProject = vm.Selected;
             // Project settings are constrained by the inherited catalog functions.
             branchModule.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
-            branchModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssiSimple;
+            branchModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationSource;
             branchModule.Editor.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "8";
             branchModule.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
             branchProject!.Editor!.LoadProject(new Sortopia.Workspaces.Serialization.projectSettingsDto());
@@ -3081,23 +3085,28 @@ public sealed class RandomNetworkTests
             RenderWorkspaceState("project-fixed-output-contracts", 1400, 900);
             var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source catalog", family: Sortopia.Workspaces.hierarchyKind.Branch);
             vm.Roots[0].Children.Add(sourceModule); // Source functions need their own module path.
-            sourceModule.Editor!.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardSortableTests;
-            sourceModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.standardTests;
-            sourceModule.Editor.AddRequiredResultsDefaultsCommand.Execute(null); sourceModule.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
+            var sourceSettings = WorkspaceHierarchyTests.ProjectSettings(true);
+            sourceSettings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
+            sourceSettings.resultsParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
+            sourceSettings.resultsDataTypes = [];
+            sourceModule.Editor!.LoadProject(sourceSettings);
             var setupSource = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Tests source", family: Sortopia.Workspaces.hierarchyKind.Branch);
             sourceModule.Children.Add(setupSource);
             setupSource.Children.Add(new(WorkspaceEntityKind.Run, "Source run", family: Sortopia.Workspaces.hierarchyKind.Branch));
             WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
+            foreach (var output in setupSource.Editor!.ResultsQueryOutputs.ToArray())
+                foreach (var key in output.Keys) key.Selected = true;
             branchProject.Editor.SetupDataTypesOverride.IsOverridden = true;
             LayoutWorkspace();
             var setupEntries = (ItemsControl)FindWorkspaceField(fields, "SetupDataTypesList");
-            var sourceEntry = branchProject.Editor.SetupDataTypes.Single(row => row.RequiresSource);
+            var sourceEntry = branchProject.Editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
             var setupEntry = (ContentPresenter)setupEntries.ItemContainerGenerator.ContainerFromItem(sourceEntry);
             var sourcePicker = (ComboBox)setupEntries.ItemTemplate.FindName("SetupSourceProjectInput", setupEntry);
             Assert.Contains(sourcePicker.Items.Cast<WorkspaceSourceProjectChoice>(), item => item.Id == setupSource.Id && item.IsCompatible);
             Assert.All(sourcePicker.Items.Cast<WorkspaceSourceProjectChoice>().Where(item => item.IsCompatible), item => Assert.Contains(item.Project.Settings.resultsDataTypes, output => output.dataType.kind == "SortableTests" && output.dataType.value == ""));
             sourcePicker.SetCurrentValue(ComboBox.SelectedValueProperty, setupSource.Id); LayoutWorkspace();
             Assert.Equal(setupSource.Id, sourceEntry.SourceProjectId);
+            branchProject.Editor.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = setupSource.Id;
             Assert.Null(setupEntries.ItemTemplate.FindName("SetupQueryKeysList", setupEntry));
             Assert.All(branchProject.Editor.SetupDataTypes.Where(row => row.GeneratesData), row => Assert.Empty(row.SourceProjects));
             RenderWorkspaceState("project-allowed-source-projects", 1400, 900);
@@ -3113,11 +3122,7 @@ public sealed class RandomNetworkTests
                 Assert.False(((ComboBox)defaults.ItemTemplate.FindName("DefaultTypeInput", row)).IsEnabled);
                 return (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)defaults.ItemTemplate.FindName("DefaultValueEditor", row);
             }
-            var integerEditor = AddTypedDefault("ChannelCount");
-            var integerInput = (TextBox)integerEditor.FindName("TypedValueInput");
-            integerInput.SetCurrentValue(TextBox.TextProperty, "0"); LayoutWorkspace();
-            Assert.True(save.IsEnabled); Assert.Contains("1 or greater", vm.Error);
-            integerInput.SetCurrentValue(TextBox.TextProperty, "4"); LayoutWorkspace();
+            Assert.DoesNotContain(branchProject.Editor.LocalResultsParameterDefaults, row => row.Key == "ChannelCount");
             var booleanEditor = AddTypedDefault("CollectSortableTests");
             var booleanInput = (ComboBox)booleanEditor.FindName("BooleanValueInput");
             Assert.Equal(Visibility.Visible, booleanInput.Visibility);
@@ -3126,6 +3131,7 @@ public sealed class RandomNetworkTests
             Assert.True(branchProject.Editor.ResultsParameterDefaults.Last().Value.BooleanValue);
             ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollToBottom();
             RenderWorkspaceState("project-allowed-defaults", 1400, 900);
+            Assert.True(vm.AddRunCommand.CanExecute(null), vm.Error);
             vm.AddRunCommand.Execute(null);
             var branchRun = vm.Selected!; branchRun.Name = "Evolve candidate";
             LayoutWorkspace();
@@ -3149,18 +3155,20 @@ public sealed class RandomNetworkTests
             LayoutWorkspace();
             Assert.True(save.IsEnabled);
             var typedSpans = (ItemsControl)FindWorkspaceField(fields, "ResultsParametersList");
-            var channelSpan = branchRun.Editor.ResultsParameters.Single(row => row.Key == "ChannelCount");
-            var spanRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromItem(channelSpan);
+            var evaluatorSpan = branchRun.Editor.ResultsParameters.Single(row => row.Key == "SorterEvalType");
+            var spanRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromItem(evaluatorSpan);
             var spanPicker = (ComboBox)typedSpans.ItemTemplate.FindName("ParameterKeyInput", spanRow);
             Assert.True(spanPicker.IsReadOnly);
             Assert.DoesNotContain("RngType", spanPicker.Items.Cast<string>());
+            Assert.DoesNotContain("ChannelCount", spanPicker.Items.Cast<string>());
             var values = (ItemsControl)typedSpans.ItemTemplate.FindName("ParameterValues", spanRow);
             var valueRow = (ContentPresenter)values.ItemContainerGenerator.ContainerFromIndex(0);
             var valueEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)values.ItemTemplate.FindName("ParameterValueEditor", valueRow);
-            var numeric = (TextBox)valueEditor.FindName("TypedValueInput");
-            numeric.SetCurrentValue(TextBox.TextProperty, "0"); LayoutWorkspace();
+            var evaluatorInput = (ComboBox)valueEditor.FindName("ChoiceValueInput");
+            Assert.Equal(Visibility.Visible, evaluatorInput.Visibility);
+            evaluatorSpan.Values[0].Text = "invalid"; LayoutWorkspace();
             Assert.True(save.IsEnabled); Assert.Empty(branchRun.Editor.ResultsParameterSetsPreview.Rows);
-            numeric.SetCurrentValue(TextBox.TextProperty, "4"); LayoutWorkspace();
+            evaluatorInput.SetCurrentValue(ComboBox.SelectedItemProperty, "V2"); LayoutWorkspace();
             Assert.True(save.IsEnabled);
             foreach (var width in new[] { 1400, 640 })
             {
@@ -3168,11 +3176,12 @@ public sealed class RandomNetworkTests
                 Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
             }
             vm.SelectConfigurationItem("setupSpans"); LayoutWorkspace();
-            Assert.Single(branchRun.Editor.SetupParameters, row => row.Key == "PrefixLibId");
+            Assert.Single(branchRun.Editor.SetupParameters, row => row.Key == "Repl");
             RenderWorkspaceState("run-allowed-setup-spans", 1400, 1000);
             vm.SelectConfigurationItem("setupOutputs"); LayoutWorkspace();
             Assert.False(((ItemsControl)fields.FindName("SetupDataTypesList")).IsVisible);
-            Assert.Equal(setupSource.Id, branchRun.Editor.InheritedSetupDataTypes.Single(row => row.RequiresSource).SourceProjectId);
+            Assert.Equal(2, branchRun.Editor.InheritedSetupDataTypes.Count(row => row.RequiresSource));
+            Assert.All(branchRun.Editor.InheritedSetupDataTypes, row => Assert.Equal(setupSource.Id, row.SourceProjectId));
             RenderWorkspaceState("run-inherited-source-projects", 1400, 900);
             Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, branchRun.Editor.ResultsFunctionName);
             // Filtering visible dropdowns must not erase keys from parked editing-session rows.

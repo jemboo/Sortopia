@@ -130,7 +130,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
             return string.Join(" / ", names);
         }
         return root.DescendantsAndSelf().Where(node => node.IsProject && node != this && node != Parent)
-            .Select(node => new WorkspaceSourceProject(node.Id, node.Name, node.IsSealed, node.Editor!.ToProjectSettings(), node.Editor,
+            .Select(node => new WorkspaceSourceProject(node.Id, node.Name, node.IsSealed, node.Editor!.ToSourceSettings(), node.Editor,
                 node.Children.Count > 0, Location(node)));
     }
     private void ConfigurationChanged()

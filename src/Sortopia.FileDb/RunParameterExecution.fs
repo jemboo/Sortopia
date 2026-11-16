@@ -7,6 +7,8 @@ open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Functions
 open Sortopia.Workspaces
+open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
 
 type runParameterGenerationReport = {
     WorkItemIds: Guid<workItemId> array
@@ -110,14 +112,20 @@ module RunParameterExecution =
                     notify progress context (int64 i) (int64 setupCount + resultsCount)
                     let host = factory.ForSetup parameters[i]
                     definition.Execute host sources
-                    let name = string branch.SetupFunctionName
-                    let sourcePrefix =
-                        if name.StartsWith("sorter-eval.prefix.") || name.StartsWith("sorter-eval.merge.") then
+                    let suffixStages =
+                        if definition.ParametersFromSources then
                             match host.SetupDb.Load (sortopiaDataType.SorterModelSet "") with
-                            | functionData.SorterModelSet models -> models.SorterModels |> Array.tryHead |> Option.map Sortopia.Models.Sorting.SorterModel.getPrefix
-                            | _ -> invalidOp "Expected generated sorter models."
-                        else None
-                    setupSuffixStages.Add (ModelGenerationStageLengths.tryForFunctionWithSourcePrefix sourcePrefix name parameters[i] |> Option.map int)
+                            | functionData.SorterModelSet models ->
+                                models.SorterModels |> Array.map (function
+                                    | Sortopia.Models.Sorting.sorterModel.Simple model -> Some model
+                                    | Sortopia.Models.Sorting.sorterModel.SimpleR model -> Some model.Model
+                                    | Sortopia.Models.Sorting.sorterModel.SimpleS model -> Some model.Model
+                                    | _ -> None)
+                                |> Array.map (Option.map (SimpleSorterModel.getStageLength >> int))
+                                |> Array.distinct |> function [| Some stages |] -> Some stages | _ -> None
+                            | _ -> invalidOp "Expected copied sorter models."
+                        else ModelGenerationStageLengths.tryForDefinition definition parameters[i] |> Option.map int
+                    setupSuffixStages.Add suffixStages
                     setup.Add { Phase = runExecutionPhase.Setup; FunctionName = string branch.SetupFunctionName
                                 SetupSetNumber = None; SetNumber = i + 1; Parameters = parameters[i]; StoredOutputs = host.SetupDb.StoredOutputs }
             | run.RootRun _, None ->
@@ -142,7 +150,7 @@ module RunParameterExecution =
                         Results = { config with ParameterDefaults = [] }; Parameters = sets.Results[i]
                         SetupInputs = inputs; SetNumber = i + 1; SetupSetNumber = setupNumber
                         SetupSuffixStages = setupStages
-                        ResultsSuffixStages = ModelGenerationStageLengths.tryForFunction (string config.FunctionName) sets.Results[i] |> Option.map int }
+                        ResultsSuffixStages = ModelGenerationStageLengths.tryForDefinition resultsDefinition sets.Results[i] |> Option.map int }
                     planWorkItem item token |> ignore
                     ids.Add(RunParameterFiles.saveWorkItem projectFolder item token)
             notify progress $"Generated {ids.Count} results work items" (int64 setupCount + resultsCount) (int64 setupCount + resultsCount)

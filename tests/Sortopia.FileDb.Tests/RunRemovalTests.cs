@@ -34,10 +34,11 @@ public sealed partial class PreparedExecutionTests
         p.Definition.runs = [other.id]; m.Projects[0] = new(p.Definition, [other]);
         var result = WorkspaceFileStore.SaveDocument(Root, edit, saved, Token);
         Assert.Empty(result.CleanupWarnings);
-        Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data", "setup"), "*.msgpack", SearchOption.AllDirectories).Length);
-        Assert.Equal(2, DataFiles(folder, "results").Length);
+        Assert.Equal(generateSurvivor ? 2 : 0, DataFiles(folder, "setup").Length);
+        Assert.Equal(generateSurvivor ? 2 : 0, DataFiles(folder, "results").Length);
         Assert.Equal(generateSurvivor ? 2 : 0, RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token).Length);
         Completed(RunParameterExecution.generateInScope(WorkspaceRunDocument.resolveByRunId(result.Definition, other.id), Root, null!, Token).Execution);
-        Assert.All(RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token), item => Assert.Equal(outputState.Complete, item.Outputs.State));
+        Assert.All(RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token), item =>
+            Assert.Equal(generateSurvivor ? outputState.Complete : outputState.Pending, item.Outputs.State));
     }
 }

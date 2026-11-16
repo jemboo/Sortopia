@@ -143,7 +143,7 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
         {
             try
             {
-                results = ModelGenerationStageLengths.tryForFunction(item.Results.FunctionName, item.Parameters)?.Value;
+                results = ModelGenerationStageLengths.tryForDefinition(definition, item.Parameters)?.Value;
                 if (results is not null) basis = "Results length calculated from this file's saved parameters.";
             }
             catch (ArgumentException error) { return ("Unavailable", $"Could not calculate the suffix length: {error.Message}"); }

@@ -1,4 +1,5 @@
 using Sortopia.Runs;
+using Sortopia.Functions;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Commands;
 
@@ -95,6 +96,7 @@ public sealed partial class WorkspaceConfigurationViewModel
     private void SetQueryKey(sortopiaDataTypeDto type, bool setup, string key, bool selected)
     {
         if (!CanEditQuerySelection || selected && !QueryCandidates(setup).Contains(key, StringComparer.Ordinal)) return;
+        if (setup && SetupParametersFromSources && selected && !SourceKeysFor(EffectiveSetupDataTypes.Single(entry => SameType(entry.dataType, type))).Contains(key, StringComparer.Ordinal)) return;
         var entries = (setup ? setupQueries : resultsQueries).Where(entry => !SameType(entry.dataType, type)).ToList();
         var keys = SelectedQueryKeys(type, setup).ToHashSet(StringComparer.Ordinal);
         if (selected) keys.Add(key); else keys.Remove(key);
@@ -110,10 +112,13 @@ public sealed partial class WorkspaceConfigurationViewModel
         foreach (var output in outputs)
         {
             var chosen = output.queryParameterKeys;
-            var keys = available.Concat(chosen).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(key => {
+            var sourceKeys = setup && SetupParametersFromSources ? SourceKeysFor(EffectiveSetupDataTypes.Single(entry => SameType(entry.dataType, output.dataType))) : null;
+            var availableForOutput = sourceKeys is null ? available : available.Intersect(sourceKeys, StringComparer.Ordinal).ToArray();
+            var keys = availableForOutput.Concat(chosen).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(key => {
                 var supplied = IsRun ? ActiveParameters(setup).Any(span => span.Key == key && span.Error.Length == 0) : available.Contains(key, StringComparer.Ordinal);
-                var status = defaults.Contains(key) ? "Conflict: supplied by a default" : supplied ? "Explicit span supplied" : "Missing explicit span";
-                return new WorkspaceQueryKeyChoice(key, chosen.Contains(key, StringComparer.Ordinal), supplied, CanEditQuerySelection, status,
+                var fromSource = sourceKeys is null || sourceKeys.Contains(key, StringComparer.Ordinal);
+                var status = !fromSource ? "Not a query key of this source" : defaults.Contains(key) ? "Conflict: supplied by a default" : supplied ? "Explicit span supplied" : "Missing explicit span";
+                return new WorkspaceQueryKeyChoice(key, chosen.Contains(key, StringComparer.Ordinal), supplied && fromSource, CanEditQuerySelection, status,
                     selected => SetQueryKey(output.dataType, setup, key, selected));
             }).ToArray();
             yield return new(output.dataType.kind, output.dataType.value, keys, chosen.Length == 0
@@ -124,6 +129,16 @@ public sealed partial class WorkspaceConfigurationViewModel
     }
     private string SourceQueryContractError()
     {
+        if (SetupParametersFromSources)
+        {
+            var unknown = SourceSetupContract.UnknownKeys;
+            if (unknown.Length > 0) return $"Unknown source query parameters: {string.Join(", ", unknown)}.";
+            foreach (var output in EffectiveSetupDataTypes)
+            {
+                var outsideSource = SourceContracts.missingQueryKeys(output.queryParameterKeys, SourceContractFor(output)).Distinct(StringComparer.Ordinal).ToArray();
+                if (outsideSource.Length > 0) return $"Setup query keys for {output.dataType.kind} must be a subset of that source's results query keys. Unsupported keys: {string.Join(", ", outsideSource)}.";
+            }
+        }
         var outside = Requirements(true) is { } required ? RequiredSetupKeys.Where(key => !required.Any(value => value.Name == key)).ToArray() : [];
         return outside.Length == 0 ? "" : $"The source project requires parameters outside the setup function's inputs: {string.Join(", ", outside)}. Choose a compatible source project.";
     }

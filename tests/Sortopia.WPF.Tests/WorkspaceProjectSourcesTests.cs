@@ -20,6 +20,8 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     {
         var settings = Settings();
         settings.resultsDatabaseName = "Upstream results";
+        settings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
+        settings.resultsParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
 
         return RunExecutionTests.MakeProject("Source", true, settings, seal: seal);
     }
@@ -27,10 +29,10 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
     {
         var settings = FunctionOutputContractTests.Combined(true);
         settings.setupDatabaseName = "Produced setup";
-        settings.setupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssiSimple;
-        settings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools"),
-            RunExecutionTests.Binding("PrefixLibId", Sortopia.Sorting.Catalog.PrefixLibId.toString(Sortopia.Sorting.Catalog.PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1)), parameterValueType.PrefixLibId)];
-        settings.setupDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, sourceProjectId = source.Id, queryParameterKeys = [] }];
+        settings.setupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationSource;
+        settings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
+        settings.setupDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, sourceProjectId = source.Id, queryParameterKeys = ["ChannelCount"] },
+            new() { dataType = new() { kind = "SorterModelSet", value = "" }, sourceProjectId = source.Id, queryParameterKeys = [] }];
         return RunExecutionTests.MakeProject("Consumer", true, settings, seal: seal);
     }
     private static workspace Workspace(params project[] projects) => workspace.create(Guid.NewGuid(), "Research", "Workspace",
@@ -48,7 +50,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         Assert.Equal(source.Id, upstream.ProjectId); Assert.Equal("Upstream results", upstream.DatabaseName);
         Assert.Equal("8", upstream.Properties["ChannelCount"]); Assert.DoesNotContain("PrefixLibId", upstream.Properties.Keys);
         Assert.Equal(parent.Id, produced.ProjectId); Assert.Equal("Produced setup", produced.DatabaseName);
-        Assert.Contains("PrefixLibId", produced.Properties.Keys); Assert.NotEqual(upstream.Id, produced.Id);
+        Assert.Equal(new[] { "ChannelCount" }, produced.Properties.Keys); Assert.Contains("SortableDataFormat", upstream.Properties.Keys); Assert.NotEqual(upstream.Id, produced.Id);
         var standalone = ((run.BranchRun)WorkspaceCodec.decodeRunById(world, WorkspaceCodec.encodeRun(parent.Runs[0]))).Item;
         Assert.Equal(branch.ProjectConfiguration, standalone.ProjectConfiguration); Assert.Equal(branch.ResolvedSources, standalone.ResolvedSources);
     }
@@ -64,11 +66,38 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var source = Source(issue != "unsealed");
         var consumer = Consumer(source);
         var dto = ProjectDto.fromDomain(consumer);
-        if (issue == "wrong-case") dto.configuration.setupDataTypes.Single(entry => entry.sourceProjectId != Guid.Empty).dataType.kind = "SorterSet";
-        if (issue == "wrong-text") dto.configuration.setupDataTypes.Single(entry => entry.sourceProjectId != Guid.Empty).dataType.value = "shared ";
-        if (issue == "missing") dto.configuration.setupDataTypes.Single(entry => entry.sourceProjectId != Guid.Empty).sourceProjectId = Guid.NewGuid();
+        if (issue == "wrong-case") dto.configuration.setupDataTypes.Single(entry => entry.dataType.kind == "SortableTests").dataType.kind = "SorterSet";
+        if (issue == "wrong-text") dto.configuration.setupDataTypes.Single(entry => entry.dataType.kind == "SortableTests").dataType.value = "shared ";
+        if (issue == "missing") dto.configuration.setupDataTypes.Single(entry => entry.dataType.kind == "SortableTests").sourceProjectId = Guid.NewGuid();
         if (issue == "missing-parameter") dto.runs[0].setupParameterSpans = dto.runs[0].setupParameterSpans.Where(p => p.keyName != "ChannelCount").ToArray();
         Assert.Throws<ArgumentException>(() => Workspace(source, ProjectDto.toDomain(dto)));
+    }
+
+    [Fact]
+    public void Copy_projections_are_checked_against_each_source_type()
+    {
+        var source = Source();
+        var consumer = (run.BranchRun)Consumer(source).Runs[0];
+        var modelsType = sortopiaDataType.NewSorterModelSet("");
+        var keys = Microsoft.FSharp.Collections.ListModule.Singleton("SortableDataFormat");
+        var entry = new setupDataTypeConfig(modelsType, source.Id, keys);
+        var error = Assert.Throws<ArgumentException>(() => Sortopia.Functions.FunctionConfiguration.validateSetupSource(
+            consumer.Item.ProjectConfiguration.Setup, entry, source.Snapshot));
+        Assert.Contains("subset", error.Message);
+        Assert.Contains("SortableDataFormat", error.Message);
+        Assert.Contains("Source", error.Message);
+    }
+
+    [Fact]
+    public void Source_query_keys_require_values_even_when_omitted_from_the_local_projection()
+    {
+        var source = Source();
+        var dto = ProjectDto.fromDomain(Consumer(source));
+        Assert.DoesNotContain(dto.configuration.setupDataTypes.SelectMany(output => output.queryParameterKeys), key => key == "Repl");
+        dto.configuration.setupParameterDefaults = dto.configuration.setupParameterDefaults.Where(binding => binding.keyName != "Repl").ToArray();
+        dto.runs[0].setupParameterSpans = dto.runs[0].setupParameterSpans.Where(span => span.keyName != "Repl").ToArray();
+        var error = Assert.Throws<ArgumentException>(() => Workspace(source, ProjectDto.toDomain(dto)));
+        Assert.Contains("Repl", error.Message);
     }
 
     [Fact]
@@ -79,7 +108,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         dto.localOverrides.setupSources = [dto.localOverrides.setupSources[0], dto.localOverrides.setupSources[0]];
         Assert.Throws<ArgumentException>(() => ProjectDto.toDomain(dto));
         var self = Consumer(source); dto = ProjectDto.fromDomain(self);
-        dto.configuration.setupDataTypes.Single(row => row.sourceProjectId != Guid.Empty).sourceProjectId = self.Id;
+        dto.configuration.setupDataTypes.Single(row => row.dataType.kind == "SortableTests").sourceProjectId = self.Id;
         Assert.Throws<ArgumentException>(() => Workspace(ProjectDto.toDomain(dto)));
         Assert.Throws<ArgumentException>(() => Workspace(source, source));
     }
@@ -107,7 +136,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var node = page.Roots[0].Children[0].Children[0];
         Assert.True(node.IsSealed);
         node.Editor!.ResultsFunctionName = "Changed"; node.Name = "Changed";
-        Assert.Equal("sortable-tests.standard", node.Editor.ResultsFunctionName); Assert.Equal("Changed", node.Name);
+        Assert.Equal("sorter-eval-inputs.standard.mssi.simple", node.Editor.ResultsFunctionName); Assert.Equal("Changed", node.Name);
         Assert.Equal("Changed", node.Name);
         node.Children.Clear();
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
@@ -121,7 +150,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         version.Parent!.Editor!.ResultsFunctionName = "sorter-eval-inputs.standard.mssi.simple";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var final = WorkspaceFileStore.LoadDefinition(Root);
-        Assert.Equal("sortable-tests.standard", final.ProjectIndex[source.Id].ResultsFunctionName);
+        Assert.Equal("sorter-eval-inputs.standard.mssi.simple", final.ProjectIndex[source.Id].ResultsFunctionName);
         Assert.Equal("sorter-eval-inputs.standard.mssi.simple", final.ProjectIndex[version.Id].ResultsFunctionName);
     }
 
@@ -167,7 +196,7 @@ public sealed class WorkspaceProjectSourcesTests : IDisposable
         var tree = WorkspaceTreeNode.FromWorkspace(world);
         var consumer = tree.Children[0].Children.Single(p => p.Name == "Consumer");
         var sourceNode = tree.Children[0].Children.Single(p => p.Name == "Source");
-        var row = consumer.Editor!.InheritedSetupDataTypes.Single(row => row.RequiresSource);
+        var row = consumer.Editor!.InheritedSetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
         Assert.Equal(source.Id, Assert.Single(row.SourceProjects).Id);
         Assert.Same(sourceNode.Editor, row.SourceEditor);
         row = new WorkspaceSetupDataTypeEntry(new() { dataType = new() { kind = "SortableTests", value = "wrong label" }, sourceProjectId = source.Id, queryParameterKeys = [] }, () => [new(source.Id, "Source", true, sourceNode.Editor!.ToProjectSettings(), sourceNode.Editor)]);

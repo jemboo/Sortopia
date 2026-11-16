@@ -17,21 +17,8 @@ open Sortopia.Models.Sorting.Simple.Uf4
 open Sortopia.Models.Sorting.Simple.Uf6
 open FunctionParameters
 
-type internal modelInputSource = PrefixInput | ChannelCountInput | TestsPrefixInput of ce array
-
 /// Sizing shared by execution and saved run-file display metadata.
 module ModelGenerationStageLengths =
-    let prefixDepth width prefix = (StageBuilderSequence.toStageSequence width prefix).StageLength
-
-    let mergePrefixDepth (library: mergeLibId) =
-        let model = msasM.create library.ChannelCount library.MergeDimension mergeSuffixType.NoSuffix library.SorterLibVariant
-        let prefix = model.CeArray |> Option.defaultWith (fun () -> invalidArg "MergeLibId" "The merge prefix is unavailable.")
-        prefixDepth library.ChannelCount prefix
-
-    let forPrefix width prefix modelType parameters =
-        (SimpleSorterStageLengths.forSuccessFraction (required ParamKeys.sorterSuccessFractionKey parameters)
-            width (prefixDepth width prefix) modelType).Stages
-
     let suffixStages withPrefix modelType parameters =
         let width, prefixStages =
             if withPrefix then
@@ -40,28 +27,11 @@ module ModelGenerationStageLengths =
             else required ParamKeys.channelCountKey parameters * 1<channelCount>, 0<stageLength>
         (SimpleSorterStageLengths.forSuccessFraction (required ParamKeys.sorterSuccessFractionKey parameters) width prefixStages modelType).Stages
 
-    /// Source-backed setup uses the stored prefix when available; previews use the selected library.
-    let tryForFunctionWithSourcePrefix sourcePrefix (name: string) parameters =
-        match name.Split('.') with
-        | [| group; source; model; family |]
-            when List.contains family ["simple"; "simple-r"; "simple-s"]
-              && List.contains model ["msce"; "mssi"; "msrs"; "msuf4"; "msuf6"]
-              && List.contains (group, source) ["sorter-model-set", "uniform"; "sorter-model-set", "prefix"
-                                                "sorter-eval", "standard"; "sorter-eval", "merge"; "sorter-eval", "prefix"
-                                                "sorter-eval-inputs", "standard"] ->
-            let modelType = SimpleSorterModelType.fromString model
-            if group = "sorter-eval" && (source = "prefix" || source = "merge") then
-                let width = required ParamKeys.channelCountKey parameters * 1<channelCount>
-                let depth =
-                    match sourcePrefix with
-                    | Some prefix -> prefixDepth width prefix
-                    | None when source = "prefix" -> (required ParamKeys.prefixLibIdKey parameters).StageLength
-                    | None -> mergePrefixDepth (required ParamKeys.mergeLibIdKey parameters)
-                (SimpleSorterStageLengths.forSuccessFraction (required ParamKeys.sorterSuccessFractionKey parameters) width depth modelType).Stages |> Some
-            else suffixStages (group = "sorter-model-set" && source = "prefix") modelType parameters |> Some
-        | _ -> None
+    let forMetadata (metadata: modelGenerationMetadata) parameters =
+        suffixStages (metadata.PrefixMode = modelPrefixMode.CatalogPrefix) metadata.Algorithm parameters
 
-    let tryForFunction name parameters = tryForFunctionWithSourcePrefix None name parameters
+    let tryForDefinition (definition: functionDefinition<'executor>) parameters =
+        definition.ModelGeneration |> Option.map (fun metadata -> forMetadata metadata parameters)
 
 module internal ModelGenerators =
     let version = function simpleSorterModelType.Msuf4 -> "3" | _ -> "2"
@@ -73,7 +43,7 @@ module internal ModelGenerators =
         | simpleSorterModelType.Msuf6 -> "6-channel seed unfolding (MSUF6)"
 
     let private commonKeys source = [
-        (match source with PrefixInput -> ParamKey.describe ParamKeys.prefixLibIdKey | ChannelCountInput | TestsPrefixInput _ -> ParamKey.describe ParamKeys.channelCountKey)
+        (match source with modelPrefixMode.CatalogPrefix -> ParamKey.describe ParamKeys.prefixLibIdKey | modelPrefixMode.NoPrefix -> ParamKey.describe ParamKeys.channelCountKey)
         ParamKey.describe ParamKeys.aMaxKey; ParamKey.describe ParamKeys.aInitialKey; ParamKey.describe ParamKeys.activationProbabilityKey
         ParamKey.describe ParamKeys.rngTypeKey; ParamKey.describe ParamKeys.sorterSuccessFractionKey
         ParamKey.describe ParamKeys.sorterCountKey; ParamKey.describe ParamKeys.replKey ]
@@ -85,23 +55,21 @@ module internal ModelGenerators =
 
     /// Model-generation functions fix the outer model family as part of their catalog identity.
     let familyKeys family keys =
-        if not (List.contains family ["Simple"; "SimpleR"; "SimpleS"]) then invalidArg "family" "Choose Simple, SimpleR, or SimpleS."
         keys |> List.filter (fun (key: paramKeyDescriptor) ->
             match string key.Name with
-            | "AMax" | "AInitial" -> family = "SimpleR"
-            | "ActivationProbability" -> family = "SimpleS"
+            | "AMax" | "AInitial" -> family = modelFamily.SimpleR
+            | "ActivationProbability" -> family = modelFamily.SimpleS
             | _ -> true)
 
     let familyDescription source modelType family =
         let prefix = match source with
-                     | PrefixInput -> "with a fixed library prefix and a generated suffix"
-                     | ChannelCountInput -> "with no fixed prefix"
-                     | TestsPrefixInput _ -> "with the source tests' exact fixed prefix and a generated suffix"
+                     | modelPrefixMode.CatalogPrefix -> "with a fixed library prefix and a generated suffix"
+                     | modelPrefixMode.NoPrefix -> "with no fixed prefix"
         let activators =
             match family with
-            | "SimpleR" -> "Every suffix activator starts at AInitial, within [-AMax, AMax]; only positive activators enable entries."
-            | "SimpleS" -> "ActivationProbability controls Boolean suffix activators."
-            | _ -> "All generated suffix entries are enabled."
+            | modelFamily.SimpleR -> "Every suffix activator starts at AInitial, within [-AMax, AMax]; only positive activators enable entries."
+            | modelFamily.SimpleS -> "ActivationProbability controls Boolean suffix activators."
+            | modelFamily.Simple -> "All generated suffix entries are enabled."
         let rates = if modelType = simpleSorterModelType.Msuf4 then
                         " OrthoRate, ParaRate, and SelfSymRate are normalized together and used for the seed and every unfolding level. The channel count determines the number of levels."
                     else ""
@@ -111,16 +79,15 @@ module internal ModelGenerators =
     let inputError source modelType (defaults: parameterBinding list) (spans: parameterSpan list) =
         let values key = inputValues key defaults spans
         try
-            let widthKey = match source with PrefixInput -> "PrefixLibId" | ChannelCountInput | TestsPrefixInput _ -> "ChannelCount"
+            let widthKey = match source with modelPrefixMode.CatalogPrefix -> "PrefixLibId" | modelPrefixMode.NoPrefix -> "ChannelCount"
             let dimensions =
                 match source with
-                | PrefixInput ->
+                | modelPrefixMode.CatalogPrefix ->
                     values ParamKeys.prefixLibIdKey |> List.map (fun prefix ->
                         if PrefixLib.tryGet prefix |> Option.isNone then
                             invalidArg "PrefixLibId" $"PrefixLibId '{PrefixLibId.toString prefix}' is not available in the prefix catalog."
                         int prefix.ChannelCount, int prefix.StageLength)
-                | ChannelCountInput -> values ParamKeys.channelCountKey |> List.map (fun width -> width, 0)
-                | TestsPrefixInput prefix -> values ParamKeys.channelCountKey |> List.map (fun width -> width, int (ModelGenerationStageLengths.prefixDepth (width * 1<channelCount>) prefix))
+                | modelPrefixMode.NoPrefix -> values ParamKeys.channelCountKey |> List.map (fun width -> width, 0)
             let widths = dimensions |> List.map fst
             for width in widths do
                 if not (SimpleSorterModelType.supportsChannelCount width modelType) then
@@ -177,27 +144,22 @@ module internal ModelGenerators =
     let private configuration source modelType parameters =
         let width, prefix =
             match source with
-            | PrefixInput ->
+            | modelPrefixMode.CatalogPrefix ->
                 let library = required ParamKeys.prefixLibIdKey parameters
                 let prefix = SorterDataParse.getCeArrayFromPrefixLib library |> Option.defaultWith (fun () -> invalidArg "PrefixLibId" "The prefix is unavailable.")
                 library.ChannelCount, prefix
-            | ChannelCountInput -> required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>, [||]
-            | TestsPrefixInput prefix -> required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>, prefix
+            | modelPrefixMode.NoPrefix -> required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>, [||]
         let rng = required ParamKeys.rngTypeKey parameters |> RngType.fromString |> RngFactory.create
-        let stages =
-            match source with
-            | TestsPrefixInput _ -> ModelGenerationStageLengths.forPrefix width prefix modelType parameters
-            | _ -> ModelGenerationStageLengths.suffixStages (source = PrefixInput) modelType parameters
+        let stages = ModelGenerationStageLengths.suffixStages (source = modelPrefixMode.CatalogPrefix) modelType parameters
         rng, width, prefix, stages
     let private ops (value: opsWeights) = OpsGenerationProbabilities.fromWeights value.Ortho value.Para value.SelfReflection
     let private unfolding parameters = (required ParamKeys.unfoldingWeightsKey parameters).Levels |> List.map ops
     let private models family baseGenerator parameters =
         let generator =
             match family with
-            | "Simple" -> sorterModelGen.Simple baseGenerator
-            | "SimpleR" -> simpleSorterModelRGen.create baseGenerator (required ParamKeys.aMaxKey parameters) (required ParamKeys.aInitialKey parameters) |> sorterModelGen.SimpleR
-            | "SimpleS" -> simpleSorterModelSGen.create baseGenerator (required ParamKeys.activationProbabilityKey parameters) |> sorterModelGen.SimpleS
-            | _ -> invalidArg "family" "Choose Simple, SimpleR, or SimpleS."
+            | modelFamily.Simple -> sorterModelGen.Simple baseGenerator
+            | modelFamily.SimpleR -> simpleSorterModelRGen.create baseGenerator (required ParamKeys.aMaxKey parameters) (required ParamKeys.aInitialKey parameters) |> sorterModelGen.SimpleR
+            | modelFamily.SimpleS -> simpleSorterModelSGen.create baseGenerator (required ParamKeys.activationProbabilityKey parameters) |> sorterModelGen.SimpleS
         let count = required ParamKeys.sorterCountKey parameters
         let first = int64 (required ParamKeys.replKey parameters) * int64 count |> int
         SorterModelGen.makeSorterModelSetFromIndexSpan (Guid.NewGuid() |> UMX.tag) (UMX.tag first) (UMX.tag count) generator |> functionData.SorterModelSet

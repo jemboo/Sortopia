@@ -7,15 +7,14 @@ namespace Sortopia.FileDb.Tests;
 public sealed partial class PreparedExecutionTests
 {
     [Fact]
-    public void Scope_ignores_source_assignments_for_outputs_generated_from_parameters()
+    public void Copy_scope_requires_the_model_source_as_well_as_the_tests_source()
     {
         var (world, target) = Create(true);
         var document = WorkspaceDocumentModule.fromDomain(world);
         var saved = document.Modules.Single(module => module.Projects[0].Definition.id == target.Id).Projects[0];
         saved.Definition.configuration.setupDataTypes.Single(output => output.dataType.kind == "SorterModelSet").sourceProjectId = Guid.NewGuid();
-        var scope = WorkspaceRunDocument.resolveByRunId(document, target.Runs[0].Id);
-        Assert.Equal(2, scope.ProjectLocations.Length);
-        Completed(RunParameterExecution.generateInScope(scope, Root, null!, Token).Execution);
+        var error = Assert.Throws<InvalidOperationException>(() => WorkspaceRunDocument.resolveByRunId(document, target.Runs[0].Id));
+        Assert.Contains("Required project", error.Message);
     }
 
     [Fact]

@@ -11,7 +11,7 @@ namespace Sortopia.WPF.Tests;
 public sealed class ModelFamilySetupTests
 {
     public static IEnumerable<object[]> Choices =>
-        from functionGroup in new[] { "sorter-model-set.uniform", "sorter-eval.standard", "sorter-eval.merge", "sorter-eval.prefix" }
+        from functionGroup in new[] { "sorter-model-set.uniform", "sorter-eval-inputs.standard" }
         from algorithm in new[] { "msce", "mssi", "msrs", "msuf4", "msuf6" }
         from family in new[] { "Simple", "SimpleR", "SimpleS" }
         select new object[] { functionGroup, algorithm, family };
@@ -25,6 +25,7 @@ public sealed class ModelFamilySetupTests
         Assert.False(SetupFunctionCatalog.functions.ContainsKey(oldName));
         Assert.Throws<ArgumentException>(() => SetupFunctionCatalog.require(oldName));
         var definition = SetupFunctionCatalog.require(name);
+        FunctionMetadataTests.AssertModelMetadata(definition.ModelGeneration?.Value, algorithm, family, false);
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: hierarchyKind.Branch).Editor!;
         editor.SetupFunctionName = name; editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var keys = definition.RequiredParameters.Select(key => key.Name).ToArray();

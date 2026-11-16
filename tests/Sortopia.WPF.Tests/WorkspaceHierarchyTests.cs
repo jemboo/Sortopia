@@ -81,18 +81,21 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     internal static WorkspaceTreeNode AddSetupSource(WorkspaceTreeNode owner, string text = "")
     {
         var container = owner.Kind == WorkspaceEntityKind.Module ? owner : owner.Parent!;
-        container.Editor!.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationPrefixMssiSimple;
+        container.Editor!.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationSource;
         container.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var sourceModule = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Source module", family: container.Family);
         var root = container;
         while (root.Parent is not null) root = root.Parent;
         root.Children.Add(sourceModule); // Its functions belong on a separate module path from the consumer.
-        sourceModule.Editor!.LoadProject(ProjectSettings(container.IsBranch));
+        var sourceSettings = ProjectSettings(container.IsBranch);
+        sourceSettings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
+        sourceSettings.resultsParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
+        sourceSettings.resultsDataTypes = [];
+        sourceModule.Editor!.LoadProject(sourceSettings);
         var source = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Setup source", family: container.Family);
         sourceModule.Children.Add(source);
-        var entry = owner.Editor!.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
-        owner.Editor.SetupDataTypesOverride.IsOverridden = true;
-        owner.Editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = source.Id;
+        owner.Editor!.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var entry in owner.Editor.SetupDataTypes) entry.SourceProjectId = source.Id;
         return source;
     }
     internal static run MakeRun(string projectName, string name, bool branch = false) => FromRunDto(new runDto

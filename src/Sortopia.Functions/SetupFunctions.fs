@@ -16,106 +16,40 @@ module SetupFunctions =
             (fun host _ -> host.SetupDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
         |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format, with an empty prefix. Save the tests in the setup database."
 
-    let private sourceInputError withPrefix defaults spans =
-        try
-            let widths = inputValues ParamKeys.channelCountKey defaults spans
-            if widths |> List.exists (fun count -> count < 1) then
-                invalidArg "ChannelCount" "ChannelCount must be positive."
-            if withPrefix then
-                for prefix in inputValues ParamKeys.prefixLibIdKey defaults spans do
-                    if widths |> List.exists ((<>) (int prefix.ChannelCount)) then
-                        invalidArg "ChannelCount" $"ChannelCount must match PrefixLibId's {int prefix.ChannelCount} channels for every parameter combination."
-            ""
-        with error -> error.Message
-
     /// Copy both evaluation inputs unchanged, using a separate source project per type.
     let private copyEvaluationInputs (host: runHost) (projects: sourceProjects) =
-        let channels = required ParamKeys.channelCountKey host.Parameters
         let modelsReference = host.SourceResults.Find(projects[modelsType], modelsType, host.Parameters)
         let testsReference = host.SourceResults.Find(projects[testsType], testsType, host.Parameters)
         let modelsValue = host.SourceResults.Load modelsReference
         let testsValue = host.SourceResults.Load testsReference
-        // Validate both sources before publishing either local copy, including on retries.
+        // Validate the actual data before publishing either local copy, including on retries.
+        let tests, prefix =
+            match testsValue with
+            | functionData.SortableTests (tests, prefix) -> tests, prefix
+            | _ -> invalidOp "Expected source SortableTests."
+        let channels = Sortopia.Sorting.Inputs.SortableTests.getChannelCount tests
+        match host.Parameters.TryFind ParamKeys.channelCountKey with
+        | Some requested when requested <> int channels -> invalidArg "ChannelCount" "The source SortableTests must match the queried ChannelCount."
+        | _ -> ()
         match modelsValue with
         | functionData.SorterModelSet models ->
-            if models.SorterModels |> Array.exists (fun model -> int (SorterModel.getChannelCount model) <> channels) then
-                invalidArg "ChannelCount" $"Every model in the source SorterModelSet must have ChannelCount {channels}."
+            EvaluationInputs.validateCopiedModels channels prefix models
         | _ -> invalidOp "Expected a source SorterModelSet."
-        match testsValue with
-        | functionData.SortableTests (tests, _) ->
-            if int (Sortopia.Sorting.Inputs.SortableTests.getChannelCount tests) <> channels then
-                invalidArg "ChannelCount" $"The source SortableTests must have ChannelCount {channels}."
-        | _ -> invalidOp "Expected source SortableTests."
         host.SetupDb.SaveIfMissing(modelsType, [modelsReference], fun () -> modelsValue)
         host.SetupDb.SaveIfMissing(testsType, [testsReference], fun () -> testsValue)
 
     let evaluationSource =
-        let keys = [ParamKey.describe ParamKeys.channelCountKey]
-        FunctionDefinition.setupWithSourcesValidated "1" keys
-            [modelsType, queryKeys keys; testsType, queryKeys keys]
-            [modelsType, [modelsType]; testsType, [testsType]] (sourceInputError false) copyEvaluationInputs
-        |> FunctionDefinition.describe "Copy sorter models and sortable tests from separately selected source projects into the setup database. Find both by ChannelCount, validate matching widths, and preserve the models, tests, and tests' prefix."
+        FunctionDefinition.setupCopy "2" [modelsType; testsType] copyEvaluationInputs
+        |> FunctionDefinition.describe "Copy sorter models and sortable tests from separately selected source projects. Supply every source results query key through a default or run span. Each local setup projection may retain a subset of its source's keys. Preserve models, activators, tests, and prefixes; validate matching widths and compatible prefixes before saving either input. No models or tests are generated."
 
-    let evaluationSourcePrefix =
-        let keys = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.prefixLibIdKey]
-        FunctionDefinition.setupWithSourcesValidated "1" keys
-            [modelsType, [ParamKeys.channelCountKey.Name]; testsType, [ParamKeys.prefixLibIdKey.Name]]
-            [modelsType, [modelsType]; testsType, [testsType]] (sourceInputError true) copyEvaluationInputs
-        |> FunctionDefinition.describe "Copy sorter models by ChannelCount and sortable tests by PrefixLibId from separately selected source projects into the setup database. Require matching channel counts and preserve the existing models, tests, and tests' prefix."
+    let uniformMsceSorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msce
+    let uniformMssiSorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Mssi
+    let uniformMsrsSorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msrs
+    let uniformMsuf4SorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msuf4
+    let uniformMsuf6SorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msuf6
 
-    let private modelGenerator modelType keys make family =
-        let keys = ModelGenerators.familyKeys family keys
-        FunctionDefinition.setupValidated (ModelGenerators.version modelType) keys [modelsType, queryKeys keys] (ModelGenerators.inputError ChannelCountInput modelType)
-            (fun host _ -> host.SetupDb.SaveIfMissing(modelsType, [], fun () -> make family host.Parameters))
-        |> FunctionDefinition.describe (ModelGenerators.familyDescription ChannelCountInput modelType family + " Save the models in the setup database.")
-
-    let uniformMsceSorterModels = modelGenerator simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
-    let uniformMssiSorterModels = modelGenerator simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
-    let uniformMsrsSorterModels = modelGenerator simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
-    let uniformMsuf4SorterModels = modelGenerator simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
-    let uniformMsuf6SorterModels = modelGenerator simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
-
-    let private prepareEvaluation testsKeys fromSource modelType modelKeys makeModels family =
-        let modelKeys = ModelGenerators.familyKeys family modelKeys
-        let testsDescription =
-            if not fromSource then "Generate full binary sortable tests."
-            elif testsKeys |> List.exists (fun key -> key.Name = ParamKeys.mergeLibIdKey.Name) then
-                "Copy tests and their prefix from a source project, selecting by MergeLibId and SortableDataFormat."
-            else "Copy tests and their prefix from a source project, selecting by PrefixLibId and SortableDataFormat."
-        let version = if fromSource then (if modelType = simpleSorterModelType.Msuf4 then "4" else "3") else ModelGenerators.version modelType
-        FunctionDefinition.setupWithSourcesValidated version
-            (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
-            [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
-            [testsType, (if fromSource then [testsType] else []); modelsType, (if fromSource then [testsType] else [])]
-            (evaluationInputError testsKeys modelType)
-            (fun host projects ->
-                let sources, tests, modelSource =
-                    if fromSource then
-                        let reference = host.SourceResults.Find(projects[testsType], testsType, host.Parameters)
-                        // Validate source/model compatibility even when both outputs already exist.
-                        let tests = sourceTests host.Parameters [host.SourceResults.Load reference]
-                        let prefix = match tests with functionData.SortableTests (_, prefix) -> prefix | _ -> invalidOp "Expected source tests."
-                        [reference], Some tests, TestsPrefixInput prefix
-                    else [], None, ChannelCountInput
-                host.SetupDb.SaveIfMissing(modelsType, sources, fun () -> makeModels modelSource family host.Parameters)
-                host.SetupDb.SaveIfMissing(testsType, sources, fun () ->
-                    match tests with Some value -> value | None -> InputGenerators.standardTests host.Parameters))
-        |> FunctionDefinition.describe ($"{testsDescription} {ModelGenerators.familyDescription (if fromSource then TestsPrefixInput [||] else ChannelCountInput) modelType family} Save both inputs in the setup database for results evaluation; their channel counts must match. Evaluate only the suffix against prefix-processed source tests.")
-
-    let evaluationStandardMsce = prepareEvaluation standardKeys false simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) ModelGenerators.msce
-    let evaluationStandardMssi = prepareEvaluation standardKeys false simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) ModelGenerators.mssi
-    let evaluationStandardMsrs = prepareEvaluation standardKeys false simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) ModelGenerators.msrs
-    let evaluationStandardMsuf4 = prepareEvaluation standardKeys false simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) ModelGenerators.msuf4
-    let evaluationStandardMsuf6 = prepareEvaluation standardKeys false simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) ModelGenerators.msuf6
-    // Source project IDs replace GeneSort's SortableTestsModule name. The library
-    // key and format look up the source's exact result projection.
-    let evaluationMergeMsce = prepareEvaluation mergeKeys true simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) ModelGenerators.msce
-    let evaluationMergeMssi = prepareEvaluation mergeKeys true simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) ModelGenerators.mssi
-    let evaluationMergeMsrs = prepareEvaluation mergeKeys true simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) ModelGenerators.msrs
-    let evaluationMergeMsuf4 = prepareEvaluation mergeKeys true simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) ModelGenerators.msuf4
-    let evaluationMergeMsuf6 = prepareEvaluation mergeKeys true simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) ModelGenerators.msuf6
-    let evaluationPrefixMsce = prepareEvaluation prefixKeys true simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) ModelGenerators.msce
-    let evaluationPrefixMssi = prepareEvaluation prefixKeys true simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) ModelGenerators.mssi
-    let evaluationPrefixMsrs = prepareEvaluation prefixKeys true simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) ModelGenerators.msrs
-    let evaluationPrefixMsuf4 = prepareEvaluation prefixKeys true simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) ModelGenerators.msuf4
-    let evaluationPrefixMsuf6 = prepareEvaluation prefixKeys true simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) ModelGenerators.msuf6
+    let evaluationStandardMsce = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msce
+    let evaluationStandardMssi = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Mssi
+    let evaluationStandardMsrs = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msrs
+    let evaluationStandardMsuf4 = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msuf4
+    let evaluationStandardMsuf6 = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msuf6

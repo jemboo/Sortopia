@@ -3,6 +3,7 @@ using Microsoft.FSharp.Core;
 using Sortopia.FileDb;
 using Sortopia.Functions;
 using Sortopia.Runs;
+using Sortopia.Sorting;
 using Sortopia.Sorting.Inputs;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Workspaces;
@@ -19,26 +20,28 @@ public sealed partial class PreparedExecutionTests
     {
         var modelsType = sortopiaDataType.NewSorterModelSet("");
         var testsType = sortopiaDataType.NewSortableTests("");
-        var modelConfig = new resultsConfig("Model archive", ResultsFunctionNames.uniformMssiSimpleSorterModels, "1",
+        var modelConfig = new resultsConfig("Model archive", ResultsFunctionNames.uniformMssiSimpleSorterModels,
+            ResultsFunctionCatalog.require(ResultsFunctionNames.uniformMssiSimpleSorterModels).Version,
             ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("ChannelCount"))), ListModule.OfArray(Models));
         var modelsSource = Project("Models", projectConfiguration.NewRootProjectConfig(new("Models by width", modelConfig)),
             [new() { keyName = "ChannelCount", values = ["4", "8"] }]);
         var prefixes = PrefixLib.ids().Where(id => id.ChannelCount == 8).Take(2).Select(PrefixLibId.toString).ToArray();
         var testsKey = prefix ? "PrefixLibId" : "ChannelCount";
-        var setupName = prefix ? SetupFunctionNames.evaluationSourcePrefix : SetupFunctionNames.evaluationSource;
+        var setupName = SetupFunctionNames.evaluationSource;
         var testsConfig = new resultsConfig("Tests archive", prefix ? ResultsFunctionNames.prefixSortableTests : ResultsFunctionNames.standardSortableTests, "1",
             ListModule.Singleton(new resultsDataTypeConfig(testsType, ListModule.Singleton(testsKey))),
             ListModule.Singleton(Bind("SortableDataFormat", "Bools", parameterValueType.Text)));
         var testsSource = Project("Tests", projectConfiguration.NewRootProjectConfig(new("Tests by width", testsConfig)),
             [new() { keyName = testsKey, values = prefix ? prefixes : ["4", "8"] }]);
-        var setup = new setupConfig("Local inputs", setupName, "1",
+        var setup = new setupConfig("Local inputs", setupName, SetupFunctionCatalog.require(setupName).Version,
             ListModule.OfArray(new[] {
                 new setupDataTypeConfig(modelsType, modelsSource.Id, ListModule.Singleton("ChannelCount")),
                 new setupDataTypeConfig(testsType, testsSource.Id, ListModule.Singleton(testsKey)) }),
             ListModule.Singleton(Bind("ChannelCount", channels.ToString())));
         var consumer = Project("Consumer", projectConfiguration.NewBranchProjectConfig(new("Evaluate copied inputs",
-            Results(ResultsFunctionNames.sorterEval, [Bind("ChannelCount", channels.ToString()),
-                Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]), setup)),
+            new resultsConfig("Results", ResultsFunctionNames.sorterEval, ResultsFunctionCatalog.require(ResultsFunctionNames.sorterEval).Version,
+                ResultsFunctionCatalog.outputs(ResultsFunctionNames.sorterEval), ListModule.OfArray(new[] {
+                Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) })), setup)),
             setup: prefix ? [new() { keyName = "PrefixLibId", values = prefixes }] : null);
         workspaceModule Module(project project) => workspaceModule.createInherited(Guid.NewGuid(), project.ProjectName,
             ModuleDefaults.configuration(project.IsBranchProject), ModuleOverridesDto.toDomain(project.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
@@ -212,7 +215,7 @@ public sealed partial class PreparedExecutionTests
         Assert.True(((ISortopiaDb)store).GetOrCreate(key, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(wrongWidth)), Token).IsOk);
         var prepared = Prepare(world, consumer);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
-        Assert.Contains("ChannelCount 8", prepared.Execution.Error);
+        Assert.Contains("channel", prepared.Execution.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(prepared.WorkItemIds);
         Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
     }

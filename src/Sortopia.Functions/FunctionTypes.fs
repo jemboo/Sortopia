@@ -66,12 +66,29 @@ type IRunHostFactory =
     abstract ForSetup: parameterSet -> runHost
     abstract ForResults: parameterSet * storedOutput list -> runHost
 
+[<RequireQualifiedAccess>]
+type modelFamily = Simple | SimpleR | SimpleS
+
+[<RequireQualifiedAccess>]
+type modelPrefixMode = NoPrefix | CatalogPrefix
+
+/// Runtime catalog capabilities, independent of function names and stored identities.
+/// Copy/evaluation functions have no fixed model-generation metadata: their inputs supply it.
+type modelGenerationMetadata = {
+    Algorithm: simpleSorterModelType
+    Family: modelFamily
+    PrefixMode: modelPrefixMode
+}
+
 /// Required inputs are independent of the project's chosen query projections.
 type functionDefinition<'executor> = {
     Version: string
     /// Human-readable catalog guidance; does not affect execution or stored identities.
     Description: string
+    ModelGeneration: modelGenerationMetadata option
     RequiredParameters: paramKeyDescriptor list
+    /// Copy functions take their required keys from the selected source output projections.
+    ParametersFromSources: bool
     /// Catalog metadata: parameters contributing to each output, not fixed query keys.
     DataTypes: Map<sortopiaDataType, string<paramKeyName> list>
     /// Setup: outputs read from source projects. Results: inputs consumed from setup.
@@ -93,6 +110,9 @@ module FunctionData =
         | functionData.SorterSetEval _ -> "SorterSetEval"
 
 module FunctionParameters =
+    let sourceRequirements (names: string<paramKeyName> list) =
+        names |> SourceContracts.resolve |> SourceContracts.requireParameters
+
     let project (keys: paramKeyDescriptor list) (parameters: parameterSet) =
         keys |> List.choose (fun key -> parameters.TryFind key.Name) |> parameterSet.fromBindings
     let validationError (required: paramKeyDescriptor list) (parameters: parameterSet) =
@@ -152,10 +172,14 @@ module FunctionValidation =
         definition.InputError defaults spans |> require
 
     let validate (definition: functionDefinition<'executor>) (parameters: parameterSet) =
-        FunctionParameters.validate definition.RequiredParameters parameters
+        let required = if definition.ParametersFromSources then FunctionParameters.sourceRequirements (parameters.ParamMap |> Map.toList |> List.map fst) else definition.RequiredParameters
+        FunctionParameters.validate required parameters
         parameters.ParamMap |> Map.toList |> List.map snd |> validateDefaults definition
 
 module FunctionDefinition =
+    let generatesModels algorithm family prefixMode (definition: functionDefinition<'executor>) =
+        { definition with ModelGeneration = Some { Algorithm = algorithm; Family = family; PrefixMode = prefixMode } }
+
     let describe description (definition: functionDefinition<'executor>) =
         if System.String.IsNullOrWhiteSpace description then invalidArg "description" "A function description must not be blank."
         { definition with Description = description }
@@ -193,7 +217,7 @@ module FunctionDefinition =
     let private resultsWithValidation version required inputs dataTypes inputError (execute: resultsFunction) : functionDefinition<resultsFunction> =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types inputs
-        { Version = version; Description = ""; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; ModelGeneration = None; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = inputError
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
@@ -211,22 +235,29 @@ module FunctionDefinition =
     let resultsValidated version required dataTypes inputError execute =
         resultsWithValidation version required (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) dataTypes inputError execute
 
-    let setupWithSources version required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
+    let private setupWithParameterPolicy fromSources version required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types sources
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
-        { Version = version; Description = ""; RequiredParameters = required; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; ModelGeneration = None; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = fun _ _ -> ""
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
               host.CancellationToken.ThrowIfCancellationRequested()
+              let required = if fromSources then FunctionParameters.sourceRequirements (host.Parameters.ParamMap |> Map.toList |> List.map fst) else required
               FunctionParameters.validate required host.Parameters
               if Set.ofList sources <> (projects |> Map.toList |> List.map fst |> Set.ofList)
                  || (projects |> Map.exists (fun _ id -> UMX.untag id = System.Guid.Empty)) then
                   invalidArg "sourceProjects" "Supply exactly the source projects required by this setup function."
               execute host projects
               saved types host.SetupDb }
+
+    let setupWithSources version required dataTypes sources execute = setupWithParameterPolicy false version required dataTypes sources execute
+
+    let setupCopy version types execute =
+        setupWithParameterPolicy true version [] (types |> List.map (fun dataType -> dataType, []))
+            (types |> List.map (fun dataType -> dataType, [dataType])) execute
 
     let setup version required dataTypes execute = setupWithSources version required dataTypes (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) execute
 

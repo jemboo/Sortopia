@@ -39,41 +39,23 @@ module ResultsFunctions =
         generator "1" testsType InputGenerators.standardKeys InputGenerators.standardTests
         |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format, with an empty prefix. Save the tests in the results database."
 
-    let private modelGenerator source modelType keys make family =
-        let keys = ModelGenerators.familyKeys family keys
-        FunctionDefinition.resultsValidated (ModelGenerators.version modelType) keys
-            [modelsType, InputGenerators.queryKeys keys] (ModelGenerators.inputError source modelType)
-            (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> make family host.Parameters))
-        |> FunctionDefinition.describe (ModelGenerators.familyDescription source modelType family + " Save the models in the results database.")
+    let prefixMsceSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msce
+    let prefixMssiSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Mssi
+    let prefixMsrsSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msrs
+    let prefixMsuf4SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msuf4
+    let prefixMsuf6SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msuf6
 
-    let prefixMsceSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msce (ModelGenerators.msceKeys PrefixInput) (ModelGenerators.msce PrefixInput)
-    let prefixMssiSorterModels = modelGenerator PrefixInput simpleSorterModelType.Mssi (ModelGenerators.mssiKeys PrefixInput) (ModelGenerators.mssi PrefixInput)
-    let prefixMsrsSorterModels = modelGenerator PrefixInput simpleSorterModelType.Msrs (ModelGenerators.msrsKeys PrefixInput) (ModelGenerators.msrs PrefixInput)
-    let prefixMsuf4SorterModels = modelGenerator PrefixInput simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys PrefixInput) (ModelGenerators.msuf4 PrefixInput)
-    let prefixMsuf6SorterModels = modelGenerator PrefixInput simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys PrefixInput) (ModelGenerators.msuf6 PrefixInput)
+    let uniformMsceSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msce
+    let uniformMssiSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Mssi
+    let uniformMsrsSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msrs
+    let uniformMsuf4SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msuf4
+    let uniformMsuf6SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msuf6
 
-    let uniformMsceSorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
-    let uniformMssiSorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
-    let uniformMsrsSorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
-    let uniformMsuf4SorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
-    let uniformMsuf6SorterModels = modelGenerator ChannelCountInput simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
-
-    let private standardInputs modelType modelKeys makeModels family =
-        let modelKeys = ModelGenerators.familyKeys family modelKeys
-        FunctionDefinition.resultsValidated (ModelGenerators.version modelType)
-            (InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
-            [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys modelKeys]
-            (InputGenerators.evaluationInputError InputGenerators.standardKeys modelType)
-            (fun host ->
-                host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> makeModels family host.Parameters)
-                host.ResultsDb.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests host.Parameters))
-        |> FunctionDefinition.describe ($"Generate full binary sortable tests. {ModelGenerators.familyDescription ChannelCountInput modelType family} Save both outputs in the results database for use by other projects.")
-
-    let standardMsceEvaluationInputs = standardInputs simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
-    let standardMssiEvaluationInputs = standardInputs simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
-    let standardMsrsEvaluationInputs = standardInputs simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
-    let standardMsuf4EvaluationInputs = standardInputs simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
-    let standardMsuf6EvaluationInputs = standardInputs simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
+    let standardMsceEvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msce
+    let standardMssiEvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Mssi
+    let standardMsrsEvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msrs
+    let standardMsuf4EvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msuf4
+    let standardMsuf6EvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msuf6
 
     let private models (host: runHost) =
         match host.SetupDb.Load modelsType with
@@ -93,10 +75,7 @@ module ResultsFunctions =
         else
             // Tests have already passed through this prefix. Empty model prefixes
             // describe suffix-only models; a different nonempty prefix is incompatible.
-            for model in models.SorterModels do
-                let modelPrefix = SorterModel.getPrefix model
-                if not (Array.isEmpty modelPrefix) && modelPrefix <> prefix then
-                    invalidArg "inputs" "The model prefix must match the source SortableTests prefix. Regenerate models using the associated tests."
+            EvaluationInputs.validateEvaluationPrefixes prefix models
             SorterModelSet.makeSorterSetWithoutPrefix (Guid.NewGuid() |> UMX.tag) None models
 
     let private evaluate : resultsFunction = fun host ->
@@ -104,22 +83,20 @@ module ResultsFunctions =
             let parameters = host.Parameters
             let models = models host
             let tests, ces = tests host
-            let channels = required ParamKeys.channelCountKey parameters |> UMX.tag<channelCount>
+            let channels = SortableTests.getChannelCount tests
             let evalType = required ParamKeys.sorterEvalTypeKey parameters |> SorterEvalType.fromString
             let collect = required ParamKeys.collectSortableTestsKey parameters |> UMX.tag<collectNewSortableTests>
-            if SortableTests.getChannelCount tests <> channels then invalidArg "inputs" "The tests and parameters must have the same ChannelCount."
-            if models.SorterModels |> Array.exists (fun model -> SorterModel.getChannelCount model <> channels) then
-                invalidArg "inputs" "The models and tests must have the same channel count."
+            EvaluationInputs.validateEvaluationWidths channels models.SorterModels
             let prefix = ceBlock.create (Guid.Empty |> UMX.tag) channels ces
             let sorters = evaluationSorters ces models
             let evaluated = SorterSetEval.makeSorterSetEvalWithOptions (evaluationOptions host) (Guid.NewGuid() |> UMX.tag) sorters prefix tests evalType collect
             functionData.SorterSetEval evaluated)
 
     let evaluateSorters =
-        let required = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
-        FunctionDefinition.resultsWithInputs "2" required [evalType, [modelsType; testsType]]
+        let required = [ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
+        FunctionDefinition.resultsWithInputs "3" required [evalType, [modelsType; testsType]]
             [evalType, InputGenerators.queryKeys required] evaluate
-        |> FunctionDefinition.describe "Evaluate the sorter models against the tests and prefix already saved in the setup database. Save the evaluations in the results database; optionally collect new sortable tests within the evaluations."
+        |> FunctionDefinition.describe "Evaluate the sorter models against the tests and prefix already saved in the setup database. Derive the channel count from SortableTests and require every sorter model to have that same channel count. Save the evaluations in the results database; optionally collect new sortable tests within the evaluations."
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
@@ -135,8 +112,7 @@ module ResultsFunctions =
                 let evalType = required ParamKeys.sorterEvalTypeKey parameters |> SorterEvalType.fromString
                 let evaluations = models.SorterModels |> Array.chunkBySize 1000 |> Array.collect (fun chunk ->
                     host.CancellationToken.ThrowIfCancellationRequested()
-                    if chunk |> Array.exists (fun model -> SorterModel.getChannelCount model <> channels) then
-                        invalidArg "inputs" "The models and tests must have the same channel count."
+                    EvaluationInputs.validateEvaluationWidths channels chunk
                     let group = sorterModelSet.create (Guid.NewGuid() |> UMX.tag) chunk models.RawCeLength
                     let sorters = evaluationSorters ces group
                     SorterSetEval.makeSorterEvalsWithOptions (evaluationOptions host) sorters.Sorters prefix tests evalType (UMX.tag false))

@@ -57,7 +57,7 @@ public sealed class FunctionCatalogTests
         var next = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters(1))));
         Assert.Empty(models.Item.SorterModels.Select(SorterModel.getId).Intersect(next.Item.SorterModels.Select(SorterModel.getId)));
         var evaluation = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval,
-            Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V1"),
+            Parameters(ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V1"),
                 ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)), tests, models)));
         Assert.Equal(3, evaluation.Item.SorterEvals.Length);
         Assert.Equal(SortableTests.getId(tests.Item1), evaluation.Item.SorterTestId);
@@ -82,7 +82,7 @@ public sealed class FunctionCatalogTests
     {
         var empty = Parameters();
         foreach (var function in ResultsFunctionCatalog.functions.Keys.Select(name => (Setup: false, Name: name))
-            .Concat(SetupFunctionCatalog.functions.Keys.Select(name => (Setup: true, Name: name))))
+            .Concat(SetupFunctionCatalog.functions.Where(entry => !entry.Value.ParametersFromSources).Select(entry => (Setup: true, Name: entry.Key))))
         {
             Assert.Contains("Missing required", Assert.ThrowsAny<Exception>(() => Invoke(function.Setup, function.Name, empty)).Message);
         }

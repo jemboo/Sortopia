@@ -57,9 +57,9 @@ public sealed class SourceProjectPickerTests
             var picker = Picker(); picker.IsDropDownOpen = true; Update();
             var popup = (Popup)picker.Template.FindName("PART_Popup", picker); ((FrameworkElement)popup.Child).UpdateLayout();
             Assert.Equal(3, picker.Items.Count);
-            var choice = picker.Items.Cast<WorkspaceSourceProjectChoice>().Single(item => item.Id == prefix.Id);
+            var choice = picker.Items.Cast<WorkspaceSourceProjectChoice>().Single(item => item.Id == models.Id);
             var item = (ComboBoxItem)picker.ItemContainerGenerator.ContainerFromItem(choice);
-            Assert.False(item.IsEnabled); Assert.Contains("PrefixLibId", choice.CompatibilityText);
+            Assert.False(item.IsEnabled); Assert.Contains("exact data type", choice.CompatibilityText);
             Assert.Equal(choice.CompatibilityText, AutomationProperties.GetHelpText(item));
             Assert.Equal(choice.CompatibilityText, item.ToolTip); Assert.True(ToolTipService.GetShowOnDisabled(item));
             Assert.True(((ComboBoxItem)picker.ItemContainerGenerator.ContainerFromIndex(0)).IsEnabled);
@@ -76,17 +76,16 @@ public sealed class SourceProjectPickerTests
             picker.IsDropDownOpen = false;
             picker.SetCurrentValue(ComboBox.SelectedValueProperty, matching.Id); Update();
             Assert.Equal(matching.Id, model.SetupDataTypes.Single(output => output.DataType.Kind == "SortableTests").SourceProjectId);
-            model.SetupFunctionName = SetupFunctionNames.evaluationSourcePrefix;
+            model.SetupFunctionName = SetupFunctionNames.evaluationSource;
             picker = Picker(); picker.IsDropDownOpen = true; Update();
             choice = picker.Items.Cast<WorkspaceSourceProjectChoice>().Single(item => item.Id == prefix.Id);
             item = (ComboBoxItem)picker.ItemContainerGenerator.ContainerFromItem(choice);
             Assert.True(item.IsEnabled);
             picker.SetCurrentValue(ComboBox.SelectedValueProperty, prefix.Id); picker.IsDropDownOpen = false; Update();
             Assert.Equal(prefix.Id, model.SetupDataTypes.Single(output => output.DataType.Kind == "SortableTests").SourceProjectId);
-            // A previously saved incompatible assignment remains visible for correction.
-            model.SetupFunctionName = SetupFunctionNames.evaluationSource; Update();
+            // Both standard and prefixed sources are accepted by the same generic function.
             var selected = model.SetupDataTypes.Single(output => output.DataType.Kind == "SortableTests");
-            Assert.Equal(prefix.Id, selected.SourceProjectId); Assert.Contains("PrefixLibId", selected.Error);
+            Assert.Equal(prefix.Id, selected.SourceProjectId); Assert.Empty(selected.Error);
             Assert.Equal(prefix.Id, Picker().SelectedValue);
         }
         finally { window.Close(); }

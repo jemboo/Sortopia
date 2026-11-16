@@ -33,7 +33,7 @@ type configurationOverrides =
 
 module Defaults =
     let private resultsRequirements name = ResultsFunctionCatalog.functions |> Map.tryFind name |> Option.map (fun value -> value.RequiredParameters)
-    let private setupRequirements name = SetupFunctionCatalog.functions |> Map.tryFind name |> Option.map (fun value -> value.RequiredParameters)
+    let private setupRequirements name = SetupFunctionCatalog.functions |> Map.tryFind name |> Option.bind (fun value -> if value.ParametersFromSources then None else Some value.RequiredParameters)
     let private inheritedFor requirements values =
         match requirements with
         | None -> values

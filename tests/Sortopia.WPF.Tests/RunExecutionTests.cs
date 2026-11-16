@@ -49,7 +49,9 @@ public sealed class RunExecutionTests
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
         if (branch) {
             var setupDefinition = SetupFunctionCatalog.require(settings.setupFunctionName);
-            settings.setupDataTypes = setupDefinition.DataTypes.Select(entry => new setupDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.ToArray(), sourceProjectId = settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.sourceProjectId ?? Guid.Empty }).ToArray();
+            settings.setupDataTypes = setupDefinition.DataTypes.Select(entry => new setupDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key),
+                queryParameterKeys = setupDefinition.ParametersFromSources ? settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.queryParameterKeys ?? [] : entry.Value.ToArray(),
+                sourceProjectId = settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.sourceProjectId ?? Guid.Empty }).ToArray();
             setup = QuerySpans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
             settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
         }
@@ -92,8 +94,8 @@ public sealed class RunExecutionTests
         settings.setupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
         settings.setupParameterDefaults = [.. UniformModelDefaults(), Binding("SortableDataFormat", "Bools")];
         settings.resultsFunctionName = ResultsFunctionNames.sorterEval;
-        settings.resultsParameterDefaults = [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SorterEvalType", "V1"), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
-        var value = MakeRun(true, settings, [new() { keyName = "ChannelCount", values = ["4", "4", "4"] }],
+        settings.resultsParameterDefaults = [Binding("SorterEvalType", "V1"), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
+        var value = MakeRun(true, settings, [new() { keyName = "SorterEvalType", values = ["V1", "V2", "V3"] }],
             [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]);
         var updates = new List<runExecutionProgress>();
         var host = new CatalogTestHost(value, TestContext.Current.CancellationToken);

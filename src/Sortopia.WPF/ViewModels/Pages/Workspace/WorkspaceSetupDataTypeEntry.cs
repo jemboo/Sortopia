@@ -1,4 +1,5 @@
 using Sortopia.Workspaces.Serialization;
+using Sortopia.Functions;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
@@ -25,6 +26,7 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     public bool GeneratesData => !RequiresSource;
     private bool allowUnassignedSource;
     private string[]? requiredParameters;
+    private bool parametersFromSources;
     public WorkspaceSetupDataTypeEntry(setupDataTypeConfigDto value, Func<IEnumerable<WorkspaceSourceProject>> sources)
     {
         this.sources = sources;
@@ -47,21 +49,26 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
         : allowUnassignedSource ? "Choose a shared source here, or let descendant projects choose. Unavailable projects are listed with the reason."
         : "Choose a compatible project. Unavailable projects are listed with the reason.";
     public string[] QueryKeys { get; private set; }
-    private bool Matches(WorkspaceSourceProject p) => p.Settings.resultsSortopiaDataTypes.Any(t => t.kind == DataType.Kind && t.value == DataType.Text);
-    private string[] SourceKeys(WorkspaceSourceProject p) => p.Settings.resultsDataTypes?
-        .FirstOrDefault(output => output.dataType.kind == DataType.Kind && output.dataType.value == DataType.Text)?.queryParameterKeys
-        ?? p.Settings.resultsQueryParameterKeys ?? [];
-    private string QuerySummary(WorkspaceSourceProject p) => SourceKeys(p) is { Length: > 0 } keys
+    private sourceQueryContract SourceContract(WorkspaceSourceProject p) => WorkspaceSourceContracts.Resolve(p, DataType.Kind, DataType.Text);
+    private string QuerySummary(WorkspaceSourceProject p) => SourceContract(p).QueryKeys is { Length: > 0 } keys
         ? $"Source results query keys: {string.Join(", ", keys)}" : "Source has no results query keys.";
     private string Incompatibility(WorkspaceSourceProject p)
     {
-        if (!Matches(p))
+        if (!WorkspaceSourceContracts.HasOutput(p, DataType.Kind, DataType.Text))
         {
             static string TypeName(sortopiaDataTypeDto type) => $"{type.kind} \"{type.value}\"";
             var outputs = string.Join(", ", p.Settings.resultsSortopiaDataTypes.Select(TypeName));
             return $"Requires the exact data type {DataType.Kind} \"{DataType.Text}\". Project produces {(outputs.Length == 0 ? "no outputs" : outputs)}.";
         }
-        var missing = requiredParameters is null ? [] : SourceKeys(p).Except(requiredParameters, StringComparer.Ordinal).ToArray();
+        var contract = SourceContract(p);
+        if (parametersFromSources)
+        {
+            var unknown = contract.UnknownKeys;
+            if (unknown.Length > 0) return $"Unknown source query parameters: {string.Join(", ", unknown)}.";
+            var outside = SourceContracts.missingQueryKeys(QueryKeys, contract).Distinct(StringComparer.Ordinal).ToArray();
+            return outside.Length == 0 ? "" : $"Setup query keys must be a subset of this source's results query keys. Keys absent from this source: {string.Join(", ", outside)}.";
+        }
+        var missing = requiredParameters is null ? [] : SourceContracts.unacceptedQueryKeys(requiredParameters, contract).ToArray();
         return missing.Length == 0 ? "" : $"Source query parameters not accepted by this setup function: {string.Join(", ", missing)}. Accepted parameters: {string.Join(", ", requiredParameters!)}.";
     }
     public string Error => !RequiresSource || allowUnassignedSource && SourceProjectId == Guid.Empty ? ""
@@ -73,10 +80,11 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     {
         OnPropertyChanged("");
     }
-    internal void SetContract(bool requiresSource, bool allowUnassigned, string[] keys, string[]? requiredParameters = null)
+    internal void SetContract(bool requiresSource, bool allowUnassigned, string[] keys, string[]? requiredParameters = null, bool parametersFromSources = false)
     {
         RequiresSource = requiresSource; allowUnassignedSource = allowUnassigned;
         this.requiredParameters = requiredParameters;
+        this.parametersFromSources = parametersFromSources;
         QueryKeys = keys.ToArray();
         RefreshSources();
     }

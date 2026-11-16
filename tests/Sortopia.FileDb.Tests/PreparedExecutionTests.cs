@@ -3,6 +3,7 @@ using Microsoft.FSharp.Core;
 using Sortopia.FileDb;
 using Sortopia.Functions;
 using Sortopia.Runs;
+using Sortopia.Sorting;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Persistence;
@@ -17,9 +18,9 @@ public sealed partial class PreparedExecutionTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static parameterBinding Bind(string key, string value, parameterValueType type = parameterValueType.Integer) => ParameterBinding.fromText(key, type, value);
-    private static parameterBinding[] Models => [Bind("ChannelCount", "4"), Bind("StageLength", "3"), Bind("SorterCount", "3"), Bind("Repl", "0"),
+    private static parameterBinding[] Models => [Bind("ChannelCount", "4"), ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, sorterSuccessFraction.pct50), Bind("SorterCount", "3"), Bind("Repl", "0"),
         Bind("RngType", "SplitMix64", parameterValueType.Text)];
-    private static resultsConfig Results(string name, parameterBinding[] defaults) => new("Results", name, "1", ResultsFunctionCatalog.outputs(name), ListModule.OfArray(defaults));
+    private static resultsConfig Results(string name, parameterBinding[] defaults) => new("Results", name, ResultsFunctionCatalog.require(name).Version, ResultsFunctionCatalog.outputs(name), ListModule.OfArray(defaults));
 
     private static project Project(string name, projectConfiguration configuration, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
@@ -52,23 +53,24 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var models = Models.Select(binding => binding.KeyName == "ChannelCount" ? ParameterBinding.create(ParamKeys.channelCountKey, width) : binding).ToArray();
         if (model == "msuf6") models = [.. models, Bind("Seed6Weights", "0,0,0,0,0,1,0", parameterValueType.Seed6Weights), Bind("UnfoldingWeights", "0,1,0", parameterValueType.UnfoldingWeights)];
         var suffix = family switch { "SimpleR" => "simple-r", "SimpleS" => "simple-s", _ => "simple" };
-        var setupName = $"sorter-eval.merge.{model}.{suffix}";
+        var setupName = SetupFunctionNames.evaluationSource;
         var merge = Bind("MergeLibId", MergeLibId.toString(MergeLibId.availableForChannelCount(width).First(value => value.MergeDimension == 2)), parameterValueType.MergeLibId);
         var format = Bind("SortableDataFormat", "Bools", parameterValueType.Text);
-        var source = Project("Source", projectConfiguration.NewRootProjectConfig(new("Source", multipleOutputs
-            ? Results($"sorter-eval-inputs.standard.{model}.simple", [.. models, format])
-            : Results(ResultsFunctionNames.mergeSortableTests, [merge, format]))));
+        parameterBinding[] activators = family switch {
+            "SimpleR" => [Bind("AMax", "2"), Bind("AInitial", "-1")],
+            "SimpleS" => [Bind("ActivationProbability", "0.5", parameterValueType.Floating)],
+            _ => [] };
+        var source = Project("Source", projectConfiguration.NewRootProjectConfig(new("Source", branch || multipleOutputs
+            ? Results($"sorter-eval-inputs.standard.{model}.{suffix}", [.. models, .. activators, format])
+            : Results(ResultsFunctionNames.mergeSortableTests, [merge, format]))),
+            branch ? [new() { keyName = "Repl", values = ["0", "1"] }] : null);
         var target = source;
         if (branch)
         {
             var definition = SetupFunctionCatalog.functions[setupName];
-            var outputs = ListModule.OfSeq(definition.DataTypes.Select(entry => new setupDataTypeConfig(entry.Key, entry.Key.IsSortableTests ? source.Id : Guid.Empty, entry.Value)));
-            parameterBinding[] activators = family switch {
-                "SimpleR" => [Bind("AMax", "2"), Bind("AInitial", "-1")],
-                "SimpleS" => [Bind("ActivationProbability", "0.5", parameterValueType.Floating)],
-                _ => [] };
-            var setup = new setupConfig("Setup", setupName, definition.Version, outputs, ListModule.OfArray<parameterBinding>([.. models, .. activators, merge, format]));
-            var results = Results(ResultsFunctionNames.sorterEval, [ParameterBinding.create(ParamKeys.channelCountKey, width), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]);
+            var outputs = ListModule.OfSeq(source.Snapshot.Results.DataTypes.Select(entry => new setupDataTypeConfig(entry.Key, source.Id, entry.Value)));
+            var setup = new setupConfig("Setup", setupName, definition.Version, outputs, ListModule.OfArray<parameterBinding>([.. models, .. activators, format]));
+            var results = Results(ResultsFunctionNames.sorterEval, [Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]);
             target = Project("Consumer", projectConfiguration.NewBranchProjectConfig(new("Consumer", results, setup)),
                 [new() { keyName = "CollectSortableTests", values = ["false", "true"] }],
                 invalidSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]
@@ -95,9 +97,9 @@ public sealed partial class PreparedExecutionTests : IDisposable
                 new setupDataTypeConfig(testsType, Guid.Empty, ListModule.Empty<string>()),
                 new setupDataTypeConfig(modelsType, Guid.Empty, ListModule.OfArray(new[] { "Repl" })) }),
             ListModule.OfArray<parameterBinding>([.. Models, Bind("SortableDataFormat", "Bools", parameterValueType.Text)]));
-        var results = new resultsConfig("Results", ResultsFunctionNames.sorterEval, "1",
+        var results = new resultsConfig("Results", ResultsFunctionNames.sorterEval, ResultsFunctionCatalog.require(ResultsFunctionNames.sorterEval).Version,
             ListModule.OfArray(new[] { new resultsDataTypeConfig(evalType, ListModule.Singleton("CollectSortableTests")) }),
-            ListModule.OfArray(new[] { Bind("ChannelCount", "4"), Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) }));
+            ListModule.OfArray(new[] { Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) }));
         var target = Project("Subsets", projectConfiguration.NewBranchProjectConfig(new("Subsets", results, setup)),
             [new() { keyName = "CollectSortableTests", values = ["false", "true"] }], [new() { keyName = "Repl", values = ["0", "1"] }]);
         var module = workspaceModule.createInherited(Guid.NewGuid(), "Module", ModuleDefaults.configuration(true),
@@ -535,12 +537,14 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var host = new FileRunHost(world, Root, value, Token).ForSetup(parameters);
         var source = config.Outputs.Single(output => output.DataType.IsSortableTests);
         var reference = host.SourceResults.Find(source.SourceProjectId, source.DataType, parameters);
+        var models = sortopiaDataType.NewSorterModelSet("");
+        var modelSource = config.Outputs.Single(output => output.DataType.IsSorterModelSet);
+        var modelReference = host.SourceResults.Find(modelSource.SourceProjectId, modelSource.DataType, parameters);
         var changed = new storedDataReference(reference.ProjectId, Guid.NewGuid(), reference.QueryId, reference.IsSetup, reference.DataType);
         var first = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, definition.OutputDependencies, parameters, ListModule.Singleton(reference));
+            config.DataTypes, definition.OutputDependencies, parameters, ListModule.OfArray(new[] { reference, modelReference }));
         var second = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, definition.OutputDependencies, parameters, ListModule.Singleton(changed));
-        var models = sortopiaDataType.NewSorterModelSet("");
+            config.DataTypes, definition.OutputDependencies, parameters, ListModule.OfArray(new[] { changed, modelReference }));
         Assert.Equal(first[models].Key.Id, second[models].Key.Id);
         Assert.Equal(first[source.DataType].Key.QueryId, second[source.DataType].Key.QueryId);
         Assert.NotEqual(first[source.DataType].Key.Id, second[source.DataType].Key.Id);
@@ -615,7 +619,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         // Work files use compressed envelopes, so use their normal loader to obtain a complete invocation.
         var item = RunParameterFiles.loadFile(file);
         var foreign = new runParametersDto(1, Guid.NewGuid(), item.RunId, item.Results.FunctionName, item.Results.FunctionVersion, item.Results.DatabaseName,
-            [new preparedOutputDto("SortableTests", "", [])], [], [], 1, null!);
+            [new preparedOutputDto("SortableTests", "", [])], [], [], 1, null!, null!, null!);
         var raw = Sortopia.Core.Serialization.MessagePackSetup.serialize(foreign);
         var id = new Guid(System.Security.Cryptography.SHA256.HashData(raw)[..16]);
         var envelope = new runParametersEnvelopeDto(1, "runParameters", System.Security.Cryptography.SHA256.HashData(raw), raw);

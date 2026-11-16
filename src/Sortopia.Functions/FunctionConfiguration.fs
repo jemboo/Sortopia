@@ -12,7 +12,7 @@ module FunctionConfiguration =
     let validateOutputs (definition: functionDefinition<'executor>) (outputs: Map<sortopiaDataType, string<paramKeyName> list>) =
         if (outputs |> Map.toList |> List.map fst) <> definition.SortopiaDataTypes then
             invalidArg "dataTypes" "Saved data types, including their text, must exactly match the selected function."
-        let required = definition.RequiredParameters |> List.map (fun key -> key.Name) |> Set.ofList
+        let required = (if definition.ParametersFromSources then ParamKeys.all else definition.RequiredParameters) |> List.map (fun key -> key.Name) |> Set.ofList
         for dataType in definition.SortopiaDataTypes do
             let actual = outputs[dataType]
             if not (Set.isSubset (Set.ofList actual) required) || actual.Length <> (Set.ofList actual).Count then
@@ -30,12 +30,26 @@ module FunctionConfiguration =
         let definition = SetupFunctionCatalog.require name
         List.contains dataType definition.SourceDataTypes
 
+    let validateSetupSource (config: setupConfig) (entry: setupDataTypeConfig) (source: sourceProjectSnapshot) =
+        match SetupFunctionCatalog.functions |> Map.tryFind config.FunctionName with
+        | Some definition when definition.ParametersFromSources && config.FunctionVersion = definition.Version ->
+            let contract = SourceContracts.resolve source.Results.DataTypes[entry.DataType]
+            SourceContracts.requireParameters contract |> ignore
+            let outside = SourceContracts.missingQueryKeys entry.QueryParameterKeys contract
+            if not outside.IsEmpty then
+                let names = System.String.Join(", ", outside)
+                invalidArg "queryParameterKeys" $"Setup query keys for '{entry.DataType}' must be a subset of source project '{source.ProjectName}' results query keys. Unsupported keys: {names}."
+        | _ -> ()
+
     let validateSetup requireSources (config: setupConfig) =
         let definition = SetupFunctionCatalog.require config.FunctionName
         if String.IsNullOrWhiteSpace config.FunctionVersion then invalidArg "setupFunctionVersion" "A setup function version is required."
         if config.FunctionVersion = definition.Version then
             validateOutputs definition config.DataTypes
             FunctionValidation.validateDefaults definition config.ParameterDefaults
+            if definition.ParametersFromSources then
+                let parameters = parameterSet.fromBindings config.ParameterDefaults
+                FunctionValidation.validate definition parameters
             if requireSources then
                 for dataType in definition.SourceDataTypes do
                     if config.Outputs |> List.exists (fun entry -> entry.DataType = dataType && UMX.untag entry.SourceProjectId <> Guid.Empty) |> not then
@@ -54,6 +68,21 @@ module FunctionConfiguration =
             let setup = SetupFunctionCatalog.require branch.SetupFunctionName
             if executable then version (string branch.SetupFunctionName) branch.ProjectConfiguration.Setup.FunctionVersion setup.Version
             if branch.ProjectConfiguration.Setup.FunctionVersion = setup.Version then
+                let setup =
+                    if not setup.ParametersFromSources then setup else
+                    let resolved = setup.SourceDataTypes |> List.forall (fun dataType -> Map.containsKey dataType branch.ResolvedSources)
+                    if executable && not resolved then invalidArg "sourceProjectId" "Resolve both source projects before executing the copy setup."
+                    let contract =
+                        if resolved then
+                            branch.SetupDataTypes |> List.map (fun entry ->
+                                let contract = SourceContracts.resolve branch.ResolvedSources[entry.DataType].Results.DataTypes[entry.DataType]
+                                let outside = SourceContracts.missingQueryKeys entry.QueryParameterKeys contract
+                                let outsideNames = System.String.Join(", ", outside)
+                                if not outside.IsEmpty then invalidArg "queryParameterKeys" $"Setup query keys for '{entry.DataType}' must be a subset of its source results query keys. Unsupported keys: {outsideNames}."
+                                contract) |> SourceContracts.combine
+                        else (branch.SetupParameterDefaults |> List.map _.KeyName) @ (branch.SetupParameterSpans |> List.map _.KeyName)
+                             |> SourceContracts.resolve
+                    { setup with RequiredParameters = SourceContracts.requireParameters contract }
                 FunctionValidation.validateInputs setup
                     (branch.SetupDataTypes |> List.collect (fun output -> output.QueryParameterKeys)) branch.SetupParameterDefaults branch.SetupParameterSpans
             if executable && results.SourceDataTypes |> List.exists (fun input -> not (List.contains input setup.SortopiaDataTypes)) then

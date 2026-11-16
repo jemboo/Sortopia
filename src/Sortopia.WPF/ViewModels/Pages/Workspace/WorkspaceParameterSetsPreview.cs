@@ -33,7 +33,7 @@ public sealed record WorkspaceParameterSetsPreview(
         : TotalCount > Rows.Length ? $"Showing the first {Rows.Length} of {TotalCount.ToString("N0", CultureInfo.InvariantCulture)} parameter sets."
         : $"{Rows.Length} parameter set(s). Showing all combinations.";
 
-    internal static WorkspaceParameterSetsPreview Create(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans, string error, string functionName = "")
+    internal static WorkspaceParameterSetsPreview Create(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans, string error, modelGenerationMetadata? model = null)
     {
         var inputs = spans.ToArray();
         var count = inputs.Aggregate(BigInteger.One, (product, span) => product * span.Values.Count);
@@ -48,7 +48,7 @@ public sealed record WorkspaceParameterSetsPreview(
                 ParameterValue.label(binding.ValueType), varied.Contains(binding.KeyName) ? "run span" : "default")).ToArray();
             return new(columns, sets.Select((set, index) => new WorkspaceParameterSetRow(index + 1, set)
             {
-                SuffixStages = ModelGenerationStageLengths.tryForFunction(functionName, set)?.Value
+                SuffixStages = model is null ? null : ModelGenerationStageLengths.forMetadata(model, set)
             }).ToArray(), count, "");
         }
         catch (ArgumentException exception) { return new([], [], count, exception.Message); }

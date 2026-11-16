@@ -26,27 +26,34 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var sourceSettings = RunExecutionTests.Settings(false);
         sourceSettings.resultsQueryParameterKeys = [];
         var source = Project("Source", hierarchyKind.Root, sourceSettings);
+        var modelSettings = RunExecutionTests.Settings(false);
+        modelSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+        modelSettings.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();
+        var modelSource = Project("Model source", hierarchyKind.Root, modelSettings);
         var consumerSettings = RunExecutionTests.Settings(true);
-        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationMergeMssiSimple;
+        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationSource;
         consumerSettings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), .. sourceSettings.resultsParameterDefaults];
-        consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] }];
+        consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] },
+            new() { dataType = new() { kind = "SorterModelSet", value = "" }, sourceProjectId = modelSource.Id, queryParameterKeys = [] }];
         consumerSettings.resultsFunctionName = ResultsFunctionNames.sorterEval;
-        consumerSettings.resultsParameterDefaults = [Binding("ChannelCount", "4"), Binding("SorterEvalType", "V1", parameterValueType.Text), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
+        consumerSettings.resultsParameterDefaults = [Binding("SorterEvalType", "V1", parameterValueType.Text), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
         var consumer = Project("Consumer", hierarchyKind.Branch, consumerSettings,
             failSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }] : null);
         var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [
             WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Outer", [
-                WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", [], [source])], []),
+                WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Inner", [], [source, modelSource])], []),
             WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Consumers", [], [consumer])]);
         WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token);
-        return WorkspaceFileStore.LoadDefinition(temporary.FullName);
+        world = WorkspaceFileStore.LoadDefinition(temporary.FullName);
+        Completed(Execute(world, "Model source"));
+        return world;
     }
     private static project Named(workspace world, string name) => world.ProjectIndex.Values.Single(value => value.ProjectName == name);
     private runExecutionReport Execute(workspace world, string name) => FileRunExecution.execute(world, temporary.FullName, Named(world, name).Runs[0], null!, Token);
     private static void Completed(runExecutionReport report) => Assert.True(report.Status == runExecutionStatus.Completed, report.Error);
 
     [Fact]
-    public void Generated_run_file_records_the_actual_source_prefix_budget_and_reuses_models_on_retry()
+    public void Generated_run_file_retains_the_copied_model_capacity_and_reuses_both_inputs_on_retry()
     {
         var world = Create(); var source = Named(world, "Source"); var consumer = Named(world, "Consumer");
         var sourceParameters = RunParameterSets.create(source.Runs[0]).Results[0];
@@ -61,12 +68,12 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.True(sourceStore.GetOrCreate(sourceKey, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ =>
             FSharpResult<functionData, string>.NewOk(tests)), Token).IsOk);
         var value = consumer.Runs[0]; var parameters = RunParameterSets.create(value).Setup.Value[0];
-        Assert.Equal(4, ModelGenerationStageLengths.tryForFunction(value.SetupFunctionName.Value, parameters).Value);
+        Assert.Null(ModelGenerationStageLengths.tryForDefinition(SetupFunctionCatalog.require(value.SetupFunctionName.Value), parameters));
         var generated = RunParameterExecution.generate(world, temporary.FullName, value, null!, Token);
         Completed(generated.Execution);
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, consumer.Id);
         var item = RunParameterFiles.loadWorkItem(folder, Assert.Single(generated.WorkItemIds));
-        Assert.Equal(3, item.SetupSuffixStages.Value);
+        Assert.Equal(5, item.SetupSuffixStages.Value);
         Assert.Null(item.ResultsSuffixStages);
         var retry = RunParameterExecution.generate(world, temporary.FullName, value, null!, Token);
         Completed(retry.Execution);
@@ -216,7 +223,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.False(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId);
         var evaluation = Assert.IsType<functionData.SorterSetEval>(results.ResultsDb.Load(resultType));
         Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item1), evaluation.Item.SorterTestId);
-        Assert.Equal(4, Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories)
+        Assert.Equal(5, Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories)
             .Count(path => path.Contains(Path.DirectorySeparatorChar + "data" + Path.DirectorySeparatorChar)));
     }
 
@@ -267,7 +274,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.All(second.Setup.Concat(second.Results).SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
         Assert.Equal(first.Setup[0].StoredOutputs.Head.Reference, second.Setup[0].StoredOutputs.Head.Reference);
         foreach (var file in dataFiles) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
-        Assert.Equal(4, dataFiles.Count); // One source result, two setup outputs and one consumer evaluation.
+        Assert.Equal(5, dataFiles.Count); // Two source results, two setup outputs and one consumer evaluation.
         var receipts = Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories).Where(path => path.Contains(Path.DirectorySeparatorChar + "executions" + Path.DirectorySeparatorChar));
         Assert.Empty(receipts);
     }

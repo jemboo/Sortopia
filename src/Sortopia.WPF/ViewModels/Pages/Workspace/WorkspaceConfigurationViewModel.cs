@@ -327,11 +327,19 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupFunctionName { get => frozenSettings?.setupFunctionName ?? SetupFunctionOverride.EffectiveValue; set { if (IsModule) SetupFunctionOverride.SetLocal(value); } }
 
     private paramKeyDescriptor[]? Requirements(bool setup) => !PhaseVersionCurrent(setup) ? null : setup
-        ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.RequiredParameters.ToArray() : null
+        ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition)
+            ? setupDefinition.ParametersFromSources
+                ? IsModule && EffectiveSetupDataTypes.Any(row => row.sourceProjectId == Guid.Empty)
+                    ? null
+                    : SourceSetupContract.RequiredParameters.ToArray()
+                : setupDefinition.RequiredParameters.ToArray() : null
         : ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.RequiredParameters.ToArray() : null;
+    private bool SetupParametersFromSources => SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) && definition.ParametersFromSources;
     public string ResultsRequirementsHint => RequirementsHint(false);
     public string SetupRequirementsHint => RequirementsHint(true);
-    private string RequirementsHint(bool setup) => Requirements(setup) is { } required
+    private string RequirementsHint(bool setup) => setup && SetupParametersFromSources && SourceSetupKeys.Length == 0
+        ? "Choose source projects for SorterModelSet and SortableTests. Their results query keys determine the setup parameters; no models or tests are generated."
+        : Requirements(setup) is { } required
         ? "Required parameters: " + string.Join(", ", required.Select(key => $"{key.Name} ({ParameterValue.label(key.ValueType)})")) + ". Supply each through exactly one default or run span. Defaults and spans cannot share keys. Each query key needs an explicit span."
         : "Select a catalog function on a module to define the required parameter keys.";
     private parameterBindingDto[] InheritedDefaults(bool setup)
@@ -375,10 +383,11 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         var missing = MissingDefaultParameters(setup);
         var channels = WorkspaceParameterInitialValues.ChannelCount(setup ? EffectiveSetupDefaults : EffectiveOutputDefaults);
         if (channels == 0) channels = WorkspaceParameterInitialValues.ChannelCount(setup ? EffectiveOutputDefaults : EffectiveSetupDefaults);
+        var model = ModelGeneration(setup);
         if (missing.Any(key => key.Name is "ChannelCount" or "PrefixLibId"))
-            channels = WorkspaceParameterInitialValues.SuggestedChannelCount(channels, setup ? SetupFunctionName : ResultsFunctionName);
+            channels = WorkspaceParameterInitialValues.SuggestedChannelCount(channels, model);
         var additions = missing.Select(key => new parameterBindingDto {
-            keyName = key.Name, valueType = (int)key.ValueType, value = WorkspaceParameterInitialValues.For(key, channels, setup ? SetupFunctionName : ResultsFunctionName)
+            keyName = key.Name, valueType = (int)key.ValueType, value = WorkspaceParameterInitialValues.For(key, channels, model)
         }).ToArray();
         Quietly(() =>
         {
@@ -488,10 +497,10 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupParameterSetsSummary => $"{SetCount(ActiveSetupParameters)} setup parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
     public WorkspaceParameterSetsPreview ResultsParameterSetsPreview => !IsRun ? WorkspaceParameterSetsPreview.Empty
         : resultsPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveOutputDefaults, ActiveResultsParameters,
-            FirstError(ResultsParameterDefaultsError, ResultsParametersError), PhaseVersionCurrent(false) ? ResultsFunctionName : "");
+            FirstError(ResultsParameterDefaultsError, ResultsParametersError), PhaseVersionCurrent(false) ? ModelGeneration(false) : null);
     public WorkspaceParameterSetsPreview SetupParameterSetsPreview => !IsRun || !IsBranch ? WorkspaceParameterSetsPreview.Empty
         : setupPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveSetupDefaults, ActiveSetupParameters,
-            FirstError(SetupParameterDefaultsError, SetupParametersError), PhaseVersionCurrent(true) ? SetupFunctionName : "");
+            FirstError(SetupParameterDefaultsError, SetupParametersError), PhaseVersionCurrent(true) ? ModelGeneration(true) : null);
     private static string FirstError(params string[] errors) => errors.FirstOrDefault(error => error.Length > 0) ?? "";
     public string ResultsSettingsError => FirstError(ResultsDatabaseError, ResultsFunctionError, OutputTypesError, ResultsQueryKeysError);
     public string SetupSettingsError => FirstError(SetupDatabaseError, SetupFunctionError, SetupDataTypesError, SetupQueryKeysError);
@@ -518,7 +527,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public IEnumerable<WorkspaceSetupDataTypeEntry> InheritedSetupDataTypes => EffectiveSetupDataTypes.Select(value =>
     {
         var row = new WorkspaceSetupDataTypeEntry(value, sources);
-        if (HasSetupContract) row.SetContract(NeedsSource(value.dataType), IsModule, value.queryParameterKeys, Requirements(true)?.Select(key => key.Name).ToArray());
+        if (HasSetupContract) row.SetContract(NeedsSource(value.dataType), IsModule, value.queryParameterKeys, Requirements(true)?.Select(key => key.Name).ToArray(), SetupParametersFromSources);
         return row;
     });
     private sortopiaDataTypeDto[] EffectiveSetupOutputs => EffectiveSetupDataTypes.Select(value => value.dataType).ToArray();
@@ -531,8 +540,12 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupDataTypesError => DataTypesError(EffectiveSetupOutputs) is { Length: > 0 } error ? error
         : InheritedSetupDataTypes.Select(row => row.Error).FirstOrDefault(e => e.Length > 0) ?? "";
     private string[] EffectiveSetupKeys => EffectiveSetupDataTypes.SelectMany(row => row.queryParameterKeys).Distinct(StringComparer.Ordinal).ToArray();
-    private string[] RequiredSetupKeys => EffectiveSetupKeys.Concat(EffectiveSetupDataTypes.Where(row => NeedsSource(row.dataType)).SelectMany(row =>
-        sources().FirstOrDefault(p => p.Id == row.sourceProjectId)?.Settings.resultsDataTypes?.FirstOrDefault(output => SameType(output.dataType, row.dataType))?.queryParameterKeys ?? [])).Distinct(StringComparer.Ordinal).ToArray();
+    private sourceQueryContract SourceContractFor(setupDataTypeConfigDto row) => WorkspaceSourceContracts.Resolve(
+        sources().FirstOrDefault(p => p.Id == row.sourceProjectId), row.dataType.kind, row.dataType.value);
+    private string[] SourceKeysFor(setupDataTypeConfigDto row) => SourceContractFor(row).QueryKeys.ToArray();
+    private sourceQueryContract SourceSetupContract => SourceContracts.combine(EffectiveSetupDataTypes.Where(row => NeedsSource(row.dataType)).Select(SourceContractFor));
+    private string[] SourceSetupKeys => SourceSetupContract.QueryKeys.ToArray();
+    private string[] RequiredSetupKeys => EffectiveSetupKeys.Concat(SourceSetupKeys).Distinct(StringComparer.Ordinal).ToArray();
     public string ResultsDatabaseError => ResultsDatabaseOverride.Error;
     public string ResultsFunctionError => FirstError(FunctionDefinitionError(false), ResultsFunctionOverride.Error, ResultsFunctionName.Length > 0 && !HasResultsContract ? $"Unknown results function ‘{ResultsFunctionName}’. Choose a registered function on the module." : "", FunctionCompatibilityError);
     public string SetupDatabaseError => SetupDatabaseOverride.Error;
@@ -679,6 +692,14 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         });
         NotifyChanged();
     }
+    // Source lookup depends only on published results. Do not traverse another
+    // project's setup sources while building source choices (which may form a draft cycle).
+    internal projectSettingsDto ToSourceSettings() => new()
+    {
+        resultsDatabaseName = ResultsDatabaseName, resultsFunctionName = ResultsFunctionName, resultsFunctionVersion = ResultsFunctionVersion,
+        resultsDataTypes = EffectiveResultsDataTypes, resultsSortopiaDataTypes = EffectiveOutputs,
+        resultsQueryParameterKeys = EffectiveOutputKeys, resultsParameterDefaults = EffectiveOutputDefaults
+    };
     internal projectSettingsDto ToProjectSettings() => new()
     {
         description = Description, resultsDatabaseName = ResultsDatabaseName, resultsFunctionName = ResultsFunctionName, resultsFunctionVersion = ResultsFunctionVersion,

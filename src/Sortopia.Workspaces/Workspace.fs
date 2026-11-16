@@ -363,7 +363,10 @@ module WorkspaceProjects =
             match p.Configuration with
             | RootProjectConfig _ -> []
             | BranchProjectConfig config ->
-                config.SetupDataTypes |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty) |> List.map (fun entry -> (validateSource p.IsSealed entry).Id) |> List.distinct)
+                config.SetupDataTypes |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty) |> List.map (fun entry ->
+                    let source = validateSource p.IsSealed entry
+                    Sortopia.Functions.FunctionConfiguration.validateSetupSource config.Setup entry source.Snapshot
+                    source.Id) |> List.distinct)
         // Topological validation avoids recursive stack growth for long source chains.
         let incoming = Collections.Generic.Dictionary<Guid<projectId>, int>()
         projects |> Map.iter (fun id _ -> incoming[id] <- 0)
