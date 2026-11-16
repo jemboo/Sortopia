@@ -7,6 +7,7 @@ open Sortopia.Runs
 open Sortopia.Sorting
 open Sortopia.Sorting.Inputs
 open Sortopia.Sorting.Catalog
+open Sortopia.Sorting.Networks
 open Sortopia.Models.Inputs
 open Sortopia.Models.Sorting
 open Sortopia.Evaluation
@@ -86,6 +87,18 @@ module ResultsFunctions =
         let inputs = [host.SetupDb.Reference modelsType; host.SetupDb.Reference testsType]
         host.ResultsDb.SaveIfMissing(evalType, inputs, make)
 
+    let private evaluationSorters (prefix: ce array) (models: sorterModelSet) =
+        if Array.isEmpty prefix then
+            SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None models
+        else
+            // Tests have already passed through this prefix. Empty model prefixes
+            // describe suffix-only models; a different nonempty prefix is incompatible.
+            for model in models.SorterModels do
+                let modelPrefix = SorterModel.getPrefix model
+                if not (Array.isEmpty modelPrefix) && modelPrefix <> prefix then
+                    invalidArg "inputs" "The model prefix must match the source SortableTests prefix. Regenerate models using the associated tests."
+            SorterModelSet.makeSorterSetWithoutPrefix (Guid.NewGuid() |> UMX.tag) None models
+
     let private evaluate : resultsFunction = fun host ->
         saveEvaluation host (fun () ->
             let parameters = host.Parameters
@@ -98,20 +111,20 @@ module ResultsFunctions =
             if models.SorterModels |> Array.exists (fun model -> SorterModel.getChannelCount model <> channels) then
                 invalidArg "inputs" "The models and tests must have the same channel count."
             let prefix = ceBlock.create (Guid.Empty |> UMX.tag) channels ces
-            let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None models
+            let sorters = evaluationSorters ces models
             let evaluated = SorterSetEval.makeSorterSetEvalWithOptions (evaluationOptions host) (Guid.NewGuid() |> UMX.tag) sorters prefix tests evalType collect
             functionData.SorterSetEval evaluated)
 
     let evaluateSorters =
         let required = [ParamKey.describe ParamKeys.channelCountKey; ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
-        FunctionDefinition.resultsWithInputs "1" required [evalType, [modelsType; testsType]]
+        FunctionDefinition.resultsWithInputs "2" required [evalType, [modelsType; testsType]]
             [evalType, InputGenerators.queryKeys required] evaluate
         |> FunctionDefinition.describe "Evaluate the sorter models against the tests and prefix already saved in the setup database. Save the evaluations in the results database; optionally collect new sortable tests within the evaluations."
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
     let evaluateMutants =
-        FunctionDefinition.resultsWithInputs "1" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [evalType, [modelsType; testsType]]
+        FunctionDefinition.resultsWithInputs "2" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [evalType, [modelsType; testsType]]
             [evalType, [ParamKeys.sorterEvalTypeKey.Name]]
             (fun host -> saveEvaluation host (fun () ->
                 let parameters = host.Parameters
@@ -125,7 +138,7 @@ module ResultsFunctions =
                     if chunk |> Array.exists (fun model -> SorterModel.getChannelCount model <> channels) then
                         invalidArg "inputs" "The models and tests must have the same channel count."
                     let group = sorterModelSet.create (Guid.NewGuid() |> UMX.tag) chunk models.RawCeLength
-                    let sorters = SorterModelSet.makeSorterSetWithPrefix (Guid.NewGuid() |> UMX.tag) None group
+                    let sorters = evaluationSorters ces group
                     SorterSetEval.makeSorterEvalsWithOptions (evaluationOptions host) sorters.Sorters prefix tests evalType (UMX.tag false))
                 sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> functionData.SorterSetEval))
         |> FunctionDefinition.describe "Evaluate the prepared sorter models against setup tests in batches of 1,000, saving evaluations in the results database. Does not generate mutations or collect new sortable tests."

@@ -26,7 +26,7 @@ public sealed record WorkspaceParameterSetsPreview(
     public static WorkspaceParameterSetsPreview Empty { get; } = new([], [], BigInteger.Zero, "");
     public bool HasRows => Rows.Length > 0;
     public bool HasSuffixStages => Rows.Any(row => row.SuffixStages is not null);
-    public string SuffixStagesHint => "Suggested suffix stages are calculated for each combination using its channel count, prefix depth, model type, and success fraction. Fixed prefix stages are additional; success rates are provisional.";
+    public string SuffixStagesHint => "Suggested suffix stages are calculated for each combination using its channel count, prefix depth, model type, and success fraction. For source tests, previews use the selected library prefix; generation uses the actual stored prefix. Fixed prefix stages are additional; success rates are provisional.";
     public string Summary => Error.Length > 0 ? "Preview unavailable until the parameter errors are corrected."
         : !HasRows ? ""
         : Columns.Length == 0 ? "1 empty parameter set (no defaults or spans)."

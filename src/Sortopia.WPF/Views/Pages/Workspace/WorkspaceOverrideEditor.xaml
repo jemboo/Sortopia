@@ -30,7 +30,7 @@
         </TextBox>
         <local:FunctionNameSelector x:Name="FunctionNameInput" Choices="{Binding Choices}" SelectedFunction="{Binding EffectiveValue, Mode=TwoWay}"
                                     IsSetupCatalog="{Binding IsSetupCatalog}"
-                                    IsEnabled="{Binding CanSelectValue}"
+                                    CanChooseFunction="{Binding CanSelectValue}"
                                     Visibility="{Binding ShowCatalogPicker, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="{Binding Title}" />
         <local:WorkspaceValueSource x:Name="ValueSource" />
         <StackPanel Margin="0,4,0,0" Visibility="{Binding HasDescendantFunctionDefinitions, Converter={StaticResource VisibleWhen}}">

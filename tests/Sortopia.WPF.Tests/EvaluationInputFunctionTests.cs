@@ -1,8 +1,13 @@
 using Microsoft.FSharp.Collections;
 using Sortopia.Functions;
+using Sortopia.Evaluation;
+using Sortopia.FileDb;
 using Sortopia.Models.Sorting;
 using Sortopia.Models.Sorting.Simple;
 using Sortopia.Runs;
+using Sortopia.Sorting.Catalog;
+using Sortopia.Sorting.Networks;
+using Sortopia.Sorting.Inputs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -60,7 +65,7 @@ public sealed class EvaluationInputFunctionTests
         var sourceTypes = setup ? SetupFunctionCatalog.require(name).SourceDataTypes : ResultsFunctionCatalog.require(name).SourceDataTypes;
         Assert.False(SetupFunctionCatalog.functions.ContainsKey(group));
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey(group));
-        Assert.Equal(model == "msuf4" ? "3" : "2", setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
+        Assert.Equal(((model == "msuf4" ? 3 : 2) + (HasSource(group) ? 1 : 0)).ToString(), setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
         Assert.DoesNotContain(required, key => key.Name == "SimpleSorterModelType");
         Assert.Equal(model == "msce", required.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", required.Any(key => key.Name == "StageWeights"));
@@ -71,6 +76,7 @@ public sealed class EvaluationInputFunctionTests
         var testsType = sortopiaDataType.NewSortableTests(""); var modelsType = sortopiaDataType.NewSorterModelSet("");
         Assert.Equal(new[] { testsType, modelsType }.Order(), dataTypes.Keys.Order());
         Assert.Equal(HasSource(group) ? new[] { testsType } : [], sourceTypes);
+        if (setup) Assert.Equal(HasSource(group) ? new[] { testsType } : [], SetupFunctionCatalog.require(name).OutputDependencies[modelsType]);
         Assert.Equal(setup ? SetupFunctionCatalog.require($"sorter-model-set.uniform.{model}{ModelFamilyResultsTests.Suffix(family)}").DataTypes[modelsType]
             : ResultsFunctionCatalog.require($"sorter-model-set.uniform.{model}{ModelFamilyResultsTests.Suffix(family)}").DataTypes[modelsType], dataTypes[modelsType]);
         var libraryKey = group.EndsWith(".merge") ? "MergeLibId" : group.EndsWith(".prefix") ? "PrefixLibId" : "ChannelCount";
@@ -89,7 +95,7 @@ public sealed class EvaluationInputFunctionTests
         var models = Assert.Single(output.OfType<functionData.SorterModelSet>()).Item;
         Assert.Equal(2, models.Count);
         Assert.All(models.SorterModels, value => {
-            Assert.Empty(SorterModel.getPrefix(value));
+            Assert.Equal(tests.Item2, SorterModel.getPrefix(value));
             Assert.True(family switch { "Simple" => value.IsSimple, "SimpleR" => value.IsSimpleR, _ => value.IsSimpleS });
             var simple = Simple(value);
             Assert.True(model switch { "msce" => simple.IsMsce, "mssi" => simple.IsMssi, "msrs" => simple.IsMsrs, "msuf4" => simple.IsMsuf4, _ => simple.IsMsuf6 });
@@ -124,6 +130,83 @@ public sealed class EvaluationInputFunctionTests
         Assert.Contains("needs 1 unfolding levels", setup ? editor.SetupParameterDefaultsError : editor.ResultsParameterDefaultsError);
         Assert.Contains("needs 1 unfolding levels", Assert.Throws<ArgumentException>(() =>
             CatalogTestHost.Invoke(setup, Function(group, model), Parameters(editor, setup))).Message);
+    }
+
+    [Theory]
+    [InlineData("Simple")]
+    [InlineData("SimpleR")]
+    [InlineData("SimpleS")]
+    public void Setup_uses_the_actual_source_prefix_for_models_and_suffix_capacity(string family)
+    {
+        var editor = Module("sorter-eval.prefix", "msuf4", family);
+        var parameters = Parameters(editor, true);
+        // The source carries a deeper prefix than the lookup parameter's library entry.
+        var sourceParameters = parameters.WithBinding(ParameterBinding.create(ParamKeys.prefixLibIdKey,
+            prefixLibId.create(8, 3, prefixLibVariant.PrefixA)));
+        var source = Assert.IsType<functionData.SortableTests>(Assert.Single(Source("sorter-eval.prefix", sourceParameters)));
+        var output = CatalogTestHost.Invoke(true, Function("sorter-eval.prefix", "msuf4", family), parameters, source);
+        var models = Assert.Single(output.OfType<functionData.SorterModelSet>()).Item;
+        Assert.Equal(3, ModelGenerationStageLengths.prefixDepth(8, source.Item2));
+        Assert.All(models.SorterModels, model => {
+            Assert.Equal(source.Item2, SorterModel.getPrefix(model));
+            Assert.Equal(18, SimpleSorterModel.getStageLength(Simple(model)));
+            if (model is sorterModel.SimpleS simpleS) Assert.Equal(18, simpleS.Item.Activators.Length);
+            if (model is sorterModel.SimpleR simpleR) Assert.Equal(18, simpleR.Item.Activators.Length);
+        });
+        Assert.Equal(20, ModelGenerationStageLengths.tryForFunction(Function("sorter-eval.prefix", "msuf4", family), parameters).Value);
+        Assert.Contains("actual source prefix", editor.SetupInputGuidance);
+    }
+
+    [Theory]
+    [InlineData("sorter-eval.prefix")]
+    [InlineData("sorter-eval.merge")]
+    public void Changing_source_identity_changes_the_model_cache_key(string group)
+    {
+        var name = Function(group, "msuf4", "SimpleS");
+        var definition = SetupFunctionCatalog.require(name);
+        var parameters = Parameters(Module(group, "msuf4", "SimpleS"), true);
+        var project = Guid.NewGuid();
+        var source = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false, sortopiaDataType.NewSortableTests(""));
+        var changed = new storedDataReference(source.ProjectId, Guid.NewGuid(), source.QueryId, false, source.DataType);
+        var first = OutputPlan.create(project, "Setup", true, name, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [source]);
+        var second = OutputPlan.create(project, "Setup", true, name, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [changed]);
+        foreach (var type in definition.SortopiaDataTypes)
+        {
+            Assert.Equal(new[] { source }, first[type].Dependencies);
+            Assert.NotEqual(first[type].Key.Id, second[type].Key.Id);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Evaluation_applies_the_suffix_and_reports_the_source_prefix_once(bool mutants)
+    {
+        var parameters = Parameters(Module("sorter-eval.prefix", "msuf4", "SimpleS"), true)
+            .WithBinding(ParameterBinding.create(ParamKeys.activationProbabilityKey, 0.0))
+            .WithBinding(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Ints"));
+        // This prefix is not idempotent: [1,0,0,1,...] becomes [0,1,0,1,...].
+        // Applying it a second time would incorrectly sort the remaining inversion.
+        var source = functionData.NewSortableTests(sortableTests.NewInts(sortableIntTests.create(Guid.NewGuid(), 8,
+            [sortableIntArray.create([0, 1, 0, 1, 1, 1, 1, 1], 8, 2)])), [ce.create(1, 2), ce.create(0, 1)]);
+        var outputs = CatalogTestHost.Invoke(true, Function("sorter-eval.prefix", "msuf4", "SimpleS"), parameters, source);
+        var tests = Assert.Single(outputs.OfType<functionData.SortableTests>());
+        var evaluationParameters = parameterSet.fromBindings([
+            ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V2"),
+            .. mutants ? Array.Empty<parameterBinding>() : new[] {
+                ParameterBinding.create(ParamKeys.channelCountKey, 8), ParameterBinding.create(ParamKeys.collectSortableTestsKey, false) }]);
+        var name = mutants ? ResultsFunctionNames.mutantEval : ResultsFunctionNames.sorterEval;
+        var result = Assert.Single(CatalogTestHost.Invoke(false, name, evaluationParameters, outputs.ToArray()).OfType<functionData.SorterSetEval>());
+        Assert.All(result.Item.SorterEvals, evaluation => {
+            var uses = SorterEval.getCeUseArray(evaluation);
+            Assert.Equal(tests.Item2, uses.Select(value => value.Ce));
+            Assert.All(uses, value => Assert.Equal(-1, value.UseCount));
+            Assert.Equal(1, SorterEval.getUnsortedCount(evaluation));
+        });
+        var models = outputs.Single(value => value.IsSorterModelSet);
+        var differentPrefix = functionData.NewSortableTests(tests.Item1, tests.Item2.Reverse().ToArray());
+        Assert.Contains("model prefix must match", Assert.Throws<ArgumentException>(() =>
+            CatalogTestHost.Invoke(false, name, evaluationParameters, models, differentPrefix)).Message);
     }
 
     [Theory]

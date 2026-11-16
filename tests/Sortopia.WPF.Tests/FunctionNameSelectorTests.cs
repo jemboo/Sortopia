@@ -158,13 +158,13 @@ public sealed class FunctionNameSelectorTests
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child"); parent.Children.Add(child);
         var view = new WorkspaceOverrideEditor { DataContext = child.Editor!.ResultsFunctionOverride }; Layout(view);
         var picker = (FunctionNameSelector)view.FindName("FunctionNameInput");
-        Assert.False(picker.IsEnabled);
+        Assert.False(((Button)picker.FindName("OpenPicker")).IsEnabled);
         Assert.Equal(ResultsFunctionNames.uniformMssiSimpleSorterModels, picker.SelectedFunction);
         child.Editor.ResultsFunctionOverride.IsOverridden = true; Layout(view);
-        Assert.False(child.Editor.ResultsFunctionOverride.IsOverridden); Assert.False(picker.IsEnabled);
+        Assert.False(child.Editor.ResultsFunctionOverride.IsOverridden); Assert.False(((Button)picker.FindName("OpenPicker")).IsEnabled);
         parent.Editor.ResultsFunctionOverride.IsOverridden = false; Layout(view);
         child.Editor.ResultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels; Layout(view);
-        Assert.True(picker.IsEnabled);
+        Assert.True(((Button)picker.FindName("OpenPicker")).IsEnabled);
         var tree = (TreeView)picker.FindName("FunctionTree");
         var root = tree.Items.Cast<FunctionNameNode>().Single(node => node.Segment == "sorter-model-set");
         Assert.True(root.IsExpanded);
@@ -182,7 +182,7 @@ public sealed class FunctionNameSelectorTests
         Assert.Equal(Visibility.Visible, inherit.Visibility);
         inherit.Command.Execute(null); Layout(view);
         Assert.Equal(ResultsFunctionNames.uniformMssiSimpleSorterModels, picker.SelectedFunction);
-        Assert.False(picker.IsEnabled);
+        Assert.False(((Button)picker.FindName("OpenPicker")).IsEnabled);
 
         var isolated = new FunctionNameSelector { Choices = new[] { "a.b", "a.c" }, SelectedFunction = "a.b" };
         Layout(isolated);
@@ -224,7 +224,7 @@ public sealed class FunctionNameSelectorTests
             var toggle = (CheckBox)editor.FindName("OverrideToggle");
             Assert.Equal("Define on this module", toggle.Content);
             Assert.Equal(Visibility.Visible, toggle.Visibility); Assert.False(toggle.IsEnabled);
-            Assert.False(((FunctionNameSelector)editor.FindName("FunctionNameInput")).IsEnabled);
+            Assert.False(((Button)((FunctionNameSelector)editor.FindName("FunctionNameInput")).FindName("OpenPicker")).IsEnabled);
             Assert.True((setup ? child.Editor!.ResultsFunctionOverride : child.Editor!.SetupFunctionOverride).CanOverride);
             var source = (WorkspaceValueSource)editor.FindName("ValueSource");
             var link = (System.Windows.Documents.Hyperlink)source.FindName("SourceLink");
@@ -279,7 +279,7 @@ public sealed class FunctionNameSelectorTests
             var toggle = (CheckBox)editor.FindName("OverrideToggle");
             var links = (ItemsControl)editor.FindName("DescendantFunctionLinks");
             Assert.Equal(Visibility.Visible, toggle.Visibility); Assert.False(toggle.IsEnabled);
-            Assert.False(((FunctionNameSelector)editor.FindName("FunctionNameInput")).IsEnabled);
+            Assert.False(((Button)((FunctionNameSelector)editor.FindName("FunctionNameInput")).FindName("OpenPicker")).IsEnabled);
             var field = setup ? parent.Editor!.SetupFunctionOverride : parent.Editor!.ResultsFunctionOverride;
             Assert.Equal(new[] { "A / Functions", "B / Functions" }, field.DescendantFunctionDefinitions.Select(value => value.Path));
             field.IsOverridden = true; Assert.False(field.IsOverridden);

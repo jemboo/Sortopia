@@ -48,8 +48,10 @@ public sealed partial class WorkspaceConfigurationViewModel
     private static string ModelInputGuidance(string functionName)
     {
         bool prefix = functionName.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal);
+        bool sourcePrefix = functionName.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal) || functionName.StartsWith("sorter-eval.merge.", StringComparison.Ordinal);
         if (!WorkspaceParameterInitialValues.IsModelFunction(functionName)) return "";
         var dimensions = prefix ? "Channel count and prefix stage length come from PrefixLibId. SorterSuccessFraction determines the random suffix capacity; the fixed prefix is always added. "
+            : sourcePrefix ? "ChannelCount sets the width. Models retain the exact prefix stored with the source SortableTests; its depth and SorterSuccessFraction determine the suffix capacity. Previews use the selected library prefix; generation uses the actual source prefix. Evaluation applies only the suffix to the prefix-processed tests. "
             : "ChannelCount sets the width; SorterSuccessFraction determines the stage capacity with zero prefix stages. The generated models have no fixed prefix. ";
         var tests = functionName.StartsWith("sorter-eval.merge.", StringComparison.Ordinal)
             ? "MergeLibId selects the source tests; its width must match ChannelCount. Choose the source project for SortableTests in setup outputs. "
@@ -87,13 +89,15 @@ public sealed partial class WorkspaceConfigurationViewModel
             return parsed.Any(value => value is null) ? [] : parsed.Select(value => value.Value).Distinct().ToArray();
         }
         var fractions = Values("SorterSuccessFraction").OfType<parameterValue.SorterSuccessFractionValue>().Select(value => value.Item).ToArray();
-        var dimensions = name.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal)
-            ? Values("PrefixLibId").OfType<parameterValue.PrefixLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: value.Item.StageLength)).ToArray()
-            : Values("ChannelCount").OfType<parameterValue.IntegerValue>().Select(value => (Width: value.Item, Prefix: 0)).ToArray();
-        if (fractions.Length == 0 || dimensions.Length == 0) return "Select a success fraction and channel count or prefix to see the suggested stage length. ";
-        var model = SimpleSorterModelType.fromString(name.Split('.').First(part => part is "msce" or "mssi" or "msrs" or "msuf4" or "msuf6"));
         try
         {
+            var dimensions = name.StartsWith("sorter-model-set.prefix.", StringComparison.Ordinal) || name.StartsWith("sorter-eval.prefix.", StringComparison.Ordinal)
+                ? Values("PrefixLibId").OfType<parameterValue.PrefixLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: value.Item.StageLength)).ToArray()
+                : name.StartsWith("sorter-eval.merge.", StringComparison.Ordinal)
+                    ? Values("MergeLibId").OfType<parameterValue.MergeLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: ModelGenerationStageLengths.mergePrefixDepth(value.Item))).ToArray()
+                    : Values("ChannelCount").OfType<parameterValue.IntegerValue>().Select(value => (Width: value.Item, Prefix: 0)).ToArray();
+            if (fractions.Length == 0 || dimensions.Length == 0) return "Select a success fraction and channel count or prefix to see the suggested stage length. ";
+            var model = SimpleSorterModelType.fromString(name.Split('.').First(part => part is "msce" or "mssi" or "msrs" or "msuf4" or "msuf6"));
             var suggestions = (from dimension in dimensions from fraction in fractions
                 select SimpleSorterStageLengths.forSuccessFraction(fraction, dimension.Width, dimension.Prefix, model)).ToArray();
             if (suggestions.Any(value => !value.IsSupported)) return "Stage suggestion unavailable for an unsupported channel count. ";

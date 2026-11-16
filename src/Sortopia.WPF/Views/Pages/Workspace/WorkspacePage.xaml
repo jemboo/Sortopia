@@ -200,7 +200,10 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                         <TextBlock Text="Configuration" FontSize="17" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Selected.Name}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        <TextBox x:Name="ConfigurationPath" Text="{Binding SelectedConfigurationPath, Mode=OneWay}" Style="{StaticResource SelectableMessage}"
+                                 FontWeight="SemiBold" Margin="0,6,0,0" MaxHeight="100" VerticalScrollBarVisibility="Auto"
+                                 ToolTip="Path from the workspace root. Select text to copy."
+                                 AutomationProperties.Name="Configuration path from workspace root" />
                         <TextBlock Text="{Binding Selected.KindLabel}" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" />
                         <TextBlock Text="{Binding Selected.ProjectState}" FontSize="11" Foreground="{StaticResource Workspace.Accent}" TextWrapping="Wrap" />
                         <StackPanel Visibility="{Binding Selected.IsSealed, Converter={StaticResource WorkspaceBoolVisibility}}" Margin="0,6,0,0">

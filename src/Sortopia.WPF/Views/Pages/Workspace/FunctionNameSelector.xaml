@@ -14,16 +14,15 @@
         </ResourceDictionary>
     </UserControl.Resources>
     <Grid>
-        <Button x:Name="OpenPicker" Style="{StaticResource NavigationButtonStyle}" Click="OpenPicker_Click"
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <TextBox x:Name="CurrentName" IsReadOnly="True" TextWrapping="Wrap" VerticalContentAlignment="Center" MinHeight="36"
+                 Style="{StaticResource NetworkTextBoxStyle}" AutomationProperties.Name="{Binding Title}"
+                 ToolTip="Select the function name and press Ctrl+C to copy it." />
+        <Button x:Name="OpenPicker" Grid.Column="1" Style="{StaticResource NavigationButtonStyle}" Click="OpenPicker_Click"
+                Content="▾" Margin="6,0,0,0" MinWidth="36" IsEnabled="{Binding CanChooseFunction, ElementName=Selector}"
                 HorizontalContentAlignment="Stretch" MinHeight="36"
-                AutomationProperties.Name="{Binding Title}" ToolTip="Browse function names by expanding each part. Only a complete function name can be chosen.">
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <TextBlock x:Name="CurrentName" TextWrapping="Wrap" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="▾" Margin="10,0,0,0" VerticalAlignment="Center" />
-            </Grid>
-        </Button>
-        <Popup x:Name="PickerPopup" PlacementTarget="{Binding ElementName=OpenPicker}" Placement="Bottom"
+                AutomationProperties.Name="{Binding Title, StringFormat=Choose {0}}" ToolTip="Browse function names by expanding each part. Only a complete function name can be chosen." />
+        <Popup x:Name="PickerPopup" PlacementTarget="{Binding ElementName=Selector}" Placement="Bottom"
                StaysOpen="False" AllowsTransparency="True" Opened="PickerPopup_Opened">
             <Border Width="{Binding ActualWidth, ElementName=Selector}" MinWidth="680" MaxWidth="900" Padding="12"
                     Background="{DynamicResource Workspace.Surface}" BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1">

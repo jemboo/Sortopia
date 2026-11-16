@@ -13,6 +13,8 @@ public partial class FunctionNameSelector : UserControl
         typeof(FunctionNameSelector), new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, InputsChanged));
     public static readonly DependencyProperty IsSetupCatalogProperty = DependencyProperty.Register(nameof(IsSetupCatalog), typeof(bool),
         typeof(FunctionNameSelector), new PropertyMetadata(false, InputsChanged));
+    public static readonly DependencyProperty CanChooseFunctionProperty = DependencyProperty.Register(nameof(CanChooseFunction), typeof(bool),
+        typeof(FunctionNameSelector), new PropertyMetadata(true, InputsChanged));
 
     private string[] names = [];
     private FunctionNameNode[] roots = [];
@@ -20,6 +22,7 @@ public partial class FunctionNameSelector : UserControl
     public IEnumerable<string> Choices { get => (IEnumerable<string>)GetValue(ChoicesProperty); set => SetValue(ChoicesProperty, value); }
     public string SelectedFunction { get => (string)GetValue(SelectedFunctionProperty); set => SetValue(SelectedFunctionProperty, value); }
     public bool IsSetupCatalog { get => (bool)GetValue(IsSetupCatalogProperty); set => SetValue(IsSetupCatalogProperty, value); }
+    public bool CanChooseFunction { get => (bool)GetValue(CanChooseFunctionProperty); set => SetValue(CanChooseFunctionProperty, value); }
 
     public FunctionNameSelector()
     {
@@ -37,6 +40,7 @@ public partial class FunctionNameSelector : UserControl
     private void Refresh()
     {
         if (FunctionTree is null) return;
+        if (!CanChooseFunction) PickerPopup.IsOpen = false;
         var available = (Choices ?? []).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (!names.SequenceEqual(available))
         {
@@ -61,7 +65,7 @@ public partial class FunctionNameSelector : UserControl
     }
     private void ShowCandidate()
     {
-        ChooseFunction.IsEnabled = candidate?.IsFunction == true && IsEnabled;
+        ChooseFunction.IsEnabled = candidate?.IsFunction == true && IsEnabled && CanChooseFunction;
         CandidateName.Text = candidate?.IsFunction == true ? candidate.Path
             : names.Length == 0 ? "No compatible functions are available." : "Select a complete function name.";
         var preview = candidate?.IsFunction == true ? FunctionPreview.Find(candidate.Path, IsSetupCatalog) : null;
@@ -74,6 +78,7 @@ public partial class FunctionNameSelector : UserControl
     }
     private void OpenPicker_Click(object sender, RoutedEventArgs e)
     {
+        if (!IsEnabled || !CanChooseFunction) return;
         SelectCurrent();
         PickerPopup.IsOpen = !PickerPopup.IsOpen;
     }
@@ -85,7 +90,7 @@ public partial class FunctionNameSelector : UserControl
     }
     private void CommitSelection()
     {
-        if (!IsEnabled || candidate?.IsFunction != true || !names.Contains(candidate.Path, StringComparer.Ordinal)) return;
+        if (!IsEnabled || !CanChooseFunction || candidate?.IsFunction != true || !names.Contains(candidate.Path, StringComparer.Ordinal)) return;
         SetCurrentValue(SelectedFunctionProperty, candidate.Path);
         ClosePicker();
     }

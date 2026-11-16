@@ -176,7 +176,17 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             if (selected is not null) selected.IsSelected = true;
             InspectorSelectionChanged();
             OnPropertyChanged(nameof(SelectedFolderPath));
+            OnPropertyChanged(nameof(SelectedConfigurationPath));
             NotifyCommands();
+        }
+    }
+    public string SelectedConfigurationPath
+    {
+        get
+        {
+            var names = new Stack<string>();
+            for (var node = Selected; node is not null; node = node.Parent) names.Push(node.Name);
+            return string.Join(" / ", names);
         }
     }
     private string SelectedExplorerFolder => Selected?.IsRun == true ? Path.GetDirectoryName(SelectedFolderPath) ?? "" : SelectedFolderPath;
@@ -508,6 +518,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private void NotifyDraftProperties()
     {
         OnPropertyChanged(nameof(SelectedFolderPath));
+        OnPropertyChanged(nameof(SelectedConfigurationPath));
         OnPropertyChanged(nameof(WorkspaceName));
         OnPropertyChanged(nameof(WorkspaceNameError));
         OnPropertyChanged(nameof(Error));

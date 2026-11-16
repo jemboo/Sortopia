@@ -82,39 +82,40 @@ module SetupFunctions =
             elif testsKeys |> List.exists (fun key -> key.Name = ParamKeys.mergeLibIdKey.Name) then
                 "Copy tests and their prefix from a source project, selecting by MergeLibId and SortableDataFormat."
             else "Copy tests and their prefix from a source project, selecting by PrefixLibId and SortableDataFormat."
-        FunctionDefinition.setupWithSourcesValidated (ModelGenerators.version modelType)
+        let version = if fromSource then (if modelType = simpleSorterModelType.Msuf4 then "4" else "3") else ModelGenerators.version modelType
+        FunctionDefinition.setupWithSourcesValidated version
             (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
-            [testsType, (if fromSource then [testsType] else []); modelsType, []]
+            [testsType, (if fromSource then [testsType] else []); modelsType, (if fromSource then [testsType] else [])]
             (evaluationInputError testsKeys modelType)
             (fun host projects ->
-                let sources =
+                let sources, tests, modelSource =
                     if fromSource then
                         let reference = host.SourceResults.Find(projects[testsType], testsType, host.Parameters)
                         // Validate source/model compatibility even when both outputs already exist.
-                        sourceTests host.Parameters [host.SourceResults.Load reference] |> ignore
-                        [reference]
-                    else []
-                host.SetupDb.SaveIfMissing(modelsType, [], fun () -> makeModels family host.Parameters)
+                        let tests = sourceTests host.Parameters [host.SourceResults.Load reference]
+                        let prefix = match tests with functionData.SortableTests (_, prefix) -> prefix | _ -> invalidOp "Expected source tests."
+                        [reference], Some tests, TestsPrefixInput prefix
+                    else [], None, ChannelCountInput
+                host.SetupDb.SaveIfMissing(modelsType, sources, fun () -> makeModels modelSource family host.Parameters)
                 host.SetupDb.SaveIfMissing(testsType, sources, fun () ->
-                    if fromSource then sourceTests host.Parameters [host.SourceResults.Load sources.Head]
-                    else InputGenerators.standardTests host.Parameters))
-        |> FunctionDefinition.describe ($"{testsDescription} {ModelGenerators.familyDescription ChannelCountInput modelType family} Save both inputs in the setup database for results evaluation; their channel counts must match.")
+                    match tests with Some value -> value | None -> InputGenerators.standardTests host.Parameters))
+        |> FunctionDefinition.describe ($"{testsDescription} {ModelGenerators.familyDescription (if fromSource then TestsPrefixInput [||] else ChannelCountInput) modelType family} Save both inputs in the setup database for results evaluation; their channel counts must match. Evaluate only the suffix against prefix-processed source tests.")
 
-    let evaluationStandardMsce = prepareEvaluation standardKeys false simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
-    let evaluationStandardMssi = prepareEvaluation standardKeys false simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
-    let evaluationStandardMsrs = prepareEvaluation standardKeys false simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
-    let evaluationStandardMsuf4 = prepareEvaluation standardKeys false simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
-    let evaluationStandardMsuf6 = prepareEvaluation standardKeys false simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
+    let evaluationStandardMsce = prepareEvaluation standardKeys false simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) ModelGenerators.msce
+    let evaluationStandardMssi = prepareEvaluation standardKeys false simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) ModelGenerators.mssi
+    let evaluationStandardMsrs = prepareEvaluation standardKeys false simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) ModelGenerators.msrs
+    let evaluationStandardMsuf4 = prepareEvaluation standardKeys false simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) ModelGenerators.msuf4
+    let evaluationStandardMsuf6 = prepareEvaluation standardKeys false simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) ModelGenerators.msuf6
     // Source project IDs replace GeneSort's SortableTestsModule name. The library
     // key and format look up the source's exact result projection.
-    let evaluationMergeMsce = prepareEvaluation mergeKeys true simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
-    let evaluationMergeMssi = prepareEvaluation mergeKeys true simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
-    let evaluationMergeMsrs = prepareEvaluation mergeKeys true simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
-    let evaluationMergeMsuf4 = prepareEvaluation mergeKeys true simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
-    let evaluationMergeMsuf6 = prepareEvaluation mergeKeys true simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
-    let evaluationPrefixMsce = prepareEvaluation prefixKeys true simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) (ModelGenerators.msce ChannelCountInput)
-    let evaluationPrefixMssi = prepareEvaluation prefixKeys true simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) (ModelGenerators.mssi ChannelCountInput)
-    let evaluationPrefixMsrs = prepareEvaluation prefixKeys true simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) (ModelGenerators.msrs ChannelCountInput)
-    let evaluationPrefixMsuf4 = prepareEvaluation prefixKeys true simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) (ModelGenerators.msuf4 ChannelCountInput)
-    let evaluationPrefixMsuf6 = prepareEvaluation prefixKeys true simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) (ModelGenerators.msuf6 ChannelCountInput)
+    let evaluationMergeMsce = prepareEvaluation mergeKeys true simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) ModelGenerators.msce
+    let evaluationMergeMssi = prepareEvaluation mergeKeys true simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) ModelGenerators.mssi
+    let evaluationMergeMsrs = prepareEvaluation mergeKeys true simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) ModelGenerators.msrs
+    let evaluationMergeMsuf4 = prepareEvaluation mergeKeys true simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) ModelGenerators.msuf4
+    let evaluationMergeMsuf6 = prepareEvaluation mergeKeys true simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) ModelGenerators.msuf6
+    let evaluationPrefixMsce = prepareEvaluation prefixKeys true simpleSorterModelType.Msce (ModelGenerators.msceKeys ChannelCountInput) ModelGenerators.msce
+    let evaluationPrefixMssi = prepareEvaluation prefixKeys true simpleSorterModelType.Mssi (ModelGenerators.mssiKeys ChannelCountInput) ModelGenerators.mssi
+    let evaluationPrefixMsrs = prepareEvaluation prefixKeys true simpleSorterModelType.Msrs (ModelGenerators.msrsKeys ChannelCountInput) ModelGenerators.msrs
+    let evaluationPrefixMsuf4 = prepareEvaluation prefixKeys true simpleSorterModelType.Msuf4 (ModelGenerators.msuf4Keys ChannelCountInput) ModelGenerators.msuf4
+    let evaluationPrefixMsuf6 = prepareEvaluation prefixKeys true simpleSorterModelType.Msuf6 (ModelGenerators.msuf6Keys ChannelCountInput) ModelGenerators.msuf6

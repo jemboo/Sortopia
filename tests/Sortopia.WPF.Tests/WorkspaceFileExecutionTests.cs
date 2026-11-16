@@ -4,6 +4,8 @@ using Microsoft.FSharp.Core;
 using Sortopia.FileDb;
 using Sortopia.Functions;
 using Sortopia.Runs;
+using Sortopia.Sorting.Inputs;
+using Sortopia.Sorting.Networks;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.Workspaces.Persistence;
@@ -42,6 +44,35 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     private static project Named(workspace world, string name) => world.ProjectIndex.Values.Single(value => value.ProjectName == name);
     private runExecutionReport Execute(workspace world, string name) => FileRunExecution.execute(world, temporary.FullName, Named(world, name).Runs[0], null!, Token);
     private static void Completed(runExecutionReport report) => Assert.True(report.Status == runExecutionStatus.Completed, report.Error);
+
+    [Fact]
+    public void Generated_run_file_records_the_actual_source_prefix_budget_and_reuses_models_on_retry()
+    {
+        var world = Create(); var source = Named(world, "Source"); var consumer = Named(world, "Consumer");
+        var sourceParameters = RunParameterSets.create(source.Runs[0]).Results[0];
+        var definition = ResultsFunctionCatalog.require(source.ResultsFunctionName);
+        var testsType = sortopiaDataType.NewSortableTests("");
+        var sourceKey = DataKey.create(source.Id, source.ResultsDatabaseName, false, source.ResultsFunctionName,
+            definition.Version, testsType, source.ResultsQueryParameterKeys, sourceParameters, []);
+        // A source may carry a different prefix than its lookup library suggests.
+        var tests = functionData.NewSortableTests(sortableTests.NewBools(sortableBinaryTests.create(Guid.NewGuid(), 4,
+            [sortableBoolArray.create([false, true, false, true], 4)])), [ce.create(1, 2), ce.create(0, 1)]);
+        ISortopiaDb sourceStore = new SortopiaFileDb(WorkspaceData.projectFolder(world, temporary.FullName, source.Id), source.Id);
+        Assert.True(sourceStore.GetOrCreate(sourceKey, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ =>
+            FSharpResult<functionData, string>.NewOk(tests)), Token).IsOk);
+        var value = consumer.Runs[0]; var parameters = RunParameterSets.create(value).Setup.Value[0];
+        Assert.Equal(4, ModelGenerationStageLengths.tryForFunction(value.SetupFunctionName.Value, parameters).Value);
+        var generated = RunParameterExecution.generate(world, temporary.FullName, value, null!, Token);
+        Completed(generated.Execution);
+        var folder = WorkspaceData.projectFolder(world, temporary.FullName, consumer.Id);
+        var item = RunParameterFiles.loadWorkItem(folder, Assert.Single(generated.WorkItemIds));
+        Assert.Equal(3, item.SetupSuffixStages.Value);
+        Assert.Null(item.ResultsSuffixStages);
+        var retry = RunParameterExecution.generate(world, temporary.FullName, value, null!, Token);
+        Completed(retry.Execution);
+        Assert.Equal(generated.WorkItemIds, retry.WorkItemIds);
+        Assert.All(Assert.Single(retry.Execution.Setup).StoredOutputs, output => Assert.True(output.Reused));
+    }
 
     // A test-only host adapter for an independent setup definition, without adding it
     // to the application catalogs. Source lookup and all storage use the real file store.

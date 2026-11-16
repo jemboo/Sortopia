@@ -74,6 +74,7 @@ module RunParameterExecution =
     /// invocation. Each atomically published parameter file is independently ready.
     let private generateUsing makeHost beforeWrite progress (token: CancellationToken) =
         let setup = ResizeArray<runFunctionResult>()
+        let setupSuffixStages = ResizeArray<int option>()
         let ids = ResizeArray<Guid<workItemId>>()
         let mutable context = "Preparing run"
         let finish status error = report status (setup.ToArray()) [||] error
@@ -109,6 +110,14 @@ module RunParameterExecution =
                     notify progress context (int64 i) (int64 setupCount + resultsCount)
                     let host = factory.ForSetup parameters[i]
                     definition.Execute host sources
+                    let name = string branch.SetupFunctionName
+                    let sourcePrefix =
+                        if name.StartsWith("sorter-eval.prefix.") || name.StartsWith("sorter-eval.merge.") then
+                            match host.SetupDb.Load (sortopiaDataType.SorterModelSet "") with
+                            | functionData.SorterModelSet models -> models.SorterModels |> Array.tryHead |> Option.map Sortopia.Models.Sorting.SorterModel.getPrefix
+                            | _ -> invalidOp "Expected generated sorter models."
+                        else None
+                    setupSuffixStages.Add (ModelGenerationStageLengths.tryForFunctionWithSourcePrefix sourcePrefix name parameters[i] |> Option.map int)
                     setup.Add { Phase = runExecutionPhase.Setup; FunctionName = string branch.SetupFunctionName
                                 SetupSetNumber = None; SetNumber = i + 1; Parameters = parameters[i]; StoredOutputs = host.SetupDb.StoredOutputs }
             | run.RootRun _, None ->
@@ -117,10 +126,10 @@ module RunParameterExecution =
             | _ -> invalidOp "The generated parameter sets do not match the run type."
             let batches =
                 if sets.Setup.IsNone then [| None, [], None |]
-                else setup |> Seq.map (fun batch ->
+                else setup |> Seq.mapi (fun i batch ->
                     Some batch.SetNumber, batch.StoredOutputs |> List.map (fun output -> output.Reference)
                                          |> List.filter (fun reference -> List.contains reference.DataType resultsDefinition.SourceDataTypes),
-                    ModelGenerationStageLengths.tryForFunction batch.FunctionName batch.Parameters |> Option.map int) |> Seq.toArray
+                    setupSuffixStages[i]) |> Seq.toArray
             context <- "Verifying project-local setup data"
             verifyInputs projectFolder value.ParentProjectId (batches |> Seq.collect (fun (_, inputs, _) -> inputs)) token
             for setupNumber, inputs, setupStages in batches do
