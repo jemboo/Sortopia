@@ -47,19 +47,20 @@ public sealed class FunctionMetadataTests
     [InlineData("Simple", true)]
     [InlineData("SimpleR", true)]
     [InlineData("SimpleS", true)]
-    public void Sizing_and_preview_work_from_unregistered_definitions_without_a_function_name(string familyName, bool prefix)
+    public void Sizing_and_preview_use_explicit_metadata_without_a_function_name(string familyName, bool prefix)
     {
         var family = familyName switch { "SimpleR" => modelFamily.SimpleR, "SimpleS" => modelFamily.SimpleS, _ => modelFamily.Simple };
-        var definition = prefix ? ResultsFunctions.prefixMssiSorterModels.Invoke(family) : ResultsFunctions.uniformMssiSorterModels.Invoke(family);
+        var metadata = new modelGenerationMetadata(simpleSorterModelType.Mssi, family,
+            prefix ? modelPrefixMode.CatalogPrefix : modelPrefixMode.NoPrefix);
         var parameters = parameterSet.fromBindings([
             ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, sorterSuccessFraction.pct50),
             prefix ? ParameterBinding.create(ParamKeys.prefixLibIdKey, prefixLibId.create(8, 3, prefixLibVariant.PrefixA))
                 : ParameterBinding.create(ParamKeys.channelCountKey, 8)
         ]);
         var expected = prefix ? 19 : 22;
-        Assert.Equal(expected, ModelGenerationStageLengths.tryForDefinition(definition, parameters).Value);
+        Assert.Equal(expected, ModelGenerationStageLengths.forMetadata(metadata, parameters));
         var defaults = parameters.ParamMap.Values.Select(ParameterBindingDto.fromDomain).ToArray();
-        var preview = WorkspaceParameterSetsPreview.Create(defaults, [], "", definition.ModelGeneration.Value);
+        var preview = WorkspaceParameterSetsPreview.Create(defaults, [], "", metadata);
         Assert.Empty(preview.Error);
         Assert.Equal(expected, Assert.Single(preview.Rows).SuffixStages);
         Assert.Null(Assert.Single(WorkspaceParameterSetsPreview.Create(defaults, [], "").Rows).SuffixStages);
@@ -68,8 +69,8 @@ public sealed class FunctionMetadataTests
     [Fact]
     public void Initial_width_and_unfolding_defaults_use_the_declared_algorithm()
     {
-        var uf6 = SetupFunctions.uniformMsuf6SorterModels.Invoke(modelFamily.SimpleS).ModelGeneration.Value;
-        var uf4 = SetupFunctions.uniformMsuf4SorterModels.Invoke(modelFamily.SimpleS).ModelGeneration.Value;
+        var uf6 = SetupFunctionCatalog.require(SetupFunctionNames.uniformMsuf6SimpleSSorterModels).ModelGeneration.Value;
+        var uf4 = SetupFunctionCatalog.require(SetupFunctionNames.uniformMsuf4SimpleSSorterModels).ModelGeneration.Value;
         Assert.Equal(12, WorkspaceParameterInitialValues.SuggestedChannelCount(8, uf6));
         Assert.Equal(24, WorkspaceParameterInitialValues.SuggestedChannelCount(24, uf6));
         Assert.Equal(8, WorkspaceParameterInitialValues.SuggestedChannelCount(12, uf4));

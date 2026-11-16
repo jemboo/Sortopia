@@ -36,7 +36,7 @@ public sealed class DisjointDefaultPersistenceTests
             var saved = loaded.Projects.Single();
             Assert.Equal(new[] { "ChannelCount" }, saved.ResultsQueryParameterKeys);
             Assert.Equal(new[] { "SortableDataFormat" }, saved.ResultsParameterDefaults.Select(binding => binding.KeyName));
-            var inputs = new runDto { schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = saved.Id, runName = "Trial", runKind = branch ? "branch" : "root",
+            var inputs = new runDto { schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = saved.Id, runName = "Trial", runKind = branch ? "branch" : "root",
                 resultsParameterSpans = [new() { keyName = "ChannelCount", values = ["8", "16"] }], setupParameterSpans = branch ? [new() { keyName = "ChannelCount", values = ["8", "16"] }] : [] };
             var run = RunDto.toDomain(saved, inputs);
             var sets = RunParameterSets.create(run); Assert.Equal(2, sets.Results.Length);

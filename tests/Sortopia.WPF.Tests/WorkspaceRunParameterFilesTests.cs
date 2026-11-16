@@ -205,12 +205,11 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
                 // Decode an actual old 11-field payload, not a new payload with null fields.
                 var saved = files.Rows[1];
                 var legacy = WriteWithoutStageMetadata(saved.Path);
-                var item = RunParameterFiles.loadFile(legacy);
-                Assert.Null(item.ResultsSuffixStages); Assert.Null(item.SetupSuffixStages);
+                Assert.Contains("Unsupported runParameters schema", Assert.Throws<InvalidOperationException>(() => RunParameterFiles.loadFile(legacy)).Message);
                 await reopened.RefreshAsync(page.RunParametersFolder, project.Id, run.Id);
                 var legacyRow = reopened.Rows.Single(row => row.Path == legacy);
-                Assert.Equal(saved.SuffixStages, legacyRow.SuffixStages);
-                Assert.Contains("calculated from this file's saved parameters", legacyRow.SuffixStagesDetails);
+                Assert.Equal("Invalid", legacyRow.FileStatus);
+                Assert.Equal("—", legacyRow.SuffixStages);
             }
         }
         finally { page.Cancel(); }
@@ -222,9 +221,10 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
         var envelope = MessagePackSerializer.Deserialize<runParametersEnvelopeDto>(File.ReadAllBytes(path), options, TestContext.Current.CancellationToken);
         var reader = new MessagePackReader(new ReadOnlySequence<byte>(envelope.Payload));
         Assert.Equal(13, reader.ReadArrayHeader());
+        reader.ReadInt32();
         int start = (int)reader.Consumed;
-        for (int i = 0; i < 11; i++) reader.Skip();
-        byte[] payload = [0x9b, .. envelope.Payload.AsSpan(start, (int)reader.Consumed - start).ToArray()];
+        for (int i = 1; i < 11; i++) reader.Skip();
+        byte[] payload = [0x9b, 0x01, .. envelope.Payload.AsSpan(start, (int)reader.Consumed - start).ToArray()];
         var checksum = SHA256.HashData(payload);
         var legacy = Path.Combine(Path.GetDirectoryName(path)!, new Guid(checksum.AsSpan(0, 16)) + ".msgpack");
         File.WriteAllBytes(legacy, MessagePackSerializer.Serialize(new runParametersEnvelopeDto(1, "runParameters", checksum, payload), options, TestContext.Current.CancellationToken));

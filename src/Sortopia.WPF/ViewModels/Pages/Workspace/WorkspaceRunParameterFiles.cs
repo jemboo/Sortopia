@@ -136,23 +136,11 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
     {
         int? setup = item.SetupSuffixStages?.Value;
         int? results = item.ResultsSuffixStages?.Value;
-        var basis = "Saved at parameter generation.";
-        // Files written before sizing metadata was added still contain complete results inputs.
-        if (results is null && ResultsFunctionCatalog.functions.TryGetValue(item.Results.FunctionName, out var definition)
-            && definition.Version == item.Results.FunctionVersion)
-        {
-            try
-            {
-                results = ModelGenerationStageLengths.tryForDefinition(definition, item.Parameters)?.Value;
-                if (results is not null) basis = "Results length calculated from this file's saved parameters.";
-            }
-            catch (ArgumentException error) { return ("Unavailable", $"Could not calculate the suffix length: {error.Message}"); }
-        }
         var lengths = new List<string>();
         if (setup is not null) lengths.Add($"Setup: {setup:N0}");
         if (results is not null) lengths.Add($"Results: {results:N0}");
         var details = lengths.Count == 0 ? "No model-generation suffix length is recorded for this file."
-            : $"Suggested suffix stages — {string.Join("; ", lengths)}. Fixed prefix stages are additional. {basis} These are provisional success targets.";
+            : $"Suggested suffix stages — {string.Join("; ", lengths)}. Fixed prefix stages are additional. Saved at parameter generation. These are provisional success targets.";
         if (item.SetupSetNumber is not null && setup is null)
             details += " No setup suffix length is recorded; it is not inferred from the current draft.";
         return (lengths.Count == 0 ? "—" : string.Join("\n", lengths), details);

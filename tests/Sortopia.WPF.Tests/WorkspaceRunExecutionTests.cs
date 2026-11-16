@@ -19,7 +19,6 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings, openResultsExecution: openResultsExecution);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var configuration = RunExecutionTests.Settings(branch);
-        configuration.resultsQueryParameterKeys = ["SortableDataFormat"];
         page.Selected!.Editor!.LoadProject(configuration);
         page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
@@ -36,7 +35,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
             var source = page.Selected!; source.Name = "Source";
             page.AddRunCommand.Execute(null);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false);
-            configuration.setupDataTypes = [new() { dataType = configuration.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }];
+            configuration.setupDataTypes = [new() { dataType = configuration.resultsDataTypes[0].dataType, sourceProjectId = source.Id, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }];
             run.Parent!.Editor!.LoadProject(configuration);
             page.Selected = run;
             run.Editor.ResultsParameters.Clear(); run.Editor.SetupParameters.Clear();

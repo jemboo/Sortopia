@@ -103,7 +103,7 @@ public sealed class ModuleFunctionEditorTests
     {
         WorkspaceSourceProject Source(string label, string text, params string[] keys)
         {
-            var settings = new projectSettingsDto { resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = text }], resultsQueryParameterKeys = keys };
+            var settings = new projectSettingsDto { resultsDataTypes = [new() { dataType = new() { kind = "SortableTests", value = text }, queryParameterKeys = keys }] };
             return new(Guid.NewGuid(), label, true, settings, new WorkspaceTreeNode(WorkspaceEntityKind.Project, label).Editor!);
         }
         var compatible = Source("Compatible", "", "ChannelCount");
@@ -115,7 +115,7 @@ public sealed class ModuleFunctionEditorTests
         editor.SetupDataTypesOverride.IsOverridden = true;
         var output = editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
         // Copy functions accept any registered source query key, but reject unknown keys.
-        wrongKeys.Settings.resultsQueryParameterKeys = ["UnknownSourceKey"];
+        wrongKeys.Settings.resultsDataTypes[0].queryParameterKeys = ["UnknownSourceKey"];
         Assert.Equal(3, output.SourceProjects.Count());
         Assert.Equal(compatible.Id, Assert.Single(output.SourceProjects, choice => choice.IsCompatible).Id);
         Assert.Contains("named", output.SourceProjects.Single(choice => choice.Id == wrongLabel.Id).IncompatibilityReason);

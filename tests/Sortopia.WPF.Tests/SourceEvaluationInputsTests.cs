@@ -26,7 +26,7 @@ public sealed class SourceEvaluationInputsTests
     {
         var type = new sortopiaDataTypeDto { kind = kind, value = "" };
         return new(Guid.NewGuid(), kind + " source", true, new projectSettingsDto {
-            resultsSortopiaDataTypes = [type], resultsDataTypes = [new() { dataType = type, queryParameterKeys = keys }]
+            resultsDataTypes = [new() { dataType = type, queryParameterKeys = keys }]
         }, new WorkspaceTreeNode(WorkspaceEntityKind.Project, kind + " source").Editor!);
     }
 

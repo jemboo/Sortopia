@@ -41,10 +41,9 @@ public sealed class SourceContractResolutionTests
     }
 
     [Fact]
-    public void Source_adapter_uses_exact_output_labels_and_preserves_legacy_projection_fallback()
+    public void Source_adapter_uses_only_the_matching_canonical_output_and_its_projection()
     {
         var source = SourceEvaluationInputsTests.Source("SorterModelSet", "ChannelCount");
-        source.Settings.resultsQueryParameterKeys = ["Repl"];
         source.Settings.resultsDataTypes = [
             new() { dataType = new() { kind = "SorterModelSet", value = "" }, queryParameterKeys = ["ChannelCount"] },
             new() { dataType = new() { kind = "SorterModelSet", value = "other" }, queryParameterKeys = ["SorterCount"] },
@@ -53,11 +52,14 @@ public sealed class SourceContractResolutionTests
         Assert.Equal(new[] { "ChannelCount" }, WorkspaceSourceContracts.Resolve(source, "SorterModelSet", "").QueryKeys);
         Assert.Equal(new[] { "SorterCount" }, WorkspaceSourceContracts.Resolve(source, "SorterModelSet", "other").QueryKeys);
         Assert.Empty(WorkspaceSourceContracts.Resolve(source, "SortableTests", "").QueryKeys);
-        Assert.Equal(new[] { "Repl" }, WorkspaceSourceContracts.Resolve(source, "SorterModelSet", "missing").QueryKeys);
+        Assert.Empty(WorkspaceSourceContracts.Resolve(source, "SorterModelSet", "missing").QueryKeys);
         Assert.Empty(WorkspaceSourceContracts.Resolve(null, "SorterModelSet", "").QueryKeys);
         Assert.False(WorkspaceSourceContracts.HasOutput(source, "SorterModelSet", "missing"));
-        source.Settings.resultsDataTypes = null!;
-        Assert.Equal(new[] { "Repl" }, WorkspaceSourceContracts.Resolve(source, "SorterModelSet", "").QueryKeys);
+        Assert.True(WorkspaceSourceContracts.HasOutput(source, "SorterModelSet", "other"));
+        Assert.True(WorkspaceSourceContracts.HasOutput(source, "SortableTests", ""));
+        source.Settings.resultsDataTypes = [];
+        Assert.False(WorkspaceSourceContracts.HasOutput(source, "SorterModelSet", ""));
+        Assert.Empty(WorkspaceSourceContracts.Resolve(source, "SorterModelSet", "").QueryKeys);
     }
 
     [Fact]

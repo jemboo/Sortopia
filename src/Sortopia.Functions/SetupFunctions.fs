@@ -1,8 +1,6 @@
 namespace Sortopia.Functions
 
 open Sortopia.Runs
-open Sortopia.Models.Sorting
-open FunctionParameters
 open InputGenerators
 
 // Adapted from GeneSort's SetupCatalog.runBoth and SortableTestsMakers.getModuleTests.
@@ -41,15 +39,3 @@ module SetupFunctions =
     let evaluationSource =
         FunctionDefinition.setupCopy "2" [modelsType; testsType] copyEvaluationInputs
         |> FunctionDefinition.describe "Copy sorter models and sortable tests from separately selected source projects. Supply every source results query key through a default or run span. Each local setup projection may retain a subset of its source's keys. Preserve models, activators, tests, and prefixes; validate matching widths and compatible prefixes before saving either input. No models or tests are generated."
-
-    let uniformMsceSorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msce
-    let uniformMssiSorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Mssi
-    let uniformMsrsSorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msrs
-    let uniformMsuf4SorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msuf4
-    let uniformMsuf6SorterModels = ModelGenerationDefinitions.setupModels simpleSorterModelType.Msuf6
-
-    let evaluationStandardMsce = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msce
-    let evaluationStandardMssi = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Mssi
-    let evaluationStandardMsrs = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msrs
-    let evaluationStandardMsuf4 = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msuf4
-    let evaluationStandardMsuf6 = ModelGenerationDefinitions.setupStandardInputs simpleSorterModelType.Msuf6

@@ -5,6 +5,6 @@ open Sortopia.Sorting.Networks
 module internal PrefixDto =
     let encode (prefix: ce array) = prefix |> Array.map Ce.toIndex
 
-    /// Older records have no prefix field. Treat its default null value as an empty prefix.
     let decode (codes: int array) =
-        if isNull codes then [||] else codes |> Array.map Ce.fromIndex
+        if isNull codes then invalidArg "prefixCeCodes" "A saved model must include its prefix; use an empty array for no prefix."
+        codes |> Array.map Ce.fromIndex

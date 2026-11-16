@@ -38,7 +38,7 @@ type projectDefinitionDto = {
 /// Versioned, shallow entity files. Child references are authoritative and ordered.
 /// File resolution and hierarchy assembly belong to Workspaces.Persistence.
 module WorkspaceDefinitionCodec =
-    let schemaVersion = 17
+    let schemaVersion = 18
     let private kindName = function hierarchyKind.Root -> "root" | hierarchyKind.Branch -> "branch" | _ -> invalidArg "kind" "Unknown entity family."
     let kind = function "root" -> hierarchyKind.Root | "branch" -> hierarchyKind.Branch | _ -> invalidArg "kind" "Kind must be root or branch."
     let private validate version id name folder =

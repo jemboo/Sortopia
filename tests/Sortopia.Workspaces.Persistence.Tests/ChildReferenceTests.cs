@@ -37,7 +37,7 @@ public sealed class ChildReferenceTests : IDisposable
         var w = WorkspaceDefinitionCodec.decodeWorkspace(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(Root, "workspace")));
         var m = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ModuleFolder, "module")));
         var p = WorkspaceDefinitionCodec.decodeProject(File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ProjectFolder, "project")));
-        Assert.Equal(17, w.schemaVersion);
+        Assert.Equal(WorkspaceDefinitionCodec.schemaVersion, w.schemaVersion);
         Assert.Equal(saved.Modules[0].Id, Assert.Single(w.modules).id);
         Assert.Equal(saved.Modules[0].Projects[0].Id, Assert.Single(m.projects).id);
         Assert.Equal(saved.Modules[0].Projects[0].Runs[0].Id, Assert.Single(p.runs));

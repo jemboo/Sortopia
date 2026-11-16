@@ -17,8 +17,6 @@ public sealed class RunExecutionTests
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.resultsFunctionName = ResultsFunctionNames.mergeSortableTests;
         settings.setupFunctionName = branch ? SetupFunctionNames.standardTests : "";
-        settings.resultsQueryParameterKeys = [];
-        settings.resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "" }];
         settings.resultsParameterDefaults = [Binding("SortableDataFormat", "Bools"), Binding("MergeLibId",
             MergeLibId.toString(MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2)), parameterValueType.MergeLibId)];
         settings.setupParameterDefaults = branch ? [Binding("ChannelCount", "4", parameterValueType.Integer), Binding("SortableDataFormat", "Bools")] : [];
@@ -58,7 +56,7 @@ public sealed class RunExecutionTests
         var parent = project.create(id, "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
         return RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
+            schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = id, runKind = branch ? "branch" : "root", runName = "Execute",
             resultsParameterSpans = QuerySpans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults, results),
             setupParameterSpans = parent is project.BranchProject b ? QuerySpans(b.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), b.Item.SetupParameterDefaults, setup) : []
         });

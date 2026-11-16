@@ -697,13 +697,12 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     internal projectSettingsDto ToSourceSettings() => new()
     {
         resultsDatabaseName = ResultsDatabaseName, resultsFunctionName = ResultsFunctionName, resultsFunctionVersion = ResultsFunctionVersion,
-        resultsDataTypes = EffectiveResultsDataTypes, resultsSortopiaDataTypes = EffectiveOutputs,
-        resultsQueryParameterKeys = EffectiveOutputKeys, resultsParameterDefaults = EffectiveOutputDefaults
+        resultsDataTypes = EffectiveResultsDataTypes, resultsParameterDefaults = EffectiveOutputDefaults
     };
     internal projectSettingsDto ToProjectSettings() => new()
     {
         description = Description, resultsDatabaseName = ResultsDatabaseName, resultsFunctionName = ResultsFunctionName, resultsFunctionVersion = ResultsFunctionVersion,
-        resultsDataTypes = EffectiveResultsDataTypes, resultsSortopiaDataTypes = EffectiveOutputs, resultsQueryParameterKeys = EffectiveOutputKeys, resultsParameterDefaults = EffectiveOutputDefaults, setupParameterDefaults = IsBranch ? EffectiveSetupDefaults : [],
+        resultsDataTypes = EffectiveResultsDataTypes, resultsParameterDefaults = EffectiveOutputDefaults, setupParameterDefaults = IsBranch ? EffectiveSetupDefaults : [],
         setupDatabaseName = IsBranch ? SetupDatabaseName : "", setupFunctionName = IsBranch ? SetupFunctionName : "", setupFunctionVersion = IsBranch ? SetupFunctionVersion : "",
         setupDataTypes = IsBranch ? EffectiveSetupDataTypes : []
     };
@@ -734,7 +733,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         ?? (SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) ? definition.Version : "");
     internal runDto ToRunInputs(Guid id, string name, Guid parentProjectId) => new()
     {
-        schemaVersion = 14, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
+        schemaVersion = WorkspaceDtoSchema.version, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
         descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ActiveResultsParameters.Select(span => span.ToDto()).ToArray(),
         setupParameterSpans = IsBranch ? ActiveSetupParameters.Select(span => span.ToDto()).ToArray() : []
     };

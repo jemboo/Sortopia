@@ -12,6 +12,9 @@ open Sortopia.Core.Serialization
 
 [<Measure>] type workItemId
 
+module RunParameterSchema =
+    let version = 2
+
 /// One immutable results invocation. No paths or live project settings are needed.
 type runParameters = {
     Id: Guid<workItemId>
@@ -64,7 +67,7 @@ type runParametersDto = {
     [<Key(8)>] SetupInputs: dataReferenceDto array
     [<Key(9)>] SetNumber: int
     [<Key(10)>] SetupSetNumber: int option
-    // Optional display metadata; older files omit these fields.
+    // None means that the invocation has no single applicable suffix length.
     [<Key(11)>] SetupSuffixStages: int option
     [<Key(12)>] ResultsSuffixStages: int option
 }
@@ -116,7 +119,7 @@ module internal RunParameterCodec =
         ParameterBinding.fromValue (UMX.tag value.Key) typed
 
     let toDto (value: runParameters) : runParametersDto = {
-        Version = 1; ProjectId = UMX.untag value.ProjectId; RunId = UMX.untag value.RunId
+        Version = RunParameterSchema.version; ProjectId = UMX.untag value.ProjectId; RunId = UMX.untag value.RunId
         FunctionName = string value.Results.FunctionName; FunctionVersion = value.Results.FunctionVersion; DatabaseName = string value.Results.DatabaseName
         Outputs = value.Results.DataTypes |> Map.toArray |> Array.map (fun (dataType, keys) ->
             { Kind = SortopiaDataType.kindName dataType; Label = SortopiaDataType.text dataType; QueryKeys = keys |> List.map string |> List.sort |> List.toArray })
@@ -126,7 +129,7 @@ module internal RunParameterCodec =
         SetupSuffixStages = value.SetupSuffixStages; ResultsSuffixStages = value.ResultsSuffixStages }
 
     let fromDto id (dto: runParametersDto) : runParameters =
-        if dto.Version <> 1 then invalidOp "Unsupported runParameters schema."
+        if dto.Version <> RunParameterSchema.version then invalidOp "Unsupported runParameters schema. Regenerate the run parameter files."
         if dto.ProjectId = Guid.Empty || dto.RunId = Guid.Empty || dto.SetNumber < 1
            || (dto.SetupSetNumber |> Option.exists (fun n -> n < 1)) then invalidOp "Invalid prepared work item identity."
         if String.IsNullOrWhiteSpace dto.DatabaseName then invalidOp "A prepared work item needs a results database name."

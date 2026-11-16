@@ -68,7 +68,7 @@ public sealed class EvaluationChannelCountTests
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Full", family: hierarchyKind.Branch);
         project.Children.Add(run);
         run.Editor!.LoadRun(new runDto {
-            schemaVersion = 14, runKind = "branch", resultsParameterSpans = [
+            schemaVersion = WorkspaceDtoSchema.version, runKind = "branch", resultsParameterSpans = [
                 new() { keyName = "ChannelCount", values = [] },
                 new() { keyName = "SorterEvalType", values = ["V2"] },
                 new() { keyName = "CollectSortableTests", values = ["False"] }], setupParameterSpans = []

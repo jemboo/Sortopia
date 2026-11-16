@@ -15,6 +15,20 @@ namespace Sortopia.WPF.Tests;
 
 public sealed class FunctionCatalogTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Catalog_registrations_match_every_existing_public_name_without_aliases_or_omissions(bool setup)
+    {
+        var namesType = setup ? typeof(SetupFunctionNames) : typeof(ResultsFunctionNames);
+        var published = namesType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(property => property.PropertyType == typeof(string)).Select(property => (string)property.GetValue(null)!).ToArray();
+        Assert.Equal(setup ? 32 : 50, published.Length);
+        Assert.Equal(published.Length, published.Distinct(StringComparer.Ordinal).Count());
+        var registered = setup ? SetupFunctionCatalog.functions.Keys : ResultsFunctionCatalog.functions.Keys;
+        Assert.Equal(published.Order(StringComparer.Ordinal), registered.Order(StringComparer.Ordinal));
+    }
+
     private static parameterSet Parameters(params parameterBinding[] bindings) => parameterSet.fromBindings(bindings);
     private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
         => CatalogTestHost.Invoke(setup, name, parameters, inputs);

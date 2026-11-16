@@ -182,14 +182,20 @@ type legacyMsceGenDto =
     { channelCount: int; rngFactoryDto: Sortopia.Core.Serialization.rngFactoryDto; ceLength: int; excludeSelfCe: bool }
 
 [<Fact>]
-let ``old MessagePack model and generator records default to an empty prefix`` () =
+let ``model and generator records must explicitly include a prefix`` () =
     let oldModel : legacyMsceDto = { id = UMX.untag modelId; channelCount = 8; ceCodes = [|1; 3|] }
-    let restored = oldModel |> MessagePackSetup.serialize |> MessagePackSetup.deserialize<msceDto> |> MsceDto.toDomain
+    let missingModelPrefix = oldModel |> MessagePackSetup.serialize |> MessagePackSetup.deserialize<msceDto>
+    let modelError = Assert.Throws<ArgumentException>(fun () -> MsceDto.toDomain missingModelPrefix |> ignore)
+    Assert.Equal("prefixCeCodes", modelError.ParamName)
+    let restored = { missingModelPrefix with prefixCeCodes = [||] } |> MsceDto.toDomain
     Assert.Empty(restored.Prefix)
     Assert.Equal(modelId, restored.Id)
     let oldGen : legacyMsceGenDto =
         { channelCount = 8; rngFactoryDto = RngFactoryDto.fromDomain rngFactory.SmxFactory; ceLength = 8; excludeSelfCe = true }
-    let gen = oldGen |> MessagePackSetup.serialize |> MessagePackSetup.deserialize<msceRandGenDto> |> MsceRandGenDto.toDomain
+    let missingGeneratorPrefix = oldGen |> MessagePackSetup.serialize |> MessagePackSetup.deserialize<msceRandGenDto>
+    let generatorError = Assert.Throws<ArgumentException>(fun () -> MsceRandGenDto.toDomain missingGeneratorPrefix |> ignore)
+    Assert.Equal("prefixCeCodes", generatorError.ParamName)
+    let gen = { missingGeneratorPrefix with prefixCeCodes = [||] } |> MsceRandGenDto.toDomain
     Assert.Empty(gen.Prefix)
     Assert.Equal((msceRandGen.create rngFactory.SmxFactory 8<channelCount> [||] (UMX.tag true) 8<ceLength>).Id, gen.Id)
 

@@ -39,24 +39,6 @@ module ResultsFunctions =
         generator "1" testsType InputGenerators.standardKeys InputGenerators.standardTests
         |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format, with an empty prefix. Save the tests in the results database."
 
-    let prefixMsceSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msce
-    let prefixMssiSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Mssi
-    let prefixMsrsSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msrs
-    let prefixMsuf4SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msuf4
-    let prefixMsuf6SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.CatalogPrefix simpleSorterModelType.Msuf6
-
-    let uniformMsceSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msce
-    let uniformMssiSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Mssi
-    let uniformMsrsSorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msrs
-    let uniformMsuf4SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msuf4
-    let uniformMsuf6SorterModels = ModelGenerationDefinitions.resultsModels modelPrefixMode.NoPrefix simpleSorterModelType.Msuf6
-
-    let standardMsceEvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msce
-    let standardMssiEvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Mssi
-    let standardMsrsEvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msrs
-    let standardMsuf4EvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msuf4
-    let standardMsuf6EvaluationInputs = ModelGenerationDefinitions.resultsStandardInputs simpleSorterModelType.Msuf6
-
     let private models (host: runHost) =
         match host.SetupDb.Load modelsType with
         | functionData.SorterModelSet value -> value

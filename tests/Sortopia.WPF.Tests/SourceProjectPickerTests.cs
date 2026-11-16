@@ -29,7 +29,6 @@ public sealed class SourceProjectPickerTests
         WorkspaceSourceProject Source(string name, string kind, string key, string location)
         {
             var settings = new projectSettingsDto {
-                resultsSortopiaDataTypes = [new() { kind = kind, value = "" }],
                 resultsDataTypes = [new() { dataType = new() { kind = kind, value = "" }, queryParameterKeys = [key] }]
             };
             return new(Guid.NewGuid(), name, true, settings, new WorkspaceTreeNode(WorkspaceEntityKind.Project, name).Editor!, Location: location);

@@ -27,7 +27,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     }
     private static runDto Inputs(bool branch, parameterSpanDto[]? spans = null, parameterSpanDto[]? setup = null) => new()
     {
-        schemaVersion = 14, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
+        schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
         resultsParameterSpans = spans ?? [], setupParameterSpans = setup ?? []
     };
     private static parameterSet[] Expand(parameterBindingDto[] defaults, params parameterSpanDto[] spans) => ParameterSets.create(

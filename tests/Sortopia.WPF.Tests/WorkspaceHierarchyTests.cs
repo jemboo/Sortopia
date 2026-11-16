@@ -21,18 +21,12 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     {
         description = "Keep every setting: α", resultsDatabaseName = "Results", resultsFunctionName = "sortable-tests.standard", resultsFunctionVersion = "1",
         resultsDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = [] }],
-        resultsSortopiaDataTypes = [new() { kind = "SortableTests", value = "" }], resultsQueryParameterKeys = [],
         resultsParameterDefaults = [RunExecutionTests.Binding("ChannelCount", "8", parameterValueType.Integer), RunExecutionTests.Binding("SortableDataFormat", "Bools")],
         setupParameterDefaults = branch ? [RunExecutionTests.Binding("ChannelCount", "8", parameterValueType.Integer), RunExecutionTests.Binding("SortableDataFormat", "Bools")] : [],
         setupDatabaseName = branch ? "Setup" : "", setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : "", setupFunctionVersion = branch ? "1" : "",
         setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = [] }] : []
     };
-    internal static projectSettingsDto EditorSettings(bool branch)
-    {
-        var settings = ProjectSettings(branch);
-        settings.resultsQueryParameterKeys = [];
-        return settings;
-    }
+    internal static projectSettingsDto EditorSettings(bool branch) => ProjectSettings(branch);
     internal static project MakeProject(hierarchyKind kind, Guid id, string name, run[] runs)
     {
         var settings = ProjectSettings(kind == hierarchyKind.Branch);
@@ -100,7 +94,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     }
     internal static run MakeRun(string projectName, string name, bool branch = false) => FromRunDto(new runDto
     {
-        schemaVersion = 14, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id(projectName + "/project"), runName = name,
+        schemaVersion = WorkspaceDtoSchema.version, id = WorkspaceTestFiles.Id(projectName + "/" + name), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id(projectName + "/project"), runName = name,
         descriptionOverride = null,
         resultsParameterSpans = [new parameterSpanDto { keyName = "ChannelCount", values = ["7", "11"] }, new() { keyName = "SortableDataFormat", values = ["Bools"] }],
 
@@ -118,7 +112,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         var original = MakeRun("Search", "Trial", branch);
         var renamed = WorkspaceRun.withNames("Search", "Trial: renamed", original);
         var bytes = WorkspaceCodec.encodeRun(renamed);
-        Assert.Equal(14, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
+        Assert.Equal(WorkspaceDtoSchema.version, MessagePackSetup.deserialize<runDto>(bytes).schemaVersion);
         Assert.Equal("Trial: renamed", DecodeRun(bytes).RunName);
         Assert.Equal(original.Id, DecodeRun(bytes).Id);
         Assert.Null(typeof(run).GetProperty("FolderName"));

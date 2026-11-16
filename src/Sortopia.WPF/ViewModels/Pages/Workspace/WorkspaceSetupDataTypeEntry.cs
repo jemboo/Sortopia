@@ -57,7 +57,7 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
         if (!WorkspaceSourceContracts.HasOutput(p, DataType.Kind, DataType.Text))
         {
             static string TypeName(sortopiaDataTypeDto type) => $"{type.kind} \"{type.value}\"";
-            var outputs = string.Join(", ", p.Settings.resultsSortopiaDataTypes.Select(TypeName));
+            var outputs = string.Join(", ", p.Settings.resultsDataTypes.Select(output => TypeName(output.dataType)));
             return $"Requires the exact data type {DataType.Kind} \"{DataType.Text}\". Project produces {(outputs.Length == 0 ? "no outputs" : outputs)}.";
         }
         var contract = SourceContract(p);

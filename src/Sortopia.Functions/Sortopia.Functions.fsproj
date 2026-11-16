@@ -6,6 +6,7 @@
     <Compile Include="ModelGenerators.fs" />
     <Compile Include="InputGenerators.fs" />
     <Compile Include="ModelGenerationDefinitions.fs" />
+    <Compile Include="ModelGenerationCatalog.fs" />
     <Compile Include="EvaluationInputs.fs" />
     <Compile Include="SetupFunctions.fs" />
     <Compile Include="ResultsFunctions.fs" />

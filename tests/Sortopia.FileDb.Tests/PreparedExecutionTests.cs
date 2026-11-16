@@ -40,7 +40,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var parent = project.create(Guid.NewGuid(), name, SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
         var run = RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = parent.IsBranchProject ? "branch" : "root",
+            schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = parent.IsBranchProject ? "branch" : "root",
             resultsParameterSpans = Spans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults, results),
             setupParameterSpans = parent is project.BranchProject branch ? Spans(branch.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), branch.Item.SetupParameterDefaults, setup) : []
         });
@@ -618,7 +618,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         File.Delete(alias);
         // Work files use compressed envelopes, so use their normal loader to obtain a complete invocation.
         var item = RunParameterFiles.loadFile(file);
-        var foreign = new runParametersDto(1, Guid.NewGuid(), item.RunId, item.Results.FunctionName, item.Results.FunctionVersion, item.Results.DatabaseName,
+        var foreign = new runParametersDto(RunParameterSchema.version, Guid.NewGuid(), item.RunId, item.Results.FunctionName, item.Results.FunctionVersion, item.Results.DatabaseName,
             [new preparedOutputDto("SortableTests", "", [])], [], [], 1, null!, null!, null!);
         var raw = Sortopia.Core.Serialization.MessagePackSetup.serialize(foreign);
         var id = new Guid(System.Security.Cryptography.SHA256.HashData(raw)[..16]);

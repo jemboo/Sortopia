@@ -24,7 +24,6 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
     private workspace Create(bool failSecondSetup = false)
     {
         var sourceSettings = RunExecutionTests.Settings(false);
-        sourceSettings.resultsQueryParameterKeys = [];
         var source = Project("Source", hierarchyKind.Root, sourceSettings);
         var modelSettings = RunExecutionTests.Settings(false);
         modelSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
@@ -33,7 +32,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var consumerSettings = RunExecutionTests.Settings(true);
         consumerSettings.setupFunctionName = SetupFunctionNames.evaluationSource;
         consumerSettings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), .. sourceSettings.resultsParameterDefaults];
-        consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsSortopiaDataTypes[0], sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] },
+        consumerSettings.setupDataTypes = [new() { dataType = sourceSettings.resultsDataTypes[0].dataType, sourceProjectId = source.Id, queryParameterKeys = ["SortableDataFormat"] },
             new() { dataType = new() { kind = "SorterModelSet", value = "" }, sourceProjectId = modelSource.Id, queryParameterKeys = [] }];
         consumerSettings.resultsFunctionName = ResultsFunctionNames.sorterEval;
         consumerSettings.resultsParameterDefaults = [Binding("SorterEvalType", "V1", parameterValueType.Text), Binding("CollectSortableTests", "false", parameterValueType.Boolean)];
@@ -110,7 +109,6 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var modelsSettings = RunExecutionTests.Settings(false);
         modelsSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         modelsSettings.resultsDatabaseName = "Model archive";
-        modelsSettings.resultsSortopiaDataTypes = [new() { kind = "SorterModelSet", value = "" }];
         modelsSettings.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();
         var testsProject = Project("Tests source", hierarchyKind.Root, testsSettings);
         var modelsProject = Project("Models source", hierarchyKind.Root, modelsSettings);
@@ -239,7 +237,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Throws<ArgumentException>(() => SetupFunctions.standardTests.Execute.Invoke(results).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
         var unsaved = RunDto.toDomain(source, new runDto
         {
-            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = source.Id, runName = "Unsaved", runKind = "root",
+            schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = source.Id, runName = "Unsaved", runKind = "root",
             resultsParameterSpans = RunDto.fromDomain(source.Runs[0]).resultsParameterSpans, setupParameterSpans = []
         });
         Assert.Contains("saved run", Assert.Throws<InvalidOperationException>(() => new FileRunHost(world, temporary.FullName, unsaved, Token)).Message);

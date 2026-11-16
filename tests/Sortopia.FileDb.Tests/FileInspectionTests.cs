@@ -49,7 +49,7 @@ public sealed class FileInspectionTests : IDisposable
     [Fact]
     public void Prepared_parameters_show_types_and_values_and_reject_a_damaged_checksum()
     {
-        var dto = new runParametersDto(1, Guid.NewGuid(), Guid.NewGuid(), "sortable-tests.standard", "1", "Results",
+        var dto = new runParametersDto(RunParameterSchema.version, Guid.NewGuid(), Guid.NewGuid(), "sortable-tests.standard", "1", "Results",
             [new preparedOutputDto("SortableTests", "Binary", ["ChannelCount"])],
             [new preparedBindingDto("ChannelCount", (int)parameterValueType.Integer, MessagePackSetup.serialize(16))], [], 1, null!, null!, null!);
         var payload = MessagePackSetup.serialize(dto);

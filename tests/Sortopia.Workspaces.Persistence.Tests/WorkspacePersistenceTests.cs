@@ -32,7 +32,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
         parameterSpanDto[] spans = [new() { keyName = "ChannelCount", values = ["4", "6"] }, new() { keyName = "SortableDataFormat", values = ["Bools"] }];
         var run = RunDto.toDomain(parent, new runDto
         {
-            schemaVersion = 14, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
+            schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
             runKind = branch ? "branch" : "root", resultsParameterSpans = spans, setupParameterSpans = branch ? spans : []
         });
         parent = project.withRuns(parent, [run]);

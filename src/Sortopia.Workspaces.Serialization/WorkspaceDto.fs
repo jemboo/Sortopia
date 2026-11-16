@@ -7,6 +7,9 @@ open Sortopia.Functions
 open Sortopia.Workspaces
 open Sortopia.Core.Serialization
 
+module WorkspaceDtoSchema =
+    let version = 15
+
 [<CLIMutable>]
 type parameterSpanDto = { keyName: string; values: string array; valueType: Nullable<int> }
 [<CLIMutable>]
@@ -48,8 +51,6 @@ type projectSettingsDto = {
     resultsFunctionName: string
     resultsFunctionVersion: string
     resultsDataTypes: resultsDataTypeConfigDto array
-    resultsSortopiaDataTypes: sortopiaDataTypeDto array
-    resultsQueryParameterKeys: string array
     resultsParameterDefaults: parameterBindingDto array
     setupDatabaseName: string
     setupFunctionName: string
@@ -62,8 +63,6 @@ type moduleSettingsDto = {
     description: string
     resultsFunctionName: string
     resultsDataTypes: resultsDataTypeConfigDto array
-    resultsSortopiaDataTypes: sortopiaDataTypeDto array
-    resultsQueryParameterKeys: string array
     resultsParameterDefaults: parameterBindingDto array
     setupFunctionName: string
     setupDataTypes: setupDataTypeConfigDto array
@@ -97,7 +96,7 @@ module SortopiaDataTypeDto =
 
 module private Contract =
     let version value =
-        if value <> 14 then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
+        if value <> WorkspaceDtoSchema.version then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
     let kind value =
         match value with
         | "root" -> hierarchyKind.Root
@@ -135,7 +134,7 @@ module RunDto =
             match value with
             | run.RootRun r -> r.Configuration.DescriptionOverride, []
             | run.BranchRun r -> r.Configuration.DescriptionOverride, r.SetupParameterSpans
-        { schemaVersion = 14; runKind = if value.HasSetup then "branch" else "root"
+        { schemaVersion = WorkspaceDtoSchema.version; runKind = if value.HasSetup then "branch" else "root"
           parentProjectId = UMX.untag value.ParentProjectId; runName = UMX.untag value.RunName; id = UMX.untag value.Id
           descriptionOverride = description |> Option.toObj
           resultsParameterSpans = value.ResultsParameterSpans |> List.map Contract.spanFrom |> List.toArray
@@ -181,8 +180,6 @@ module SettingsDto =
         resultsFunctionName = UMX.untag value.ResultsFunctionName
         resultsFunctionVersion = value.Results.FunctionVersion
         resultsDataTypes = value.ResultsDataTypes |> List.map ResultsDataTypeConfigDto.fromDomain |> List.toArray
-        resultsSortopiaDataTypes = value.ResultsSortopiaDataTypes |> List.map SortopiaDataTypeDto.fromDomain |> List.toArray
-        resultsQueryParameterKeys = value.ResultsQueryParameterKeys |> List.map UMX.untag |> List.toArray
         resultsParameterDefaults = value.ResultsParameterDefaults |> List.map ParameterBindingDto.fromDomain |> List.toArray
         setupDatabaseName = ""
         setupFunctionName = ""
@@ -195,8 +192,6 @@ module SettingsDto =
         resultsFunctionName = UMX.untag value.ResultsFunctionName
         resultsFunctionVersion = value.Results.FunctionVersion
         resultsDataTypes = value.ResultsDataTypes |> List.map ResultsDataTypeConfigDto.fromDomain |> List.toArray
-        resultsSortopiaDataTypes = value.ResultsSortopiaDataTypes |> List.map SortopiaDataTypeDto.fromDomain |> List.toArray
-        resultsQueryParameterKeys = value.ResultsQueryParameterKeys |> List.map UMX.untag |> List.toArray
         resultsParameterDefaults = value.ResultsParameterDefaults |> List.map ParameterBindingDto.fromDomain |> List.toArray
         setupDatabaseName = UMX.untag value.SetupDatabaseName
         setupFunctionName = UMX.untag value.SetupFunctionName
@@ -284,8 +279,6 @@ module ModuleSettingsDto =
         description = value.description
         resultsFunctionName = value.resultsFunctionName
         resultsDataTypes = value.resultsDataTypes
-        resultsSortopiaDataTypes = value.resultsSortopiaDataTypes
-        resultsQueryParameterKeys = value.resultsQueryParameterKeys
         resultsParameterDefaults = value.resultsParameterDefaults
         setupFunctionName = value.setupFunctionName
         setupDataTypes = value.setupDataTypes
@@ -295,8 +288,6 @@ module ModuleSettingsDto =
         resultsFunctionName = value.resultsFunctionName
         resultsFunctionVersion = Defaults.resultsVersion (UMX.tag value.resultsFunctionName)
         resultsDataTypes = value.resultsDataTypes
-        resultsSortopiaDataTypes = value.resultsSortopiaDataTypes
-        resultsQueryParameterKeys = value.resultsQueryParameterKeys
         resultsParameterDefaults = value.resultsParameterDefaults
         setupFunctionName = value.setupFunctionName
         setupFunctionVersion = Defaults.setupVersion (UMX.tag value.setupFunctionName)
@@ -339,7 +330,7 @@ module ProjectDto =
     let settingsFromDomain (value: project) = SettingsDto.fromDomain value.Configuration
     let settingsToDomain kind value = SettingsDto.toDomain kind value
     let fromDomain (value: project) : projectDto = {
-        schemaVersion = 14; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName
+        schemaVersion = WorkspaceDtoSchema.version; isSealed = value.IsSealed; id = UMX.untag value.Id; projectKind = Contract.kindName value.Kind; projectName = UMX.untag value.ProjectName
         configuration = settingsFromDomain value; localOverrides = OverridesDto.fromDomain value.LocalOverrides
         inheritedDefaults = SettingsDto.fromDomain value.InheritedDefaults
         runs = value.Runs |> Array.map RunDto.fromDomain }
@@ -368,7 +359,7 @@ module ProjectDto =
 
 module ModuleDto =
     let rec fromDomain (value: workspaceModule) : moduleDto = {
-        schemaVersion = 14; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName
+        schemaVersion = WorkspaceDtoSchema.version; id = UMX.untag value.Id; moduleKind = Contract.kindName value.Kind; moduleName = UMX.untag value.ModuleName
         configuration = ModuleSettingsDto.fromDomain value.Configuration; localOverrides = ModuleOverridesDto.fromDomain value.LocalOverrides
         inheritedDefaults = ModuleSettingsDto.fromDomain value.InheritedDefaults
         modules = value.Modules |> Array.map fromDomain; projects = value.Projects |> Array.map ProjectDto.fromDomain }
@@ -386,7 +377,7 @@ module ModuleDto =
 
 module WorkspaceDto =
     let fromDomain (value: workspace) : workspaceDto = {
-        schemaVersion = 14; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
+        schemaVersion = WorkspaceDtoSchema.version; id = UMX.untag value.Id; workspaceName = UMX.untag value.WorkspaceName; folderName = value.FolderName
         modules = value.Modules |> Array.map ModuleDto.fromDomain }
     let toDomain (value: workspaceDto) =
         Contract.version value.schemaVersion
