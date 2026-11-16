@@ -2,12 +2,13 @@ using System.IO;
 using Sortopia.FileDb;
 using Sortopia.Functions;
 using Sortopia.WPF.Commands;
+using Sortopia.WPF.ViewModels.Shared;
 
 namespace Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 
 public sealed record RunFileChoice(Guid? Id, string Label);
 
-public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? inspection, string error = "", TimeProvider? timeProvider = null) : ViewModelBase
+public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? inspection, string error = "", TimeProvider? timeProvider = null) : ViewModelBase, ISetupQueryRow
 {
     private bool selected;
     private workItemExecutionProgress? execution;
@@ -28,6 +29,10 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     public bool HasError => Error.Length > 0;
     public bool CanExecute => parameters is not null && State != outputState.Invalid;
     public string[] Cells { get; private set; } = [];
+    public bool HasSetupInputs => parameters?.SetupInputs.IsEmpty == false;
+    public SetupQueryData SetupQueries { get; init; } = new() { Unavailable = parameters is null };
+    public string InheritedSetupQueryValues { get; init; } = parameters is null ? "Unavailable" : "—";
+    public string InheritedSetupQueryDetails { get; init; } = parameters is null ? "The parameter file could not be read." : "These results do not consume setup files.";
     public bool IsSelected { get => selected; set { if (SetProperty(ref selected, value)) SelectionChanged?.Invoke(); } }
     internal event Action? SelectionChanged;
     internal void UpdateExecution(workItemExecutionProgress update)
@@ -60,6 +65,7 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
 public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
 {
     private readonly Func<string?, string?> pickFolder;
+    private readonly Func<string?, string?> pickReportFolder;
     private Action goBack;
     private readonly Action<int>? saveParallelJobs;
     private readonly TimeProvider clock;
@@ -77,9 +83,11 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     private readonly HashSet<WorkItemStatusRow> runningRows = [];
     private ResultsExecutionProgress executionProgress = new(0);
     private bool changingSelection;
-    public ResultsExecutionPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<int>? loadParallelJobs = null, Action<int>? saveParallelJobs = null, TimeProvider? timeProvider = null)
+    public ResultsExecutionPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<int>? loadParallelJobs = null, Action<int>? saveParallelJobs = null, TimeProvider? timeProvider = null,
+        Func<string?, string?>? pickReportFolder = null)
     {
         this.goBack = goBack; this.pickFolder = pickFolder;
+        this.pickReportFolder = pickReportFolder ?? pickFolder;
         this.saveParallelJobs = saveParallelJobs;
         clock = timeProvider ?? TimeProvider.System;
         parallelJobs = Math.Max(1, loadParallelJobs?.Invoke() ?? 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -91,6 +99,15 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         }, () => !IsBusy);
         RefreshCommand = new RelayCommand(async () => await RefreshAsync(), () => !IsBusy && Folder.Length > 0);
         ExecuteCommand = new RelayCommand(async () => await ExecuteAsync(), () => CanExecute);
+        ExportReportsCommand = new RelayCommand(async () =>
+        {
+            try
+            {
+                if (this.pickReportFolder(Path.GetDirectoryName(Folder)) is { } parent)
+                    await ExportReportsAsync(Path.Combine(parent, $"sorter-eval-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}"));
+            }
+            catch (Exception exception) { Error = exception.GetBaseException().Message; }
+        }, () => CanExportReports);
         SelectAllCommand = new RelayCommand(() => SelectRows(_ => true), () => !IsBusy && Rows.Count > 0);
         SelectPendingCommand = new RelayCommand(() => SelectRows(row => row.State is outputState.Pending or outputState.Partial), () => !IsBusy && Rows.Count > 0);
         ClearSelectionCommand = new RelayCommand(() => SelectRows(_ => false), () => !IsBusy && SelectedCount > 0);
@@ -133,12 +150,15 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     public bool IsBusy => cancellation is not null;
     public bool CanChooseRun => !IsBusy;
     public bool CanExecute => !IsBusy && ParallelJobsError.Length == 0 && SelectedCount > 0 && Rows.Where(row => row.IsSelected).All(row => row.CanExecute);
+    public bool CanExportReports => !IsBusy && SelectedCount > 0 && Rows.Where(row => row.IsSelected)
+        .All(row => row.State == outputState.Complete && row.Parameters is { } item && SorterEvalReportExport.isSupported(item));
     public runExecutionReport? LastReport { get; private set; }
     public ResultsExecutionProgress ExecutionProgress { get => executionProgress; private set => SetProperty(ref executionProgress, value); }
     public RelayCommand ReturnCommand { get; }
     public RelayCommand BrowseCommand { get; }
     public RelayCommand RefreshCommand { get; }
     public RelayCommand ExecuteCommand { get; }
+    public RelayCommand ExportReportsCommand { get; }
     public RelayCommand SelectAllCommand { get; }
     public RelayCommand SelectPendingCommand { get; }
     public RelayCommand ClearSelectionCommand { get; }
@@ -202,18 +222,24 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var loaded = await Task.Run(() =>
         {
             if (path.Length == 0 || !Directory.Exists(path)) return [];
-            RunParameterFiles.projectFolder(path);
+            var setupQueries = new SavedSetupQueries(RunParameterFiles.projectFolder(path));
             return Directory.GetFiles(path, "*.msgpack").Order(StringComparer.Ordinal).Select(file =>
             {
                 token.ThrowIfCancellationRequested();
                 runParameters? parameters = null;
+                workItemOutputStatus? inspection = null;
+                var error = "";
+                var setup = (Values: "Unavailable", Details: "The parameter file could not be read.", Queries: new SetupQueryData { Unavailable = true });
                 try
                 {
                     parameters = RunParameterFiles.loadFile(file);
-                    return new WorkItemStatusRow(file, parameters, RunParameterExecution.inspectFile(file, token), timeProvider: clock);
+                    setup = setupQueries.Read(parameters, token);
+                    inspection = RunParameterExecution.inspectFile(file, token);
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception e) { return new WorkItemStatusRow(file, parameters, null, e.GetBaseException().Message, clock); }
+                catch (Exception e) { error = e.GetBaseException().Message; }
+                return new WorkItemStatusRow(file, parameters, inspection, error, clock)
+                    { InheritedSetupQueryValues = setup.Values, InheritedSetupQueryDetails = setup.Details, SetupQueries = setup.Queries };
             }).ToArray();
         }, token);
         token.ThrowIfCancellationRequested();
@@ -221,7 +247,9 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var loadedPaths = loaded.Select(row => row.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
         loaded = [.. loaded, .. files.Where(row => !loadedPaths.Contains(row.Path) && row.Parameters is not null
                 && outcomes.TryGetValue(row.Parameters.Id, out var outcome) && outcome.State == workItemExecutionState.Failed)
-            .Select(row => new WorkItemStatusRow(row.Path, row.Parameters, null, "The parameter file no longer exists.", clock))];
+            .Select(row => new WorkItemStatusRow(row.Path, row.Parameters, null, "The parameter file no longer exists.", clock)
+                { InheritedSetupQueryValues = row.InheritedSetupQueryValues, SetupQueries = row.SetupQueries,
+                  InheritedSetupQueryDetails = "From the last successful read. " + row.InheritedSetupQueryDetails })];
         foreach (var row in loaded)
             if (Guid.TryParse(System.IO.Path.GetFileNameWithoutExtension(row.Path), out var id))
             {
@@ -282,6 +310,14 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         if (report.Status != runExecutionStatus.Completed)
         { Error = report.Error; Status = $"{report.Status}: {report.Results.Length:N0} selected files processed. {Status}"; }
     }) : Task.CompletedTask;
+    public Task ExportReportsAsync(string outputFolder) => CanExportReports ? WorkAsync(async token =>
+    {
+        var paths = SelectedPaths();
+        Status = $"Exporting reports for {paths.Length:N0} selected files…";
+        var exported = await Task.Run(() => SorterEvalReportExport.exportFiles(paths, outputFolder, token), token);
+        if (cancellation?.Token == token)
+            Status = $"Exported {exported.SummaryRows:N0} summary rows and {exported.DetailRows:N0} detail rows to {exported.Folder}";
+    }) : Task.CompletedTask;
     internal void RefreshElapsedTimes()
     {
         foreach (var row in runningRows.ToArray()) row.RefreshElapsed();
@@ -311,8 +347,8 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     private void Notify()
     {
         if (changingSelection) return;
-        foreach (var property in new[] { nameof(IsBusy), nameof(CanChooseRun), nameof(CanExecute), nameof(FileCount), nameof(SelectedCount), nameof(SelectionSummary), nameof(CommandLine) }) OnPropertyChanged(property);
-        foreach (var command in new[] { BrowseCommand, RefreshCommand, ExecuteCommand, SelectAllCommand, SelectPendingCommand, ClearSelectionCommand, CancelCommand }) command?.RaiseCanExecuteChanged();
+        foreach (var property in new[] { nameof(IsBusy), nameof(CanChooseRun), nameof(CanExecute), nameof(CanExportReports), nameof(FileCount), nameof(SelectedCount), nameof(SelectionSummary), nameof(CommandLine) }) OnPropertyChanged(property);
+        foreach (var command in new[] { BrowseCommand, RefreshCommand, ExecuteCommand, ExportReportsCommand, SelectAllCommand, SelectPendingCommand, ClearSelectionCommand, CancelCommand }) command?.RaiseCanExecuteChanged();
     }
     public void Cancel() => cancellation?.Cancel();
     public void Dispose() { Cancel(); foreach (var row in files) row.SelectionChanged -= Notify; }

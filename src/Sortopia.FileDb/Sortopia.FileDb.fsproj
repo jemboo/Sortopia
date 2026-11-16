@@ -12,6 +12,7 @@
     <Compile Include="RunDataCleanup.fs" />
     <Compile Include="FileInspection.fs" />
     <Compile Include="RunParameterExecution.fs" />
+    <Compile Include="SorterEvalReportExport.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Functions/Sortopia.Functions.fsproj" />

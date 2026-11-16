@@ -50,9 +50,9 @@ public sealed partial class WorkspacePageViewModel
         EditProjectQueryProjectionsCommand = new RelayCommand(value =>
         {
             if (value is not string key || key is not ("resultsTypes" or "setupOutputs")) return;
-            Selected = Selected!.Parent;
+            if (Selected!.IsRun) Selected = Selected.Parent;
             SelectConfigurationItem(key);
-        }, () => CanEdit && Selected is { IsRun: true, Parent.IsProject: true });
+        }, () => CanEdit && (Selected?.IsProject == true || Selected is { IsRun: true, Parent.IsProject: true }));
         SelectConfigurationItemCommand = new RelayCommand(value => SelectConfigurationItem(value is WorkspaceInspectorItem item ? item.Key : value as string ?? "name"));
         SelectInspectorSourceCommand = new RelayCommand(value =>
         {

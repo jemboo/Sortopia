@@ -30,18 +30,44 @@
                     <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="420" /></DataTemplate></ComboBox.ItemTemplate>
                 </ComboBox>
                 <TextBlock Text="{Binding CatalogHint}" TextWrapping="Wrap" Foreground="{DynamicResource Workspace.TextSecondary}" FontSize="12" Margin="0,6,0,8" />
-                <Label Content="Channel count" Target="{Binding ElementName=LibraryChannelCountInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                <TextBox x:Name="LibraryChannelCountInput" Text="{Binding ChannelCount, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Library channel count" />
-                <StackPanel Visibility="{Binding IsPrefix, Converter={StaticResource VisibleWhen}}">
-                    <Label Content="Stage length" Target="{Binding ElementName=LibraryStageLengthInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                    <TextBox x:Name="LibraryStageLengthInput" Text="{Binding StageLength, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Prefix stage length" />
+                <StackPanel>
+                    <StackPanel.Style><Style TargetType="StackPanel">
+                        <Style.Triggers><DataTrigger Binding="{Binding IsPrefix}" Value="True"><Setter Property="Orientation" Value="Horizontal" /></DataTrigger></Style.Triggers>
+                    </Style></StackPanel.Style>
+                    <StackPanel.Resources>
+                        <Style TargetType="StackPanel">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsPrefix}" Value="True">
+                                <Setter Property="Width" Value="96" /><Setter Property="Margin" Value="0,0,8,0" />
+                            </DataTrigger></Style.Triggers>
+                        </Style>
+                        <Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsPrefix}" Value="True">
+                                <Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="6,3" /><Setter Property="FontSize" Value="12" />
+                            </DataTrigger></Style.Triggers>
+                        </Style>
+                        <Style TargetType="ComboBox" BasedOn="{StaticResource NetworkComboBoxStyle}">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsPrefix}" Value="True">
+                                <Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="6,3" /><Setter Property="FontSize" Value="12" />
+                            </DataTrigger></Style.Triggers>
+                        </Style>
+                    </StackPanel.Resources>
+                    <StackPanel>
+                        <Label Content="Channel count" Target="{Binding ElementName=LibraryChannelCountInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                        <TextBox x:Name="LibraryChannelCountInput" Text="{Binding ChannelCount, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Library channel count" />
+                    </StackPanel>
+                    <StackPanel Visibility="{Binding IsPrefix, Converter={StaticResource VisibleWhen}}">
+                        <Label Content="Stage length" Target="{Binding ElementName=LibraryStageLengthInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                        <TextBox x:Name="LibraryStageLengthInput" Text="{Binding StageLength, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Prefix stage length" />
+                    </StackPanel>
+                    <StackPanel Visibility="{Binding IsMerge, Converter={StaticResource VisibleWhen}}">
+                        <Label Content="Merge dimension" Target="{Binding ElementName=LibraryMergeDimensionInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                        <TextBox x:Name="LibraryMergeDimensionInput" Text="{Binding MergeDimension, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Merge dimension" />
+                    </StackPanel>
+                    <StackPanel>
+                        <Label Content="Variant" Target="{Binding ElementName=LibraryVariantInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                        <ComboBox x:Name="LibraryVariantInput" ItemsSource="{Binding Variants}" SelectedItem="{Binding Variant, Mode=TwoWay}" AutomationProperties.Name="Library variant" />
+                    </StackPanel>
                 </StackPanel>
-                <StackPanel Visibility="{Binding IsMerge, Converter={StaticResource VisibleWhen}}">
-                    <Label Content="Merge dimension" Target="{Binding ElementName=LibraryMergeDimensionInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                    <TextBox x:Name="LibraryMergeDimensionInput" Text="{Binding MergeDimension, UpdateSourceTrigger=PropertyChanged}" InputScope="Number" AutomationProperties.Name="Merge dimension" />
-                </StackPanel>
-                <Label Content="Variant" Target="{Binding ElementName=LibraryVariantInput}" Padding="0,6,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                <ComboBox x:Name="LibraryVariantInput" ItemsSource="{Binding Variants}" SelectedItem="{Binding Variant, Mode=TwoWay}" AutomationProperties.Name="Library variant" />
                 <TextBlock Text="Identifier" Margin="0,6,0,4" />
                 <TextBox Text="{Binding Identifier, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="100" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Library identifier" />
             </StackPanel>

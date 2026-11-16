@@ -1,14 +1,17 @@
 using System.IO;
 using Sortopia.FileDb;
-using Sortopia.Functions;
+using Sortopia.WPF.ViewModels.Shared;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
-public sealed record WorkspaceRunParameterFile(string Path, Guid? RunId, string Parameters, string FileStatus, string ResultsStatus, string Details)
+public sealed record WorkspaceRunParameterFile(string Path, Guid? RunId, string Parameters, string FileStatus, string ResultsStatus, string Details) : ISetupQueryRow
 {
+    public SetupQueryData SetupQueries { get; init; } = new();
     public string FileName => System.IO.Path.GetFileName(Path);
     public string SuffixStages { get; init; } = "—";
     public string SuffixStagesDetails { get; init; } = "No model-generation suffix length is recorded for this file.";
+    public string InheritedSetupQueryValues { get; init; } = "—";
+    public string InheritedSetupQueryDetails { get; init; } = "These results do not consume setup files.";
 }
 
 /// Reads saved files independently of the current draft and the last generation attempt.
@@ -77,6 +80,7 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
         catch (DirectoryNotFoundException) { }
         var paths = files.Concat(known.Keys).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
         var rows = new List<WorkspaceRunParameterFile>();
+        SavedSetupQueries? setupQueries = null;
         foreach (var path in paths)
         {
             token.ThrowIfCancellationRequested();
@@ -101,7 +105,11 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
                 {
                     SuffixStages = previous?.SuffixStages ?? "—",
                     SuffixStagesDetails = previous is null ? "The file could not be read."
-                        : "From the last successful read. " + previous.SuffixStagesDetails
+                        : "From the last successful read. " + previous.SuffixStagesDetails,
+                    InheritedSetupQueryValues = previous?.InheritedSetupQueryValues ?? "Unavailable",
+                    InheritedSetupQueryDetails = previous is null ? "The parameter file could not be read."
+                        : "From the last successful read. " + previous.InheritedSetupQueryDetails,
+                    SetupQueries = previous?.SetupQueries ?? new() { Unavailable = true }
                 });
                 continue;
             }
@@ -111,22 +119,28 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
             if (parameters.SetupSetNumber is { } setup) values = $"Setup set {setup.Value} · Results: {values}";
             if (parameters.ProjectId != projectId)
             {
-                rows.Add(new(path, runId, values, "Invalid", "Unknown", "The parameter file belongs to a different project."));
+                rows.Add(new(path, runId, values, "Invalid", "Unknown", "The parameter file belongs to a different project.")
+                    { InheritedSetupQueryValues = "Unavailable", InheritedSetupQueryDetails = "The parameter file belongs to a different project.",
+                      SetupQueries = new() { Unavailable = true } });
                 continue;
             }
             var (suffixStages, suffixDetails) = StageLengths(parameters);
+            setupQueries ??= new SavedSetupQueries(RunParameterFiles.projectFolder(folder));
+            var (setupValues, setupDetails, queries) = setupQueries.Read(parameters, token);
             try
             {
                 var outputs = RunParameterExecution.inspectFile(path, token).Outputs;
                 rows.Add(new(path, runId, values, "Ready", outputs.State == outputState.Pending ? "Not generated" : outputs.State.ToString(),
                     outputs.Error.Length > 0 ? outputs.Error : $"{outputs.Available.Length}/{outputs.ExpectedCount} result outputs available.")
-                    { SuffixStages = suffixStages, SuffixStagesDetails = suffixDetails });
+                    { SuffixStages = suffixStages, SuffixStagesDetails = suffixDetails,
+                      InheritedSetupQueryValues = setupValues, InheritedSetupQueryDetails = setupDetails, SetupQueries = queries });
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception error)
             {
                 rows.Add(new(path, runId, values, "Ready", "Unknown", error.GetBaseException().Message)
-                    { SuffixStages = suffixStages, SuffixStagesDetails = suffixDetails });
+                    { SuffixStages = suffixStages, SuffixStagesDetails = suffixDetails,
+                      InheritedSetupQueryValues = setupValues, InheritedSetupQueryDetails = setupDetails, SetupQueries = queries });
             }
         }
         return rows.ToArray();

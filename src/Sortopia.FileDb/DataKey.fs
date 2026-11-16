@@ -8,6 +8,14 @@ open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Functions
 open Sortopia.Core
+open Sortopia.Sorting.Catalog
+
+type internal decodedQueryKey = {
+    ProjectId: Guid<projectId>
+    IsSetup: bool
+    DataType: sortopiaDataType
+    Parameters: parameterBinding list
+}
 
 /// Query identity selects a bucket; dependency identity selects an immutable datum.
 type dataKey = private {
@@ -83,3 +91,55 @@ module DataKey =
                 writer.Write(SortopiaDataType.text input.DataType))
         { reference = { ProjectId = projectId; Id = hashId identity; QueryId = hashId query; IsSetup = isSetup; DataType = dataType }
           queryBytes = query; identityBytes = identity }
+
+    /// Decode only the parameters actually included in a saved query projection.
+    let internal readQuery (bytes: byte array) =
+        use stream = new MemoryStream(bytes, false)
+        use reader = new BinaryReader(stream, Encoding.UTF8)
+        let requireTag expected =
+            if reader.ReadString() <> expected then invalidOp "Unsupported stored query format."
+        requireTag "sortopia-data-key/1"
+        let projectId = Guid(reader.ReadBytes 16) |> UMX.tag<projectId>
+        let database = reader.ReadString()
+        let setup = reader.ReadBoolean()
+        let functionName = reader.ReadString()
+        let version = reader.ReadString()
+        let kind = reader.ReadString()
+        let dataType = SortopiaDataType.create kind (reader.ReadString())
+        let count = reader.ReadInt32()
+        if count < 0 || count > 4096 then invalidOp "Invalid stored query parameter count."
+        let bindings = [ for _ in 1..count do
+                            let name = reader.ReadString() |> UMX.tag<paramKeyName>
+                            let valueType = enum<parameterValueType> (reader.ReadInt32())
+                            let value =
+                                match valueType with
+                                | parameterValueType.Text -> reader.ReadString() |> TextValue
+                                | parameterValueType.Integer -> reader.ReadInt32() |> IntegerValue
+                                | parameterValueType.Unsigned64 -> reader.ReadUInt64() |> Unsigned64Value
+                                | parameterValueType.Floating -> reader.ReadDouble() |> FloatingValue
+                                | parameterValueType.Boolean -> reader.ReadBoolean() |> BooleanValue
+                                | parameterValueType.Guid -> Guid(reader.ReadBytes 16) |> GuidValue
+                                | parameterValueType.SorterLibId ->
+                                    requireTag "Sortopia.Sorting.Catalog.SorterLibId/v1"
+                                    let width = reader.ReadInt32() |> UMX.tag
+                                    sorterLibId.create width (reader.ReadString() |> SorterLibVariant.fromString) |> SorterLibIdValue
+                                | parameterValueType.PrefixLibId ->
+                                    requireTag "Sortopia.Sorting.Catalog.PrefixLibId/v1"
+                                    let width = reader.ReadInt32() |> UMX.tag
+                                    let stages = reader.ReadInt32() |> UMX.tag
+                                    prefixLibId.create width stages (reader.ReadString() |> PrefixLibVariant.fromString) |> PrefixLibIdValue
+                                | parameterValueType.MergeLibId ->
+                                    requireTag "Sortopia.Sorting.Catalog.MergeLibId/v1"
+                                    let width = reader.ReadInt32() |> UMX.tag
+                                    let dimension = reader.ReadInt32() |> UMX.tag
+                                    mergeLibId.create width dimension (reader.ReadString() |> SorterLibVariant.fromString) |> MergeLibIdValue
+                                | parameterValueType.OpsWeights | parameterValueType.Seed6Weights
+                                | parameterValueType.UnfoldingWeights | parameterValueType.SorterSuccessFraction ->
+                                    reader.ReadString() |> ParameterValue.parse valueType
+                                | _ -> invalidOp "Unknown stored query parameter type."
+                            yield ParameterBinding.fromValue name value ]
+        if stream.Position <> stream.Length then invalidOp "Unexpected stored query metadata."
+        let parameters = parameterSet.fromBindings bindings
+        let canonical = create projectId database setup functionName version dataType (bindings |> List.map _.KeyName) parameters []
+        if canonical.QueryBytes <> bytes then invalidOp "Stored query metadata is not canonical."
+        { ProjectId = projectId; IsSetup = setup; DataType = dataType; Parameters = bindings }

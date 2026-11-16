@@ -173,6 +173,14 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
             {
                 var item = RunParameterFiles.loadFile(row.Path);
                 Assert.Equal("Ready", row.FileStatus);
+                if (mode == "setup")
+                {
+                    var setupValues = page.SelectedExecution!.Report!.Setup.Single(set => set.SetNumber == item.SetupSetNumber.Value).Parameters;
+                    Assert.Contains($"SorterModelSet: SorterSuccessFraction = {setupValues.TryFindText("SorterSuccessFraction").Value}", row.InheritedSetupQueryValues);
+                    Assert.DoesNotContain("RngType", row.InheritedSetupQueryValues);
+                    Assert.Contains("saved input files", row.InheritedSetupQueryDetails);
+                }
+                else Assert.Equal("—", row.InheritedSetupQueryValues); // Only inputs consumed by results are inherited.
                 if (branch)
                 {
                     Assert.Contains($"Setup: {item.SetupSuffixStages.Value:N0}", row.SuffixStages);
@@ -200,6 +208,30 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
             var retained = reopened.Rows.Single(row => row.Path == missing.Path);
             Assert.Equal("Missing", retained.FileStatus); Assert.Equal(missing.SuffixStages, retained.SuffixStages);
             Assert.Contains("last successful read", retained.SuffixStagesDetails);
+            Assert.Equal(missing.InheritedSetupQueryValues, retained.InheritedSetupQueryValues);
+            Assert.Contains("last successful read", retained.InheritedSetupQueryDetails);
+            if (mode == "setup")
+            {
+                var row = files.Rows[1];
+                var item = RunParameterFiles.loadFile(row.Path);
+                var store = new SortopiaFileDb(RunParameterFiles.projectFolder(page.RunParametersFolder), project.Id);
+                var reference = item.SetupInputs.Single(input => input.DataType.IsSorterModelSet);
+                var path = store.GetPath(reference);
+                var saved = File.ReadAllBytes(path);
+                File.Delete(path);
+                var fresh = new WorkspaceRunParameterFiles();
+                await fresh.RefreshAsync(page.RunParametersFolder, project.Id, run.Id);
+                var unavailable = fresh.Rows.Single(value => value.Path == row.Path);
+                Assert.Equal("Ready", unavailable.FileStatus);
+                Assert.Contains("SorterModelSet: Unavailable", unavailable.InheritedSetupQueryValues);
+                Assert.Contains("SortableTests: SorterSuccessFraction =", unavailable.InheritedSetupQueryValues);
+                File.WriteAllBytes(path, [1, 2, 3]);
+                await fresh.RefreshAsync(page.RunParametersFolder, project.Id, run.Id);
+                Assert.Contains("SorterModelSet: Unavailable", fresh.Rows.Single(value => value.Path == row.Path).InheritedSetupQueryValues);
+                File.WriteAllBytes(path, saved);
+                await fresh.RefreshAsync(page.RunParametersFolder, project.Id, run.Id);
+                Assert.Equal(row.InheritedSetupQueryValues, fresh.Rows.Single(value => value.Path == row.Path).InheritedSetupQueryValues);
+            }
             if (mode == "uniform")
             {
                 // Decode an actual old 11-field payload, not a new payload with null fields.

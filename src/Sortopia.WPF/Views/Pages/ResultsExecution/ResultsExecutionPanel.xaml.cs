@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
 using Sortopia.WPF.ViewModels.Pages.ResultsExecution;
+using Sortopia.WPF.Views.Shared;
 namespace Sortopia.WPF.Views.Pages.ResultsExecution;
 public partial class ResultsExecutionPanel : UserControl
 {
@@ -41,6 +42,7 @@ public partial class ResultsExecutionPanel : UserControl
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Elapsed", Binding = new Binding("ElapsedText"), Width = 110, ElementStyle = elapsedStyle });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Outputs", Binding = new Binding("OutputSummary"), Width = 100 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Executor", Binding = new Binding("FunctionName"), Width = 230 });
+        SetupQueryColumns.Refresh(RunParametersGrid);
         if (model is null) return;
         for (var i = 0; i < model.ParameterColumns.Length; i++)
         {

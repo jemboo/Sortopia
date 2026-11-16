@@ -34,7 +34,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (HasResultsContract)
         {
             yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
-                : Summary(EffectiveResultsDataTypes.Select(output => $"{output.dataType.kind} · query keys: {(output.queryParameterKeys.Length == 0 ? "none" : string.Join(", ", output.queryParameterKeys))}")), FirstError(OutputTypesError, ResultsQueryKeysError))
+                : Summary(ResultsQueryOutputs.Select(output => output.InspectorSummary)), FirstError(OutputTypesError, ResultsQueryKeysError))
                 with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Locked · generated parameters", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
             yield return Defaults(false);
             if (IsRun)

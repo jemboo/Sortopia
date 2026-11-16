@@ -2290,8 +2290,7 @@ public sealed class RandomNetworkTests
                 Layout(width);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport"); viewport.ScrollToTop(); Layout(width);
                 Assert.Equal(0, viewport.ScrollableWidth);
-                Assert.True(files.Columns[2].ActualWidth >= 100);
-                Assert.True(files.Columns[3].ActualWidth >= 68); Assert.True(files.Columns[4].ActualWidth >= 85);
+                Assert.True(files.Columns[2].ActualWidth >= 100); Assert.True(files.Columns[3].ActualWidth >= 68); Assert.True(files.Columns[4].ActualWidth >= 85);
                 var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, 1000, 96, 96, PixelFormats.Pbgra32); image.Render(page);
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
                 using var output = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, $"workspace-run-parameter-files-{width}.png")); encoder.Save(output);
@@ -2308,6 +2307,7 @@ public sealed class RandomNetworkTests
             var details = TextBoxes(row).ToArray();
             Assert.Contains(details, text => text.Text == selectedFile.Path);
             Assert.Contains(details, text => text.Text == selectedFile.Parameters);
+            Assert.Contains(details, text => text.Text == selectedFile.InheritedSetupQueryDetails);
             Assert.Contains(details, text => text.Text == selectedFile.Details);
             foreach (var text in details) { Assert.True(text.IsReadOnly); text.SelectAll(); Assert.Equal(text.Text, text.SelectedText); }
             Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);

@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <Compile Include="TypedReport.fs" />
     <Compile Include="DataTableRecord.fs" />
     <Compile Include="DataTableReport.fs" />
     <Compile Include="RankingOps.fs" />

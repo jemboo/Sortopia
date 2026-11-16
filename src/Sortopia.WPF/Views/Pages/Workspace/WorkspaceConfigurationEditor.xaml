@@ -40,10 +40,24 @@
                 <StackPanel>
                     <TextBlock Text="{Binding Kind}" FontWeight="SemiBold" />
                     <TextBlock Text="{Binding TextSummary}" Style="{StaticResource Help}" />
+                    <StackPanel Visibility="{Binding HasSetupInputs, Converter={StaticResource VisibleWhen}}" Margin="0,0,0,10">
+                        <TextBlock Text="Query keys inherited from setup · Read-only" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding InheritedSetupQueries}"><ItemsControl.ItemTemplate><DataTemplate>
+                            <StackPanel Margin="0,6,0,0">
+                                <TextBlock Text="{Binding Label}" Style="{StaticResource Help}" Margin="0,0,0,2" />
+                                <TextBox Text="{Binding KeysSummary, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
+                            </StackPanel>
+                        </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <TextBlock Text="Results inherit these keys through the setup files they consume. Supply their spans under setup; no additional results spans are needed for them." Style="{StaticResource Help}" />
+                        <TextBlock TextWrapping="Wrap">
+                            <Hyperlink x:Name="InheritedSetupQueriesLink" Command="{Binding DataContext.EditProjectQueryProjectionsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                                       CommandParameter="setupOutputs" Foreground="{DynamicResource Workspace.Accent}">View setup query keys on project</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
                     <TextBlock Text="{Binding SelectedKeysSummary}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,5">
                         <TextBlock.Style><Style TargetType="TextBlock">
                             <Setter Property="Foreground" Value="{DynamicResource Workspace.TextPrimary}" />
-                            <Style.Triggers><DataTrigger Binding="{Binding HasEmptyProjection}" Value="True">
+                            <Style.Triggers><DataTrigger Binding="{Binding HasNoQueryKeys}" Value="True">
                                 <Setter Property="Foreground" Value="{DynamicResource Workspace.Warning}" />
                             </DataTrigger></Style.Triggers>
                         </Style></TextBlock.Style>

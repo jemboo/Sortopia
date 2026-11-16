@@ -19,12 +19,31 @@ public sealed class WorkspaceQueryKeyChoice : ViewModelBase
     public bool CanChange => Editable && (Available || selected);
     public bool Selected { get => selected; set { if (CanChange && SetProperty(ref selected, value)) changed(value); } }
 }
+public sealed record WorkspaceInheritedSetupQuery(string Kind, string Text, string[] Keys)
+{
+    public string Label => Text.Length == 0 ? Kind : $"{Kind} · {Text}";
+    public string KeysSummary => Keys.Length == 0 ? "No setup query keys selected" : string.Join(", ", Keys);
+}
 public sealed record WorkspaceOutputQuery(string Kind, string Text, WorkspaceQueryKeyChoice[] Keys, string Summary)
 {
+    public WorkspaceInheritedSetupQuery[] InheritedSetupQueries { get; init; } = [];
+    public bool HasSetupInputs => InheritedSetupQueries.Length > 0;
+    public bool HasInheritedSetupKeys => InheritedSetupQueries.Any(input => input.Keys.Length > 0);
+    public bool HasNoQueryKeys => HasEmptyProjection && !HasInheritedSetupKeys;
     public string TextSummary => Text.Length == 0 ? "Text: (empty)" : $"Text: {Text}";
     public bool HasEmptyProjection => !Keys.Any(key => key.Selected);
-    public string SelectedKeysSummary => HasEmptyProjection ? "Query parameters: none selected"
-        : "Query parameters: " + string.Join(", ", Keys.Where(key => key.Selected).Select(key => key.Key));
+    public string SelectedKeysSummary => (HasSetupInputs ? "Additional results query parameters: " : "Query parameters: ")
+        + (HasEmptyProjection ? "none selected" : string.Join(", ", Keys.Where(key => key.Selected).Select(key => key.Key)));
+    public string InspectorSummary
+    {
+        get
+        {
+            var own = HasEmptyProjection ? "none" : string.Join(", ", Keys.Where(key => key.Selected).Select(key => key.Key));
+            var inherited = InheritedSetupQueries.SelectMany(input => input.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            return HasSetupInputs ? $"{Kind} · inherited setup keys: {(inherited.Length == 0 ? "none" : string.Join(", ", inherited))} · additional results keys: {own}"
+                : $"{Kind} · query keys: {own}";
+        }
+    }
 }
 
 public sealed partial class WorkspaceConfigurationViewModel
@@ -49,8 +68,10 @@ public sealed partial class WorkspaceConfigurationViewModel
     private string ProjectionNotice(bool setup)
     {
         if (!IsRun || !ActiveParameters(setup).Any(span => span.Key.Length > 0)) return "";
-        var empty = QueryRows(setup).Where(output => output.HasEmptyProjection).Select(output => output.Kind).ToArray();
-        return empty.Length == 0 ? "" : $"No query keys selected for {string.Join(", ", empty)}. Different span values share the same output when input data is unchanged. "
+        var empty = QueryRows(setup).Where(output => output.HasEmptyProjection).ToArray();
+        if (empty.Length > 0 && empty.All(output => output.HasSetupInputs))
+            return $"No additional results query keys selected for {string.Join(", ", empty.Select(output => output.Kind))}. Different results span values share the same output for the same setup inputs. Different setup files still produce separate results. " + QuerySelectionGuidance;
+        return empty.Length == 0 ? "" : $"No query keys selected for {string.Join(", ", empty.Select(output => output.Kind))}. Different span values share the same output when input data is unchanged. "
             + QuerySelectionGuidance;
     }
     public IEnumerable<WorkspaceExcludedDefault> ExcludedResultsDefaults => Exclusions(false);
@@ -121,11 +142,26 @@ public sealed partial class WorkspaceConfigurationViewModel
                 return new WorkspaceQueryKeyChoice(key, chosen.Contains(key, StringComparer.Ordinal), supplied && fromSource, CanEditQuerySelection, status,
                     selected => SetQueryKey(output.dataType, setup, key, selected));
             }).ToArray();
-            yield return new(output.dataType.kind, output.dataType.value, keys, chosen.Length == 0
+            var inherited = setup ? [] : InheritedSetupQueries(output.dataType);
+            var summary = inherited.Length > 0
+                ? (chosen.Length == 0 ? "No additional results query keys selected. " : "Selected results keys distinguish outputs within each setup combination. ")
+                    + "Different setup input files produce separate results. Changes to other results spans reuse the output when the setup inputs are unchanged. " + QuerySelectionGuidance
+                : chosen.Length == 0
                 ? "No query keys selected: all parameter sets share one output for the same project and input data, even when span values differ. "
                     + QuerySelectionGuidance
-                : "Only the selected span keys distinguish this output. Other span changes reuse it for the same input data.");
+                : "Only the selected span keys distinguish this output. Other span changes reuse it for the same input data.";
+            yield return new(output.dataType.kind, output.dataType.value, keys, summary) { InheritedSetupQueries = inherited };
         }
+    }
+    private WorkspaceInheritedSetupQuery[] InheritedSetupQueries(sortopiaDataTypeDto output)
+    {
+        if (!IsBranch || !PhaseVersionCurrent(false) || !ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var definition)
+            || !definition.OutputDependencies.TryGetValue(SortopiaDataTypeDto.toDomain(output), out var inputs)) return [];
+        return inputs.Select(input => {
+            var type = SortopiaDataTypeDto.fromDomain(input);
+            var setup = EffectiveSetupDataTypes.FirstOrDefault(entry => SameType(entry.dataType, type));
+            return new WorkspaceInheritedSetupQuery(type.kind, type.value, setup?.queryParameterKeys ?? []);
+        }).ToArray();
     }
     private string SourceQueryContractError()
     {

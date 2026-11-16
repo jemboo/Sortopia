@@ -36,7 +36,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = new MainWindowViewModel(PickWorkspaceFolder, confirmWorkspaceChanges: ConfirmWorkspaceChanges,
-            pickExistingWorkspaceFolder: PickExistingWorkspaceFolder, openWorkspaceFolder: OpenFolderInExplorer);
+            pickExistingWorkspaceFolder: PickExistingWorkspaceFolder, openWorkspaceFolder: OpenFolderInExplorer, pickReportFolder: PickReportFolder);
     }
 
     private static void OpenFolderInExplorer(string folder)
@@ -67,6 +67,12 @@ public partial class MainWindow : Window
     private string? PickWorkspaceFolder(string? currentFolder)
     {
         var dialog = new OpenFolderDialog { Title = "Select Workspace Folder", Multiselect = false };
+        if (System.IO.Directory.Exists(currentFolder)) dialog.InitialDirectory = currentFolder;
+        return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
+    }
+    private string? PickReportFolder(string? currentFolder)
+    {
+        var dialog = new OpenFolderDialog { Title = "Save Summary and Details CSV reports in a new subfolder", Multiselect = false };
         if (System.IO.Directory.Exists(currentFolder)) dialog.InitialDirectory = currentFolder;
         return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
     }

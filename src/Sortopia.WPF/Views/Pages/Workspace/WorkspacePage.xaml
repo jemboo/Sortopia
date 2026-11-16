@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Sortopia.WPF.ViewModels.Pages.Workspace"
              xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace"
+             xmlns:shared="clr-namespace:Sortopia.WPF.Views.Shared"
              FontFamily="Segoe UI" UseLayoutRounding="True"
              AutomationProperties.Name="Workspace page" Foreground="{DynamicResource Workspace.TextPrimary}">
     <UserControl.Resources>
@@ -278,6 +279,7 @@
                                 <TextBlock x:Name="RunParameterFilesSummary" Text="{Binding Summary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,4,0,8" />
                                 <TextBox Text="{Binding Error, Mode=OneWay}" Style="{StaticResource SelectableError}" />
                                 <DataGrid x:Name="RunParameterFilesTable" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True"
+                                          shared:SetupQueryColumns.InsertIndex="2" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
                                           CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" ColumnHeaderHeight="42" MaxHeight="300" AreRowDetailsFrozen="True"
                                           EnableRowVirtualization="True" EnableColumnVirtualization="True" SelectionUnit="FullRow" RowDetailsVisibilityMode="VisibleWhenSelected"
                                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
@@ -312,12 +314,13 @@
                                         <StackPanel Margin="6">
                                             <TextBox Text="{Binding Path, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                             <TextBox Text="{Binding Parameters, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
+                                            <TextBox Text="{Binding InheritedSetupQueryDetails, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                             <TextBox Text="{Binding SuffixStagesDetails, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                             <TextBox Text="{Binding Details, Mode=OneWay}" Style="{StaticResource SelectableMessage}" />
                                         </StackPanel>
                                     </DataTemplate></DataGrid.RowDetailsTemplate>
                                 </DataGrid>
-                                <TextBlock Text="Select a file for its full path, parameters, suggested suffix stages, and status details." TextWrapping="Wrap" FontSize="11"
+                                <TextBlock Text="Click a Setup column header to sort by that inherited query value. Select a file for its full path, parameters, inherited setup query values, suggested suffix stages, and status details." TextWrapping="Wrap" FontSize="11"
                                            Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" Visibility="{Binding HasFiles, Converter={StaticResource WorkspaceBoolVisibility}}" />
                             </StackPanel>
                             <TextBlock Text="{Binding RunParameterPreviewSummary}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,12,0,4" />

@@ -1,5 +1,6 @@
 <UserControl x:Class="Sortopia.WPF.Views.Pages.ResultsExecution.ResultsExecutionPanel"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:shared="clr-namespace:Sortopia.WPF.Views.Shared"
  Foreground="{DynamicResource Workspace.TextPrimary}">
  <UserControl.Resources><ResourceDictionary>
   <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
@@ -22,6 +23,8 @@
   </StackPanel>
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
    <Button x:Name="ExecuteSelectedButton" Content="Execute selected" Command="{Binding ExecuteCommand}" Margin="0,0,8,6" />
+   <Button x:Name="ExportReportsButton" Content="Export reports…" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
+           ToolTip="Select completed sorter-eval branch files to export Summary.csv and Details.csv, including inherited setup query values, into a new report folder." />
    <Button Content="Select all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
    <Button Content="Select pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
    <Button Content="Clear selection" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />
@@ -39,10 +42,13 @@
    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
    <TextBlock Text="Select rows with Ctrl/Shift, or use Select all. Complete outputs are reused. Each selected file must have distinct outputs. Failed jobs do not stop other selected jobs."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="Rows update as they run. Select a failed row and expand Error details to inspect or copy its error."
+   <TextBlock Text="Click a Setup column header to sort by that inherited query value. Select a row and expand Inherited setup query values to inspect or copy its setup combination. Failed rows also have Error details."
+              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
+   <TextBlock Text="Export reports uses the selected completed sorter-eval files. Summary has one row per results file; Details has one row per sorter."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
   </StackPanel>
   <DataGrid x:Name="RunParametersGrid" Grid.Row="3" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True"
+            shared:SetupQueryColumns.InsertIndex="3" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
             IsEnabled="{Binding CanChooseRun}" CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Extended" SelectionUnit="FullRow"
             SelectionChanged="SelectionChanged" HeadersVisibility="All" FrozenColumnCount="3" MinHeight="140"
             AreRowDetailsFrozen="True" RowDetailsVisibilityMode="VisibleWhenSelected"
@@ -52,12 +58,19 @@
     <Setter Property="ToolTip" Value="{Binding Error}" />
    </Style></DataGrid.RowStyle>
    <DataGrid.RowDetailsTemplate><DataTemplate>
-    <Border Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=DataGrid}}" Padding="8,2,36,6" HorizontalAlignment="Left"
-            Visibility="{Binding HasError, Converter={StaticResource ErrorVisibility}}">
-     <Expander Header="Error details" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run parameter error details">
+    <Border Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=DataGrid}}" Padding="8,2,36,6" HorizontalAlignment="Left">
+     <StackPanel>
+     <Expander Header="Inherited setup query values" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Inherited setup query value details"
+               Visibility="{Binding HasSetupInputs, Converter={StaticResource ErrorVisibility}}">
+      <TextBox Text="{Binding InheritedSetupQueryDetails, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="180" VerticalScrollBarVisibility="Auto"
+               HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Inherited setup query values" Margin="0,6,0,0" />
+     </Expander>
+     <Expander Header="Error details" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run parameter error details"
+               Visibility="{Binding HasError, Converter={StaticResource ErrorVisibility}}">
       <TextBox Text="{Binding Error, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"
                HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Run parameter error" Margin="0,6,0,0" />
      </Expander>
+     </StackPanel>
     </Border>
    </DataTemplate></DataGrid.RowDetailsTemplate>
   </DataGrid>

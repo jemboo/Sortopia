@@ -15,6 +15,8 @@ module Program =
   sortopia check-results --parameters-folder <project/runParameters> [--run <run-id>]
   sortopia execute-results --parameters-folder <project/runParameters> [--run <run-id>] [--jobs <count>]
   sortopia execute-results --parameters <path-to-work-item.msgpack> [--jobs <count>]
+  sortopia export-sorter-eval --parameters-folder <project/runParameters> [--run <run-id>] --output <new-report-folder>
+  sortopia export-sorter-eval --parameters <path-to-work-item.msgpack> --output <new-report-folder>
 
 Generate locally (including setup), then copy the complete project folder.
 Folder execution considers every parameter file present, including older files;
@@ -22,6 +24,8 @@ Folder execution considers every parameter file present, including older files;
 partial work reuses existing outputs. No manifests or execution receipts are needed.
 Results execution never runs setup. --jobs is a positive maximum concurrent job count (default 1).
 Selected files must own distinct outputs. Failed jobs are reported while other jobs continue.
+Export writes Summary.csv and Details.csv from saved sorter-eval branch results and setup query metadata.
+All selected evaluations must exist and be valid. The output folder must not already exist.
 Ctrl+C cancels running jobs cooperatively and leaves unstarted files pending.
 Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
 
@@ -90,6 +94,16 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
                     | Some folder, None -> RunParameterExecution.executeFolderWithOptions folder (runFilter values) execution progress cancellation.Token |> finish
                     | None, Some file when not (Map.containsKey "--run" values) -> RunParameterExecution.executeFileWithOptions file execution progress cancellation.Token |> finish
                     | _ -> invalidArg "arguments" "Choose --parameters-folder (optionally --run), or one --parameters file."
+                | "export-sorter-eval" ->
+                    let values = options args[1..] ["--parameters-folder"; "--run"; "--parameters"; "--output"]
+                    let output = required "--output" values
+                    let exported =
+                        match Map.tryFind "--parameters-folder" values, Map.tryFind "--parameters" values with
+                        | Some folder, None -> SorterEvalReportExport.exportFolder folder (runFilter values) output cancellation.Token
+                        | None, Some file when not (Map.containsKey "--run" values) -> SorterEvalReportExport.exportFiles [|file|] output cancellation.Token
+                        | _ -> invalidArg "arguments" "Choose --parameters-folder (optionally --run), or one --parameters file."
+                    printfn "Exported %d summary rows and %d detail rows.\n%s\n%s" exported.SummaryRows exported.DetailRows exported.SummaryPath exported.DetailsPath
+                    0
                 | _ -> invalidArg "arguments" "Unknown command. Use --help for syntax."
             with
             | :? OperationCanceledException -> eprintfn "Cancelled."; 130

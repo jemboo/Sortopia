@@ -75,6 +75,10 @@ public sealed class WorkspaceQueryInheritanceTests
             Assert.Same(project, page.Selected);
             Assert.Equal(target, page.ActiveItemKey);
             Assert.Equal(!sealedProject, project.Editor!.CanEditQuerySelection);
+            Assert.True(page.EditProjectQueryProjectionsCommand.CanExecute(null));
+            page.EditProjectQueryProjectionsCommand.Execute(target);
+            Assert.Same(project, page.Selected);
+            Assert.Equal(target, page.ActiveItemKey);
             Assert.Same(span, Assert.Single(setup ? run.Editor!.SetupParameters : run.Editor!.ResultsParameters));
             Assert.Equal(new[] { "Bools", "Ints" }, span.Values.Select(value => value.Text));
             Assert.True(page.HasUnsavedChanges);

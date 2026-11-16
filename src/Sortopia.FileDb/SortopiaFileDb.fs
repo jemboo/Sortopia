@@ -118,6 +118,21 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
     member _.ProjectFolder = projectFolder
     member _.GetPath reference = filePath reference
 
+    /// Read immutable query metadata without loading model/test payloads.
+    /// The exact saved reference is checked before any values are returned.
+    member _.ReadQueryParameters(reference: storedDataReference, token: CancellationToken) =
+        let path = filePath reference
+        let header = (DataEnvelope.readHeader path token).Envelope
+        if header.ProjectId <> UMX.untag reference.ProjectId || header.Id <> UMX.untag reference.Id
+           || header.QueryId <> UMX.untag reference.QueryId || header.IsSetup <> reference.IsSetup
+           || header.Kind <> SortopiaDataType.kindName reference.DataType || header.Label <> SortopiaDataType.text reference.DataType then
+            invalidOp $"Stored query metadata does not match its reference: {path}"
+        let query = DataKey.readQuery header.QueryBytes
+        if query.ProjectId <> reference.ProjectId || query.IsSetup <> reference.IsSetup || query.DataType <> reference.DataType then
+            invalidOp $"Stored query metadata does not match its envelope: {path}"
+        token.ThrowIfCancellationRequested()
+        query.Parameters
+
     interface ISortopiaDb with
         member _.TryLoad(key, token) = protect (fun () -> tryRead key token)
         member _.Load(reference, token) = protect (fun () -> read reference None None token)

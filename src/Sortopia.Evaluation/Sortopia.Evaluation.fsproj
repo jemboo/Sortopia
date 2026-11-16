@@ -16,6 +16,7 @@
     <Compile Include="SorterEval.fs" />
     <Compile Include="SorterEvalMeasures.fs" />
     <Compile Include="SorterSetEval.fs" />
+    <Compile Include="SorterEvalReports.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />
