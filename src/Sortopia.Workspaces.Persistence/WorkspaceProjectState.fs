@@ -5,6 +5,7 @@ open System.IO
 open FSharp.UMX
 open Sortopia.Workspaces
 open Sortopia.Workspaces.Serialization
+open Sortopia.Core.Serialization
 open WorkspaceFileSystem
 
 module internal WorkspaceProjectState =
@@ -28,28 +29,39 @@ module internal WorkspaceProjectState =
         replace (UMX.untag parent.Id) (fun p ->
             let definition = WorkspaceDefinitionCodec.projectWithOrigin Unchecked.defaultof<_> (project.seal parent)
             // A selected-run scope deliberately omits sibling runs, including drafts.
-            { p with Definition = { definition with runs = p.Definition.runs } }) value
+            { p with Definition = { definition with runs = p.Definition.runs; localOverrides = p.Definition.localOverrides } }) value
+
+    let hasRunParameters root folder =
+        let rec hasFiles path =
+            WorkspaceFolderMove.CheckPath(root, path)
+            File.Exists(path) || (Directory.Exists(path) && Directory.EnumerateFileSystemEntries(path) |> Seq.exists hasFiles)
+        hasFiles (Path.Combine(root, folder, "runParameters"))
+
+    let validateLockedModules root (previous: WorkspaceDocument) (next: WorkspaceDocument) =
+        let rec modules (values: ModuleDocument array) = seq {
+            for m in values do
+                yield m.Definition.id, m.Definition
+                yield! modules m.Modules }
+        let current = modules next.Modules |> Map.ofSeq
+        let rec visit folder (m: ModuleDocument) =
+            let folder = Path.Combine(folder, m.Definition.moduleName)
+            let children = m.Modules |> Array.map (visit folder)
+            let locked = (children |> Array.contains true) || (m.Projects |> Array.exists (fun p -> hasRunParameters root (Path.Combine(folder, p.Definition.projectName))))
+            if locked then
+                match Map.tryFind m.Definition.id current with
+                | Some value when value.moduleName <> m.Definition.moduleName
+                                  || MessagePackSetup.serialize value.localOverrides <> MessagePackSetup.serialize m.Definition.localOverrides ->
+                    invalidOp $"Module '{m.Definition.moduleName}' has descendant generated run parameter files. Remove them before editing its properties."
+                | _ -> ()
+            locked
+        previous.Modules |> Array.iter (fun m -> visit "" m |> ignore)
 
     let resumeReason root value id =
         let selected, folder = find id value
         if not selected.Definition.isSealed then "This project is already editable."
-        else
-            let dependent = projects "" value.Modules |> Seq.tryPick (fun (p, _) ->
-                if p.Definition.id <> id && p.Definition.isSealed
-                   && (p.Definition.configuration.setupDataTypes |> Array.exists (fun entry -> entry.sourceProjectId = id))
-                then Some p.Definition.projectName else None)
-            match dependent with
-            | Some name -> $"Project '{name}' has fixed settings that use this source. Create a new project version instead."
-            | None ->
-                let rec hasFiles path =
-                    WorkspaceFolderMove.CheckPath(root, path)
-                    File.Exists(path) || (Directory.Exists(path) &&
-                        Directory.EnumerateFileSystemEntries(path) |> Seq.exists (fun entry ->
-                            WorkspaceFolderMove.CheckPath(root, entry)
-                            File.Exists(entry) || hasFiles entry))
-                if [ "runParameters"; "data" ] |> List.exists (fun name -> hasFiles (Path.Combine(root, folder, name))) then
-                    "This project has generated parameter or data files. Create a new project version to change its settings."
-                else ""
+        elif hasRunParameters root folder then
+            "This project has generated run parameter files. Remove them from all its runs to edit its settings."
+        else ""
 
     let resume value id =
         let rec owner (modules: ModuleDocument array) =
@@ -68,15 +80,18 @@ module internal WorkspaceProjectState =
             |> Seq.except (saved |> Seq.map _.keyName) |> Seq.distinct |> Seq.toArray
         replace id (fun p ->
             let header = WorkspaceDefinitionCodec.projectHeader None p.Definition
-            let local = OverridesDto.fromDomain header.LocalOverrides
+            let local = if isNull (box p.Definition.localOverrides) then OverridesDto.fromDomain header.LocalOverrides else p.Definition.localOverrides
             let settings = p.Definition.configuration
             // Reopening must not reintroduce inherited defaults that this project's
             // snapshot excluded, especially keys already supplied by run spans.
-            let local = { local with
-                            excludedResultsDefaults = exclusions parent.inheritedDefaults.resultsParameterDefaults parent.localOverrides.resultsParameterDefaults settings.resultsParameterDefaults
-                                (p.Runs |> Seq.collect _.resultsParameterSpans |> Seq.map _.keyName)
-                            excludedSetupDefaults = exclusions parent.inheritedDefaults.setupParameterDefaults parent.localOverrides.setupParameterDefaults settings.setupParameterDefaults
-                                (p.Runs |> Seq.collect _.setupParameterSpans |> Seq.map _.keyName) }
+            let local =
+                if not (isNull (box p.Definition.localOverrides)) then local
+                else
+                    { local with
+                        excludedResultsDefaults = exclusions parent.inheritedDefaults.resultsParameterDefaults parent.localOverrides.resultsParameterDefaults settings.resultsParameterDefaults
+                            (p.Runs |> Seq.collect _.resultsParameterSpans |> Seq.map _.keyName)
+                        excludedSetupDefaults = exclusions parent.inheritedDefaults.setupParameterDefaults parent.localOverrides.setupParameterDefaults settings.setupParameterDefaults
+                            (p.Runs |> Seq.collect _.setupParameterSpans |> Seq.map _.keyName) }
             let definition =
                 { p.Definition with
                     isSealed = false

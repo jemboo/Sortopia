@@ -39,6 +39,7 @@ module ModelGenerationStageLengths =
         | _ -> None
 
 module internal ModelGenerators =
+    let version = function simpleSorterModelType.Msuf4 -> "3" | _ -> "2"
     let algorithmDescription = function
         | simpleSorterModelType.Msce -> "compare-exchange (MSCE)"
         | simpleSorterModelType.Mssi -> "self-inverse (MSSI)"
@@ -54,7 +55,7 @@ module internal ModelGenerators =
     let msceKeys source = commonKeys source @ [ParamKey.describe ParamKeys.excludeSelfCeKey]
     let mssiKeys source = commonKeys source
     let msrsKeys source = commonKeys source @ [ParamKey.describe ParamKeys.stageWeightsKey]
-    let msuf4Keys source = commonKeys source @ [ParamKey.describe ParamKeys.seed4WeightsKey; ParamKey.describe ParamKeys.unfoldingWeightsKey]
+    let msuf4Keys source = commonKeys source @ [ParamKey.describe ParamKeys.orthoRateKey; ParamKey.describe ParamKeys.paraRateKey; ParamKey.describe ParamKeys.selfSymRateKey]
     let msuf6Keys source = commonKeys source @ [ParamKey.describe ParamKeys.seed6WeightsKey; ParamKey.describe ParamKeys.unfoldingWeightsKey]
 
     /// Model-generation functions fix the outer model family as part of their catalog identity.
@@ -73,7 +74,10 @@ module internal ModelGenerators =
             | "SimpleR" -> "Every suffix activator starts at AInitial, within [-AMax, AMax]; only positive activators enable entries."
             | "SimpleS" -> "ActivationProbability controls Boolean suffix activators."
             | _ -> "All generated suffix entries are enabled."
-        $"Generate {family} {algorithmDescription modelType} sorter models {prefix}. SorterSuccessFraction selects a provisional 50%%, 90%%, or 99%% whole-network success target; channel count, prefix depth, and algorithm determine the suffix stage budget. Custom weights and inactive entries can change the actual success rate. {activators} Repl selects a reproducible batch."
+        let rates = if modelType = simpleSorterModelType.Msuf4 then
+                        " OrthoRate, ParaRate, and SelfSymRate are normalized together and used for the seed and every unfolding level. The channel count determines the number of levels."
+                    else ""
+        $"Generate {family} {algorithmDescription modelType} sorter models {prefix}. SorterSuccessFraction selects a provisional 50%%, 90%%, or 99%% whole-network success target; channel count, prefix depth, and algorithm determine the suffix stage budget. Custom weights and inactive entries can change the actual success rate. {activators}{rates} Repl selects a reproducible batch."
 
     // Check every participating value, including partial defaults, without expanding unrelated spans.
     let inputError source modelType (defaults: parameterBinding list) (spans: parameterSpan list) =
@@ -95,14 +99,20 @@ module internal ModelGenerators =
             values ParamKeys.rngTypeKey |> List.iter (RngType.fromString >> ignore)
             values ParamKeys.excludeSelfCeKey |> ignore
             values ParamKeys.stageWeightsKey |> List.iter GenerationWeights.validateOps
-            values ParamKeys.seed4WeightsKey |> List.iter GenerationWeights.validateOps
+            if modelType = simpleSorterModelType.Msuf4 then
+                let rateKeys = [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey]
+                for key in rateKeys do
+                    if values key |> List.exists (fun value -> not (Double.IsFinite value) || value < 0.) then
+                        invalidArg (string key.Name) $"{key.Name} must be finite and nonnegative. MSUF4 rates are normalized together."
+                // A Cartesian product contains an all-zero choice exactly when each span/default contains zero.
+                if rateKeys |> List.forall (fun key -> values key |> List.contains 0.) then
+                    invalidArg "rates" "At least one of OrthoRate, ParaRate, and SelfSymRate must be positive for every parameter combination."
             values ParamKeys.seed6WeightsKey |> List.iter GenerationWeights.validateSeed6
             for weights in values ParamKeys.unfoldingWeightsKey do
                 GenerationWeights.validateUnfolding weights
                 for width in widths do
                     let levels =
                         match modelType with
-                        | simpleSorterModelType.Msuf4 -> Msuf4RandGen.unfoldingWidths width
                         | simpleSorterModelType.Msuf6 -> Msuf6RandGen.unfoldingWidths width
                         | _ -> []
                     if weights.Levels.Length <> levels.Length then
@@ -173,7 +183,10 @@ module internal ModelGenerators =
         models family generator parameters
     let msuf4 source family parameters =
         let rng, width, prefix, stages = configuration source simpleSorterModelType.Msuf4 parameters
-        let generator = Msuf4RandGen.create rng width prefix stages (required ParamKeys.seed4WeightsKey parameters |> ops) (unfolding parameters) |> SmmMsuf4RandGen
+        let rates = OpsGenerationProbabilities.fromWeights (required ParamKeys.orthoRateKey parameters)
+                        (required ParamKeys.paraRateKey parameters) (required ParamKeys.selfSymRateKey parameters)
+        let levels = Msuf4RandGen.unfoldingWidths (int width) |> List.map (fun _ -> rates)
+        let generator = Msuf4RandGen.create rng width prefix stages rates levels |> SmmMsuf4RandGen
         models family generator parameters
     let msuf6 source family parameters =
         let rng, width, prefix, stages = configuration source simpleSorterModelType.Msuf6 parameters

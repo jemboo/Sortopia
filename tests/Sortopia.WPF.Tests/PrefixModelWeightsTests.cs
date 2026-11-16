@@ -32,7 +32,7 @@ public sealed class PrefixModelWeightsTests
     [InlineData("msce", "ExcludeSelfCe")]
     [InlineData("mssi", "")]
     [InlineData("msrs", "StageWeights")]
-    [InlineData("msuf4", "Seed4Weights,UnfoldingWeights")]
+    [InlineData("msuf4", "OrthoRate,ParaRate,SelfSymRate")]
     [InlineData("msuf6", "Seed6Weights,UnfoldingWeights")]
     public void Each_function_exposes_only_its_algorithm_inputs_with_valid_initial_values(string model, string extras)
     {
@@ -40,7 +40,7 @@ public sealed class PrefixModelWeightsTests
         string[] common = ["PrefixLibId", "RngType", "SorterSuccessFraction", "SorterCount", "Repl"];
         Assert.Equal(common.Concat(extras.Split(',', StringSplitOptions.RemoveEmptyEntries)).Order(), definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
-        Assert.Equal("2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
+        Assert.Equal(model == "msuf4" ? "3" : "2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = Parameters(editor); FunctionValidation.validate(definition, parameters);
         var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
         Assert.Equal(2, models.Count);
@@ -48,16 +48,15 @@ public sealed class PrefixModelWeightsTests
     }
 
     [Theory]
-    [InlineData("msuf4")]
     [InlineData("msuf6")]
     public void Named_seed_and_per_level_modes_reach_every_generated_stage(string model)
     {
         var editor = Module(model);
         var prefix = editor.ResultsParameterDefaults.Single(row => row.Key == "PrefixLibId");
-        prefix.Value.Text = PrefixLibId.toString(prefixLibId.create(model == "msuf4" ? 16 : 24, 1, prefixLibVariant.Prefix1));
-        var seed = editor.ResultsParameterDefaults.Single(row => row.Key == (model == "msuf4" ? "Seed4Weights" : "Seed6Weights")).Value;
+        prefix.Value.Text = PrefixLibId.toString(prefixLibId.create(24, 1, prefixLibVariant.Prefix1));
+        var seed = editor.ResultsParameterDefaults.Single(row => row.Key == "Seed6Weights").Value;
         Assert.True(seed.IsWeights); Assert.False(seed.IsTextEditor);
-        foreach (var mode in seed.Weights.Rows[0].Modes) mode.Text = mode.Name == (model == "msuf4" ? "SelfReflection" : "Para4") ? "7" : "0";
+        foreach (var mode in seed.Weights.Rows[0].Modes) mode.Text = mode.Name == "Para4" ? "7" : "0";
         var unfolding = editor.ResultsParameterDefaults.Single(row => row.Key == "UnfoldingWeights").Value;
         unfolding.Text = "0,3,0;9,0,0";
         Assert.Empty(editor.ResultsParameterDefaultsError);
@@ -67,13 +66,7 @@ public sealed class PrefixModelWeightsTests
         foreach (var value in set.SorterModels)
         {
             var simple = Assert.IsType<sorterModel.Simple>(value).Item;
-            if (simple is simpleSorterModel.Msuf4 uf4)
-                Assert.All(uf4.Item.TwoOrbitUnfolder4s, stage => {
-                    Assert.True(stage.SeedTwoOrbitPairType.IsSelfRefl);
-                    Assert.All(stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
-                    Assert.All(stage.TwoOrbitUnfolderSteps[1].TwoOrbitPairTypes, pair => Assert.True(pair.IsOrtho));
-                });
-            else if (simple is simpleSorterModel.Msuf6 uf6)
+            if (simple is simpleSorterModel.Msuf6 uf6)
                 Assert.All(uf6.Item.TwoOrbitUnfolder6s, stage => {
                     Assert.True(stage.Seed6TwoOrbitType.IsPara4);
                     Assert.All(stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
@@ -135,17 +128,19 @@ public sealed class PrefixModelWeightsTests
             page.AddModuleCommand.Execute(null); var editor = page.Selected!.Editor!;
             editor.ResultsFunctionName = Function(model); editor.AddRequiredResultsDefaultsCommand.Execute(null);
             editor.ResultsParameterDefaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-            editor.ResultsParameterDefaults.Single(row => row.Key == "UnfoldingWeights").RemoveCommand.Execute(null);
+            var key = model == "msuf4" ? "OrthoRate" : "UnfoldingWeights";
+            editor.ResultsParameterDefaults.Single(row => row.Key == key).RemoveCommand.Execute(null);
+            if (model == "msuf4") editor.ResultsParameterDefaults.Single(row => row.Key == "SelfSymRate").Value.Text = "0";
             page.AddProjectCommand.Execute(null); var projectId = page.Selected!.Id;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
             run.Editor!.AddMissingResultsParametersCommand.Execute(null);
-            var span = Assert.Single(run.Editor.ResultsParameters); Assert.Equal("UnfoldingWeights", span.Key);
-            foreach (var text in new[] { "0,1,0", "1,0,0" }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = text; }
-            Assert.All(span.Values, value => Assert.True(value.IsWeights));
+            var span = Assert.Single(run.Editor.ResultsParameters); Assert.Equal(key, span.Key);
+            foreach (var text in model == "msuf4" ? new[] { "0", "3" } : new[] { "0,1,0", "1,0,0" }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = text; }
+            Assert.All(span.Values, value => Assert.Equal(model == "msuf6", value.IsWeights));
             Assert.Equal(2, run.Editor.ResultsParameterSetsPreview.Rows.Length);
             run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
-            span.AddValueCommand.Execute(null); span.Values.Last().Text = "1,1,1;1,1,1";
-            Assert.Contains("needs 1 unfolding", run.Editor.ResultsParametersError); Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows);
+            span.AddValueCommand.Execute(null); span.Values.Last().Text = model == "msuf4" ? "-1" : "1,1,1;1,1,1";
+            Assert.NotEmpty(run.Editor.ResultsParametersError); Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows);
             span.Values.Last().RemoveCommand.Execute(null);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
             page.Selected = run;
@@ -162,16 +157,23 @@ public sealed class PrefixModelWeightsTests
             Assert.True(report.Status == runExecutionStatus.Completed, report.Error); Assert.Equal(2, report.Results.Length);
             ISortopiaDb db = new SortopiaFileDb(copy, projectId);
             foreach (var call in report.Results) {
-                var weights = call.Parameters.TryFind(ParamKeys.unfoldingWeightsKey).Value;
                 var output = Assert.Single(call.StoredOutputs); Assert.False(output.Reused);
                 var saved = db.Load(output.Reference, TestContext.Current.CancellationToken); Assert.True(saved.IsOk);
                 var models = Assert.IsType<functionData.SorterModelSet>(saved.ResultValue.Value).Item;
                 foreach (var item in models.SorterModels) {
                     var simple = Assert.IsType<sorterModel.Simple>(item).Item;
-                    var pairs = simple is simpleSorterModel.Msuf4 uf4
-                        ? uf4.Item.TwoOrbitUnfolder4s.SelectMany(stage => stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes)
-                        : ((simpleSorterModel.Msuf6)simple).Item.TwoOrbitUnfolder6s.SelectMany(stage => stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes);
-                    Assert.All(pairs, pair => Assert.Equal(weights.Levels[0].Ortho == 1, pair.IsOrtho));
+                    if (simple is simpleSorterModel.Msuf4 uf4)
+                    {
+                        var rate = call.Parameters.TryFind(ParamKeys.orthoRateKey).Value;
+                        var pairs = uf4.Item.TwoOrbitUnfolder4s.SelectMany(stage => stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes.Prepend(stage.SeedTwoOrbitPairType));
+                        Assert.All(pairs, pair => { Assert.False(pair.IsSelfRefl); if (rate == 0) Assert.True(pair.IsPara); });
+                    }
+                    else
+                    {
+                        var weights = call.Parameters.TryFind(ParamKeys.unfoldingWeightsKey).Value;
+                        var pairs = ((simpleSorterModel.Msuf6)simple).Item.TwoOrbitUnfolder6s.SelectMany(stage => stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes);
+                        Assert.All(pairs, pair => Assert.Equal(weights.Levels[0].Ortho == 1, pair.IsOrtho));
+                    }
                 }
             }
             Assert.Equal(2, Directory.GetFiles(Path.Combine(copy, "data", "results", "SorterModelSet"), "*.msgpack").Length);

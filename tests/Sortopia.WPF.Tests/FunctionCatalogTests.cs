@@ -145,10 +145,12 @@ public sealed class FunctionCatalogTests
             Assert.True(savedProject.IsSealed);
             Assert.False(savedProject.Editor!.ResultsFunctionOverride.CanEditValue);
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, savedProject.Editor.ResultsFunctionName);
-            // A later module choice applies to drafts; sealed projects keep their execution contract.
+            // Generated parameter files lock the ancestor module, including its default rows.
             var savedModule = reopened.Roots[0].Children[0];
             savedModule.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
             savedModule.Editor.ResultsParameterDefaults.Single(row => row.Key == "MergeLibId").RemoveCommand.Execute(null);
+            Assert.True(savedModule.Editor.IsReadOnly);
+            Assert.Equal(ResultsFunctionNames.mergeSortableTests, savedModule.Editor.ResultsFunctionName);
             await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
             var fixedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, fixedRun.ResultsFunctionName);

@@ -36,11 +36,11 @@ public sealed partial class WorkspaceConfigurationViewModel
     public bool CanEditQuerySelection => IsProject && IsEditable;
     private string QuerySelectionGuidance => CanEditQuerySelection ? "Select span keys to distinguish those outputs."
         : IsRun && Parent is { IsEditable: true } ? "Edit query projections on the project before generating run parameters."
-        : "Select the project to resume editing if it has no generated work, or create a new version to choose different query keys.";
+        : "Remove generated parameter files from every run in the project to resume editing, or create a new version to choose different query keys.";
     public string QueryConfigurationHint => IsModule ? "Query keys are selected on each project."
         : IsRun ? $"Inherited from project ‘{Parent?.Name}’ · Read-only on this run. Every selected key requires an explicit span in this run. {QuerySelectionGuidance}"
         : CanEditQuerySelection ? $"Project ‘{Name}’: choose query keys from explicit spans shared by its runs. Add run spans first. Each output can use a different subset. Choices are fixed when run parameters are generated."
-        : "Query keys are fixed by the sealed project. Select the project to resume editing if it has no generated work, or create a new version. Every selected key requires an explicit span in each run.";
+        : "Query keys are locked while this project has generated parameter files. Remove them from all its runs to resume editing, or create a new version. Every selected key requires an explicit span in each run.";
     public IEnumerable<WorkspaceOutputQuery> ResultsQueryOutputs => QueryRows(false);
     public IEnumerable<WorkspaceOutputQuery> SetupQueryOutputs => QueryRows(true);
     public string ResultsProjectionNotice => ProjectionNotice(false);

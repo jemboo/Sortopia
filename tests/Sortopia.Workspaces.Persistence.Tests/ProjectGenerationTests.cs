@@ -84,7 +84,6 @@ public sealed class ProjectGenerationTests : IDisposable
     }
 
     [Theory]
-    [InlineData("data/setup/SortableTests/test.msgpack")]
     [InlineData("runParameters/test.msgpack")]
     public void Existing_generated_files_prevent_resume_even_if_unreadable(string relative)
     {
@@ -95,7 +94,7 @@ public sealed class ProjectGenerationTests : IDisposable
     }
 
     [Fact]
-    public void Sealed_consumers_prevent_resuming_their_source_project()
+    public void A_source_without_run_parameter_files_can_resume_and_discards_its_data_cache()
     {
         var document = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample());
         var source = document.Modules[0].Projects[0];
@@ -105,8 +104,12 @@ public sealed class ProjectGenerationTests : IDisposable
         document.Definition.modules = [document.Definition.modules[0], new() { id = consumer.Definition.id, name = "consumer" }];
         document = new(document.Definition, [document.Modules[0], consumer]);
         var saved = WorkspaceFileStore.CreateDocument(Root, document, Token).Definition;
-        Assert.Contains("use this source", WorkspaceFileStore.ResumeProjectEditingReason(Root, saved, source.Definition.id));
-        Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.ResumeProjectEditing(Root, saved, source.Definition.id, Token));
+        var data = Directory.CreateDirectory(Path.Combine(ProjectFolder, "data", "results")).FullName;
+        File.WriteAllText(Path.Combine(data, "stale.msgpack"), "invalid without run parameters");
+        Assert.Empty(WorkspaceFileStore.ResumeProjectEditingReason(Root, saved, source.Definition.id));
+        var resumed = WorkspaceFileStore.ResumeProjectEditing(Root, saved, source.Definition.id, Token).Definition;
+        Assert.False(resumed.Modules[0].Projects[0].Definition.isSealed);
+        Assert.False(Directory.Exists(data));
     }
 
     [Fact]

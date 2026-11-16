@@ -21,6 +21,7 @@ public sealed class WorkspaceRunParameterFiles : ViewModelBase
     public bool HasFiles => Rows.Count > 0;
     public bool HasLoaded { get; private set; }
     public string Error { get; private set; } = "";
+    internal void ForgetRemovedFiles() { Rows = []; HasLoaded = false; OnPropertyChanged(""); }
     public string Summary => IsRefreshing ? "Reading parameter files and checking results…"
         : !HasLoaded ? "Refresh to read this run's saved parameter files."
         : !HasFiles ? "No run parameter files found. Preview the combinations below, then generate files."

@@ -8,18 +8,20 @@ public sealed record WorkspaceParameterTypeChoice(parameterValueType Type, strin
 
 public sealed class WorkspaceTypedValue : WorkspaceFormItem
 {
+    private readonly Func<bool> canEdit;
     private readonly Func<parameterValueType> valueType;
     private readonly Func<string>? key;
     private string text;
-    public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null, Func<string>? key = null)
+    public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null, Func<string>? key = null, Func<bool>? canEdit = null)
     {
+        this.canEdit = canEdit ?? (() => true);
         this.text = text; this.valueType = valueType; this.key = key;
         LibraryId = new(this); Weights = new(this); RemoveCommand = new RelayCommand(() => remove?.Invoke(this));
     }
     public string Text
     {
         get => text;
-        set { if (SetProperty(ref text, value)) { RefreshType(); NotifyChanged(); } }
+        set { if (canEdit() && SetProperty(ref text, value)) { RefreshType(); NotifyChanged(); } }
     }
     public parameterValueType ValueType => valueType();
     public bool IsBoolean => ValueType == parameterValueType.Boolean;
@@ -49,6 +51,7 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
 
 public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 {
+    private readonly Func<bool> canEdit;
     private readonly Func<string, WorkspaceParameterValueSource>? source;
     private readonly Func<IEnumerable<string>> suggestedKeys;
     private readonly Func<string, parameterBindingDto?> inheritedValue;
@@ -62,15 +65,16 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
         Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
-        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null)
+        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null, Func<bool>? canEdit = null)
     {
+        this.canEdit = canEdit ?? (() => true);
         this.key = key; customType = type; this.source = source;
         this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
         this.requirements = requirements ?? (() => null);
         this.spanKeys = spanKeys ?? (() => []);
-        Value = new(value, () => ValueType, key: () => Key);
+        Value = new(value, () => ValueType, key: () => Key, canEdit: this.canEdit);
         Value.Changed += RowChanged;
-        RemoveCommand = new RelayCommand(() => remove(this));
+        RemoveCommand = new RelayCommand(() => { if (this.canEdit()) remove(this); }, this.canEdit);
         RefreshKeyChoices();
     }
     private paramKeyDescriptor? KnownKey => requirements()?.FirstOrDefault(value => value.Name == Key) ?? ParamKeys.tryFind(Key)?.Value;
@@ -79,7 +83,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         get => key;
         set
         {
-            if (!SetProperty(ref key, value)) return;
+            if (!canEdit() || !SetProperty(ref key, value)) return;
             if (IsCustomKey && inheritedValue(value) is { } inherited) customType = (parameterValueType)inherited.valueType;
             RowChanged();
         }
@@ -104,7 +108,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     public parameterValueType ValueType
     {
         get => KnownKey?.ValueType ?? customType;
-        set { if (IsCustomKey && SetProperty(ref customType, value)) RowChanged(); }
+        set { if (canEdit() && IsCustomKey && SetProperty(ref customType, value)) RowChanged(); }
     }
     public string TypeHint => IsCustomKey ? "Choose the type for this custom key." : "Type defined by this parameter key.";
     public WorkspaceTypedValue Value { get; }
@@ -115,7 +119,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         : spanKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is already supplied by a run span. Defaults and spans must use different keys." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
     private void RowChanged() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
-    internal void RefreshSource() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); }
+    internal void RefreshSource() { RefreshKeyChoices(); Value.RefreshType(); RemoveCommand.RaiseCanExecuteChanged(); OnPropertyChanged(""); }
     internal parameterBindingDto ToDto() => new() { keyName = Key, valueType = (int)ValueType, value = Value.Text };
 }
 

@@ -51,6 +51,7 @@ internal static class WorkspaceParameterInitialValues
             "AMax" => "1",
             "AInitial" => "0",
             "ActivationProbability" => "0.5",
+            "OrthoRate" or "ParaRate" or "SelfSymRate" => "1",
             "StageWeights" or "Seed4Weights" => "1,1,1",
             "Seed6Weights" => "1,1,1,1,1,1,1",
             "UnfoldingWeights" => string.Join(";", Enumerable.Repeat("1,1,1", UnfoldingLevels(channels, functionName))),

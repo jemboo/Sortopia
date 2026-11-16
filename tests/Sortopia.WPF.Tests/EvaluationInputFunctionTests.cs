@@ -60,13 +60,14 @@ public sealed class EvaluationInputFunctionTests
         var sourceTypes = setup ? SetupFunctionCatalog.require(name).SourceDataTypes : ResultsFunctionCatalog.require(name).SourceDataTypes;
         Assert.False(SetupFunctionCatalog.functions.ContainsKey(group));
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey(group));
-        Assert.Equal("2", setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
+        Assert.Equal(model == "msuf4" ? "3" : "2", setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
         Assert.DoesNotContain(required, key => key.Name == "SimpleSorterModelType");
         Assert.Equal(model == "msce", required.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", required.Any(key => key.Name == "StageWeights"));
-        Assert.Equal(model == "msuf4", required.Any(key => key.Name == "Seed4Weights"));
+        Assert.DoesNotContain(required, key => key.Name == "Seed4Weights");
+        foreach (var rate in new[] { "OrthoRate", "ParaRate", "SelfSymRate" }) Assert.Equal(model == "msuf4", required.Any(key => key.Name == rate));
         Assert.Equal(model == "msuf6", required.Any(key => key.Name == "Seed6Weights"));
-        Assert.Equal(model is "msuf4" or "msuf6", required.Any(key => key.Name == "UnfoldingWeights"));
+        Assert.Equal(model == "msuf6", required.Any(key => key.Name == "UnfoldingWeights"));
         var testsType = sortopiaDataType.NewSortableTests(""); var modelsType = sortopiaDataType.NewSorterModelSet("");
         Assert.Equal(new[] { testsType, modelsType }.Order(), dataTypes.Keys.Order());
         Assert.Equal(HasSource(group) ? new[] { testsType } : [], sourceTypes);
@@ -98,10 +99,6 @@ public sealed class EvaluationInputFunctionTests
     }
 
     [Theory]
-    [InlineData("sorter-eval.standard", "msuf4")]
-    [InlineData("sorter-eval.merge", "msuf4")]
-    [InlineData("sorter-eval.prefix", "msuf4")]
-    [InlineData("sorter-eval-inputs.standard", "msuf4")]
     [InlineData("sorter-eval.standard", "msuf6")]
     [InlineData("sorter-eval.merge", "msuf6")]
     [InlineData("sorter-eval.prefix", "msuf6")]
@@ -110,20 +107,15 @@ public sealed class EvaluationInputFunctionTests
     {
         var setup = IsSetup(group); var editor = Module(group, model);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
-        var seed = defaults.Single(row => row.Key == (model == "msuf4" ? "Seed4Weights" : "Seed6Weights")).Value;
-        foreach (var mode in seed.Weights.Rows[0].Modes) mode.Text = mode.Name == (model == "msuf4" ? "SelfReflection" : "Para4") ? "1" : "0";
+        var seed = defaults.Single(row => row.Key == "Seed6Weights").Value;
+        foreach (var mode in seed.Weights.Rows[0].Modes) mode.Text = mode.Name == "Para4" ? "1" : "0";
         var unfolding = defaults.Single(row => row.Key == "UnfoldingWeights").Value;
         foreach (var mode in unfolding.Weights.Rows.Single().Modes) mode.Text = mode.Name == "Para" ? "1" : "0";
         Assert.True(unfolding.IsWeights); Assert.False(unfolding.IsTextEditor);
         var parameters = Parameters(editor, setup);
         var models = Assert.Single(CatalogTestHost.Invoke(setup, Function(group, model), parameters, Source(group, parameters)).OfType<functionData.SorterModelSet>()).Item;
         foreach (var value in models.SorterModels) {
-            if (Simple(value) is simpleSorterModel.Msuf4 uf4)
-                Assert.All(uf4.Item.TwoOrbitUnfolder4s, stage => {
-                    Assert.True(stage.SeedTwoOrbitPairType.IsSelfRefl);
-                    Assert.All(stage.TwoOrbitUnfolderSteps.Single().TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
-                });
-            else Assert.All(((simpleSorterModel.Msuf6)Simple(value)).Item.TwoOrbitUnfolder6s, stage => {
+            Assert.All(((simpleSorterModel.Msuf6)Simple(value)).Item.TwoOrbitUnfolder6s, stage => {
                 Assert.True(stage.Seed6TwoOrbitType.IsPara4);
                 Assert.All(stage.TwoOrbitUnfolderSteps.Single().TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
             });

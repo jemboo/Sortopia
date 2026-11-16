@@ -68,7 +68,7 @@ public sealed class RemovalTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Run_removal_deletes_generated_files_and_only_unshared_data_even_during_parent_move(bool branch)
+    public void Run_removal_deletes_generated_files_and_only_unshared_data_and_locked_modules_cannot_be_renamed(bool branch)
     {
         var saved = Create(branch, secondRun: true);
         var p = saved.Modules[0].Projects[0];
@@ -83,8 +83,8 @@ public sealed class RemovalTests : IDisposable
         Assert.Equal(branch ? 4 : 2, Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories).Length);
         var edit = Clone(saved); RemoveFirstRun(edit);
         edit.Definition.modules[0].name = "moved"; edit.Modules[0].Definition.moduleName = "moved";
-        saved = Save(edit, saved, [new(Path.Combine(Root, "sorting"), Path.Combine(Root, "moved"))]);
-        folder = Path.Combine(Root, "moved", "search");
+        Assert.Contains("generated run parameter files", Assert.Throws<InvalidOperationException>(() => Save(edit, saved, [new(Path.Combine(Root, "sorting"), Path.Combine(Root, "moved"))])).Message);
+        edit = Clone(saved); RemoveFirstRun(edit); saved = Save(edit, saved);
         Assert.Single(Directory.GetFiles(Path.Combine(folder, "runs"), "*.msgpack"));
         Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
         Assert.Equal(branch ? 2 : 1, Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories).Length);
@@ -93,6 +93,52 @@ public sealed class RemovalTests : IDisposable
         Assert.Equal(outputState.Complete, RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token).Single().Outputs.State);
         edit = Clone(saved); RemoveFirstRun(edit); Save(edit, saved);
         Assert.DoesNotContain(Directory.GetFiles(folder, "*.msgpack", SearchOption.AllDirectories), path => Path.GetDirectoryName(path) != folder);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Parameter_file_removal_cleans_data_transactionally_and_retains_shared_outputs(bool branch, bool shared)
+    {
+        var saved = Create(branch, secondRun: true);
+        if (shared)
+        {
+            var edit = Clone(saved); var p = edit.Modules[0].Projects[0];
+            p.Runs[1].resultsParameterSpans = Clone(p.Runs[0].resultsParameterSpans);
+            p.Runs[1].setupParameterSpans = Clone(p.Runs[0].setupParameterSpans);
+            saved = Save(edit, saved);
+        }
+        var project = saved.Modules[0].Projects[0];
+        var folder = Path.Combine(Root, "sorting", "search");
+        foreach (var run in project.Runs)
+        {
+            var report = RunParameterExecution.generateInScope(WorkspaceRunDocument.resolveByRunId(saved, run.id), Root, null!, Token);
+            Assert.Equal(runExecutionStatus.Completed, report.Execution.Status);
+            foreach (var id in report.WorkItemIds)
+                Assert.Equal(runExecutionStatus.Completed, RunParameterExecution.executeFile(Path.Combine(folder, "runParameters", id + ".msgpack"), null!, Token).Status);
+        }
+        var before = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+        var firstFile = RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token).First(item => item.RunId == project.Runs[0].id);
+        using (var locked = new FileStream(Path.Combine(folder, "runParameters", firstFile.Id + ".msgpack"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.ThrowsAny<IOException>(() => WorkspaceFileStore.RemoveRunParameterFiles(Root, saved, project.Definition.id, project.Runs[0].id, Token));
+        Assert.Equal(before.Keys.Order(), Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order());
+        foreach (var (path, bytes) in before) Assert.Equal(bytes, File.ReadAllBytes(path));
+        saved = WorkspaceFileStore.RemoveRunParameterFiles(Root, saved, project.Definition.id, project.Runs[0].id, Token);
+        Assert.True(saved.Modules[0].Projects[0].Definition.isSealed);
+        Assert.Equal((branch ? 2 : 1) * (shared ? 2 : 1), Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories).Length);
+        Assert.All(RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token), item => Assert.Equal(outputState.Complete, item.Outputs.State));
+        before = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(folder, "project"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.True(Record.Exception(() => WorkspaceFileStore.RemoveRunParameterFiles(Root, saved, project.Definition.id, project.Runs[1].id, Token)) is IOException or UnauthorizedAccessException);
+        foreach (var (path, bytes) in before) Assert.Equal(bytes, File.ReadAllBytes(path));
+        saved = WorkspaceFileStore.RemoveRunParameterFiles(Root, saved, project.Definition.id, project.Runs[1].id, Token);
+        Assert.False(saved.Modules[0].Projects[0].Definition.isSealed);
+        Assert.Equal(2, saved.Modules[0].Projects[0].Runs.Length);
+        Assert.Empty(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
+        Assert.False(Directory.Exists(Path.Combine(folder, "data")));
+        Assert.Empty(Directory.GetFileSystemEntries(Root, ".sortopia-*"));
     }
 
     [Fact]

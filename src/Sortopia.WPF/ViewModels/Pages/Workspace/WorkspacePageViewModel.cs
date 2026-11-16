@@ -534,6 +534,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         catch (Exception exception) when (IsFolderError(exception))
         { workspaceFileState = WorkspaceFileState.Conflict; workspaceFileIssue = exception.Message; }
         missingComponents = Roots.Sum(root => root.RefreshDiskStatus(WorkspaceFolder));
+        try { RefreshGeneratedLocks(); }
+        catch (Exception exception) { KeepSealedAncestorsLocked(); Error = $"Could not refresh generated-parameter locks. {exception.GetBaseException().Message}"; }
         OnPropertyChanged(nameof(HasMissingComponents));
         OnPropertyChanged(nameof(MissingComponentsMessage));
         OnPropertyChanged(nameof(HasSavedWorkspace));

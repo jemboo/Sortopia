@@ -40,7 +40,7 @@ module ResultsFunctions =
 
     let private modelGenerator source modelType keys make family =
         let keys = ModelGenerators.familyKeys family keys
-        FunctionDefinition.resultsValidated "2" keys
+        FunctionDefinition.resultsValidated (ModelGenerators.version modelType) keys
             [modelsType, InputGenerators.queryKeys keys] (ModelGenerators.inputError source modelType)
             (fun host -> host.ResultsDb.SaveIfMissing(modelsType, [], fun () -> make family host.Parameters))
         |> FunctionDefinition.describe (ModelGenerators.familyDescription source modelType family + " Save the models in the results database.")
@@ -59,7 +59,7 @@ module ResultsFunctions =
 
     let private standardInputs modelType modelKeys makeModels family =
         let modelKeys = ModelGenerators.familyKeys family modelKeys
-        FunctionDefinition.resultsValidated "2"
+        FunctionDefinition.resultsValidated (ModelGenerators.version modelType)
             (InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelsType, InputGenerators.queryKeys modelKeys]
             (InputGenerators.evaluationInputError InputGenerators.standardKeys modelType)

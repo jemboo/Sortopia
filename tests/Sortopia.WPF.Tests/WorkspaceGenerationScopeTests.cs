@@ -115,9 +115,11 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
         unrelated.Name = "Unrelated move";
         await AssertGenerates(page);
         var parentModule = page.Selected!.Parent!.Parent!;
+        var originalName = parentModule.Name;
         parentModule.Name = "Relevant move";
-        Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
-        Assert.Contains("location change", page.GenerationHint);
+        Assert.Equal(originalName, parentModule.Name);
+        Assert.False(parentModule.CanRename);
+        Assert.True(page.GenerateRunParametersCommand.CanExecute(null));
         page.DiscardChangesCommand.Execute(null); WorkspaceRunExecutionTests.SelectRun(page);
         var source = page.Roots[0].Children[1].Children[0];
         File.Delete(WorkspaceDefinitionFiles.Require(source.SavedFolderPath!, "project"));

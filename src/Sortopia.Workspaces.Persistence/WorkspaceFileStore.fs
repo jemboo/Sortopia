@@ -9,6 +9,7 @@ open FSharp.UMX
 open Sortopia.Workspaces
 open Sortopia.Workspaces.Serialization
 open Sortopia.Core.Serialization
+open Sortopia.FileDb
 open WorkspaceFileSystem
 
 /// Transactional workspace saves, explicit removals and imports. Unlisted folders are kept.
@@ -49,6 +50,7 @@ type WorkspaceFileStore private () =
             if not (equalBytes (WorkspaceCodec.encodeWorkspace current) (WorkspaceCodec.encodeWorkspace savedDefinition)) then
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
         WorkspaceFileStore.ValidateSealedProjects(savedDefinition, WorkspaceDocument.toDomain plan.Definition)
+        WorkspaceProjectState.validateLockedModules (normalizeRoot rootFolder) (WorkspaceDocument.fromDomain savedDefinition) plan.Definition
         let plan = WorkspaceSavePlan.withRemovals (WorkspaceDocument.fromDomain savedDefinition) plan token
         let result = WorkspaceCommit.commit plan token |> WorkspaceFileStore.RuntimeResult
         WorkspaceDisk.rememberSavedFiles (normalizeRoot rootFolder) result.Definition
@@ -71,9 +73,9 @@ type WorkspaceFileStore private () =
     static member SaveDocument(rootFolder: string, definition: WorkspaceDocument, savedDefinition: WorkspaceDocument, token: CancellationToken,
                                [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderCopy>)>] copies: IReadOnlyList<WorkspaceFolderCopy>,
                                [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderMove>)>] moves: IReadOnlyList<WorkspaceFolderMove>) =
-        WorkspaceFileStore.SaveDocumentCore(rootFolder, definition, savedDefinition, token, copies, moves, None)
+        WorkspaceFileStore.SaveDocumentCore(rootFolder, definition, savedDefinition, token, copies, moves, None, [||])
 
-    static member private SaveDocumentCore(rootFolder, definition, savedDefinition, token: CancellationToken, copies, moves, resumeProject) =
+    static member private SaveDocumentCore(rootFolder, definition, savedDefinition, token: CancellationToken, copies, moves, resumeProject, removedFiles: string array) =
         token.ThrowIfCancellationRequested()
         let verified = WorkspaceDisk.verifySavedFiles savedDefinition
         // File DTOs are editable; don't rely on a caller leaving the baseline's fields untouched.
@@ -85,7 +87,12 @@ type WorkspaceFileStore private () =
             if not (equalBytes (MessagePackSetup.serialize current) (MessagePackSetup.serialize savedDefinition)) then
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
         WorkspaceFileStore.ValidateDocuments(Some previous, plan.Definition, resumeProject)
+        WorkspaceProjectState.validateLockedModules (normalizeRoot rootFolder) previous plan.Definition
         let plan = WorkspaceSavePlan.withRemovals previous plan token
+        let removals = removedFiles |> Array.map (fun path ->
+            WorkspaceFolderMove.CheckPath(plan.RootFolder, path)
+            { Source = path; Destination = path })
+        let plan = { plan with Removals = Array.append plan.Removals removals }
         let result = WorkspaceCommit.commit plan token
         WorkspaceDisk.rememberSavedDocument (normalizeRoot rootFolder) result.Definition
         result
@@ -100,7 +107,49 @@ type WorkspaceFileStore private () =
         let reason = WorkspaceProjectState.resumeReason (normalizeRoot rootFolder) previous projectId
         if reason <> "" then invalidOp reason
         let next = WorkspaceProjectState.resume previous projectId
-        WorkspaceFileStore.SaveDocumentCore(rootFolder, next, savedDefinition, token, null, null, Some projectId)
+        let _, folder = WorkspaceProjectState.find projectId previous
+        let data = Path.Combine(normalizeRoot rootFolder, folder, "data")
+        let removed = if Directory.Exists data then [| data |] else [||]
+        WorkspaceFileStore.SaveDocumentCore(rootFolder, next, savedDefinition, token, null, null, Some projectId, removed)
+
+    /// Files, including unreadable ones, keep a project's ancestors locked.
+    static member ProjectsWithRunParameters(rootFolder: string, savedDefinition: WorkspaceDocument) =
+        let root = normalizeRoot rootFolder
+        WorkspaceProjectState.projects "" (WorkspaceDisk.documentBaseline savedDefinition).Modules
+        |> Seq.choose (fun (p, folder) -> if WorkspaceProjectState.hasRunParameters root folder then Some p.Definition.id else None)
+        |> Seq.toArray
+
+    /// Release snapshots after the last parameter file was removed, clearing the invalid data cache.
+    static member ReleaseUnusedProjects(rootFolder: string, savedDefinition: WorkspaceDocument, token: CancellationToken,
+                                       [<Optional; DefaultParameterValue(null: Guid array)>] previouslyGenerated: Guid array) =
+        let root = normalizeRoot rootFolder
+        let observed = if isNull previouslyGenerated then Set.empty else Set.ofArray previouslyGenerated
+        let ids = WorkspaceProjectState.projects "" (WorkspaceDisk.documentBaseline savedDefinition).Modules
+                  |> Seq.choose (fun (p, folder) ->
+                      // Old explicitly sealed snapshots may have no module definitions to resume from.
+                      // Keep their explicit Resume editing action until generated files are removed.
+                      let generated = not (isNull (box p.Definition.localOverrides)) || Set.contains p.Definition.id observed
+                      if p.Definition.isSealed && generated && not (WorkspaceProjectState.hasRunParameters root folder) then Some p.Definition.id else None)
+                  |> Seq.toArray
+        (savedDefinition, ids) ||> Array.fold (fun current id -> WorkspaceFileStore.ResumeProjectEditing(root, current, id, token).Definition)
+
+    /// Remove a run's parameter files and data not referenced by remaining parameter files.
+    static member RemoveRunParameterFiles(rootFolder: string, savedDefinition: WorkspaceDocument, projectId: Guid, runId: Guid, token: CancellationToken) =
+        let root = normalizeRoot rootFolder
+        WorkspaceDisk.verifySavedFiles savedDefinition |> ignore
+        let previous = WorkspaceDisk.documentBaseline savedDefinition
+        let selected, relative = WorkspaceProjectState.find projectId previous
+        if not (selected.Runs |> Array.exists (fun r -> r.id = runId)) then invalidOp "Save the run before removing its parameter files."
+        let folder = Path.Combine(root, relative, "runParameters")
+        WorkspaceFolderMove.CheckPath(root, folder)
+        let paths = WorkspaceRemoval.runFiles (Path.Combine(root, relative)) selected (Set.singleton (UMX.tag runId)) token
+        let deleted = HashSet<string>(paths, StringComparer.OrdinalIgnoreCase)
+        let remaining = Directory.Exists folder && Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories) |> Seq.exists (fun path -> not (deleted.Contains path))
+        let resume = selected.Definition.isSealed && not remaining
+        let next = if resume then WorkspaceProjectState.resume previous projectId else previous
+        let data = Path.Combine(root, relative, "data")
+        let paths = if resume && Directory.Exists data then Array.append (paths |> Array.filter (fun path -> not (WorkspaceFolderCopy.Inside(data, path)))) [| data |] else paths
+        WorkspaceFileStore.SaveDocumentCore(root, next, savedDefinition, token, null, null, (if resume then Some projectId else None), paths).Definition
 
     static member private ValidateDocuments(previous: WorkspaceDocument option, next: WorkspaceDocument, resumeProject: Guid option) =
         let rec projects (modules: ModuleDocument array) = seq {

@@ -129,7 +129,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
             Assert.Contains(page.InspectorItems, item => item.Key == "resultsDefaults");
         }
         Assert.Same(project.Editor, run.Editor!.ResultsFunctionOverride.InheritedSource);
-        Assert.Contains("fixed", project.Editor!.FunctionsHint);
+        Assert.Contains("locked", project.Editor!.FunctionsHint);
     }
 
     public void Dispose() => folder.Delete(true);

@@ -70,6 +70,19 @@ module internal WorkspaceRemoval =
                     let matches (value: storedDataReference) = Set.contains value.QueryId queries || Set.contains (value.IsSetup, value.DataType) unknown
                     matches reference && (reference.IsSetup || dependencies |> List.forall (fun input -> input.ProjectId = reference.ProjectId && input.IsSetup && matches input)))
 
+    let runFiles folder (project: ProjectDocument) removed token =
+        let parameters = Path.Combine(folder, "runParameters")
+        let prepared =
+            if not (Directory.Exists parameters) then Set.empty
+            else RunParameterFiles.listWorkItems parameters token
+                 |> Array.map _.RunId |> Set.ofArray |> fun ids -> Set.difference ids removed
+        let retained = { project with Runs = project.Runs |> Array.filter (fun run -> Set.contains (UMX.tag run.id) prepared) }
+        let keepSetup = retainedQueries retained token
+        // Unconsumed setup outputs are not recorded in SetupInputs, but still belong
+        // to surviving prepared runs. Draft runs alone do not retain any generated data.
+        RunDataCleanup.plan folder (UMX.tag project.Definition.id) removed
+            (fun reference dependencies -> not prepared.IsEmpty && reference.IsSetup && keepSetup reference dependencies) token
+
     let plan root (previous: WorkspaceDocument) (next: WorkspaceDocument) (moves: WorkspaceFolderMove array) token =
         let oldEntities = entities root previous
         let currentEntities = entities root next
@@ -89,7 +102,7 @@ module internal WorkspaceRemoval =
                 let remaining = kept.Runs |> Array.map _.id |> Set.ofArray
                 let removed = oldProject.Runs |> Array.map _.id |> Array.filter (fun id -> not (Set.contains id remaining)) |> Array.map UMX.tag<runId> |> Set.ofArray
                 if not removed.IsEmpty && Directory.Exists folder then
-                    for path in RunDataCleanup.plan folder (UMX.tag oldProject.Definition.id) removed (retainedQueries kept token) token do
+                    for path in runFiles folder kept removed token do
                         paths.Add { Source = path; Destination = destination path }
         // Delete only explicitly removed members, never unlisted folders discovered on disk.
         let roots = paths |> Seq.distinctBy _.Destination |> Seq.filter (fun path ->

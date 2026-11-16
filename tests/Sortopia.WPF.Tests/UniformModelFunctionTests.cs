@@ -59,9 +59,10 @@ public sealed class UniformModelFunctionTests
         Assert.DoesNotContain(results.RequiredParameters, key => key.Name is "SimpleSorterModelType" or "PrefixLibId");
         Assert.Equal(model == "msce", results.RequiredParameters.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", results.RequiredParameters.Any(key => key.Name == "StageWeights"));
-        Assert.Equal(model == "msuf4", results.RequiredParameters.Any(key => key.Name == "Seed4Weights"));
+        Assert.DoesNotContain(results.RequiredParameters, key => key.Name == "Seed4Weights");
+        foreach (var rate in new[] { "OrthoRate", "ParaRate", "SelfSymRate" }) Assert.Equal(model == "msuf4", results.RequiredParameters.Any(key => key.Name == rate));
         Assert.Equal(model == "msuf6", results.RequiredParameters.Any(key => key.Name == "Seed6Weights"));
-        Assert.Equal(model is "msuf4" or "msuf6", results.RequiredParameters.Any(key => key.Name == "UnfoldingWeights"));
+        Assert.Equal(model == "msuf6", results.RequiredParameters.Any(key => key.Name == "UnfoldingWeights"));
         Assert.Equal(model == "msuf6" ? 12 : 8, values.TryFind(ParamKeys.channelCountKey).Value);
         var generated = Generate(setup, model, values, family);
         Assert.Equal(2, generated.Count);
@@ -80,17 +81,15 @@ public sealed class UniformModelFunctionTests
     }
 
     [Theory]
-    [InlineData(false, "msuf4")]
-    [InlineData(true, "msuf4")]
     [InlineData(false, "msuf6")]
     [InlineData(true, "msuf6")]
     public void Typed_weight_controls_drive_every_stage_in_both_phases(bool setup, string model)
     {
         var editor = Module(setup, model);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
-        defaults.Single(row => row.Key == "ChannelCount").Value.Text = model == "msuf4" ? "16" : "24";
-        var seed = defaults.Single(row => row.Key == (model == "msuf4" ? "Seed4Weights" : "Seed6Weights")).Value;
-        foreach (var mode in seed.Weights.Rows[0].Modes) mode.Text = mode.Name == (model == "msuf4" ? "SelfReflection" : "Para4") ? "1" : "0";
+        defaults.Single(row => row.Key == "ChannelCount").Value.Text = "24";
+        var seed = defaults.Single(row => row.Key == "Seed6Weights").Value;
+        foreach (var mode in seed.Weights.Rows[0].Modes) mode.Text = mode.Name == "Para4" ? "1" : "0";
         var unfolding = defaults.Single(row => row.Key == "UnfoldingWeights").Value;
         unfolding.Text = "0,3,0;9,0,0";
         Assert.True(unfolding.IsWeights); Assert.False(unfolding.IsTextEditor);
@@ -98,13 +97,7 @@ public sealed class UniformModelFunctionTests
         var generated = Generate(setup, model, Parameters(editor, setup));
         foreach (var value in generated.SorterModels) {
             var simple = Simple(value);
-            if (simple is simpleSorterModel.Msuf4 uf4)
-                Assert.All(uf4.Item.TwoOrbitUnfolder4s, stage => {
-                    Assert.True(stage.SeedTwoOrbitPairType.IsSelfRefl);
-                    Assert.All(stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
-                    Assert.All(stage.TwoOrbitUnfolderSteps[1].TwoOrbitPairTypes, pair => Assert.True(pair.IsOrtho));
-                });
-            else Assert.All(((simpleSorterModel.Msuf6)simple).Item.TwoOrbitUnfolder6s, stage => {
+            Assert.All(((simpleSorterModel.Msuf6)simple).Item.TwoOrbitUnfolder6s, stage => {
                 Assert.True(stage.Seed6TwoOrbitType.IsPara4);
                 Assert.All(stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes, pair => Assert.True(pair.IsPara));
                 Assert.All(stage.TwoOrbitUnfolderSteps[1].TwoOrbitPairTypes, pair => Assert.True(pair.IsOrtho));
@@ -174,8 +167,8 @@ public sealed class UniformModelFunctionTests
             foreach (var row in editor.ResultsParameterDefaults.Concat(editor.SetupParameterDefaults).Where(row => row.Key == "SorterCount")) row.Value.Text = "2";
             page.AddProjectCommand.Execute(null); var projectId = page.Selected!.Id;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
-            WorkspaceParameterSetsPreviewTests.AddSpan(run, "UnfoldingWeights", false, "1,0,0", "0,1,0");
-            Assert.All(run.Editor!.ResultsParameters.Single().Values, value => Assert.True(value.IsWeights));
+            WorkspaceParameterSetsPreviewTests.AddSpan(run, branch ? "OrthoRate" : "UnfoldingWeights", false, branch ? ["0", "1"] : ["1,0,0", "0,1,0"]);
+            Assert.All(run.Editor!.ResultsParameters.Single().Values, value => Assert.Equal(!branch, value.IsWeights));
             run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             if (branch) {
                 WorkspaceParameterSetsPreviewTests.AddSpan(run, "UnfoldingWeights", true, "1,0,0");
@@ -196,7 +189,7 @@ public sealed class UniformModelFunctionTests
             Assert.True(report.Status == runExecutionStatus.Completed, report.Error); Assert.NotEmpty(report.Results);
             ISortopiaDb db = new SortopiaFileDb(copy, projectId);
             foreach (var call in report.Results) {
-                Assert.NotNull(call.Parameters.TryFind(ParamKeys.unfoldingWeightsKey));
+                Assert.NotNull(call.Parameters.TryFind(branch ? "OrthoRate" : "UnfoldingWeights"));
                 var stored = db.Load(Assert.Single(call.StoredOutputs).Reference, TestContext.Current.CancellationToken); Assert.True(stored.IsOk);
                 var models = Assert.IsType<functionData.SorterModelSet>(stored.ResultValue.Value).Item;
                 Assert.All(models.SorterModels, model => Assert.Empty(SorterModel.getPrefix(model)));

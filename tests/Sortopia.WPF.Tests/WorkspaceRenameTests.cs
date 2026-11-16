@@ -29,12 +29,13 @@ public sealed class WorkspaceRenameTests : IDisposable
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Renaming_a_module_and_sealed_project_moves_all_generated_work_without_changing_identity(bool branch, bool caseOnly)
+    public async Task Generated_parameter_files_lock_module_and_project_names_without_changing_saved_work(bool branch, bool caseOnly)
     {
         var page = await Create(branch);
         var run = page.Selected!; var project = run.Parent!; var module = project.Parent!;
         var oldFolder = project.GetFolderPath(page.WorkspaceFolder);
         var projectId = project.Id; var runId = run.Id;
+        var moduleName = module.Name; var projectName = project.Name;
         var settings = MessagePackSetup.serialize(project.Editor!.ToProjectSettings());
         var files = Directory.GetFiles(oldFolder, "*", SearchOption.AllDirectories)
             .Where(path => Path.GetDirectoryName(path) != oldFolder)
@@ -42,10 +43,12 @@ public sealed class WorkspaceRenameTests : IDisposable
         Assert.NotEmpty(files);
         module.NameInput = caseOnly ? module.Name.ToUpperInvariant() : "Renamed module";
         project.NameInput = caseOnly ? project.Name.ToUpperInvariant() : "Renamed project";
+        Assert.Equal(moduleName, module.NameInput); Assert.Equal(projectName, project.NameInput);
+        Assert.False(module.CanRename); Assert.False(project.CanRename);
         Assert.Equal(module.Name, module.PathName); Assert.Equal(project.Name, project.PathName);
         Assert.True(project.Editor.IsReadOnly); Assert.True(project.IsSealed);
         Assert.Equal(project.Name, page.Roots[0].ToWorkspace().ProjectIndex[projectId].Runs[0].ProjectName);
-        Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
+        Assert.True(page.GenerateRunParametersCommand.CanExecute(null));
         Assert.True(Directory.Exists(oldFolder));
         var newFolder = project.GetFolderPath(page.WorkspaceFolder);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
@@ -55,7 +58,7 @@ public sealed class WorkspaceRenameTests : IDisposable
         Assert.Equal(projectId, saved.Runs[0].ParentProjectId); Assert.True(saved.IsSealed);
         Assert.Equal(settings, MessagePackSetup.serialize(SettingsDto.fromDomain(saved.Configuration)));
         Assert.Contains(newFolder, Directory.GetDirectories(Path.GetDirectoryName(newFolder)!));
-        if (!caseOnly) Assert.False(Directory.Exists(oldFolder));
+        Assert.Equal(oldFolder, newFolder);
         foreach (var (relative, content) in files) Assert.Equal(content, File.ReadAllBytes(Path.Combine(newFolder, relative)));
         Assert.All(RunParameterExecution.inspectFolder(page.RunParametersFolder, null!, Token), row => Assert.Equal(outputState.Complete, row.Outputs.State));
         await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
@@ -67,6 +70,7 @@ public sealed class WorkspaceRenameTests : IDisposable
     public async Task A_failed_rename_restores_the_old_folder_and_retry_moves_its_contents()
     {
         var page = await Create();
+        await page.RemoveRunParameterFilesAsync(); Assert.Empty(page.Error);
         var node = page.Selected!.Parent!;
         var oldFolder = node.GetFolderPath(page.WorkspaceFolder);
         var before = Directory.GetFiles(page.WorkspaceFolder, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);

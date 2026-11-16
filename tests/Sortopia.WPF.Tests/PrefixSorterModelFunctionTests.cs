@@ -25,9 +25,9 @@ public sealed class PrefixSorterModelFunctionTests
     private static parameterBinding[] ModelDefaults(string model, int width) => model switch {
         "Msce" => [Bind("ExcludeSelfCe", "true", parameterValueType.Boolean)],
         "Msrs" => [Bind("StageWeights", "1,1,1", parameterValueType.OpsWeights)],
-        "Msuf4" or "Msuf6" => [model == "Msuf4" ? Bind("Seed4Weights", "1,1,1", parameterValueType.OpsWeights)
-            : Bind("Seed6Weights", "1,1,1,1,1,1,1", parameterValueType.Seed6Weights),
-            Bind("UnfoldingWeights", string.Join(";", Enumerable.Repeat("1,1,1", Math.Max(0, (int)Math.Ceiling(Math.Log2(width / (model == "Msuf4" ? 4.0 : 6.0)))))), parameterValueType.UnfoldingWeights)],
+        "Msuf4" => [Bind("OrthoRate", "1", parameterValueType.Floating), Bind("ParaRate", "1", parameterValueType.Floating), Bind("SelfSymRate", "1", parameterValueType.Floating)],
+        "Msuf6" => [Bind("Seed6Weights", "1,1,1,1,1,1,1", parameterValueType.Seed6Weights),
+            Bind("UnfoldingWeights", string.Join(";", Enumerable.Repeat("1,1,1", Math.Max(0, (int)Math.Ceiling(Math.Log2(width / 6.0))))), parameterValueType.UnfoldingWeights)],
         _ => []
     };
     private static parameterSet Parameters(string model = "Mssi", int width = 8, int repl = 0) => parameterSet.fromBindings(ListModule.OfArray(Defaults(model, width, repl)));
@@ -120,7 +120,7 @@ public sealed class PrefixSorterModelFunctionTests
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf4SimpleSorterModels);
         Assert.Empty(definition.SourceDataTypes);
-        Assert.Equal(new[] { "PrefixLibId", "Repl", "RngType", "Seed4Weights", "SorterCount", "SorterSuccessFraction", "UnfoldingWeights" }, definition.RequiredParameters.Select(key => key.Name).Order());
+        Assert.Equal(new[] { "OrthoRate", "ParaRate", "PrefixLibId", "Repl", "RngType", "SelfSymRate", "SorterCount", "SorterSuccessFraction" }, definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.True(Assert.Single(definition.SortopiaDataTypes).IsSorterModelSet);
         var defaults = ListModule.OfSeq(Defaults("Msuf4").Where(value => value.KeyName != "PrefixLibId"));
         FunctionValidation.validateDefaults(definition, defaults);
@@ -128,7 +128,8 @@ public sealed class PrefixSorterModelFunctionTests
             ListModule.OfSeq(Enumerable.Repeat(Prefix(8), 50).Append(Prefix(18)))));
         Assert.Contains("incompatible", Assert.Throws<ArgumentException>(() => FunctionValidation.validateInputs(definition, ["PrefixLibId"], defaults, spans)).Message);
         var weights = ListModule.Singleton(ParameterSpan.fromTexts("UnfoldingWeights", parameterValueType.UnfoldingWeights, ["1,1,1", "1,1,1;1,1,1"]));
-        Assert.Contains("needs 1 unfolding", definition.InputError.Invoke([Defaults().Single(binding => binding.KeyName == "PrefixLibId")]).Invoke(weights));
+        Assert.Contains("needs 1 unfolding", ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf6SimpleSorterModels).InputError
+            .Invoke([Defaults("Msuf6", 12).Single(binding => binding.KeyName == "PrefixLibId")]).Invoke(weights));
     }
 
     private static WorkspaceTreeNode Module()

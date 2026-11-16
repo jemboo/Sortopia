@@ -65,7 +65,7 @@ module SetupFunctions =
 
     let private modelGenerator modelType keys make family =
         let keys = ModelGenerators.familyKeys family keys
-        FunctionDefinition.setupValidated "2" keys [modelsType, queryKeys keys] (ModelGenerators.inputError ChannelCountInput modelType)
+        FunctionDefinition.setupValidated (ModelGenerators.version modelType) keys [modelsType, queryKeys keys] (ModelGenerators.inputError ChannelCountInput modelType)
             (fun host _ -> host.SetupDb.SaveIfMissing(modelsType, [], fun () -> make family host.Parameters))
         |> FunctionDefinition.describe (ModelGenerators.familyDescription ChannelCountInput modelType family + " Save the models in the setup database.")
 
@@ -82,7 +82,7 @@ module SetupFunctions =
             elif testsKeys |> List.exists (fun key -> key.Name = ParamKeys.mergeLibIdKey.Name) then
                 "Copy tests and their prefix from a source project, selecting by MergeLibId and SortableDataFormat."
             else "Copy tests and their prefix from a source project, selecting by PrefixLibId and SortableDataFormat."
-        FunctionDefinition.setupWithSourcesValidated "2"
+        FunctionDefinition.setupWithSourcesValidated (ModelGenerators.version modelType)
             (testsKeys @ modelKeys |> List.distinctBy (fun key -> key.Name))
             [testsType, queryKeys testsKeys; modelsType, queryKeys modelKeys]
             [testsType, (if fromSource then [testsType] else []); modelsType, []]

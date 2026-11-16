@@ -55,6 +55,7 @@ public sealed partial class WorkspaceTreeNode
         }
         if (dto.isSealed)
         {
+            node.editableProjectOverrides = dto.localOverrides;
             node.sealedProject = WorkspaceDefinitionCodec.projectHeader(null!, dto);
             node.Editor!.Freeze(dto.configuration);
         }
@@ -103,7 +104,7 @@ public sealed partial class WorkspaceTreeNode
             schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, projectName = Name,
             projectKind = IsBranch ? "branch" : "root", isSealed = IsSealed,
             configuration = IsSealed ? SettingsDto.fromDomain(sealedProject!.Configuration) : null,
-            localOverrides = IsSealed ? null : Editor!.ToLocalOverrides(),
+            localOverrides = IsSealed ? editableProjectOverrides : Editor!.ToLocalOverrides(),
             inheritedDefaults = IsSealed ? null : ParentSettings, inheritedFrom = IsSealed ? null : ParentOrigin,
             runs = runs.Select(run => run.id).ToArray()
         }, runs);

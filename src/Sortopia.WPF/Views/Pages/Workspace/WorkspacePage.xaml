@@ -239,7 +239,7 @@
                     <TextBlock Text="{Binding DataContext.ActiveItemTitle, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <StackPanel x:Name="NameItemEditor" Visibility="{Binding DataContext.ShowNameEditor, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, Converter={StaticResource WorkspaceBoolVisibility}}">
                         <TextBox x:Name="WorkspaceNameInput" Text="{Binding DataContext.WorkspaceName, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" Visibility="{Binding IsWorkspace, Converter={StaticResource WorkspaceBoolVisibility}}" AutomationProperties.Name="Workspace name" />
-                        <TextBox x:Name="EntityNameInput" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="Entity name">
+                        <TextBox x:Name="EntityNameInput" Text="{Binding NameInput, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanRename}" MinHeight="30" AutomationProperties.Name="Entity name">
                             <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource NetworkTextBoxStyle}"><Style.Triggers><DataTrigger Binding="{Binding IsWorkspace}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBox.Style>
                         </TextBox>
                         <TextBox x:Name="EntityNameError" Text="{Binding NameError, Mode=OneWay}" Style="{StaticResource SelectableError}" AutomationProperties.LiveSetting="Polite" />
@@ -259,6 +259,8 @@
                                 <Button x:Name="GenerateRunParametersButton" Content="Generate files" Command="{Binding GenerateRunParametersCommand}" Margin="0,0,8,6"
                                         AutomationProperties.Name="Generate run parameter files" ToolTip="Run setup locally and save immutable results parameter files." />
                                 <Button x:Name="RefreshRunParameterFilesButton" Content="Refresh" Command="{Binding RefreshRunParameterFilesCommand}" Margin="0,0,8,6" />
+                                <Button x:Name="RemoveRunParameterFilesButton" Content="Remove files" Command="{Binding RemoveRunParameterFilesCommand}" Margin="0,0,8,6"
+                                        ToolTip="Remove this run's parameter files and generated data no longer used by remaining files. Ancestors unlock after the last descendant files are removed." />
                                 <Button x:Name="ExecutePageButton" Content="Open execution page" Command="{Binding ExecutePageCommand}" Margin="0,0,0,6"
                                         AutomationProperties.Name="Open Results execution page" ToolTip="Open this run's saved parameter files on the Results execution page. Workspace drafts are retained." />
                             </WrapPanel>

@@ -11,6 +11,7 @@ public sealed partial class WorkspacePageViewModel
     public RelayCommand GenerateRunParametersCommand { get; private set; } = null!;
     public RelayCommand ExecutePageCommand { get; private set; } = null!;
     public RelayCommand RefreshRunParameterFilesCommand { get; private set; } = null!;
+    public RelayCommand RemoveRunParameterFilesCommand { get; private set; } = null!;
     private Func<string, Guid?, Task>? openResultsExecution;
     private void InitializeRunParameterCommands(Func<string, Guid?, Task>? openResultsExecution)
     {
@@ -19,6 +20,8 @@ public sealed partial class WorkspacePageViewModel
         ExecutePageCommand = new RelayCommand(async () => await OpenExecutePageAsync(), () => CanModifyWorkspace && this.openResultsExecution is not null && RunParametersFolder.Length > 0);
         RefreshRunParameterFilesCommand = new RelayCommand(async () => await RefreshRunParameterFilesAsync(),
             () => !IsBusy && Selected is { IsRun: true } && SelectedExecution?.Files.IsRefreshing != true);
+        RemoveRunParameterFilesCommand = new RelayCommand(async () => await RemoveRunParameterFilesAsync(),
+            () => CanModifyWorkspace && Selected is { IsRun: true, SavedFolderPath: not null } && SelectedExecution?.Files.Rows.Any(row => row.RunId == Selected.Id && row.FileStatus != "Missing") == true);
     }
     public string RunParameterFilesDraftNotice => HasUnsavedChanges
         ? "Unsaved workspace edits are shown in the preview. Saved files retain the configuration used when they were generated. Save relevant edits before generating files."
@@ -36,8 +39,30 @@ public sealed partial class WorkspacePageViewModel
                 : $"Preview: {results.TotalCount:N0} results parameter set(s). No files are written by this preview.";
         }
     }
-    public Task RefreshRunParameterFilesAsync() => IsBusy || Selected is not { IsRun: true, Parent: { } parent } node
-        ? Task.CompletedTask : SelectedExecution!.Files.RefreshAsync(RunParametersFolder, parent.Id, node.Id);
+    public async Task RefreshRunParameterFilesAsync()
+    {
+        if (IsBusy || Selected is not { IsRun: true, Parent: { } parent } node) return;
+        await SelectedExecution!.Files.RefreshAsync(RunParametersFolder, parent.Id, node.Id);
+        RefreshDiskStatus();
+    }
+    public Task RemoveRunParameterFilesAsync() => !RemoveRunParameterFilesCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
+    {
+        var node = Selected!;
+        var previous = savedDocument!;
+        var updated = await Task.Run(() => WorkspaceFileStore.RemoveRunParameterFiles(WorkspaceFolder, previous, node.Parent!.Id, node.Id, token));
+        // Apply the persisted unlocks without replacing unsaved editors.
+        if (!ReferenceEquals(updated, previous))
+        {
+            var dirty = HasUnsavedChanges;
+            static IEnumerable<Sortopia.Workspaces.Serialization.ProjectDocument> Projects(Sortopia.Workspaces.Serialization.ModuleDocument module) => module.Projects.Concat(module.Modules.SelectMany(Projects));
+            foreach (var project in updated.Modules.SelectMany(Projects).Where(p => !p.Definition.isSealed))
+                Roots.SelectMany(root => root.DescendantsAndSelf()).FirstOrDefault(n => n.Id == project.Definition.id && n.IsSealed)?.ResumeEditing(project.Definition);
+            savedDocument = updated; ClearRunScope(); HasUnsavedChanges = dirty;
+        }
+        SelectedExecution!.Files.ForgetRemovedFiles();
+        await SelectedExecution.Files.RefreshAsync(RunParametersFolder, node.Parent!.Id, node.Id);
+        Status = $"Removed parameter files for '{node.Name}' and generated data no longer used by remaining files. Ancestors unlock when no descendant run has parameter files.";
+    });
     public string RunParametersFolder
     {
         get
@@ -57,6 +82,7 @@ public sealed partial class WorkspacePageViewModel
         OnPropertyChanged(nameof(RunParameterFilesDraftNotice)); OnPropertyChanged(nameof(RunParameterPreviewSummary));
         GenerateRunParametersCommand.RaiseCanExecuteChanged(); ExecutePageCommand.RaiseCanExecuteChanged();
         RefreshRunParameterFilesCommand.RaiseCanExecuteChanged();
+        RemoveRunParameterFilesCommand.RaiseCanExecuteChanged();
     }
 
     public Task GenerateRunParametersAsync()

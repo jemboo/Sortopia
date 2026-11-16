@@ -6,7 +6,7 @@ public sealed partial class WorkspaceConfigurationViewModel
 {
     internal IEnumerable<WorkspaceItemSnapshot> InspectorSnapshots()
     {
-        static string State(WorkspaceOverrideState state) => state.IsReadOnly ? "Fixed · sealed project"
+        static string State(WorkspaceOverrideState state) => state.IsReadOnly ? "Locked · generated parameters"
             : state.FixedByFunction?.Invoke() == true ? "Defined by function"
             : state.HasInheritedSource ? "Inherited" : state.IsOverridden || state.IsProjectValue ? "Local" : "Default";
         WorkspaceItemSnapshot Field(string key, string group, WorkspaceOverrideField field) =>
@@ -18,7 +18,7 @@ public sealed partial class WorkspaceConfigurationViewModel
             var values = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
             var local = setup ? LocalSetupParameterDefaults : LocalResultsParameterDefaults;
             var localCount = IsReadOnly ? 0 : local.Count();
-            var status = IsReadOnly ? "Fixed · sealed project" : IsRun ? "Project defaults" : $"{values.Length - localCount} inherited · {localCount} local";
+            var status = IsReadOnly ? "Locked · generated parameters" : IsRun ? "Project defaults" : $"{values.Length - localCount} inherited · {localCount} local";
             return new(setup ? "setupDefaults" : "resultsDefaults", setup ? "Setup" : "Results", "Parameter defaults",
                 values.Length == 0 ? "None" : string.Join("; ", values.Select(value => $"{value.keyName} = {value.value}")), status,
                 setup ? SetupParameterDefaultsError : ResultsParameterDefaultsError);
@@ -35,7 +35,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         {
             yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
                 : Summary(EffectiveResultsDataTypes.Select(output => $"{output.dataType.kind} · query keys: {(output.queryParameterKeys.Length == 0 ? "none" : string.Join(", ", output.queryParameterKeys))}")), FirstError(OutputTypesError, ResultsQueryKeysError))
-                with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Fixed · sealed project", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
+                with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Locked · generated parameters", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
             yield return Defaults(false);
             if (IsRun)
                 yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);

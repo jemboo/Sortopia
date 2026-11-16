@@ -64,9 +64,12 @@ public sealed partial class WorkspaceConfigurationViewModel
                 : functionName.EndsWith(".simple", StringComparison.Ordinal)
                     ? "The function fixes the algorithm and Simple model type. All suffix entries are enabled; no activator parameters are required. "
                     : "";
+        var weights = functionName.Split('.').Contains("msuf4")
+            ? "OrthoRate, ParaRate, and SelfSymRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
+            : "Mode weights are shared by every stage; UF6 has separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
         return family
             + dimensions + "Choose 50%, 90%, or 99% of generated networks sorting every input. These budgets are provisional; custom weights and inactive entries can change the actual success rate. "
-            + tests + "Repl selects a reproducible batch of SorterCount models. Mode weights are shared by every stage; UF4/UF6 have separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
+            + tests + "Repl selects a reproducible batch of SorterCount models. " + weights;
     }
     private string ModelStageLengthSuggestion(bool setup)
     {
@@ -120,7 +123,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         var modules = new List<string>();
         for (var current = this; current is not null; current = current.Parent)
         {
-            if (current.IsReadOnly) return ""; // Sealed projects own their recorded function choices.
+            if (current.IsProject && current.IsReadOnly) return ""; // Sealed projects own their recorded function choices.
             if (current.IsModule && !string.IsNullOrWhiteSpace((setup ? current.SetupFunctionOverride : current.ResultsFunctionOverride).OverrideValue))
                 modules.Add(current.Name);
         }
@@ -130,10 +133,10 @@ public sealed partial class WorkspaceConfigurationViewModel
         && FunctionDefinitionError(false).Length == 0 && (!IsBranch || FunctionDefinitionError(true).Length == 0);
     public bool ShowFunctionConfiguration => FunctionsReady || IsModule && (HasResultsContract || HasSetupContract) && FunctionCompatibilityError.Length == 0;
     public string FunctionsTitle => IsModule ? "Choose functions" : "Inherited functions";
-    public string FunctionsHint => IsModule
+    public string FunctionsHint => IsReadOnly ? "Functions are locked while descendant runs have generated parameter files. Remove those files or runs to resume editing, or create a new project version."
+        : IsModule
         ? IsBranch ? "A module may leave either function undefined. Each branch run needs exactly one setup definition and one compatible results definition along its module path; they may be on different modules. Clear ‘Define on this module’ to inherit or leave the choice to a child module."
             : "A module may leave the results function undefined. Each root run needs exactly one results-function definition along its module path. Clear ‘Define on this module’ to inherit or leave the choice to a child module."
-        : IsReadOnly ? "These functions were fixed when this project first generated work. Create a new project version to use different functions."
         : IsRun ? "Functions come from the parent project. Saved runs keep that project’s fixed function choices. Supply spans only for the required keys below."
         : "Functions are inherited from the module. Follow a source link to change a function there; this project can override its allowed defaults and source projects.";
     public string FunctionsStatus => !FunctionVersionsCurrent ? "This project uses a different function version. Saved settings and data remain available; create a new project version to execute the installed functions."

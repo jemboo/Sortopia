@@ -83,11 +83,23 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     }
     public WorkspaceConfigurationViewModel? Editor { get; }
     private project? sealedProject;
+    private projectOverridesDto? editableProjectOverrides;
+    private bool hasGeneratedParameters;
+    public bool HasGeneratedParameters => hasGeneratedParameters;
+    public bool CanRename => !HasGeneratedParameters;
+    internal void SetGeneratedParametersLock(bool locked)
+    {
+        if (hasGeneratedParameters == locked) return;
+        hasGeneratedParameters = locked;
+        Editor?.SetGeneratedParametersLock(locked);
+        OnPropertyChanged(nameof(HasGeneratedParameters)); OnPropertyChanged(nameof(CanRename));
+    }
     private Guid? savedParentProjectId;
     public bool IsSealed => sealedProject is not null;
     public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed for generated work" : "Draft · editable until run parameters are generated" : "";
     internal void MarkSealed(project snapshot)
     {
+        editableProjectOverrides = Editor!.ToLocalOverrides();
         sealedProject = project.withRuns(snapshot, []);
         var settings = SettingsDto.fromDomain(snapshot.Configuration);
         Editor!.LoadProject(settings);
@@ -97,6 +109,8 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     internal void ResumeEditing(projectDefinitionDto definition)
     {
         sealedProject = null;
+        SetGeneratedParametersLock(false);
+        editableProjectOverrides = null;
         Editor!.ResumeEditing(definition.localOverrides);
         RefreshProjectState();
     }
@@ -271,6 +285,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         get => nameInput;
         set
         {
+            if (!CanRename) return;
             SetProperty(ref nameInput, value);
             var conflict = Collision(value);
             SetNameError(conflict);

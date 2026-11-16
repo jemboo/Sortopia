@@ -137,7 +137,7 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     public bool ShowPreview => !CanEditValue;
     public WorkspaceConfigurationViewModel? InheritedSource => ParentFunctionDefinition ?? (IsInherited || FixedByFunction?.Invoke() == true ? inheritedSource() : null);
     public bool HasInheritedSource => InheritedSource is not null;
-    public string SourceLabel => IsReadOnly ? "Fixed when this project was sealed" : ParentFunctionDefinition is { } definition ? $"{(IsOverridden ? "Also defined on" : "Defined on")} {definition.Name}" : FixedByFunction?.Invoke() == true ? "Defined by the selected function" : IsProjectValue ? "Defined on this project" : IsOverridden ? IsFunctionDefinition ? "Defined on this module" : ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
+    public string SourceLabel => IsReadOnly ? "Locked while generated run parameter files exist" : ParentFunctionDefinition is { } definition ? $"{(IsOverridden ? "Also defined on" : "Defined on")} {definition.Name}" : FixedByFunction?.Invoke() == true ? "Defined by the selected function" : IsProjectValue ? "Defined on this project" : IsOverridden ? IsFunctionDefinition ? "Defined on this module" : ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
         : InheritedSource is { } source ? $"Inherited from {source.Name}" : HasDescendantFunctionDefinitions ? "This module leaves the function to its descendants." : IsFunctionDefinition ? "Not defined on the module path" : "Default value · no ancestor override";
     protected abstract void SeedOverride();
     internal void MarkLocal() { isOverridden = hasDraft = true; RefreshInherited(); }
@@ -224,12 +224,19 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private WorkspaceParameterSpan[] activeResultsSpans = [], activeSetupSpans = [];
     public WorkspaceEditorSections Sections { get; } = new();
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
-    public bool IsReadOnly { get; private set; }
+    private bool generatedParametersLock;
+    public bool IsReadOnly => frozenSettings is not null || generatedParametersLock;
     public bool IsEditable => !IsReadOnly;
-    internal void Freeze(projectSettingsDto? snapshot = null) { frozenSettings = snapshot ?? ToProjectSettings(); ResultsFunctionOverride.Load(frozenSettings.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? frozenSettings.setupFunctionName : null); IsReadOnly = true; foreach (var state in properties.Values) state.IsReadOnly = true; RefreshInherited(); }
+    internal void SetGeneratedParametersLock(bool locked)
+    {
+        generatedParametersLock = locked;
+        foreach (var state in properties.Values) state.IsReadOnly = IsReadOnly;
+        RefreshInherited();
+    }
+    internal void Freeze(projectSettingsDto? snapshot = null) { frozenSettings = snapshot ?? ToProjectSettings(); ResultsFunctionOverride.Load(frozenSettings.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? frozenSettings.setupFunctionName : null); foreach (var state in properties.Values) state.IsReadOnly = true; RefreshInherited(); }
     internal void ResumeEditing(projectOverridesDto overrides)
     {
-        frozenSettings = null; IsReadOnly = false;
+        frozenSettings = null; generatedParametersLock = false;
         foreach (var state in properties.Values) state.IsReadOnly = false;
         ResultsFunctionOverride.Load(null); SetupFunctionOverride.Load(null);
         LoadOverrides(overrides); RefreshInherited();
@@ -310,7 +317,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public bool IsRun => !IsDefaults;
     public bool IsBranch { get; }
     public string Title => IsModule ? "Module defaults" : IsProject ? "Project defaults" : "Run inputs";
-    public string Hint => IsReadOnly ? "Sealed project: settings are fixed for generated work. Resume editing an unused project, or create a new version to change them." : IsDefaults
+    public string Hint => IsReadOnly ? "Settings are locked while descendant runs have generated parameter files. Remove those files or runs to edit again; save run removals to finish deleting their files." : IsDefaults
         ? "Parameter defaults inherit by key: local values replace matching keys and add new ones. Other properties follow their nearest ancestor override; other list overrides replace the whole list."
         : "Functions and defaults come from the parent project. Override the description and supply spans for the functions’ required parameters.";
     public string Description { get => DescriptionOverride.EffectiveValue; set => DescriptionOverride.SetLocal(value); }
@@ -462,7 +469,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         {
             var source = ParameterSource(value.keyName, setup);
             if (CanEditDefaults && ReferenceEquals(source, this)) continue;
-            var origin = ReferenceEquals(source, this) ? new WorkspaceParameterValueSource("Fixed when this project was sealed", null)
+            var origin = ReferenceEquals(source, this) ? new WorkspaceParameterValueSource("Locked while generated run parameter files exist", null)
                 : new WorkspaceParameterValueSource(source is null ? "Default value" : $"Inherited from {source.Name}", source);
             yield return new(value.keyName, ParameterValue.label((parameterValueType)value.valueType), value.value,
                 IsRun ? spans.Any(span => span.Key == value.keyName) ? "Conflict: also supplied by a run span"
@@ -622,7 +629,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
             () => (ReferenceEquals(rows, SetupParameterDefaults) ? EffectiveSetupDefaults : EffectiveOutputDefaults).Select(binding => binding.keyName),
             key => (ReferenceEquals(rows, SetupParameterDefaults) ? Parent?.EffectiveSetupDefaults : Parent?.EffectiveOutputDefaults)?.FirstOrDefault(binding => binding.keyName == key),
             () => Requirements(ReferenceEquals(rows, SetupParameterDefaults)),
-            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : []));
+            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : [], () => !IsReadOnly));
     private void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }
     public void LoadProject(projectSettingsDto value)

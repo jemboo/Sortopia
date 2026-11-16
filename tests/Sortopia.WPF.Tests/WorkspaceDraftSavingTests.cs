@@ -142,7 +142,7 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
         Module(page).Editor!.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "bad";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError);
         var reopened = Open(); Assert.True(Project(reopened).IsSealed);
-        Assert.Equal("bad", Module(reopened).Editor!.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text);
+        Assert.Equal("4", Module(reopened).Editor!.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text);
         Assert.Equal("4", Run(reopened).Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
     }
 
