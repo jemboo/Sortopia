@@ -81,6 +81,31 @@ let ``wide full sort estimates never claim a smaller unprefixed budget than the 
             Assert.Equal(full.Stages, (fullSortDefault model cc).Stages)
 
 [<Theory>]
+[<InlineData(4, 5, 9, 15)>]
+[<InlineData(8, 21, 35, 51)>]
+[<InlineData(12, 55, 86, 116)>]
+[<InlineData(16, 88, 136, 180)>]
+[<InlineData(32, 369, 529, 636)>]
+let ``msuf4 uses five times the original suffix budget at every target and prefix`` width old50 old90 old99 =
+    for percent, oldFull in [50, old50; 90, old90; 99, old99] do
+        for prefix in [0..5] do
+            let expected = 5 * max 1 (oldFull - prefix)
+            let info = SimpleSorterStageLengths.recommend percent (width * 1<channelCount>) (prefix * 1<stageLength>) simpleSorterModelType.Msuf4
+            Assert.Equal(expected, int info.Stages)
+            Assert.True(info.IsEstimate)
+            Assert.Contains("MSUF4 5x", info.Source)
+    // Reference access remains evidence, independent of the adjusted recommendation.
+    Assert.Equal(Some 180<stageLength>, tryFullSort99 simpleSorterModelType.Msuf4 16<channelCount>)
+
+[<Fact>]
+let ``mssi and msrs budgets are unchanged by the msuf4 adjustment`` () =
+    for model, expected in [simpleSorterModelType.Mssi, [66; 92; 132]; simpleSorterModelType.Msrs, [76; 112; 148]] do
+        let actual = [50; 90; 99] |> List.map (fun percent ->
+            SimpleSorterStageLengths.recommend percent 16<channelCount> 1<stageLength> model)
+        Assert.Equal<int list>(expected, actual |> List.map (fun info -> int info.Stages))
+        Assert.All(actual, fun info -> Assert.DoesNotContain("MSUF4", info.Source))
+
+[<Theory>]
 [<InlineData(1, 0, 99)>]
 [<InlineData(8, -1, 99)>]
 [<InlineData(8, 6, 99)>]
@@ -113,5 +138,7 @@ let ``four channel recommendations are checked against every input on independen
             let stages = (SimpleSorterStageLengths.recommend percent 4<channelCount> 0<stageLength> model).Stages
             let actual = successFraction model stages
             Assert.True(actual >= float percent / 100.0 - 0.04, $"{model} at {stages}: requested {percent} percent, observed {actual:P1}")
-            let previous = successFraction model (stages - 1<stageLength>)
-            Assert.True(previous < float percent / 100.0 + 0.04, $"{model} at {stages - 1<stageLength>}: threshold already exceeded ({previous:P1})")
+            // The empirical safety adjustment is intentionally above the minimum.
+            if model <> simpleSorterModelType.Msuf4 then
+                let previous = successFraction model (stages - 1<stageLength>)
+                Assert.True(previous < float percent / 100.0 + 0.04, $"{model} at {stages - 1<stageLength>}: threshold already exceeded ({previous:P1})")

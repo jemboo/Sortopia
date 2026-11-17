@@ -65,7 +65,6 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
 public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
 {
     private readonly Func<string?, string?> pickFolder;
-    private readonly Func<string?, string?> pickReportFolder;
     private Action goBack;
     private readonly Action<int>? saveParallelJobs;
     private readonly TimeProvider clock;
@@ -83,11 +82,9 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     private readonly HashSet<WorkItemStatusRow> runningRows = [];
     private ResultsExecutionProgress executionProgress = new(0);
     private bool changingSelection;
-    public ResultsExecutionPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<int>? loadParallelJobs = null, Action<int>? saveParallelJobs = null, TimeProvider? timeProvider = null,
-        Func<string?, string?>? pickReportFolder = null)
+    public ResultsExecutionPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<int>? loadParallelJobs = null, Action<int>? saveParallelJobs = null, TimeProvider? timeProvider = null)
     {
         this.goBack = goBack; this.pickFolder = pickFolder;
-        this.pickReportFolder = pickReportFolder ?? pickFolder;
         this.saveParallelJobs = saveParallelJobs;
         clock = timeProvider ?? TimeProvider.System;
         parallelJobs = Math.Max(1, loadParallelJobs?.Invoke() ?? 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -99,15 +96,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         }, () => !IsBusy);
         RefreshCommand = new RelayCommand(async () => await RefreshAsync(), () => !IsBusy && Folder.Length > 0);
         ExecuteCommand = new RelayCommand(async () => await ExecuteAsync(), () => CanExecute);
-        ExportReportsCommand = new RelayCommand(async () =>
-        {
-            try
-            {
-                if (this.pickReportFolder(Path.GetDirectoryName(Folder)) is { } parent)
-                    await ExportReportsAsync(Path.Combine(parent, $"sorter-eval-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}"));
-            }
-            catch (Exception exception) { Error = exception.GetBaseException().Message; }
-        }, () => CanExportReports);
+        ExportReportsCommand = new RelayCommand(async () => await ExportReportsAsync(), () => CanExportReports);
         SelectAllCommand = new RelayCommand(() => SelectRows(_ => true), () => !IsBusy && Rows.Count > 0);
         SelectPendingCommand = new RelayCommand(() => SelectRows(row => row.State is outputState.Pending or outputState.Partial), () => !IsBusy && Rows.Count > 0);
         ClearSelectionCommand = new RelayCommand(() => SelectRows(_ => false), () => !IsBusy && SelectedCount > 0);
@@ -310,11 +299,12 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         if (report.Status != runExecutionStatus.Completed)
         { Error = report.Error; Status = $"{report.Status}: {report.Results.Length:N0} selected files processed. {Status}"; }
     }) : Task.CompletedTask;
-    public Task ExportReportsAsync(string outputFolder) => CanExportReports ? WorkAsync(async token =>
+    public Task ExportReportsAsync(string? outputFolder = null) => CanExportReports ? WorkAsync(async token =>
     {
         var paths = SelectedPaths();
         Status = $"Exporting reports for {paths.Length:N0} selected files…";
-        var exported = await Task.Run(() => SorterEvalReportExport.exportFiles(paths, outputFolder, token), token);
+        var destination = outputFolder ?? SorterEvalReportExport.nextOutputFolder(Folder);
+        var exported = await Task.Run(() => SorterEvalReportExport.exportFiles(paths, destination, token), token);
         if (cancellation?.Token == token)
             Status = $"Exported {exported.SummaryRows:N0} summary rows and {exported.DetailRows:N0} detail rows to {exported.Folder}";
     }) : Task.CompletedTask;

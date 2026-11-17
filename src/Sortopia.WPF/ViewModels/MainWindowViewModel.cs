@@ -23,8 +23,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public MainWindowViewModel(Func<string?, string?> pickWorkspaceFolder,
         WorkspaceFolderSettings? workspaceSettings = null, Func<WorkspaceUnsavedChoice>? confirmWorkspaceChanges = null,
-        Func<WorkspaceFolderRequest, string?>? pickExistingWorkspaceFolder = null, Action<string>? openWorkspaceFolder = null,
-        Func<string?, string?>? pickReportFolder = null)
+        Func<WorkspaceFolderRequest, string?>? pickExistingWorkspaceFolder = null, Action<string>? openWorkspaceFolder = null)
     {
         homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenWorkspace, () => OpenFileInspector(false), OpenResultsExecution);
         networksPage = new NetworksPageViewModel(ReturnHome);
@@ -32,7 +31,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         sgdPage = new SgdPageViewModel(ReturnHome);
         fileInspectorPage = new FileInspectorPageViewModel(ReturnHome, pickWorkspaceFolder);
         var executionSettings = new ResultsExecutionSettings();
-        resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder, executionSettings.Load, executionSettings.Save, pickReportFolder: pickReportFolder);
+        resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder, executionSettings.Load, executionSettings.Save);
         workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder, openWorkspaceFolder,
             () => OpenFileInspector(true), OpenWorkspaceResultsExecutionAsync);
         currentPage = homePage;

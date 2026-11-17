@@ -131,6 +131,12 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.True(row.IsSelected); Assert.All(model.Rows, file => Assert.Equal("Complete", file.Status));
             Assert.Contains("Setup.SorterModelSet.Query.Repl", File.ReadAllText(Path.Combine(destination, "Summary.csv")));
             await model.ExportReportsAsync(destination); Assert.Contains("not overwritten", model.Error);
+            await model.ExportReportsAsync(); Assert.Empty(model.Error);
+            var reportsFolder = Path.Combine(Path.GetDirectoryName(model.Folder)!, "data", "results", "reports");
+            Assert.Equal(File.ReadAllBytes(Path.Combine(destination, "Summary.csv")), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
+            await model.ExportReportsAsync(); Assert.Empty(model.Error);
+            var later = Assert.Single(Directory.GetDirectories(reportsFolder));
+            Assert.Equal(File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")), File.ReadAllBytes(Path.Combine(later, "Details.csv")));
         }
         finally { workspace.Cancel(); }
     }

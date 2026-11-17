@@ -40,7 +40,7 @@ public sealed class PrefixModelWeightsTests
         string[] common = ["PrefixLibId", "RngType", "SorterSuccessFraction", "SorterCount", "Repl"];
         Assert.Equal(common.Concat(extras.Split(',', StringSplitOptions.RemoveEmptyEntries)).Order(), definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
-        Assert.Equal(model == "msuf4" ? "3" : "2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
+        Assert.Equal(model == "msuf4" ? "6" : "2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = Parameters(editor); FunctionValidation.validate(definition, parameters);
         var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
         Assert.Equal(2, models.Count);

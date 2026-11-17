@@ -18,6 +18,15 @@ type sorterEvalReportExport = {
 }
 
 module SorterEvalReportExport =
+    /// Keep reports with the project's results. Later exports get a fresh child
+    /// folder so an earlier report pair remains intact.
+    let nextOutputFolder parametersFolder =
+        let project = RunParameterFiles.projectFolder parametersFolder
+        let reports = Path.Combine(project, "data", "results", "reports")
+        if Directory.Exists reports then
+            Path.Combine(reports, DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+        else reports
+
     let isSupported (item: runParameters) =
         item.Results.FunctionName = ResultsFunctionNames.sorterEval && item.SetupSetNumber.IsSome && not item.SetupInputs.IsEmpty
 

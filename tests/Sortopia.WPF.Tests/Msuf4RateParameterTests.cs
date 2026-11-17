@@ -143,7 +143,7 @@ public sealed class Msuf4RateParameterTests
     public void Validation_checks_partial_defaults_and_every_rate_span_combination_without_expanding_them()
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.uniformMsuf4SimpleSorterModels);
-        Assert.Equal("3", definition.Version);
+        Assert.Equal("6", definition.Version);
         foreach (var key in new[] { ParamKeys.orthoRateKey, ParamKeys.paraRateKey, ParamKeys.selfSymRateKey })
             Assert.Contains(key.Name, definition.InputError.Invoke([ParameterBinding.create(key, -1.0)]).Invoke([]));
         var zeros = new[] { ParameterBinding.create(ParamKeys.orthoRateKey, 0.0), ParameterBinding.create(ParamKeys.paraRateKey, 0.0), ParameterBinding.create(ParamKeys.selfSymRateKey, 0.0) };

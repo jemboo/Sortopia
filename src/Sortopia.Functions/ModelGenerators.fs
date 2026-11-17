@@ -34,7 +34,8 @@ module ModelGenerationStageLengths =
         definition.ModelGeneration |> Option.map (fun metadata -> forMetadata metadata parameters)
 
 module internal ModelGenerators =
-    let version = function simpleSorterModelType.Msuf4 -> "3" | _ -> "2"
+    // MSUF4 v6 uses 5x the original suffix capacity; v5 cached models use 3x.
+    let version = function simpleSorterModelType.Msuf4 -> "6" | _ -> "2"
     let algorithmDescription = function
         | simpleSorterModelType.Msce -> "compare-exchange (MSCE)"
         | simpleSorterModelType.Mssi -> "self-inverse (MSSI)"

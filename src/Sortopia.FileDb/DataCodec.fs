@@ -19,9 +19,11 @@ type functionPayloadDto = {
 
 module internal DataCodec =
     [<Literal>]
-    let maxBytes = 268435456 // Explicit bound for the initial whole-object codecs.
+    let maxBytes = 268435456 // Bound the stored, compressed envelope to 256 MiB.
+    [<Literal>]
+    let maxRawBytes = 1073741824 // Large model sets (10,000 MSUF4 models) need more raw capacity.
     let compressedOptions = MessagePackSetup.options
-                                .WithSecurity(MessagePackSetup.options.Security.WithMaximumDecompressedSize(maxBytes))
+                                .WithSecurity(MessagePackSetup.options.Security.WithMaximumDecompressedSize(maxRawBytes))
                                 .WithCompression(MessagePackCompression.Lz4BlockArray)
     let supported kind = List.contains kind ["SortableTests"; "SorterModelSet"; "SorterSetEval"]
     let encode value =
@@ -33,11 +35,11 @@ module internal DataCodec =
             | functionData.SorterSetEval evaluation -> evaluation |> SorterSetEvalDto.fromDomain |> MessagePackSetup.serialize, [||]
         let dto = { Version = 1; Kind = FunctionData.kind value; Data = data; Prefix = prefix }
         let raw = MessagePackSetup.serialize dto
-        if raw.Length > maxBytes then invalidOp "The data exceeds the 256 MiB uncompressed storage limit."
+        if raw.Length > maxRawBytes then invalidOp "The data exceeds the 1 GiB uncompressed storage limit."
         MessagePackSerializer.Serialize(dto, compressedOptions), raw.Length
 
     let decode kind rawLength (bytes: byte array) =
-        if rawLength < 0 || rawLength > maxBytes then invalidOp "Invalid uncompressed data length."
+        if rawLength < 0 || rawLength > maxRawBytes then invalidOp "Invalid uncompressed data length."
         let dto = MessagePackSerializer.Deserialize<functionPayloadDto>(ReadOnlyMemory<byte>(bytes), compressedOptions)
         if isNull (box dto) || dto.Version <> 1 then invalidOp "Unsupported data payload schema."
         if dto.Kind <> kind || isNull dto.Data || isNull dto.Prefix then invalidOp "Invalid data payload."

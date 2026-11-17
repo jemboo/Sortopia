@@ -23,8 +23,8 @@
   </StackPanel>
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
    <Button x:Name="ExecuteSelectedButton" Content="Execute selected" Command="{Binding ExecuteCommand}" Margin="0,0,8,6" />
-   <Button x:Name="ExportReportsButton" Content="Export reports…" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
-           ToolTip="Select completed sorter-eval branch files to export Summary.csv and Details.csv, including inherited setup query values, into a new report folder." />
+   <Button x:Name="ExportReportsButton" Content="Export reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
+           ToolTip="Export Summary.csv and Details.csv, including inherited setup query values, to this project's data/results/reports. Later exports use dated subfolders." />
    <Button Content="Select all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
    <Button Content="Select pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
    <Button Content="Clear selection" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />

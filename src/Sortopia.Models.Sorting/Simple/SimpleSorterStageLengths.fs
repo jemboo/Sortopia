@@ -10,7 +10,7 @@ open Sortopia.Sorting
 module SimpleSorterStageLengths =
     type recommendation = {
         Stages: int<stageLength>
-        /// True when interpolated, extrapolated, or adjusted for a prefix.
+        /// True when interpolated, extrapolated, or provisionally adjusted.
         /// False means a direct reference row, not a guaranteed success probability.
         IsEstimate: bool
         /// False means a planning value only: the generator cannot use this width.
@@ -118,8 +118,16 @@ module SimpleSorterStageLengths =
                 max longest stages) baseStages
         let source = if fullStages > baseStages then basis + "; percentile ordering" else basis
         // Deliberately modest credit: no unmeasured exponential prefix speedup is assumed.
-        { Stages = max 1<stageLength> (fullStages - prefixStageLength)
-          IsEstimate = estimated || fullStages <> baseStages || prefixStageLength > 0<stageLength>
+        let suffix = max 1<stageLength> (fullStages - prefixStageLength)
+        // Observed MSUF4 branch runs fell short even at three times the original budget.
+        // Use five times the original suffix at every target and width.
+        // Keep the original measurements and the separate half-merge task intact.
+        let adjusted = smt = simpleSorterModelType.Msuf4
+        if adjusted && int suffix > Int32.MaxValue / 5 then
+            invalidArg "cc" "The adjusted stage length exceeds the supported integer range."
+        let source = if adjusted then source + "; provisional MSUF4 5x suffix adjustment" else source
+        { Stages = if adjusted then suffix * 5 else suffix
+          IsEstimate = adjusted || estimated || fullStages <> baseStages || prefixStageLength > 0<stageLength>
           IsSupported = SimpleSorterModelType.supportsChannelCount (int cc) smt
           Source = if prefixStageLength = 0<stageLength> then source else source + "; provisional prefix credit" }
 

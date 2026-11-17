@@ -57,6 +57,15 @@ public sealed partial class PreparedExecutionTests
         Assert.Contains("same results file", Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([files[0], files[0]], Path.Combine(temporary.FullName, "Duplicates"), Token)).Message);
         Assert.Equal(original.Keys.Order(), Directory.GetFiles(copy, "*", SearchOption.AllDirectories).Order());
         Assert.All(original, pair => Assert.Equal(pair.Value, SHA256.HashData(File.ReadAllBytes(pair.Key))));
+        var reportsFolder = Path.Combine(copy, "data", "results", "reports");
+        Assert.Equal(reportsFolder, SorterEvalReportExport.nextOutputFolder(parametersFolder));
+        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].Id.ToString()]));
+        Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
+        Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")));
+        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0]]));
+        var later = Assert.Single(Directory.GetDirectories(reportsFolder));
+        Assert.Single(TypedReportTests.ReadCsv(Path.Combine(later, "Summary.csv")));
+        Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
     }
 
     [Fact]

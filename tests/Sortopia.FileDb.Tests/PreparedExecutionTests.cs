@@ -454,6 +454,8 @@ public sealed partial class PreparedExecutionTests : IDisposable
     [InlineData("checksum")]
     [InlineData("schema")]
     [InlineData("identity")]
+    [InlineData("negative-length")]
+    [InlineData("over-1GiB")]
     public void Damaged_outputs_are_invalid_and_never_overwritten(string damage)
     {
         var (world, project) = Create(false, multipleOutputs: true);
@@ -464,9 +466,10 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var file = DataFiles(folder, "results")[0];
         var dto = Sortopia.Core.Serialization.MessagePackSetup.deserialize<dataEnvelopeDto>(File.ReadAllBytes(file));
         if (damage == "checksum") dto.Checksum[0] ^= 1;
+        var rawLength = damage switch { "negative-length" => -1, "over-1GiB" => 1024 * 1024 * 1024 + 1, _ => dto.RawLength };
         var damaged = new dataEnvelopeDto(damage == "schema" ? 999 : dto.Version,
             damage == "identity" ? Guid.NewGuid() : dto.ProjectId, dto.Id, dto.QueryId, dto.IsSetup, dto.Kind, dto.Label,
-            dto.QueryBytes, dto.IdentityBytes, dto.Compression, dto.RawLength, dto.Checksum, dto.Payload);
+            dto.QueryBytes, dto.IdentityBytes, dto.Compression, rawLength, dto.Checksum, dto.Payload);
         var bytes = Sortopia.Core.Serialization.MessagePackSetup.serialize(damaged);
         File.WriteAllBytes(file, bytes);
         var status = Assert.Single(RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token)).Outputs;
