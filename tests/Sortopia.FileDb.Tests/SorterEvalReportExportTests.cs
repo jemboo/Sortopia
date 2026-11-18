@@ -53,7 +53,7 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(cliFolder, "Summary.csv")));
         Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(cliFolder, "Details.csv")));
         Assert.Equal(2, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0], "--run", consumer.Runs[0].Id.ToString(), "--output", "unused"]));
-        Assert.Throws<ArgumentException>(() => SorterEvalReportExport.exportFiles(files, export.Folder, Token));
+        Assert.Equal(export.Folder, SorterEvalReportExport.exportFiles(files, export.Folder, Token).Folder);
         Assert.Contains("same results file", Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([files[0], files[0]], Path.Combine(temporary.FullName, "Duplicates"), Token)).Message);
         Assert.Equal(original.Keys.Order(), Directory.GetFiles(copy, "*", SearchOption.AllDirectories).Order());
         Assert.All(original, pair => Assert.Equal(pair.Value, SHA256.HashData(File.ReadAllBytes(pair.Key))));
@@ -63,9 +63,35 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
         Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")));
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0]]));
-        var later = Assert.Single(Directory.GetDirectories(reportsFolder));
-        Assert.Single(TypedReportTests.ReadCsv(Path.Combine(later, "Summary.csv")));
-        Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
+        Assert.Empty(Directory.GetDirectories(reportsFolder));
+        Assert.Single(TypedReportTests.ReadCsv(Path.Combine(reportsFolder, "Summary.csv")));
+        Assert.Equal(reportsFolder, SorterEvalReportExport.nextOutputFolder(parametersFolder));
+    }
+
+    [Fact]
+    public void Flat_report_replacement_rolls_back_locked_files_preserves_notes_and_removes_stale_report_types()
+    {
+        var (world, _, _, consumer, _, _) = EvaluationCopyWorkspace(8, prefix: true);
+        Completed(Prepare(world, consumer).Execution);
+        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var parameters = Path.Combine(folder, "runParameters");
+        Completed(RunParameterExecution.executeFolder(parameters, null!, null!, Token));
+        var files = Directory.GetFiles(parameters, "*.msgpack");
+        var exported = SorterEvalReportExport.exportFiles(files, SorterEvalReportExport.nextOutputFolder(parameters), Token);
+        var original = Directory.GetFiles(exported.Folder).ToDictionary(path => path, File.ReadAllBytes);
+        using (var locked = new FileStream(exported.DetailsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.Throws<IOException>(() => SorterEvalReportExport.exportFiles([files[0]], exported.Folder, Token));
+        foreach (var pair in original) Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key));
+        File.WriteAllText(Path.Combine(exported.Folder, "Notes.csv"), "keep this");
+        File.WriteAllText(Path.Combine(exported.Folder, "EvolutionSummary.csv"), "old export");
+        File.WriteAllText(Path.Combine(exported.Folder, "Snapshots.csv"), "old export");
+        SorterEvalReportExport.exportFiles([files[0]], exported.Folder, Token);
+        Assert.Single(TypedReportTests.ReadCsv(exported.SummaryPath));
+        Assert.Equal("keep this", File.ReadAllText(Path.Combine(exported.Folder, "Notes.csv")));
+        Assert.False(File.Exists(Path.Combine(exported.Folder, "EvolutionSummary.csv")));
+        Assert.False(File.Exists(Path.Combine(exported.Folder, "Snapshots.csv")));
+        Assert.Empty(Directory.GetDirectories(exported.Folder));
+        Assert.False(File.Exists(Path.Combine(exported.Folder, ".sortopia-export.lock")));
     }
 
     [Fact]

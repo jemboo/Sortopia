@@ -8,6 +8,26 @@
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
         <BooleanToVisibilityConverter x:Key="VisibleWhen" />
+        <DataTemplate x:Key="ReportingSchedule">
+            <StackPanel Margin="0,6,0,10">
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,0,0,4" />
+                <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" HorizontalAlignment="Left" MinWidth="200" />
+                <WrapPanel Visibility="{Binding HasInterval, Converter={StaticResource VisibleWhen}}" Margin="0,6,0,0">
+                    <TextBlock Text="{Binding IntervalLabel}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox Text="{Binding Interval, UpdateSourceTrigger=PropertyChanged}" Width="85" AutomationProperties.Name="Generation interval" />
+                    <TextBlock Text="generations" VerticalAlignment="Center" Margin="6,0,12,0" />
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsIncreasing, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock Text="Interval growth fraction" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBox Text="{Binding Growth, UpdateSourceTrigger=PropertyChanged}" Width="85" AutomationProperties.Name="Interval growth fraction" />
+                    </StackPanel>
+                </WrapPanel>
+                <StackPanel Visibility="{Binding IsCustom, Converter={StaticResource VisibleWhen}}" Margin="0,6,0,0">
+                    <TextBox Text="{Binding Custom, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Custom generation schedule" />
+                    <TextBlock Text="Examples: Cyclic(Constant(5), 3) or Prefixed(10, Constant(1), Constant(100))." TextWrapping="Wrap" />
+                </StackPanel>
+                <TextBlock Text="{Binding Preview}" TextWrapping="Wrap" Margin="0,4,0,0" />
+            </StackPanel>
+        </DataTemplate>
         <Style x:Key="EditorSection" TargetType="Expander">
             <Setter Property="Foreground" Value="{DynamicResource Workspace.TextPrimary}" />
             <Setter Property="Margin" Value="0,12,0,4" />
@@ -302,6 +322,18 @@
         </StackPanel>
         </Expander>
         <StackPanel Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}">
+            <Expander x:Name="EvolutionReportingSection" Header="Evolution reporting" IsExpanded="True" Style="{StaticResource EditorSection}"
+                      Visibility="{Binding SupportsReporting, Converter={StaticResource VisibleWhen}}" Tag="{Binding ReportingError}">
+                <StackPanel Margin="4,6,0,0" IsEnabled="{Binding IsEditable}">
+                    <CheckBox Content="Save evolution snapshots and summaries" IsChecked="{Binding ReportingEnabled}" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                    <TextBlock Text="Full snapshots retain every model and its evaluation. Summaries retain pool statistics for smaller, more frequent samples. Generation 0 and the final generation are always included." Style="{StaticResource Help}" />
+                    <StackPanel IsEnabled="{Binding ReportingEnabled}">
+                        <ContentControl Content="{Binding SnapshotReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
+                        <ContentControl Content="{Binding SummaryReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
+                    </StackPanel>
+                    <TextBlock Text="The schedules are frozen when parameter files are generated. Export their CSV reports from Results execution after the run completes." Style="{StaticResource Help}" />
+                </StackPanel>
+            </Expander>
             <Expander x:Name="ResultsSpansSection" Header="Results parameter spans" Tag="{Binding ResultsParametersError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsSpans, Mode=TwoWay}">
             <StackPanel Margin="4,6,0,0">
             <ContentControl x:Name="ResultsRequiredInputsSummary" Content="{Binding ResultsRequiredInputs}" ContentTemplate="{StaticResource RequiredInputs}" />

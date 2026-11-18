@@ -25,8 +25,10 @@ module RunDataCleanup =
                 check path
                 let item = RunParameterFiles.loadFile path
                 if item.ProjectId <> projectId then invalidOp $"Parameter file belongs to another project: {path}"
-                if Set.contains item.RunId removed then deleted.Add path
+                if Set.contains item.RunId removed then
+                    deleted.Add path
                 else
+                    for key in EvolutionReportingStore.keys item do references.Add key.Id |> ignore
                     for output in item.Results.Outputs do
                         let key = DataKey.create projectId (string item.Results.DatabaseName) false (string item.Results.FunctionName)
                                       item.Results.FunctionVersion output.DataType output.QueryParameterKeys item.Parameters []

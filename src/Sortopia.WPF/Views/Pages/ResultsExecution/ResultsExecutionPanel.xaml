@@ -23,8 +23,8 @@
   </StackPanel>
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
    <Button x:Name="ExecuteSelectedButton" Content="Execute selected" Command="{Binding ExecuteCommand}" Margin="0,0,8,6" />
-   <Button x:Name="ExportReportsButton" Content="Export reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
-           ToolTip="Export Summary.csv and Details.csv, including inherited setup query values, to this project's data/results/reports. Later exports use dated subfolders." />
+   <Button x:Name="ExportReportsButton" Content="Export CSV reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
+           ToolTip="Combine selected completed evaluation or SGD files into Summary.csv and Details.csv. Details includes each network's V1 statistics, results parameters, and inherited setup query values. Reports go to this project's data/results/reports; later exports use dated subfolders." />
    <Button Content="Select all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
    <Button Content="Select pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
    <Button Content="Clear selection" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />
@@ -44,7 +44,7 @@
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="Click a Setup column header to sort by that inherited query value. Select a row and expand Inherited setup query values to inspect or copy its setup combination. Failed rows also have Error details."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="Export reports uses the selected completed sorter-eval files. Summary has one row per results file; Details has one row per sorter."
+   <TextBlock Text="To report a whole sweep, choose its run filter, Select all, then Export CSV reports. The selected combinations replace the CSV files directly in the project's reports folder. Summary and Details describe final results; EvolutionSummary and Snapshots describe the sampled pool statistics and networks."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
   </StackPanel>
   <DataGrid x:Name="RunParametersGrid" Grid.Row="3" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True"

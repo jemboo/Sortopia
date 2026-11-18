@@ -27,6 +27,8 @@ type functionData =
     | SortableTests of sortableTests * ce array
     | SorterModelSet of sorterModelSet
     | SorterSetEval of sorterSetEval
+    | SorterPoolSet of Sortopia.Evaluation.Sgd.sorterPoolSet
+    | SorterPoolSummarySet of Sortopia.Evaluation.Sgd.sorterPoolSummarySet
 
 type runExecutionPhase = Setup = 0 | Results = 1
 
@@ -43,6 +45,11 @@ type ISourceResults =
     abstract Find: Guid<projectId> * sortopiaDataType * parameterSet -> storedDataReference
     abstract Load: storedDataReference -> functionData
 
+/// The host publishes sampled populations and summaries as immutable database results.
+type IEvolutionReporting =
+    abstract Observe: Sortopia.Evaluation.Sgd.sorterPoolSet -> unit
+    abstract Complete: unit -> unit
+
 /// Bound for one parameter set, with phase-appropriate database access.
 type runHost = {
     Phase: runExecutionPhase
@@ -53,6 +60,7 @@ type runHost = {
     CancellationToken: CancellationToken
     /// Runtime CPU allowance for evaluation inside this invocation.
     EvaluationParallelism: int
+    EvolutionReporting: IEvolutionReporting option
 }
 
 type sourceProjects = Map<sortopiaDataType, Guid<projectId>>
@@ -102,12 +110,15 @@ type functionDefinition<'executor> = {
 }
 with
     member this.SortopiaDataTypes = this.DataTypes |> Map.toList |> List.map fst
+    member this.SupportsEvolutionReporting = this.SortopiaDataTypes |> List.exists (fun value -> value.IsSorterPoolSet)
 
 module FunctionData =
     let kind = function
         | functionData.SortableTests _ -> "SortableTests"
         | functionData.SorterModelSet _ -> "SorterModelSet"
         | functionData.SorterSetEval _ -> "SorterSetEval"
+        | functionData.SorterPoolSet _ -> "SorterPoolSet"
+        | functionData.SorterPoolSummarySet _ -> "SorterPoolSummarySet"
 
 module FunctionParameters =
     let sourceRequirements (names: string<paramKeyName> list) =
@@ -229,6 +240,9 @@ module FunctionDefinition =
 
     let resultsWithInputs version required inputs dataTypes execute =
         resultsWithValidation version required inputs dataTypes (fun _ _ -> "") execute
+
+    let resultsWithInputsValidated version required inputs dataTypes inputError execute =
+        resultsWithValidation version required inputs dataTypes inputError execute
 
     let results version required dataTypes execute = resultsWithInputs version required (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) dataTypes execute
 

@@ -27,6 +27,7 @@ type runParameters = {
     SetupSetNumber: int option
     SetupSuffixStages: int option
     ResultsSuffixStages: int option
+    Reporting: sgdReportingConfig option
 }
 
 [<MessagePackObject>]
@@ -78,6 +79,16 @@ type runParametersEnvelopeDto = {
     [<Key(1)>] Kind: string
     [<Key(2)>] Checksum: byte array
     [<Key(3)>] Payload: byte array
+}
+
+/// Reporting-enabled work items wrap the existing invocation. Unconfigured
+/// work items retain their exact bytes and identities.
+[<MessagePackObject>]
+type reportingRunParametersDto = {
+    [<Key(0)>] Version: int
+    [<Key(1)>] Invocation: runParametersDto
+    [<Key(2)>] SnapshotSchedule: string
+    [<Key(3)>] SummarySchedule: string
 }
 
 module internal RunParameterCodec =
@@ -144,7 +155,26 @@ module internal RunParameterCodec =
           Parameters = dto.Parameters |> Array.map readBinding |> parameterSet.fromBindings
           SetupInputs = dto.SetupInputs |> Array.map readReference |> Array.toList
           SetNumber = dto.SetNumber; SetupSetNumber = dto.SetupSetNumber
-          SetupSuffixStages = dto.SetupSuffixStages; ResultsSuffixStages = dto.ResultsSuffixStages }
+          SetupSuffixStages = dto.SetupSuffixStages; ResultsSuffixStages = dto.ResultsSuffixStages; Reporting = None }
+
+    let encode value =
+        let invocation = toDto value
+        match value.Reporting with
+        | None -> MessagePackSetup.serialize invocation
+        | Some reporting ->
+            SgdReporting.validate reporting |> ignore
+            MessagePackSetup.serialize { Version = 3; Invocation = invocation; SnapshotSchedule = reporting.SnapshotSchedule; SummarySchedule = reporting.SummarySchedule }
+
+    let decode id (payload: byte array) =
+        let mutable reader = MessagePackReader(ReadOnlyMemory<byte>(payload))
+        reader.ReadArrayHeader() |> ignore
+        match reader.ReadInt32() with
+        | 2 -> MessagePackSetup.deserialize<runParametersDto> payload |> fromDto id
+        | 3 ->
+            let dto = MessagePackSetup.deserialize<reportingRunParametersDto> payload
+            let reporting = SgdReporting.validate { SnapshotSchedule = dto.SnapshotSchedule; SummarySchedule = dto.SummarySchedule }
+            { fromDto id dto.Invocation with Reporting = Some reporting }
+        | _ -> invalidOp "Unsupported runParameters schema. Regenerate the run parameter files."
 
 /// Small immutable metadata files, atomically published beside project-local data.
 module internal RunParameterStorage =
@@ -205,14 +235,14 @@ module RunParameterFiles =
     let private pathComparison = if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal
     let private hash (bytes: byte array) : Guid<workItemId> = UMX.tag (Guid(SHA256.HashData(bytes).[0..15]))
     let internal saveWorkItem folder (value: runParameters) token =
-        let payload = RunParameterCodec.toDto value |> MessagePackSetup.serialize
+        let payload = RunParameterCodec.encode value
         let id = hash payload
         RunParameterStorage.publish folder "runParameters" (UMX.untag id) "runParameters" payload token |> ignore
         id
     let loadWorkItem folder (id: Guid<workItemId>) =
         let payload = RunParameterStorage.read folder "runParameters" (UMX.untag id) "runParameters"
         if hash payload <> id then invalidOp "The runParameters contents do not match their file ID."
-        let value = MessagePackSetup.deserialize<runParametersDto> payload |> RunParameterCodec.fromDto id
+        let value = RunParameterCodec.decode id payload
         RunParameterStorage.requireProject folder value.ProjectId
         value
 

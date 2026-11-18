@@ -225,6 +225,14 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public WorkspaceEditorSections Sections { get; } = new();
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
     private bool generatedParametersLock;
+    private bool reportingEnabled;
+    public WorkspaceReportingSchedule SnapshotReporting { get; }
+    public WorkspaceReportingSchedule SummaryReporting { get; }
+    public bool SupportsReporting => IsRun && ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var definition) && definition.SupportsEvolutionReporting;
+    public bool ReportingEnabled { get => reportingEnabled; set { if (IsEditable && SetProperty(ref reportingEnabled, value)) NotifyChanged(); } }
+    public string ReportingError => !IsRun || !ReportingEnabled ? "" : !SupportsReporting ? "The results function does not support evolution reporting."
+        : SnapshotReporting.Error.Length > 0 ? "Full snapshots: " + SnapshotReporting.Error
+        : SummaryReporting.Error.Length > 0 ? "Summaries: " + SummaryReporting.Error : "";
     public bool IsReadOnly => frozenSettings is not null || generatedParametersLock;
     public bool IsEditable => !IsReadOnly;
     internal void SetGeneratedParametersLock(bool locked)
@@ -248,6 +256,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         this.childEditors = childEditors ?? (() => []);
         IsProject = kind == WorkspaceEntityKind.Project; IsModule = kind == WorkspaceEntityKind.Module;
         IsBranch = isBranch; this.parent = parent; this.name = name;
+        SnapshotReporting = new("Full snapshots", "100", () => IsEditable, NotifyChanged);
+        SummaryReporting = new("Pool summaries", "1", () => IsEditable, NotifyChanged);
         var owner = kind.ToString().ToLowerInvariant();
         WorkspaceOverrideField Field(string key, string title, bool required, Func<string> inherited, bool canOverride = true, string[]? choices = null, bool projectValue = false)
         {
@@ -602,7 +612,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
                 ("Setup settings", IsBranch ? SetupDataTypesError : ""), ("Setup settings", IsBranch ? SetupQueryKeysError : ""),
                 ("Setup parameter defaults", IsBranch ? SetupParameterDefaultsError : ""),
                 ("Results parameter spans", IsRun ? ResultsParametersError : ""),
-                ("Setup parameter spans", IsRun && IsBranch ? SetupParametersError : "") };
+                ("Setup parameter spans", IsRun && IsBranch ? SetupParametersError : ""),
+                ("Evolution reporting", ReportingError) };
             return errors.Where(error => error.Message.Length > 0);
         }
     }
@@ -687,6 +698,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         Quietly(() =>
         {
             DescriptionOverride.Load(value.descriptionOverride);
+            reportingEnabled = value.reporting is not null;
+            SnapshotReporting.Load(value.reporting?.Value.SnapshotSchedule ?? SgdReporting.defaults.SnapshotSchedule);
+            SummaryReporting.Load(value.reporting?.Value.SummarySchedule ?? SgdReporting.defaults.SummarySchedule);
             ResultsParameters.Clear(); foreach (var span in value.resultsParameterSpans) AddSpan(ResultsParameters, span.keyName, span.values);
             SetupParameters.Clear(); foreach (var span in value.setupParameterSpans) AddSpan(SetupParameters, span.keyName, span.values);
         });
@@ -735,6 +749,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     {
         schemaVersion = WorkspaceDtoSchema.version, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
         descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ActiveResultsParameters.Select(span => span.ToDto()).ToArray(),
-        setupParameterSpans = IsBranch ? ActiveSetupParameters.Select(span => span.ToDto()).ToArray() : []
+        setupParameterSpans = IsBranch ? ActiveSetupParameters.Select(span => span.ToDto()).ToArray() : [],
+        reporting = ReportingEnabled ? Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(new(SnapshotReporting.Schedule, SummaryReporting.Schedule)) : null
     };
 }

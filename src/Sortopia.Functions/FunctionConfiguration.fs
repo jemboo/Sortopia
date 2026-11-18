@@ -57,6 +57,9 @@ module FunctionConfiguration =
 
     let private validateInputs executable (value: run) =
         let results = ResultsFunctionCatalog.require value.ResultsFunctionName
+        value.Reporting |> Option.iter (fun reporting ->
+            SgdReporting.validate reporting |> ignore
+            if not results.SupportsEvolutionReporting then invalidArg "reporting" "The selected results function does not support evolution reporting.")
         let config = match value with run.RootRun r -> r.ProjectConfiguration.Results | run.BranchRun r -> r.ProjectConfiguration.Results
         if executable then version (string config.FunctionName) config.FunctionVersion results.Version
         if config.FunctionVersion = results.Version then

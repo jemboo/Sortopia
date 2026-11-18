@@ -23,27 +23,138 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-execution-setup-values-");
 
-    private async Task<WorkspacePageViewModel> Generate()
+    private async Task<WorkspacePageViewModel> Generate(bool sgd = false, bool reporting = false)
     {
         var root = Directory.CreateDirectory(Path.Combine(temporary.FullName, "Workspace")).FullName;
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(root);
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
         page.AddBranchModuleCommand.Execute(null);
         var module = page.Selected!.Editor!;
-        module.SetupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
-        module.ResultsFunctionName = ResultsFunctionNames.sorterEval;
+        module.SetupFunctionName = sgd ? SetupFunctionNames.evaluationStandardMsuf4Simple : SetupFunctionNames.evaluationStandardMssiSimple;
+        module.ResultsFunctionName = sgd ? ResultsFunctionNames.standardMsuf4SimpleSgd : ResultsFunctionNames.sorterEval;
         module.AddRequiredSetupDefaultsCommand.Execute(null); module.AddRequiredResultsDefaultsCommand.Execute(null);
         module.SetupParameterDefaults.Single(row => row.Key == "SorterCount").Value.Text = "1";
+        if (sgd)
+        {
+            module.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "8";
+            var values = new Dictionary<string, string> {
+                ["GenerationCount"] = "0", ["SorterPoolCount"] = "1", ["SorterCountPerPool"] = "1", ["SelectedSorterCountPerPool"] = "1",
+                ["SorterChildCount"] = "1", ["MutationMod"] = "0", ["AdjustCeLengthFrequency"] = "2", ["SortedFraction"] = "0.99",
+                ["PrioritizeNewMutants"] = "true", ["DistinctSorterHashes"] = "true", ["RngType"] = "LCG", ["MutatorVariantKey"] = "V2",
+                ["SorterEvalMeasure"] = Sortopia.Evaluation.SorterEvalMeasure.toCompactString(Sortopia.Evaluation.SorterEvalMeasure.stageBiasedFilterUnsorted),
+                ["SeedModificationRate"] = "0.02", ["ModificationRate"] = "0.035", ["OrthoRate"] = "1", ["ParaRate"] = "1.15", ["SelfSymRate"] = "0.025" };
+            foreach (var row in module.ResultsParameterDefaults) row.Value.Text = values[row.Key];
+        }
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;
+        if (reporting)
+        {
+            Assert.True(run.Editor!.SupportsReporting);
+            run.Editor.ReportingEnabled = true;
+            run.Editor.SnapshotReporting.Interval = "100";
+            run.Editor.SummaryReporting.Interval = "1";
+            Assert.Empty(run.Editor.ReportingError);
+        }
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "2", "10");
-        WorkspaceParameterSetsPreviewTests.AddSpan(run, "SorterEvalType", false, "V1", "V2");
+        WorkspaceParameterSetsPreviewTests.AddSpan(run, sgd ? "OrthoRate" : "SorterEvalType", false, sgd ? ["1", "2"] : ["V1", "V2"]);
         project.Editor!.SetupQueryOutputs.Single(row => row.Kind == "SorterModelSet").Keys.Single(key => key.Key == "Repl").Selected = true;
-        Assert.Single(Assert.Single(project.Editor.ResultsQueryOutputs).Keys).Selected = true;
+        if (sgd)
+            foreach (var output in project.Editor.ResultsQueryOutputs) output.Keys.Single(key => key.Key == "OrthoRate").Selected = true;
+        else Assert.Single(Assert.Single(project.Editor.ResultsQueryOutputs).Keys).Selected = true;
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); page.Selected = run;
         await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
         Assert.Equal(4, page.SelectedExecution!.Files.Rows.Count);
         return page;
+    }
+
+    [Fact]
+    public async Task Evolution_reporting_controls_freeze_schedules_in_parameter_files_and_export_both_levels()
+    {
+        var workspace = await Generate(sgd: true, reporting: true);
+        try
+        {
+            var editor = workspace.Selected!.Editor!;
+            Assert.True(editor.ReportingEnabled);
+            editor.SnapshotReporting.Interval = "5";
+            Assert.Equal("5", editor.SnapshotReporting.Interval);
+            Exception? renderFailure = null;
+            var renderThread = new Thread(() => {
+                try
+                {
+                    var view = new Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor { DataContext = editor };
+                    view.Measure(new Size(800, double.PositiveInfinity));
+                    view.Arrange(new Rect(0, 0, 800, view.DesiredSize.Height)); view.UpdateLayout();
+                    var section = (Expander)view.FindName("EvolutionReportingSection");
+                    Assert.Equal(Visibility.Visible, section.Visibility);
+                    Assert.True(section.IsExpanded);
+                    var intervals = Descendants(section).OfType<TextBox>().Where(box => System.Windows.Automation.AutomationProperties.GetName(box) == "Generation interval").ToArray();
+                    Assert.Equal(new[] { "5", "1" }, intervals.Select(box => box.Text));
+                    intervals[0].Text = "100";
+                    intervals[0].GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
+                    Assert.Equal("100", editor.SnapshotReporting.Interval);
+                    view.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+                    view.Measure(new Size(800, double.PositiveInfinity));
+                    view.Arrange(new Rect(0, 0, 800, view.DesiredSize.Height)); view.UpdateLayout();
+                    if (Environment.GetEnvironmentVariable("SORTOPIA_REPORTING_PREVIEW") is { Length: > 0 } path)
+                    {
+                        var visual = new DrawingVisual();
+                        using (var context = visual.RenderOpen())
+                        {
+                            context.DrawRectangle(new SolidColorBrush(Color.FromRgb(19, 27, 39)), null, new Rect(0, 0, section.ActualWidth, section.ActualHeight));
+                            context.DrawRectangle(new VisualBrush(section), null, new Rect(0, 0, section.ActualWidth, section.ActualHeight));
+                        }
+                        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(section.ActualWidth), (int)Math.Ceiling(section.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                        bitmap.Render(visual);
+                        var png = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                        using var stream = File.Create(path); png.Save(stream);
+                    }
+                }
+                catch (Exception error) { renderFailure = error; }
+            });
+            renderThread.SetApartmentState(ApartmentState.STA); renderThread.Start(); renderThread.Join();
+            if (renderFailure is not null) ExceptionDispatchInfo.Capture(renderFailure).Throw();
+            using var execution = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
+            Assert.All(execution.Rows, row =>
+            {
+                Assert.Equal("Constant(100)", row.Parameters!.Reporting.Value.SnapshotSchedule);
+                Assert.Equal("Constant(1)", row.Parameters.Reporting.Value.SummarySchedule);
+            });
+            execution.SelectAllCommand.Execute(null);
+            await execution.ExecuteAsync(); Assert.Empty(execution.Error);
+            Assert.All(execution.Rows, row => Assert.Contains("evolution reports complete", row.OutputSummary));
+            var destination = Path.Combine(temporary.FullName, "Evolution reports");
+            await execution.ExportReportsAsync(destination); Assert.Empty(execution.Error);
+            // Zero generations still records the baseline exactly once for each of four combinations.
+            Assert.Contains("4 evolution summary rows and 4 snapshot network rows", execution.Status);
+            Assert.Equal(5, File.ReadAllLines(Path.Combine(destination, "EvolutionSummary.csv")).Length);
+            Assert.Equal(5, File.ReadAllLines(Path.Combine(destination, "Snapshots.csv")).Length);
+        }
+        finally { workspace.Cancel(); }
+    }
+
+    [Fact]
+    public async Task Sgd_sweep_exposes_CSV_export_and_combines_the_selected_final_networks()
+    {
+        var workspace = await Generate(sgd: true);
+        try
+        {
+            using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
+            model.SelectAllCommand.Execute(null);
+            Assert.False(model.CanExportReports);
+            await model.ExecuteAsync(); Assert.Empty(model.Error);
+            Assert.Equal(4, model.SelectedCount); Assert.True(model.CanExportReports);
+            var destination = Path.Combine(temporary.FullName, "SGD reports");
+            await model.ExportReportsAsync(destination); Assert.Empty(model.Error);
+            Assert.Contains("4 summary rows and 4 detail rows", model.Status);
+            var lines = File.ReadAllLines(Path.Combine(destination, "Details.csv"));
+            Assert.Equal(5, lines.Length);
+            Assert.Contains("Results.OrthoRate", lines[0]); Assert.Contains("Setup.SorterModelSet.Query.Repl", lines[0]);
+            Assert.Contains("StageCrossingsCount", lines[0]); Assert.Contains("ReflectiveCount", lines[0]);
+            Assert.All(lines.Skip(1), line => Assert.Contains(ResultsFunctionNames.standardMsuf4SimpleSgd, line));
+            Assert.All(model.Rows, row => { Assert.True(row.IsSelected); Assert.Equal("Complete", row.Status); });
+        }
+        finally { workspace.Cancel(); }
     }
 
     [Fact]
@@ -130,13 +241,13 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.Equal(2, File.ReadAllLines(Path.Combine(destination, "Details.csv")).Length);
             Assert.True(row.IsSelected); Assert.All(model.Rows, file => Assert.Equal("Complete", file.Status));
             Assert.Contains("Setup.SorterModelSet.Query.Repl", File.ReadAllText(Path.Combine(destination, "Summary.csv")));
-            await model.ExportReportsAsync(destination); Assert.Contains("not overwritten", model.Error);
+            await model.ExportReportsAsync(destination); Assert.Empty(model.Error);
             await model.ExportReportsAsync(); Assert.Empty(model.Error);
             var reportsFolder = Path.Combine(Path.GetDirectoryName(model.Folder)!, "data", "results", "reports");
             Assert.Equal(File.ReadAllBytes(Path.Combine(destination, "Summary.csv")), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
             await model.ExportReportsAsync(); Assert.Empty(model.Error);
-            var later = Assert.Single(Directory.GetDirectories(reportsFolder));
-            Assert.Equal(File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")), File.ReadAllBytes(Path.Combine(later, "Details.csv")));
+            Assert.Empty(Directory.GetDirectories(reportsFolder));
+            Assert.Equal(File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")), File.ReadAllBytes(Path.Combine(destination, "Details.csv")));
         }
         finally { workspace.Cancel(); }
     }
@@ -199,7 +310,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             var query = new SavedSetupQueries(RunParameterFiles.projectFolder(workspace.RunParametersFolder));
             Assert.Contains("Repl =", query.Read(item, TestContext.Current.CancellationToken).Values);
             var other = new runParameters(item.Id, Guid.NewGuid(), item.RunId, item.Results, item.Parameters, item.SetupInputs,
-                item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages);
+                item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting);
             Assert.DoesNotContain("Repl =", query.Read(other, TestContext.Current.CancellationToken).Values);
             Assert.Contains("not a setup file in this project", query.Read(other, TestContext.Current.CancellationToken).Details);
         }

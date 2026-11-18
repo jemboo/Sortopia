@@ -8,6 +8,8 @@
   <ItemGroup>
     <Compile Include="CeOpsTests.fs" />
     <Compile Include="MigrationTests.fs" />
+    <Compile Include="ParallelEvaluationTests.fs" />
+    <Compile Include="StandardSgdTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sortopia.Evaluation.Serialization/Sortopia.Evaluation.Serialization.fsproj" />

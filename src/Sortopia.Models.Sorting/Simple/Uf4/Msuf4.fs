@@ -65,13 +65,17 @@ type msuf4 =
             this.id = other.id
 
     member private this.MakeSuffix (maxCeLength: int<ceLength> option) =
-        let allCes =
-            this.TwoOrbitUnfolder4s
-            |> Array.collect (fun tou ->
-                tou.MakePerm_Si
-                |> PermSi.getTwoOrbits
-                |> Array.map Ce.fromTwoOrbit)
-        ModelPrefix.truncate maxCeLength allCes
+        let stages = this.twoOrbitUnfolder4s
+        let expand (stage: twoOrbitUf4) = stage.MakePerm_Si |> PermSi.getTwoOrbits |> Array.map Ce.fromTwoOrbit
+        match maxCeLength with
+        | None -> stages |> Array.collect expand
+        | Some length when int length < 0 -> invalidArg "maxCeLength" "Suffix CE limit must be nonnegative."
+        | Some length ->
+            // SGD cutoffs become much shorter than the stored model. Unfold only
+            // the stages needed for this evaluation, retaining exact CE order.
+            seq { for stage in stages do yield! expand stage }
+            |> Seq.truncate (int length)
+            |> Seq.toArray
 
     /// Limit the suffix CEs; use with inputs already presorted by Prefix.
     member this.MakeSorterWithoutPrefix (maxCeLength: int<ceLength> option) =

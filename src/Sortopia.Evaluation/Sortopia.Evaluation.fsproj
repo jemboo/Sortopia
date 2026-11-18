@@ -4,6 +4,7 @@
     <Compile Include="CeBlock.fs" />
     <Compile Include="CeUseCounts.fs" />
     <Compile Include="CeBlockEval.fs" />
+    <Compile Include="EvaluationParallel.fs" />
     <Compile Include="CeBlockOpsInt.fs" />
     <Compile Include="CeBlockOpsBinary.fs" />
     <Compile Include="CeBlockOpsPacked.fs" />
@@ -17,9 +18,13 @@
     <Compile Include="SorterEvalMeasures.fs" />
     <Compile Include="SorterSetEval.fs" />
     <Compile Include="SorterEvalReports.fs" />
+    <Compile Include="Sgd/SorterPoolSet.fs" />
+    <Compile Include="Sgd/EvolutionReports.fs" />
+    <Compile Include="Sgd/StandardSgd.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Sorting/Sortopia.Sorting.fsproj" />
     <ProjectReference Include="../Sortopia.Reporting/Sortopia.Reporting.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting/Sortopia.Models.Sorting.fsproj" />
   </ItemGroup>
 </Project>

@@ -78,6 +78,7 @@ type runDto = {
     descriptionOverride: string
     resultsParameterSpans: parameterSpanDto array
     setupParameterSpans: parameterSpanDto array
+    reporting: sgdReportingConfig option
 }
 [<CLIMutable>]
 type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; configuration: projectSettingsDto; inheritedDefaults: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
@@ -137,6 +138,7 @@ module RunDto =
         { schemaVersion = WorkspaceDtoSchema.version; runKind = if value.HasSetup then "branch" else "root"
           parentProjectId = UMX.untag value.ParentProjectId; runName = UMX.untag value.RunName; id = UMX.untag value.Id
           descriptionOverride = description |> Option.toObj
+          reporting = value.Reporting
           resultsParameterSpans = value.ResultsParameterSpans |> List.map Contract.spanFrom |> List.toArray
           setupParameterSpans = setupSpans |> List.map Contract.spanFrom |> List.toArray }
     let readId (value: runDto) =
@@ -154,14 +156,15 @@ module RunDto =
         let outputSpans = Contract.array "resultsParameterSpans" value.resultsParameterSpans |> Array.map Contract.spanTo |> Array.toList
         let setupSpans = Contract.array "setupParameterSpans" value.setupParameterSpans |> Array.map Contract.spanTo |> Array.toList
         let description = Option.ofObj value.descriptionOverride
+        let reporting = value.reporting |> Option.map SgdReporting.validate
         let result =
             match parent, value.runKind with
             | project.RootProject p, "root" ->
                 if not setupSpans.IsEmpty then
                     invalidArg "runKind" "A root run cannot have setup settings."
-                RootRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans } |> run.RootRun
+                RootRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans; Reporting = reporting } |> run.RootRun
             | project.BranchProject p, "branch" ->
-                BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans
+                BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans; Reporting = reporting
                                      SetupParameterSpans = setupSpans } |> run.BranchRun
             | _ -> invalidArg "runKind" "A project can only contain runs of its own type."
         FunctionConfiguration.validateSavedRunInputs result

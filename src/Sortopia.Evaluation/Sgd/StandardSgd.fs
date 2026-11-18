@@ -1,0 +1,160 @@
+namespace Sortopia.Evaluation.Sgd
+
+open System
+open System.Threading.Tasks
+open System.Runtime.Intrinsics
+open FSharp.UMX
+open Sortopia.Core
+open Sortopia.Sorting
+open Sortopia.Sorting.Inputs
+open Sortopia.Sorting.Networks
+open Sortopia.Models.Sorting
+open Sortopia.Evaluation
+
+type standardSgdSettings = {
+    PoolCount: int
+    SortersPerPool: int
+    RetainedParentsPerPool: int
+    ChildrenPerParent: int
+    Generations: int
+    MutationMod: int
+    AdjustCeLengthFrequency: int
+    SortedFraction: float
+    PrioritizeNewMutants: bool
+    DistinctSorterHashes: bool
+    SelectionMeasure: sorterEvalMeasure
+}
+
+// Adapted from GeneSort.Eval.V1/Sgd/SgdStandard/{SpMember,SorterPool,Pipeline}_Standard.
+// Copyright (c) 2025 Tom Patterson. See GENESORT-LICENSE.txt.
+// This is the fixed-pool Standard pipeline; scheduling, storage and UI stay outside it.
+module StandardSgd =
+    let validateSettings settings =
+        if settings.PoolCount < 1 || settings.SortersPerPool < 1 || settings.ChildrenPerParent < 1 then
+            invalidArg "settings" "Pool count, sorters per pool, and children per parent must be positive."
+        if settings.RetainedParentsPerPool < 0 || settings.RetainedParentsPerPool > settings.SortersPerPool then
+            invalidArg "settings" "Retained parents must be between zero and SorterCountPerPool."
+        if settings.Generations < 0 || settings.AdjustCeLengthFrequency < 1 then
+            invalidArg "settings" "GenerationCount must be nonnegative and AdjustCeLengthFrequency positive."
+        if not (Double.IsFinite settings.SortedFraction) || settings.SortedFraction <= 0.0 || settings.SortedFraction > 1.0 then
+            invalidArg "settings" "SortedFraction must be greater than zero and at most one."
+        if int64 settings.PoolCount * int64 settings.SortersPerPool > int64 Int32.MaxValue
+           || int64 settings.ChildrenPerParent * int64 settings.SortersPerPool + int64 settings.SortersPerPool > int64 Int32.MaxValue
+           || int64 settings.Generations * int64 settings.ChildrenPerParent > int64 Int32.MaxValue then
+            invalidArg "settings" "The requested population or mutation cursor exceeds the supported size."
+
+    let private identity values = GuidUtils.guidFromObjs values
+    let private score settings (memberValue: sorterPoolMember) =
+        SorterEvalFunctions.getFunctionForMeasure settings.SelectionMeasure memberValue.Evaluation |> float
+
+    /// GeneSort retains the oldest representative of a duplicate network before ranking survivors.
+    let prune settings (pool: sorterPool) =
+        let eligible =
+            if %(SorterEvalFunctions.getFilterUnsortedFlag settings.SelectionMeasure) then
+                pool.Members |> Array.filter (fun m -> SorterEval.getIsShortEnough (UMX.tag pool.RawCeLength) m.Evaluation)
+            else pool.Members
+        let recovering = Array.isEmpty eligible
+        let candidates = (if recovering then pool.Members else eligible) |> Array.sortBy (fun m -> m.Birthday, m.Id)
+        let candidates = if settings.DistinctSorterHashes then candidates |> Array.distinctBy (fun m -> SorterEval.getSequenceHash m.Evaluation) else candidates
+        let members = candidates |> Array.sortBy (fun m ->
+            let recoveryRank = if recovering then int (SorterEval.getUnsortedCount m.Evaluation) else 0
+            let cursor = if settings.PrioritizeNewMutants then m.MutationIndex else -m.MutationIndex
+            recoveryRank, score settings m, cursor, m.Id) |> Array.truncate settings.SortersPerPool
+        if Array.isEmpty members then invalidOp "SGD cannot continue with an empty pool."
+        { pool with Members = members }
+
+    let adjustCeLength sortedFraction (pool: sorterPool) =
+        let sorted = pool.Members |> Array.filter (fun m -> SorterEval.getIsSorted m.Evaluation)
+                                |> Array.sortBy (fun m -> SorterEval.getLastCeIndex m.Evaluation)
+        if Array.isEmpty sorted then pool
+        else
+            let index = max 0 (min (sorted.Length - 1) (int (Math.Ceiling(float sorted.Length * sortedFraction)) - 1))
+            // Preserve GeneSort's raw cutoff convention (last CE index, not used CE count).
+            let cutoff = int (SorterEval.getLastCeIndex sorted[index].Evaluation) |> max 0
+            { pool with RawCeLength = cutoff
+                        Members = pool.Members |> Array.filter (fun m -> int (SorterEval.getLastCeIndex m.Evaluation) <= cutoff) }
+
+    let private evaluate (options: ParallelOptions) tests (prefix: ceBlock) rawCeLength (models: sorterModel array) =
+        options.CancellationToken.ThrowIfCancellationRequested()
+        let padded = min (float Int32.MaxValue) (float rawCeLength * 1.1) |> int |> UMX.tag<ceLength> |> Some
+        let sorters = models |> EvaluationParallel.map options (fun model ->
+            if prefix.CeArray.Length = 0 then SorterModel.makeSorterWithPrefix model padded
+            else SorterModel.makeSorterWithoutPrefix model padded)
+        SorterSetEval.makeSorterEvalsWithOptions options sorters prefix tests sorterEvalType.V2 (UMX.tag false)
+
+    let private summaries settings generation pools =
+        pools |> Array.mapi (fun index pool -> {
+            Generation = generation; PoolIndex = index; MemberCount = pool.Members.Length
+            SuccessfulCount = pool.Members |> Array.filter (fun m -> SorterEval.getIsSorted m.Evaluation) |> Array.length
+            RawCeLength = pool.RawCeLength
+            MinimumCeLength = pool.Members |> Array.map (fun m -> int (SorterEval.getCeLength m.Evaluation)) |> Array.min
+            MinimumStageLength = pool.Members |> Array.map (fun m -> int (SorterEval.getStageLength m.Evaluation)) |> Array.min
+            BestScore = pool.Members |> Array.map (score settings) |> Array.min })
+
+    let runObserved (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (models: sorterModelSet) tests (prefixCes: ce array) =
+        validateSettings settings
+        options.CancellationToken.ThrowIfCancellationRequested()
+        let channels = SortableTests.getChannelCount tests
+        let prefix = ceBlock.create (UMX.tag Guid.Empty) channels prefixCes
+        // Prepare once for the repeated count-only evaluations. Keep the source ID,
+        // input order and duplicate lanes; saved setup data and cache keys stay unchanged.
+        let evaluationTests =
+            match tests with
+            | sortableTests.Bools values when int values.SortableCount >= 512 && Vector256.IsHardwareAccelerated ->
+                SortableBitv512Tests.fromBoolArrays values.Id channels values.SortableBinaryArrays |> sortableTests.Bitv512
+            | _ -> tests
+        options.CancellationToken.ThrowIfCancellationRequested()
+        let allModels = models.SorterModels
+        for model in allModels do
+            if SorterModel.getChannelCount model <> channels then invalidArg "models" "The models and tests must have the same channel count."
+            let modelPrefix = SorterModel.getPrefix model
+            if prefixCes.Length > 0 && modelPrefix.Length > 0 && modelPrefix <> prefixCes then
+                invalidArg "models" "The model prefix must match the source SortableTests prefix."
+        let required = settings.PoolCount * settings.SortersPerPool
+        if allModels.Length < required then invalidArg "models" $"SGD needs {required} starting models; the source contains {allModels.Length}."
+        // SorterModelSet enumerates in model-ID order, independent of file or map insertion order.
+        let mutable pools = allModels |> Array.take required |> Array.chunkBySize settings.SortersPerPool |> Array.mapi (fun poolIndex seeds ->
+            let poolId = identity [box "Sortopia.StandardSgd/pool/v1"; box (%models.Id); box poolIndex]
+            let evaluations = evaluate options evaluationTests prefix (int models.RawCeLength) seeds
+            let members = Array.map2 (fun model evaluation -> {
+                Id = identity [box poolId; box (SorterModel.getId model)]
+                Model = model; MutationIndex = 0; MutationMod = settings.MutationMod; Birthday = 0; ParentId = None; Evaluation = evaluation }) seeds evaluations
+            { Id = poolId; RawCeLength = int models.RawCeLength; Members = members })
+        let history = ResizeArray<sorterPoolSummary>(summaries settings 0 pools)
+        let report generation =
+            options.CancellationToken.ThrowIfCancellationRequested()
+            observe { Generation = generation; TestsId = SortableTests.getId tests; Pools = pools; History = [||] }
+        report 0
+        for generation in 0 .. settings.Generations - 1 do
+            options.CancellationToken.ThrowIfCancellationRequested()
+            let adjust = generation % settings.AdjustCeLengthFrequency = 0
+            pools <- pools |> Array.map (fun pool ->
+                let parents = pool.Members |> Array.sortBy _.Id
+                let children = parents |> EvaluationParallel.map options (fun parent ->
+                    Array.init settings.ChildrenPerParent (fun index ->
+                        options.CancellationToken.ThrowIfCancellationRequested()
+                        let mutationIndex = parent.MutationIndex + index
+                        let model = SorterModelMutator.makeMutantSorterModelFromIndexAndMod mutator parent.Model (UMX.tag mutationIndex) (UMX.tag parent.MutationMod)
+                        parent, mutationIndex, model)) |> Array.concat
+                let childEvals = children |> Array.map (fun (_, _, model) -> model) |> evaluate options evaluationTests prefix pool.RawCeLength
+                let childMembers = Array.map2 (fun ((parent: sorterPoolMember), cursor, model) evaluation -> {
+                    Id = identity [box parent.Id; box cursor; box (SorterModelMutator.getId mutator)]
+                    Model = model; MutationIndex = 0; MutationMod = parent.MutationMod; Birthday = generation
+                    ParentId = Some parent.Id; Evaluation = evaluation }) children childEvals
+                let retained = parents |> Array.sortBy (fun m -> score settings m, m.Id) |> Array.truncate settings.RetainedParentsPerPool
+                                       |> Array.map (fun m -> { m with MutationIndex = m.MutationIndex + settings.ChildrenPerParent })
+                let retained =
+                    if adjust then
+                        let evaluations = retained |> Array.map _.Model |> evaluate options evaluationTests prefix pool.RawCeLength
+                        Array.map2 (fun memberValue evaluation -> { memberValue with Evaluation = evaluation }) retained evaluations
+                    else retained
+                { pool with Members = Array.append retained childMembers }
+                |> (if adjust then adjustCeLength settings.SortedFraction else id)
+                |> prune settings)
+            history.AddRange(summaries settings (generation + 1) pools)
+            report (generation + 1)
+        options.CancellationToken.ThrowIfCancellationRequested()
+        { Generation = settings.Generations; TestsId = SortableTests.getId tests; Pools = pools; History = history.ToArray() }
+        |> SorterPoolSet.validate
+
+    let run options settings mutator models tests prefix = runObserved ignore options settings mutator models tests prefix

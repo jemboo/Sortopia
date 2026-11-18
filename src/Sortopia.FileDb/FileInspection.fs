@@ -74,14 +74,14 @@ module FileInspection =
             let id = Guid.Parse(Path.GetFileNameWithoutExtension path)
             match envelope.Kind with
             | "runParameters" ->
-                let dto = MessagePackSetup.deserialize<runParametersDto> envelope.Payload
                 if Guid(SHA256.HashData(envelope.Payload).[0..15]) <> id then invalidOp "Work item contents do not match the file ID."
-                RunParameterCodec.fromDto (UMX.tag id) dto |> ignore
+                let item = RunParameterCodec.decode (UMX.tag id) envelope.Payload
+                let dto = RunParameterCodec.toDto item
                 let parameters = dto.Parameters |> Array.map (fun item ->
                     let binding = RunParameterCodec.readBinding item
                     {| Key = item.Key; Type = string binding.ValueType; Value = binding.FormattedValue |})
                 { Kind = "Run parameters"; Description = "One immutable results invocation: typed parameter values, fixed outputs, and project-local setup inputs. Envelope checksum and work item ID verified."
-                  Json = json {| SchemaVersion = dto.Version; Id = id; ProjectId = dto.ProjectId; RunId = dto.RunId
+                  Json = json {| SchemaVersion = (if item.Reporting.IsSome then 3 else dto.Version); Reporting = item.Reporting |> Option.defaultValue Unchecked.defaultof<_>; Id = id; ProjectId = dto.ProjectId; RunId = dto.RunId
                                  FunctionName = dto.FunctionName; FunctionVersion = dto.FunctionVersion; DatabaseName = dto.DatabaseName
                                  SetNumber = dto.SetNumber; SetupSetNumber = Option.toNullable dto.SetupSetNumber
                                  SetupSuffixStages = Option.toNullable dto.SetupSuffixStages; ResultsSuffixStages = Option.toNullable dto.ResultsSuffixStages

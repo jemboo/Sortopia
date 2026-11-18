@@ -8,6 +8,7 @@ type sortopiaDataType =
     | WorkspaceModule of string
     | RunParameters of string
     | SorterPoolSet of string
+    | SorterPoolSummarySet of string
     | SorterSet of string
     | SorterModelSet of string
     | SortableTests of string
@@ -15,13 +16,14 @@ type sortopiaDataType =
     | TextReport of string
 
 module SortopiaDataType =
-    let kinds = [ "Workspace"; "Run"; "WorkspaceModule"; "RunParameters"; "SorterPoolSet"; "SorterSet"; "SorterModelSet"; "SortableTests"; "SorterSetEval"; "TextReport" ]
+    let kinds = [ "Workspace"; "Run"; "WorkspaceModule"; "RunParameters"; "SorterPoolSet"; "SorterPoolSummarySet"; "SorterSet"; "SorterModelSet"; "SortableTests"; "SorterSetEval"; "TextReport" ]
     let kindName = function
         | sortopiaDataType.Workspace _ -> "Workspace"
         | sortopiaDataType.Run _ -> "Run"
         | sortopiaDataType.WorkspaceModule _ -> "WorkspaceModule"
         | sortopiaDataType.RunParameters _ -> "RunParameters"
         | sortopiaDataType.SorterPoolSet _ -> "SorterPoolSet"
+        | sortopiaDataType.SorterPoolSummarySet _ -> "SorterPoolSummarySet"
         | sortopiaDataType.SorterSet _ -> "SorterSet"
         | sortopiaDataType.SorterModelSet _ -> "SorterModelSet"
         | sortopiaDataType.SortableTests _ -> "SortableTests"
@@ -29,7 +31,7 @@ module SortopiaDataType =
         | sortopiaDataType.TextReport _ -> "TextReport"
     let text = function
         | sortopiaDataType.Workspace value | sortopiaDataType.Run value | sortopiaDataType.WorkspaceModule value
-        | sortopiaDataType.RunParameters value | sortopiaDataType.SorterPoolSet value | sortopiaDataType.SorterSet value
+        | sortopiaDataType.RunParameters value | sortopiaDataType.SorterPoolSet value | sortopiaDataType.SorterPoolSummarySet value | sortopiaDataType.SorterSet value
         | sortopiaDataType.SorterModelSet value | sortopiaDataType.SortableTests value | sortopiaDataType.SorterSetEval value
         | sortopiaDataType.TextReport value -> value
     let validate value =
@@ -43,6 +45,7 @@ module SortopiaDataType =
         | "WorkspaceModule" -> sortopiaDataType.WorkspaceModule value
         | "RunParameters" -> sortopiaDataType.RunParameters value
         | "SorterPoolSet" -> sortopiaDataType.SorterPoolSet value
+        | "SorterPoolSummarySet" -> sortopiaDataType.SorterPoolSummarySet value
         | "SorterSet" -> sortopiaDataType.SorterSet value
         | "SorterModelSet" -> sortopiaDataType.SorterModelSet value
         | "SortableTests" -> sortopiaDataType.SortableTests value

@@ -84,6 +84,7 @@ module ParamKeys =
     let elapsedTimeKey = ParamKey.text "ElapsedTime"
     let excludeSelfCeKey = ParamKey.boolean "ExcludeSelfCe"
     let generationCurrentKey = ParamKey.integer "GenerationCurrent"
+    let generationCountKey = ParamKey.integer "GenerationCount"
     let generationFirstKey = ParamKey.integer "GenerationFirst"
     let generationIntervalCountKey = ParamKey.integer "GenerationIntervalCount"
     let generationIntervalLastKey = ParamKey.integer "GenerationIntervalLast"
@@ -173,6 +174,7 @@ module ParamKeys =
         ParamKey.describe elapsedTimeKey
         ParamKey.describe excludeSelfCeKey
         ParamKey.describe generationCurrentKey
+        ParamKey.describe generationCountKey
         ParamKey.describe generationFirstKey
         ParamKey.describe generationIntervalCountKey
         ParamKey.describe generationIntervalLastKey

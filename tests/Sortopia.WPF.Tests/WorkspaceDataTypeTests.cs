@@ -18,7 +18,7 @@ public sealed class WorkspaceDataTypeTests : IDisposable
     [
         ("Workspace", sortopiaDataType.NewWorkspace), ("Run", sortopiaDataType.NewRun),
         ("WorkspaceModule", sortopiaDataType.NewWorkspaceModule), ("RunParameters", sortopiaDataType.NewRunParameters),
-        ("SorterPoolSet", sortopiaDataType.NewSorterPoolSet), ("SorterSet", sortopiaDataType.NewSorterSet),
+        ("SorterPoolSet", sortopiaDataType.NewSorterPoolSet), ("SorterPoolSummarySet", sortopiaDataType.NewSorterPoolSummarySet), ("SorterSet", sortopiaDataType.NewSorterSet),
         ("SorterModelSet", sortopiaDataType.NewSorterModelSet), ("SortableTests", sortopiaDataType.NewSortableTests),
         ("SorterSetEval", sortopiaDataType.NewSorterSetEval), ("TextReport", sortopiaDataType.NewTextReport)
     ];

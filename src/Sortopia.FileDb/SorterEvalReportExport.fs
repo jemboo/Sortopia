@@ -7,6 +7,8 @@ open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Functions
 open Sortopia.Evaluation
+open Sortopia.Evaluation.Sgd
+open Sortopia.Models.Sorting
 open Sortopia.Reporting
 
 type sorterEvalReportExport = {
@@ -15,20 +17,23 @@ type sorterEvalReportExport = {
     DetailsPath: string
     SummaryRows: int
     DetailRows: int64
+    EvolutionSummaryPath: string option
+    SnapshotsPath: string option
+    EvolutionSummaryRows: int64
+    SnapshotRows: int64
 }
 
 module SorterEvalReportExport =
-    /// Keep reports with the project's results. Later exports get a fresh child
-    /// folder so an earlier report pair remains intact.
+    /// One project report location, independent of run IDs and export time.
     let nextOutputFolder parametersFolder =
         let project = RunParameterFiles.projectFolder parametersFolder
-        let reports = Path.Combine(project, "data", "results", "reports")
-        if Directory.Exists reports then
-            Path.Combine(reports, DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8))
-        else reports
+        Path.Combine(project, "data", "results", "reports")
 
+    /// Evaluation reports also apply to functions such as SGD that save an
+    /// evaluation alongside other outputs. Use the declared output contract.
     let isSupported (item: runParameters) =
-        item.Results.FunctionName = ResultsFunctionNames.sorterEval && item.SetupSetNumber.IsSome && not item.SetupInputs.IsEmpty
+        item.SetupSetNumber.IsSome && not item.SetupInputs.IsEmpty
+        && (item.Results.DataTypes |> Map.exists (fun dataType _ -> dataType.IsSorterSetEval))
 
     let private integer value = reportValue.Integer (int64 value)
     let private optionalInteger value = value |> Option.map integer |> Option.defaultValue reportValue.Missing
@@ -54,15 +59,54 @@ module SorterEvalReportExport =
         for name in ["SetupSetNumber"; "ResultsSetNumber"; "SetupSuffixStages"; "ResultsSuffixStages"] do
             { Name = name; ValueType = reportValueType.Integer } |]
 
-    type private source = { Store: SortopiaFileDb; Output: plannedOutput; Metadata: reportRow; ParameterFile: string }
+    type private source = { Store: SortopiaFileDb; Output: plannedOutput; Metadata: reportRow; ParameterFile: string; Folder: string; Item: runParameters }
 
-    /// Export only existing saved evaluations. The completed pair is published as
-    /// one new directory, so failure/cancellation cannot leave a partial report.
+    let private snapshotColumns = [|
+        for name in ["Generation"; "PoolIndex"; "MemberIndex"; "Birthday"; "MutationIndex"; "MutationMod"] do
+            { Name = name; ValueType = reportValueType.Integer }
+        for name in ["PoolId"; "MemberId"; "ParentId"; "ModelId"] do
+            { Name = name; ValueType = reportValueType.Identifier }
+        { Name = "SnapshotFile"; ValueType = reportValueType.Text }
+        yield! SorterEvalReports.detailColumns |]
+
+    let private writeEvolution sources columns temporary token =
+        let reporting = sources |> Array.filter (fun source -> source.Item.Reporting.IsSome) |> Array.distinctBy (fun source -> source.Folder, source.Item.Id)
+        let mutable summaryRows, snapshotRows = 0L, 0L
+        if reporting.Length > 0 then
+            use summaryStream = File.Create(Path.Combine(temporary, "EvolutionSummary.csv"))
+            use snapshotStream = File.Create(Path.Combine(temporary, "Snapshots.csv"))
+            use summary = new CsvReportWriter(summaryStream, columns EvolutionReports.columns)
+            use snapshots = new CsvReportWriter(snapshotStream, columns snapshotColumns)
+            for source in reporting do
+                let samples, rows = EvolutionReportingStore.load source.Folder source.Item token
+                for row in rows do
+                    summary.Write(ReportRow.combine source.Metadata (EvolutionReports.row row), token)
+                    summaryRows <- summaryRows + 1L
+                for generation in samples.Snapshots do
+                    let snapshot = EvolutionReportingStore.loadSnapshot source.Folder source.Item generation token
+                    if snapshot.Pools.Length <> samples.PoolCount then invalidOp "Snapshot pool count differs from the execution parameters."
+                    for poolIndex, pool in snapshot.Pools |> Array.indexed do
+                        for memberIndex, memberValue in pool.Members |> Array.indexed do
+                            let metadata = ReportRow.create [
+                                "Generation", integer generation; "PoolIndex", integer poolIndex; "MemberIndex", integer memberIndex
+                                "PoolId", reportValue.Identifier pool.Id; "MemberId", reportValue.Identifier memberValue.Id
+                                "ParentId", memberValue.ParentId |> Option.map reportValue.Identifier |> Option.defaultValue reportValue.Missing
+                                "ModelId", reportValue.Identifier (%SorterModel.getId memberValue.Model)
+                                "Birthday", integer memberValue.Birthday; "MutationIndex", integer memberValue.MutationIndex; "MutationMod", integer memberValue.MutationMod
+                                "SortableTestsId", reportValue.Identifier (%snapshot.TestsId)
+                                "SnapshotFile", reportValue.Text (EvolutionReportingStore.snapshotPath source.Folder source.Item generation) ]
+                            snapshots.Write(ReportRow.combine source.Metadata (ReportRow.combine metadata (SorterEvalReports.detailRow memberValue.Evaluation)), token)
+                            snapshotRows <- snapshotRows + 1L
+        reporting.Length > 0, summaryRows, snapshotRows
+
+    /// Build the selected export before replacing the project's previous report files.
     let exportFiles (parameterFiles: string array) (outputFolder: string) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
-        if parameterFiles.Length = 0 then invalidArg "parameterFiles" "Select at least one completed sorter-eval branch run parameter file."
+        if parameterFiles.Length = 0 then invalidArg "parameterFiles" "Select at least one completed branch run parameter file with sorter evaluations."
         let destination = Path.GetFullPath outputFolder
-        if File.Exists destination || Directory.Exists destination then invalidArg "outputFolder" "Choose a new report folder; existing reports are not overwritten."
+        if File.Exists destination then invalidArg "outputFolder" "Choose a report folder."
+        if Directory.Exists destination && File.GetAttributes(destination).HasFlag FileAttributes.ReparsePoint then
+            invalidArg "outputFolder" "Report exports do not follow linked folders."
         let queryCache = Collections.Generic.Dictionary<string * storedDataReference, parameterBinding list>()
         let outputIds = Collections.Generic.HashSet<Guid<projectId> * Guid<sortopiaDataId>>()
         let dynamicColumns = Collections.Generic.Dictionary<string, reportValueType>(StringComparer.Ordinal)
@@ -70,7 +114,7 @@ module SorterEvalReportExport =
             token.ThrowIfCancellationRequested()
             try
                 let item = RunParameterFiles.loadFile path
-                if not (isSupported item) then invalidOp "Reports require saved sorter-eval.evaluate branch run parameters."
+                if not (isSupported item) then invalidOp "Reports require saved branch run parameters with SorterSetEval outputs, such as sorter evaluation or SGD."
                 let folder = RunParameterFiles.projectFolder (Path.GetDirectoryName path)
                 let store = SortopiaFileDb(folder, item.ProjectId)
                 let plan = FileResultsHost.plan item.ProjectId item.Results item.Parameters item.SetupInputs
@@ -95,10 +139,7 @@ module SorterEvalReportExport =
                     match dynamicColumns.TryGetValue name with
                     | true, old when old <> kind -> invalidOp $"Report column '{name}' has inconsistent saved value types."
                     | _ -> dynamicColumns[name] <- kind
-                plan |> Map.toArray |> Array.map (fun (dataType, output) ->
-                    match dataType with
-                    | sortopiaDataType.SorterSetEval _ -> ()
-                    | _ -> invalidOp "The selected invocation has a non-evaluation output."
+                plan |> Map.toArray |> Array.filter (fun (dataType, _) -> dataType.IsSorterSetEval) |> Array.map (fun (dataType, output) ->
                     let reference = output.Key.Reference
                     if not (outputIds.Add(reference.ProjectId, reference.Id)) then invalidOp "Selected parameter files refer to the same results file. Select each results file only once."
                     let metadata = ReportRow.create ([
@@ -117,7 +158,7 @@ module SorterEvalReportExport =
                         "ResultsSetNumber", integer item.SetNumber
                         "SetupSuffixStages", optionalInteger item.SetupSuffixStages
                         "ResultsSuffixStages", optionalInteger item.ResultsSuffixStages ] @ setupValues @ parameters)
-                    { Store = store; Output = output; Metadata = metadata; ParameterFile = path })
+                    { Store = store; Output = output; Metadata = metadata; ParameterFile = path; Folder = folder; Item = item })
             with
             | :? OperationCanceledException -> reraise ()
             | error -> invalidOp $"Cannot report '{path}': {error.GetBaseException().Message}")
@@ -135,6 +176,7 @@ module SorterEvalReportExport =
         Directory.CreateDirectory temporary |> ignore
         let mutable summaryRows = 0
         let mutable detailRows = 0L
+        let mutable removeTemporary = true
         try
             do
                 use summaryStream = new FileStream(Path.Combine(temporary, "Summary.csv"), FileMode.CreateNew, FileAccess.Write, FileShare.None)
@@ -161,12 +203,43 @@ module SorterEvalReportExport =
                     with
                     | :? OperationCanceledException -> reraise ()
                     | error -> invalidOp $"Cannot report '{source.ParameterFile}': {error.GetBaseException().Message}"
+            let hasEvolution, evolutionRows, snapshotRows = writeEvolution sources columns temporary token
             token.ThrowIfCancellationRequested()
-            Directory.Move(temporary, destination)
+            if not (Directory.Exists destination) then Directory.Move(temporary, destination)
+            else
+                let lockPath = Path.Combine(destination, ".sortopia-export.lock")
+                use exportLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose)
+                let names = ["Summary.csv"; "Details.csv"; "EvolutionSummary.csv"; "Snapshots.csv"]
+                let previous = Path.Combine(temporary, "previous")
+                Directory.CreateDirectory previous |> ignore
+                let backedUp, installed = ResizeArray<string>(), ResizeArray<string>()
+                try
+                    for name in names do
+                        let target = Path.Combine(destination, name)
+                        if File.Exists target then
+                            if File.GetAttributes(target).HasFlag FileAttributes.ReparsePoint then invalidOp "Report exports do not replace linked files."
+                            File.Move(target, Path.Combine(previous, name))
+                            backedUp.Add name
+                    for name in names do
+                        let staged = Path.Combine(temporary, name)
+                        if File.Exists staged then
+                            File.Move(staged, Path.Combine(destination, name))
+                            installed.Add name
+                with error ->
+                    try
+                        for name in installed do File.Delete(Path.Combine(destination, name))
+                        for name in backedUp do File.Move(Path.Combine(previous, name), Path.Combine(destination, name))
+                    with recoveryError ->
+                        removeTemporary <- false
+                        invalidOp $"Export failed: {error.Message}. Restore the previous reports from '{previous}': {recoveryError.Message}"
+                    reraise ()
             { Folder = destination; SummaryPath = Path.Combine(destination, "Summary.csv"); DetailsPath = Path.Combine(destination, "Details.csv")
-              SummaryRows = summaryRows; DetailRows = detailRows }
+              SummaryRows = summaryRows; DetailRows = detailRows
+              EvolutionSummaryPath = if hasEvolution then Some (Path.Combine(destination, "EvolutionSummary.csv")) else None
+              SnapshotsPath = if hasEvolution then Some (Path.Combine(destination, "Snapshots.csv")) else None
+              EvolutionSummaryRows = evolutionRows; SnapshotRows = snapshotRows }
         finally
-            if Directory.Exists temporary then Directory.Delete(temporary, true)
+            if removeTemporary && Directory.Exists temporary then Directory.Delete(temporary, true)
 
     let exportFolder parametersFolder runId outputFolder token =
         let files = RunParameterFiles.listWorkItems parametersFolder token

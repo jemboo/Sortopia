@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <InternalsVisibleTo Include="Sortopia.FileDb.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="DataKey.fs" />
     <Compile Include="DataCodec.fs" />
     <Compile Include="DataEnvelope.fs" />
@@ -7,11 +10,12 @@
     <Compile Include="WorkspaceData.fs" />
     <Compile Include="OutputPlan.fs" />
     <Compile Include="FileRunHost.fs" />
-    <Compile Include="FileRunExecution.fs" />
     <Compile Include="RunParameterFiles.fs" />
+    <Compile Include="EvolutionReportingStore.fs" />
     <Compile Include="RunDataCleanup.fs" />
     <Compile Include="FileInspection.fs" />
     <Compile Include="RunParameterExecution.fs" />
+    <Compile Include="FileRunExecution.fs" />
     <Compile Include="SorterEvalReportExport.fs" />
   </ItemGroup>
   <ItemGroup>

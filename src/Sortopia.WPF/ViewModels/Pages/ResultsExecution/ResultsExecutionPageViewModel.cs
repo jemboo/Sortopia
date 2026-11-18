@@ -24,7 +24,8 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     public string Status => execution?.State.ToString() ?? State.ToString();
     public TimeSpan? Elapsed => started is { } timestamp ? clock.GetElapsedTime(timestamp) : elapsed;
     public string ElapsedText => Elapsed is { } value ? $"{(long)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}.{value.Milliseconds / 100}" : "—";
-    public string OutputSummary => inspection is null ? "" : $"{(State == outputState.Complete ? inspection.Outputs.ExpectedCount : inspection.Outputs.Available.Length)}/{inspection.Outputs.ExpectedCount} outputs";
+    public string OutputSummary => inspection is null ? "" : $"{(State == outputState.Complete ? inspection.Outputs.ExpectedCount : inspection.Outputs.Available.Length)}/{inspection.Outputs.ExpectedCount} outputs"
+        + (parameters?.Reporting is null ? "" : State == outputState.Complete ? " · evolution reports complete" : " · evolution reports required");
     public string Error => execution is { Error.Length: > 0 } ? execution.Error : error.Length > 0 ? error : inspection?.Outputs.Error ?? "";
     public bool HasError => Error.Length > 0;
     public bool CanExecute => parameters is not null && State != outputState.Invalid;
@@ -306,7 +307,11 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var destination = outputFolder ?? SorterEvalReportExport.nextOutputFolder(Folder);
         var exported = await Task.Run(() => SorterEvalReportExport.exportFiles(paths, destination, token), token);
         if (cancellation?.Token == token)
+        {
             Status = $"Exported {exported.SummaryRows:N0} summary rows and {exported.DetailRows:N0} detail rows to {exported.Folder}";
+            if (exported.EvolutionSummaryPath is not null)
+                Status += $"; {exported.EvolutionSummaryRows:N0} evolution summary rows and {exported.SnapshotRows:N0} snapshot network rows.";
+        }
     }) : Task.CompletedTask;
     internal void RefreshElapsedTimes()
     {

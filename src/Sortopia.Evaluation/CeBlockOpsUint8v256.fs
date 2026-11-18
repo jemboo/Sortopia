@@ -66,7 +66,41 @@ module CeBlockOpsUint8v256 =
         failures
 
 
-    let private countFailures
+    let private evaluateNetworks (options: ParallelOptions) collect
+                                 (blocks: sortBlockUint8v256[]) prefix networks =
+        let sources = blocks |> Array.map _.Vectors
+        SimdBatch.mapNetworks options (fun _ network ->
+            let data = SimdBatch.comparatorChannels network
+            let usage = Array.zeroCreate<int> data.Lows.Length
+            let work = Array.zeroCreate<Vector256<uint8>> (int network.ChannelCount)
+            let failures = if collect then Some (HashSet<int[]>(ArrayContentComparer<int>())) else None
+            let mutable unsorted = 0
+            for blockIndex = 0 to blocks.Length - 1 do
+                options.CancellationToken.ThrowIfCancellationRequested()
+                let block = blocks[blockIndex]
+                Array.blit sources[blockIndex] 0 work 0 block.Length
+                let active = activeMask block.SortableCount
+                for index = 0 to data.Lows.Length - 1 do
+                    if (index &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
+                    let low, high = data.Lows[index], data.Highs[index]
+                    let vLow, vHigh = work[low], work[high]
+                    let minimum = Vector256.Min(vLow, vHigh)
+                    if vLow <> minimum then
+                        usage[index] <- usage[index] + int (BitOperations.PopCount(Vector256.ExtractMostSignificantBits(Vector256.GreaterThan(vLow, vHigh)) &&& active))
+                        work[low] <- minimum
+                        work[high] <- Vector256.Max(vLow, vHigh)
+                let mutable bits = unsortedLaneMask block.Length work &&& active
+                unsorted <- unsorted + int (BitOperations.PopCount bits)
+                match failures with
+                | None -> ()
+                | Some values ->
+                    while bits <> 0u do
+                        let lane = BitOperations.TrailingZeroCount bits
+                        values.Add(Array.init block.Length (fun channel -> int (work[channel].GetElement(lane)))) |> ignore
+                        bits <- bits &&& (bits - 1u)
+            SimdBatch.finishNetwork prefix network usage unsorted 256<symbolSetSize> failures) networks
+
+    let private countFailuresByBlocks
             (options: ParallelOptions)
             (simdSortableBlocks: sortBlockUint8v256[])
             (prefix: ceBlock)
@@ -150,6 +184,11 @@ module CeBlockOpsUint8v256 =
                 ceBlockEval.create prefix ceBlocks.[i] globalUsage.[i] (globalUnsorted.[i] |> UMX.tag) None
             )
 
+    let private countFailures options (blocks: sortBlockUint8v256[]) prefix (networks: ceBlock[]) =
+        if SimdBatch.preferNetworks options networks.Length blocks.Length then
+            evaluateNetworks options false blocks prefix networks
+        else countFailuresByBlocks options blocks prefix networks
+
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockUint8v256 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v256) -> block.Length) prefix ceBlocks simdSortableBlocks
         countFailures (ParallelOptions()) inputs prefix ceBlocks
@@ -171,7 +210,7 @@ module CeBlockOpsUint8v256 =
         h
 
 
-    let private collectFailures
+    let private collectFailuresByBlocks
             (options: ParallelOptions)
             (simdSortableBlocks: sortBlockUint8v256[])
             (prefix: ceBlock)
@@ -271,6 +310,11 @@ module CeBlockOpsUint8v256 =
                 (uniqueUnsortedCount |> UMX.tag<sortableCount>)
                 failTest
         )
+
+    let private collectFailures options (blocks: sortBlockUint8v256[]) prefix (networks: ceBlock[]) =
+        if SimdBatch.preferNetworks options networks.Length blocks.Length then
+            evaluateNetworks options true blocks prefix networks
+        else collectFailuresByBlocks options blocks prefix networks
 
     let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockUint8v256 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v256) -> block.Length) prefix ceBlocks simdSortableBlocks

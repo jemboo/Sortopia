@@ -61,7 +61,8 @@ module FileResultsHost =
         OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
                           config.DataTypes definition.OutputDependencies parameters inputs
 
-    let createWithParallelism evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list) (token: CancellationToken) =
+    let internal createWithPreparedInputs evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list)
+                                         (prepared: Map<storedDataReference, functionData>) (token: CancellationToken) =
         if evaluationParallelism < 1 then invalidArg "evaluationParallelism" "Evaluation parallelism must be positive."
         let definition = ResultsFunctionCatalog.require config.FunctionName
         // Setup can produce more types than results consumes; freeze only those needed.
@@ -77,13 +78,21 @@ module FileResultsHost =
         let setup = {
             new IRunDatabase with
                 member _.Reference dataType = token.ThrowIfCancellationRequested(); find dataType
-                member _.Load dataType = (store.Load(find dataType, token) |> HostStorage.require).Value
+                member _.Load dataType =
+                    token.ThrowIfCancellationRequested()
+                    let reference = find dataType
+                    match prepared |> Map.tryFind reference with
+                    | Some value -> value
+                    | None -> (store.Load(reference, token) |> HostStorage.require).Value
                 member _.SaveIfMissing(_, _, _) = invalidOp "The setup database is read-only during results execution."
                 member _.StoredOutputs = outputs }
-        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism
+        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; EvolutionReporting = None
           SetupDb = setup
           ResultsDb = FileRunDatabase(store, plan, token)
           SourceResults = HostStorage.noSources }
+
+    let createWithParallelism evaluationParallelism folder projectId config parameters outputs token =
+        createWithPreparedInputs evaluationParallelism folder projectId config parameters outputs Map.empty token
 
     let create folder projectId config parameters outputs token =
         createWithParallelism Environment.ProcessorCount folder projectId config parameters outputs token
@@ -127,7 +136,7 @@ type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: Cancellation
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
                                         branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes
                                         definition.OutputDependencies parameters inputs
-            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount
+            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; EvolutionReporting = None
               SetupDb = FileRunDatabase(store, plan, token)
               ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
               SourceResults = sources }

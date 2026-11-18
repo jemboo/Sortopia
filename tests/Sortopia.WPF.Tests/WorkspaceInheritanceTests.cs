@@ -41,7 +41,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var parent = rootProject.seal(((project.RootProject)Parent(false)).Item);
         var spans = ((run.RootRun)WorkspaceHierarchyTests.MakeRun("P", "R")).Item.ResultsParameterSpans;
         var id = Guid.NewGuid();
-        var inherited = RootRun.create(parent, new rootRunConfig(id, "Inherited", parent.Id, null, spans));
+        var inherited = RootRun.create(parent, new rootRunConfig(id, "Inherited", parent.Id, null, spans, null));
         Assert.Equal("Project description", inherited.Description);
         Assert.Equal(parent.ResultsDatabaseName, inherited.ResultsDatabaseName);
         Assert.Equal(parent.ResultsFunctionName, inherited.ResultsFunctionName);
@@ -49,7 +49,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         Assert.Equal(parent.ResultsQueryParameterKeys, inherited.ResultsQueryParameterKeys);
         Assert.Null(inherited.Configuration.DescriptionOverride);
         Assert.Equal(id, inherited.Id);
-        var blank = RootRun.create(parent, new rootRunConfig(Guid.NewGuid(), "Blank", parent.Id, FSharpOption<string>.Some(""), spans));
+        var blank = RootRun.create(parent, new rootRunConfig(Guid.NewGuid(), "Blank", parent.Id, FSharpOption<string>.Some(""), spans, null));
         Assert.Equal("", blank.Description);
         Assert.NotNull(blank.Configuration.DescriptionOverride);
     }
@@ -60,14 +60,14 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var parent = branchProject.seal(((project.BranchProject)Parent(true)).Item);
         var template = ((run.BranchRun)WorkspaceHierarchyTests.MakeRun("P", "R", true)).Item;
         var inherited = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Inherited", parent.Id, null,
-            template.ResultsParameterSpans, template.SetupParameterSpans));
+            template.ResultsParameterSpans, template.SetupParameterSpans, null));
         Assert.Equal(parent.Description, inherited.Description);
         Assert.Equal(parent.SetupDatabaseName, inherited.SetupDatabaseName);
         Assert.Equal(parent.SetupFunctionName, inherited.SetupFunctionName);
         Assert.Equal(parent.SetupSortopiaDataTypes, inherited.SetupSortopiaDataTypes);
         Assert.Equal(parent.SetupQueryParameterKeys, inherited.SetupQueryParameterKeys);
         var descriptionOverride = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Override description", parent.Id, FSharpOption<string>.Some("Custom description"),
-            template.ResultsParameterSpans, template.SetupParameterSpans));
+            template.ResultsParameterSpans, template.SetupParameterSpans, null));
         Assert.Equal("Setup", descriptionOverride.SetupDatabaseName);
         Assert.Equal("sortable-tests-with-prefix.standard", descriptionOverride.SetupFunctionName);
         Assert.Equal("Custom description", descriptionOverride.Description);

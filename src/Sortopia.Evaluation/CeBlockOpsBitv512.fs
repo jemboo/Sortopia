@@ -52,7 +52,41 @@ module CeBlockOpsBitv512 =
 
     let applyCas workBuffer low high = applyCasCount 512 workBuffer low high > 0
 
-    let private countFailures
+    let private evaluateNetworks (options: ParallelOptions) collect reportFirstFailedLane
+                                 (blocks: sortBlockBitv512[]) prefix networks =
+        // Vectors is a defensive-copy property. Snapshot once, then share read-only.
+        let sources = blocks |> Array.map _.Vectors
+        SimdBatch.mapNetworks options (fun networkIndex network ->
+            let data = SimdBatch.comparatorChannels network
+            let usage = Array.zeroCreate<int> data.Lows.Length
+            let work = Array.zeroCreate<Vector512<uint64>> (int network.ChannelCount)
+            let failures = if collect then Some (HashSet<int[]>(ArrayContentComparer<int>())) else None
+            let mutable unsorted = 0
+            for blockIndex = 0 to blocks.Length - 1 do
+                options.CancellationToken.ThrowIfCancellationRequested()
+                let block = blocks[blockIndex]
+                Array.blit sources[blockIndex] 0 work 0 block.Length
+                for index = 0 to data.Lows.Length - 1 do
+                    if (index &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
+                    usage[index] <- usage[index] + applyCasCount block.SortableCount work data.Lows[index] data.Highs[index]
+                let mask = getUnsortedMask block.Length work
+                let mutable reported = false
+                for word = 0 to 7 do
+                    let mutable bits = mask.GetElement(word) &&& activeBits block.SortableCount word
+                    unsorted <- unsorted + int (BitOperations.PopCount bits)
+                    if bits <> 0UL && not reported then
+                        reportFirstFailedLane |> Option.iter (fun report -> report networkIndex blockIndex (word * 64 + BitOperations.TrailingZeroCount bits))
+                        reported <- true
+                    match failures with
+                    | None -> ()
+                    | Some values ->
+                        while bits <> 0UL do
+                            let bit = BitOperations.TrailingZeroCount bits
+                            values.Add(Array.init block.Length (fun channel -> int ((work[channel].GetElement(word) >>> bit) &&& 1UL))) |> ignore
+                            bits <- bits &&& (bits - 1UL)
+            SimdBatch.finishNetwork prefix network usage unsorted 2<symbolSetSize> failures) networks
+
+    let private countFailuresByBlocks
         (options: ParallelOptions)
         reportFirstFailedLane
         (simdSortableBlocks: sortBlockBitv512[])
@@ -125,6 +159,11 @@ module CeBlockOpsBitv512 =
             ceBlockEval.create prefix ceBlocks.[i] globalUsage.[i] (globalUnsortedCount.[i] |> UMX.tag) None
         )
 
+    let private countFailures options report (blocks: sortBlockBitv512[]) prefix (networks: ceBlock[]) =
+        if SimdBatch.preferNetworks options networks.Length blocks.Length then
+            evaluateNetworks options false report blocks prefix networks
+        else countFailuresByBlocks options report blocks prefix networks
+
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks
         countFailures (ParallelOptions()) None inputs prefix ceBlocks
@@ -169,7 +208,7 @@ module CeBlockOpsBitv512 =
         result, firstInput
 
 
-    let private collectFailures
+    let private collectFailuresByBlocks
             (options: ParallelOptions)
             (simdSortableBlocks: sortBlockBitv512[])
             (prefix: ceBlock)
@@ -276,6 +315,11 @@ module CeBlockOpsBitv512 =
                 (uniqueUnsortedCount |> UMX.tag<sortableCount>)
                 failTest
         )
+
+    let private collectFailures options (blocks: sortBlockBitv512[]) prefix (networks: ceBlock[]) =
+        if SimdBatch.preferNetworks options networks.Length blocks.Length then
+            evaluateNetworks options true None blocks prefix networks
+        else collectFailuresByBlocks options blocks prefix networks
 
     let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks

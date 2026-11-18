@@ -6,9 +6,11 @@
     <Compile Include="SorterEvalDto.fs" />
     <Compile Include="SorterEvalMeasureDto.fs" />
     <Compile Include="SorterSetEvalDto.fs" />
+    <Compile Include="SorterPoolSetDto.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />
     <ProjectReference Include="../Sortopia.Sorting.Serialization/Sortopia.Sorting.Serialization.fsproj" />
+    <ProjectReference Include="../Sortopia.Models.Sorting.Serialization/Sortopia.Models.Sorting.Serialization.fsproj" />
   </ItemGroup>
 </Project>

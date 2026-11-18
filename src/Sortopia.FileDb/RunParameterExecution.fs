@@ -35,6 +35,7 @@ module RunParameterExecution =
         if not (isNull progress) then progress.Report { Id = id; State = state; Error = error }
     let private planWorkItem (value: runParameters) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
+        EvolutionReportingStore.validate value
         FileResultsHost.plan value.ProjectId value.Results value.Parameters value.SetupInputs
 
     let private selectedItems parametersFolder runId token =
@@ -48,7 +49,7 @@ module RunParameterExecution =
         let inspection =
             try
                 let store = SortopiaFileDb(folder, item.ProjectId) :> ISortopiaDb
-                OutputPlan.inspect store (planWorkItem item token) token
+                OutputPlan.inspect store (planWorkItem item token) token |> EvolutionReportingStore.includeInspection folder item token
             with
             | :? OperationCanceledException -> reraise ()
             | error -> { State = outputState.Invalid; Available = []; ExpectedCount = 0; Error = error.GetBaseException().Message }
@@ -84,6 +85,7 @@ module RunParameterExecution =
             token.ThrowIfCancellationRequested()
             let factory: FileRunHost = makeHost ()
             let value = factory.Run
+            FunctionConfiguration.validateRunInputs value
             let projectFolder = factory.ProjectFolder
             RunParameterStorage.requireProject projectFolder value.ParentProjectId
             let sets = RunParameterSets.create value
@@ -150,7 +152,8 @@ module RunParameterExecution =
                         Results = { config with ParameterDefaults = [] }; Parameters = sets.Results[i]
                         SetupInputs = inputs; SetNumber = i + 1; SetupSetNumber = setupNumber
                         SetupSuffixStages = setupStages
-                        ResultsSuffixStages = ModelGenerationStageLengths.tryForDefinition resultsDefinition sets.Results[i] |> Option.map int }
+                        ResultsSuffixStages = ModelGenerationStageLengths.tryForDefinition resultsDefinition sets.Results[i] |> Option.map int
+                        Reporting = value.Reporting }
                     planWorkItem item token |> ignore
                     ids.Add(RunParameterFiles.saveWorkItem projectFolder item token)
             notify progress $"Generated {ids.Count} results work items" (int64 setupCount + resultsCount) (int64 setupCount + resultsCount)
@@ -192,6 +195,9 @@ module RunParameterExecution =
             let store = database :> ISortopiaDb
             let owners = Collections.Generic.Dictionary<string, Guid<workItemId>>(StringComparer.OrdinalIgnoreCase)
             let checkedInputs = Collections.Generic.HashSet<storedDataReference>()
+            // Reuse the validated snapshot for one invocation. Batch preflight still
+            // releases each payload, avoiding retention of an entire source sweep.
+            let mutable preparedInputs = Map.empty
             let items = workItems |> Array.map (fun item ->
                 currentItem <- Some item.Id
                 token.ThrowIfCancellationRequested()
@@ -205,10 +211,14 @@ module RunParameterExecution =
                         notifyItem itemProgress owner workItemExecutionState.Failed message
                         invalidOp message
                     | _ -> owners.Add(path, item.Id)
-                let inspection = OutputPlan.inspect store plan token
+                let inspection = OutputPlan.inspect store plan token |> EvolutionReportingStore.includeInspection folder item token
                 if inspection.State = outputState.Invalid then invalidOp $"Work item {item.Id}: {inspection.Error}"
                 if inspection.State <> outputState.Complete then
-                    verifyInputs folder item.ProjectId (item.SetupInputs |> List.filter checkedInputs.Add) token
+                    let references = item.SetupInputs |> List.filter checkedInputs.Add
+                    if workItems.Length = 1 then
+                        preparedInputs <- references |> List.map (fun reference ->
+                            reference, (store.Load(reference, token) |> HostStorage.require).Value) |> Map.ofList
+                    else verifyInputs folder item.ProjectId references token
                 item, plan)
             currentItem <- None
             let workers = min options.MaxParallelJobs items.Length
@@ -224,7 +234,7 @@ module RunParameterExecution =
                     notifyItem itemProgress item.Id workItemExecutionState.Running ""
                     token.ThrowIfCancellationRequested()
                     // Another invocation may have completed this file since preflight.
-                    let inspection = OutputPlan.inspect store plan token
+                    let inspection = OutputPlan.inspect store plan token |> EvolutionReportingStore.includeInspection folder item token
                     let outputs =
                         match inspection.State with
                         | outputState.Invalid -> invalidOp inspection.Error
@@ -233,9 +243,13 @@ module RunParameterExecution =
                             inspection.Available
                         | _ ->
                             let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
-                            let host = FileResultsHost.createWithParallelism evaluationParallelism folder item.ProjectId item.Results item.Parameters inputs token
+                            let host = FileResultsHost.createWithPreparedInputs evaluationParallelism folder item.ProjectId item.Results item.Parameters inputs preparedInputs token
+                            let reporting = item.Reporting |> Option.bind (fun _ ->
+                                if fst (EvolutionReportingStore.inspect folder item token) = outputState.Complete then None
+                                else Some (EvolutionReportingStore.create folder item token))
+                            let host = { host with EvolutionReporting = reporting }
                             (ResultsFunctionCatalog.require item.Results.FunctionName).Execute host
-                            host.ResultsDb.StoredOutputs
+                            host.ResultsDb.StoredOutputs @ (EvolutionReportingStore.inspectOutputs folder item token).Available
                     results[index] <- Some { Phase = runExecutionPhase.Results; FunctionName = string item.Results.FunctionName
                                              SetupSetNumber = item.SetupSetNumber; SetNumber = item.SetNumber; Parameters = item.Parameters; StoredOutputs = outputs }
                     notifyItem itemProgress item.Id workItemExecutionState.Complete ""

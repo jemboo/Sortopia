@@ -21,7 +21,8 @@ module CeBlockOps =
         else
             let scalar count collect inputs =
                 let evaluate = if %collectNewSortableTests then collect else count
-                Array.map (evaluate inputs prefix) ceBlocks
+                CeBlock.validateBatchWidth (SortableTests.getChannelCount sortableTs) prefix ceBlocks
+                SimdBatch.mapNetworks options (fun _ network -> evaluate inputs prefix network) ceBlocks
             let batch count collect inputs =
                 let evaluate = if %collectNewSortableTests then collect else count
                 evaluate inputs prefix ceBlocks

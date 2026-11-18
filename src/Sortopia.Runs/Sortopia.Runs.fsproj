@@ -9,6 +9,7 @@
     <Compile Include="ParameterSets.fs" />
     <Compile Include="SortopiaDataType.fs" />
     <Compile Include="FolderName.fs" />
+    <Compile Include="SgdReporting.fs" />
     <Compile Include="Run.fs" />
     <Compile Include="RunParameterSets.fs" />
   </ItemGroup>

@@ -50,6 +50,25 @@ let private wrap (m: simpleSorterModel) =
        simpleSorterModelS.create m (Array.init length (fun i -> i % 2 = 0)) |> sorterModel.SimpleS |]
 
 [<Theory>]
+[<InlineData(4)>]
+[<InlineData(8)>]
+[<InlineData(16)>]
+[<InlineData(32)>]
+[<InlineData(64)>]
+let ``bounded msuf4 unfolding preserves every truncation boundary and sorter identity`` (width: int) =
+    let channels = UMX.tag<channelCount> width
+    let generated = SimpleSorterModelGen.makeUniform rngFactory.SmxFactory channels (prefix ()) 5<stageLength> simpleSorterModelType.Msuf4 (UMX.tag true)
+                    |> SimpleSorterModelGen.makeSorterModelFromId modelId
+    let full = SimpleSorterModel.makeSorterWithoutPrefix None generated
+    // Explicit CE representation gives an independent materialization oracle with
+    // the same model ID, prefix and expanded suffix.
+    let explicit = msce.create modelId channels (prefix ()) (full.Ces |> Array.map Ce.toIndex) |> simpleSorterModel.Msce
+    for limit in 0 .. full.Ces.Length + 1 do
+        let budget = Some (UMX.tag<ceLength> limit)
+        Assert.Equal(SimpleSorterModel.makeSorterWithoutPrefix budget explicit, SimpleSorterModel.makeSorterWithoutPrefix budget generated)
+        Assert.Equal(SimpleSorterModel.makeSorterWithPrefix budget explicit, SimpleSorterModel.makeSorterWithPrefix budget generated)
+
+[<Theory>]
 [<InlineData("ce")>]
 [<InlineData("si")>]
 [<InlineData("rs")>]
