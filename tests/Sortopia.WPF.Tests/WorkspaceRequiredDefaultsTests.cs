@@ -89,10 +89,15 @@ public sealed class WorkspaceRequiredDefaultsTests
     [Fact]
     public void Every_catalog_function_gets_valid_nonblank_initial_parameters()
     {
-        var functions = ResultsFunctionCatalog.functions.Select(entry => (Setup: false, Name: entry.Key, Keys: entry.Value.RequiredParameters))
-            .Concat(SetupFunctionCatalog.functions.Select(entry => (Setup: true, Name: entry.Key, Keys: entry.Value.RequiredParameters)));
+        var functions = ResultsFunctionCatalog.functions.Select(entry => (Setup: false, Name: entry.Key, Keys: entry.Value.RequiredParameters,
+                Support: entry.Value.ParameterSupport, InputError: entry.Value.InputError))
+            .Concat(SetupFunctionCatalog.functions.Select(entry => (Setup: true, Name: entry.Key, Keys: entry.Value.RequiredParameters,
+                Support: entry.Value.ParameterSupport, InputError: entry.Value.InputError)));
         foreach (var function in functions)
         {
+            var suggestions = function.Support.Defaults.Invoke(new([], [], function.Keys));
+            Assert.Equal(function.Keys.Select(key => key.Name), suggestions.Select(binding => binding.KeyName));
+            Assert.Empty(function.InputError.Invoke(suggestions).Invoke([]));
             var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch).Editor!;
             if (function.Setup) editor.SetupFunctionName = function.Name; else editor.ResultsFunctionName = function.Name;
             (function.Setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
@@ -108,6 +113,39 @@ public sealed class WorkspaceRequiredDefaultsTests
                 Assert.Equal(100, ((sortopiaStorageData.SorterModelSet)generated.Single(value => value.IsSorterModelSet)).Item.Count);
             }
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Copy_defaults_follow_source_keys_and_preserve_inherited_and_unfinished_values(bool realActivators)
+    {
+        string[] modelKeys = ["ChannelCount", "RngType", "Repl", "Seed6Weights", "UnfoldingWeights",
+            .. realActivators ? new[] { "AMax", "AInitial" } : new[] { "ActivationProbability" }];
+        var models = SourceEvaluationInputsTests.Source("SorterModelSet", modelKeys);
+        var tests = SourceEvaluationInputsTests.Source("SortableTests", "SortableDataFormat");
+        var parent = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Parent", () => [models, tests]);
+        parent.SetupFunctionName = SetupFunctionNames.evaluationSource;
+        parent.SetupDataTypesOverride.IsOverridden = true;
+        parent.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
+        parent.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
+        WorkspaceParameterInheritanceTests.AddDefault(parent, "ChannelCount", "24", true);
+        if (realActivators) WorkspaceParameterInheritanceTests.AddDefault(parent, "AMax", "7", true);
+        var child = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => parent, () => "Child", () => [models, tests]);
+        var draft = WorkspaceParameterInheritanceTests.AddDefault(child, "RngType", "unfinished edit", true);
+        var repl = WorkspaceParameterInheritanceTests.AddDefault(child, "Repl", "5", true);
+
+        child.AddRequiredSetupDefaultsCommand.Execute(null);
+        var rows = child.SetupParameterDefaults;
+        Assert.DoesNotContain(rows, row => row.Key == "ChannelCount" || row.Key == "AMax");
+        Assert.Same(draft, rows.Single(row => row.Key == "RngType")); Assert.Equal("unfinished edit", draft.Value.Text);
+        Assert.Same(repl, rows.Single(row => row.Key == "Repl")); Assert.Equal("5", repl.Value.Text);
+        Assert.Equal("1,1,1;1,1,1", rows.Single(row => row.Key == "UnfoldingWeights").Value.Text);
+        Assert.Equal("1,1,1,1,1,1,1", rows.Single(row => row.Key == "Seed6Weights").Value.Text);
+        Assert.Equal("Bools", rows.Single(row => row.Key == "SortableDataFormat").Value.Text);
+        Assert.Equal(realActivators ? "0" : "0.5", rows.Single(row => row.Key == (realActivators ? "AInitial" : "ActivationProbability")).Value.Text);
+        Assert.DoesNotContain(rows, row => row.Key == "SorterSuccessFraction");
+        Assert.False(child.AddRequiredSetupDefaultsCommand.CanExecute(null));
     }
 
     [Theory]

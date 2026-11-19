@@ -29,7 +29,7 @@ type internal simpleModelAlgorithm = {
     Version: string
     Description: modelPrefixMode -> simpleModelConstructor -> string
     InputError: modelPrefixMode -> parameterBinding list -> parameterSpan list -> string
-    ParameterSupport: bool -> modelPrefixMode -> simpleModelConstructor -> functionParameterSupport
+    ParameterSupport: bool -> modelPrefixMode -> string -> functionParameterSupport
     SuffixStages: modelPrefixMode -> parameterSet -> int<stageLength>
     Create: rngFactory -> int<channelCount> -> ce array -> int<stageLength> -> parameterSet -> simpleSorterModelGen
 }

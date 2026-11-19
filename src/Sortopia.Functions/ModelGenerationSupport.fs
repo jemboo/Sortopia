@@ -1,7 +1,6 @@
 namespace Sortopia.Functions
 
 open System
-open System.Globalization
 open Sortopia.Core
 open Sortopia.Runs
 open Sortopia.Models.Sorting
@@ -60,42 +59,14 @@ module internal ModelGenerationSupport =
             ""
         with error -> error.Message
 
-    let private channelCount (bindings: parameterBinding list) =
-        let explicitWidth = bindings |> List.tryPick (fun binding ->
-            match string binding.KeyName, binding.Value with
-            | "ChannelCount", parameterValue.IntegerValue width when width > 0 -> Some width
-            | _ -> None)
-        explicitWidth |> Option.orElseWith (fun () -> bindings |> List.tryPick (fun binding ->
-            match binding.Value with
-            | parameterValue.SorterLibIdValue id -> Some (int id.ChannelCount)
-            | parameterValue.PrefixLibIdValue id -> Some (int id.ChannelCount)
-            | parameterValue.MergeLibIdValue id -> Some (int id.ChannelCount)
-            | _ -> None))
-
     let private defaults modelType fallback algorithmDefaults (context: parameterDefaultContext) =
-        let supplied = channelCount context.Current |> Option.orElseWith (fun () -> channelCount context.Related)
+        let supplied = ParameterDefaults.suppliedWidth context
         let needsWidth = context.Missing |> List.exists (fun key -> string key.Name = "ChannelCount" || string key.Name = "PrefixLibId")
         let width =
             match supplied with
             | Some width when not needsWidth || SimpleSorterModelType.supportsChannelCount width modelType -> width
             | _ -> fallback
-        let proposed = algorithmDefaults width |> List.map (fun (binding: parameterBinding) -> binding.KeyName, binding) |> Map.ofList
-        context.Missing |> List.choose (fun key ->
-            Map.tryFind key.Name proposed |> Option.orElseWith (fun () ->
-                let text =
-                    match string key.Name with
-                    | "ChannelCount" -> Some (width.ToString(CultureInfo.InvariantCulture))
-                    | "PrefixLibId" ->
-                        PrefixLib.ids () |> Seq.sortBy (fun id ->
-                            (if int id.ChannelCount = width then 0 elif int id.ChannelCount = 8 then 1 else 2), id.StageLength, PrefixLibId.toString id)
-                        |> Seq.head |> PrefixLibId.toString |> Some
-                    | "SorterSuccessFraction" -> Some "99%"
-                    | "SorterCount" -> Some "100"
-                    | "Repl" -> Some "0"
-                    | "SortableDataFormat" -> Some "Bools"
-                    | "RngType" -> Some "SplitMix64"
-                    | _ -> None
-                text |> Option.map (ParameterBinding.fromText key.Name key.ValueType)))
+        ParameterDefaults.commonAtWidth width context @ algorithmDefaults width |> ParameterDefaults.select context
 
     let private stageSuggestion source algorithm defaults spans =
         try
@@ -120,19 +91,19 @@ module internal ModelGenerationSupport =
                     else $"Suggested random suffix: {int minimum:N0}–{int maximum:N0} stages across the selected widths, prefixes, and success fractions. "
         with :? ArgumentException as error -> $"Stage suggestion unavailable: {error.Message} "
 
-    let private guidance algorithm weights includeTests source (constructor: simpleModelConstructor) defaults spans =
+    let private guidance algorithm weights includeTests source constructorGuidance defaults spans =
         let dimensions =
             match source with
             | modelPrefixMode.CatalogPrefix -> "Channel count and prefix stage length come from PrefixLibId. SorterSuccessFraction determines the random suffix capacity; the fixed prefix is always added. "
             | modelPrefixMode.NoPrefix -> "ChannelCount sets the width; SorterSuccessFraction determines the stage capacity with zero prefix stages. The generated models have no fixed prefix. "
         let tests = if includeTests then "Generates full sortable tests using ChannelCount and SortableDataFormat. Tests and models have separate output projections. " else ""
-        stageSuggestion source algorithm defaults spans + constructor.Guidance + dimensions
+        stageSuggestion source algorithm defaults spans + constructorGuidance + dimensions
         + "Choose 50%, 90%, or 99% of generated networks sorting every input. These budgets are provisional; custom weights and inactive entries can change the actual success rate. "
         + tests + "Repl selects a reproducible batch of SorterCount models. " + weights
 
-    let create modelType fallback algorithmDefaults weights includeTests source constructor : functionParameterSupport =
+    let create modelType fallback algorithmDefaults weights includeTests source constructorGuidance : functionParameterSupport =
         { Defaults = defaults modelType fallback algorithmDefaults
-          Guidance = guidance modelType weights includeTests source constructor
+          Guidance = guidance modelType weights includeTests source constructorGuidance
           Preview = fun parameters ->
               [{ Key = "SuffixStages"; Label = "Suggested suffix stages"
                  Value = parameterValue.IntegerValue (int (suffixStages modelType source parameters))

@@ -101,6 +101,37 @@ public sealed class FunctionParameterSupportTests
     }
 
     [Fact]
+    public void Copy_provider_supplies_registered_model_defaults_for_source_query_keys()
+    {
+        var expected = new Dictionary<string, string> {
+            ["AMax"] = "1", ["AInitial"] = "0", ["ActivationProbability"] = "0.5", ["ExcludeSelfCe"] = "True",
+            ["OrthoRate"] = "1", ["ParaRate"] = "1", ["SelfSymRate"] = "1", ["StageWeights"] = "1,1,1",
+            ["Seed4Weights"] = "1,1,1", ["Seed6Weights"] = "1,1,1,1,1,1,1", ["UnfoldingWeights"] = "1,1,1;1,1,1",
+            ["SorterSuccessFraction"] = "99%", ["SorterCount"] = "100", ["StageLength"] = "1", ["RngType"] = "SplitMix64", ["Repl"] = "0"
+        };
+        var keys = expected.Keys.Select(key => ParamKeys.tryFind(key).Value).ToArray();
+        var support = SetupFunctionCatalog.require(SetupFunctionNames.evaluationSource).ParameterSupport;
+        var context = new parameterDefaultContext([], ListModule.OfArray(new[] { ParameterBinding.create(ParamKeys.channelCountKey, 24) }), ListModule.OfArray(keys));
+        var suggestions = support.Defaults.Invoke(context).ToArray();
+        Assert.Equal(keys.Select(key => key.Name), suggestions.Select(binding => binding.KeyName));
+        Assert.All(suggestions, binding => Assert.Equal(expected[binding.KeyName], binding.FormattedValue));
+        Assert.Empty(support.Preview.Invoke(parameterSet.fromBindings(suggestions)));
+
+        var related = context.Related.Select(ParameterBindingDto.fromDomain).ToArray();
+        var additions = WorkspaceParameterInitialValues.CreateMissing([], related, keys, support);
+        Assert.All(additions, binding => Assert.Equal(expected[binding.keyName], binding.value));
+    }
+
+    [Fact]
+    public void UI_without_a_provider_does_not_guess_model_defaults()
+    {
+        var keys = new[] { ParamKey.describe(ParamKeys.activationProbabilityKey), ParamKey.describe(ParamKeys.excludeSelfCeKey),
+            ParamKey.describe(ParamKeys.rngTypeKey), ParamKey.describe(ParamKeys.stageWeightsKey), ParamKey.describe(ParamKeys.prefixLibIdKey) };
+        var proposed = WorkspaceParameterInitialValues.CreateMissing([], [], keys, null);
+        Assert.Equal(new[] { "0", "false", "", "", "" }, proposed.Select(binding => binding.value));
+    }
+
+    [Fact]
     public void Generic_preview_displays_unrelated_function_values_without_model_metadata()
     {
         var support = new functionParameterSupport(

@@ -126,8 +126,30 @@ module SgdFunctions =
             let sampler = EvolutionSampler(host.Parameters, plan, host.Database, host.CancellationToken)
             evolve sampler.Observe |> sampler.Complete
 
+    let private defaults context =
+        ParameterDefaults.common context @ [
+            ParameterBinding.create ParamKeys.generationCountKey 1
+            ParameterBinding.create ParamKeys.sorterPoolCountKey 1
+            ParameterBinding.create ParamKeys.sorterCountPerPoolKey 1
+            ParameterBinding.create ParamKeys.selectedSorterCountPerPoolKey 1
+            ParameterBinding.create ParamKeys.sorterChildCountKey 1
+            ParameterBinding.create ParamKeys.mutationModKey 1
+            ParameterBinding.create ParamKeys.adjustCeLengthFrequencyKey 1
+            ParameterBinding.create ParamKeys.sortedFractionKey 0.99
+            ParameterBinding.create ParamKeys.prioritizeNewMutantsKey false
+            ParameterBinding.create ParamKeys.distinctSorterHashesKey false
+            ParameterBinding.create ParamKeys.sorterEvalMeasureKey (SorterEvalMeasure.toCompactString SorterEvalMeasure.stageBiasedFilterUnsorted)
+            ParameterBinding.create ParamKeys.mutatorVariantKey "V1"
+            ParameterBinding.create ParamKeys.seedModificationRateKey 0.
+            ParameterBinding.create ParamKeys.modificationRateKey 0.
+            ParameterBinding.create ParamKeys.orthoRateKey 1.
+            ParameterBinding.create ParamKeys.paraRateKey 1.
+            ParameterBinding.create ParamKeys.selfSymRateKey 1. ]
+        |> ParameterDefaults.select context
+
     let standardMsuf4Simple =
         FunctionDefinition.resultsWithInputsValidated "4" keys [poolType, [modelsType; testsType]]
             [poolType, keys |> List.map _.Name] inputError execute
         |> fun definition -> { definition with Prepare = prepare }
+        |> FunctionDefinition.withParameterSupport { FunctionParameterSupport.empty with Defaults = defaults }
         |> FunctionDefinition.describe "Run GeneSort's fixed-pool Standard SGD on copied Simple MSUF4 models and sortable tests. InitialPoolSelection chooses Random (uniform sampling without replacement using InitialPoolSeed) or Best (evaluate the entire source and retain the best models using SorterEvalMeasure and DistinctSorterHashes). Best ignores InitialPoolSeed and breaks score ties by model ID. Source ranking is shared across mutation combinations within an execution batch. Multiple pools use disjoint models. Mutate every member, evaluate on the full test set, adjust CE limits, and select survivors with duplicate/recovery handling. Save final pools containing their models and evaluations. CSV reports read these pools directly. Optional run reporting records full population snapshots and lightweight pool statistics on independent schedules. Channel count comes from the tests; each model supplies its own prefix, which is evaluated against those tests. GenerationCount counts evolution steps after the initial evaluation. Cancellation restarts unfinished evolution and verifies previously saved reporting samples during replay."

@@ -184,3 +184,16 @@ module internal ModelGenerators =
               let seed = required ParamKeys.seed6WeightsKey parameters
               let probabilities = Seed6GenerationProbabilities.fromWeights seed.Ortho1 seed.Ortho2 seed.Para1 seed.Para2 seed.Para3 seed.Para4 seed.SelfReflection
               Msuf6RandGen.create rng width prefix stages probabilities (unfolding parameters) |> SmmMsuf6RandGen } ]
+
+    /// A copy query has parameter descriptors, not a model selection. Ask each owner only for its keys.
+    let sourceDefaults (context: parameterDefaultContext) =
+        let fromOwner (keys: paramKeyDescriptor list) provider =
+            let names = keys |> List.map _.Name |> Set.ofList
+            let missing = context.Missing |> List.filter (fun key -> Set.contains key.Name names)
+            if missing.IsEmpty then [] else provider { context with Missing = missing }
+        [ for algorithm in algorithms do
+              let support = algorithm.ParameterSupport false modelPrefixMode.NoPrefix ""
+              yield! fromOwner algorithm.Parameters support.Defaults
+          for _, constructor in constructors do
+              yield! fromOwner constructor.Parameters constructor.Defaults ]
+        |> ParameterDefaults.select context

@@ -21,7 +21,7 @@ module internal ModelGenerationDefinitions =
         let modelKeys = ModelGenerators.keys source algorithm constructor
         let modelOutput = modelsType, InputGenerators.queryKeys modelKeys
         let description = algorithm.Description source constructor
-        let support = algorithm.ParameterSupport includeTests source constructor
+        let support = algorithm.ParameterSupport includeTests source constructor.Guidance
         let modelInputError defaults spans =
             let error = algorithm.InputError source defaults spans
             if error <> "" then error
@@ -30,11 +30,7 @@ module internal ModelGenerationDefinitions =
                     constructor.Validate defaults spans
                     ""
                 with error -> error.Message
-        let defaults (context: parameterDefaultContext) =
-            // Constructors own their defaults; expose only requested missing keys, in descriptor order.
-            let proposed = support.Defaults context @ constructor.Defaults context
-                           |> List.map (fun binding -> binding.KeyName, binding) |> Map.ofList
-            context.Missing |> List.choose (fun key -> Map.tryFind key.Name proposed)
+        let defaults = ParameterDefaults.combine [support.Defaults; constructor.Defaults]
         { ParameterSupport = { support with Defaults = defaults }
           RequiredParameters =
               if includeTests then InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name)
