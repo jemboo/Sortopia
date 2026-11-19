@@ -1,5 +1,6 @@
 namespace Sortopia.Functions
 
+open System
 open Sortopia.Runs
 open Sortopia.Sorting
 open Sortopia.Sorting.Networks
@@ -130,16 +131,57 @@ type functionPreviewValue = {
     Hint: string
 }
 
-/// Optional behavior is represented by empty suggestions, guidance, or previews.
+/// Authoritative per-parameter policy for both field feedback and function validation.
+/// The value type's parsing rules are checked first.
+type parameterEditorRule = {
+    Choices: string list
+    Hint: string
+    IsValid: string -> bool
+}
+
+/// Optional behavior is represented by empty suggestions, rules, guidance, or previews.
 /// These providers are read-only and do not participate in stored identities.
 type functionParameterSupport = {
     Defaults: parameterDefaultContext -> parameterBinding list
     Guidance: parameterBinding list -> parameterSpan list -> string
     Preview: parameterSet -> functionPreviewValue list
+    EditorRules: Map<string<paramKeyName>, parameterEditorRule>
+    CombinationError: parameterBinding list -> parameterSpan list -> string
 }
 
 module FunctionParameterSupport =
-    let empty = { Defaults = (fun _ -> []); Guidance = (fun _ _ -> ""); Preview = (fun _ -> []) }
+    let empty = {
+        Defaults = (fun _ -> []); Guidance = (fun _ _ -> ""); Preview = (fun _ -> [])
+        EditorRules = Map.empty; CombinationError = (fun _ _ -> "") }
+
+    /// The same field check is used for editor text, defaults, and every span candidate.
+    let valueError (support: functionParameterSupport) key kind text =
+        let error = ParameterValue.validationError kind text
+        if error <> "" then error
+        else
+            match Map.tryFind key support.EditorRules with
+            | None -> ""
+            | Some rule ->
+                try
+                    if rule.IsValid text then "" else $"{key}: {rule.Hint}"
+                with error when error :? ArgumentException || error :? FormatException || error :? OverflowException || error.GetType() = typeof<Exception> ->
+                    $"{key}: {error.Message}"
+
+    /// Missing keys are allowed; relationships run only after all supplied values pass their field rules.
+    let inputError support (defaults: parameterBinding list) (spans: parameterSpan list) =
+        let errors = seq {
+            for binding in defaults do yield valueError support binding.KeyName binding.ValueType binding.FormattedValue
+            for span in spans do
+                for text in span.Values |> List.distinct do yield valueError support span.KeyName span.ValueType text }
+        match errors |> Seq.tryFind (fun error -> error <> "") with
+        | Some error -> error
+        | None -> support.CombinationError defaults spans
+
+/// Setup can generate from declared parameters or resolve them from selected source queries.
+[<RequireQualifiedAccess>]
+type setupParameterRequirements =
+    | Declared of paramKeyDescriptor list
+    | FromSources
 
 /// Required inputs are independent of the project's chosen query projections.
 type functionDefinition<'executor> = {
@@ -156,7 +198,7 @@ type functionDefinition<'executor> = {
     SourceDataTypes: sortopiaDataType list
     /// Exact input types contributing to each output's stable identity.
     OutputDependencies: Map<sortopiaDataType, sortopiaDataType list>
-    /// Validate the supplied values, including relationships between keys.
+    /// Composed from ParameterSupport's field rules and the function's combination checks.
     /// Missing keys are allowed here so module/project defaults can be checked too.
     InputError: parameterBinding list -> parameterSpan list -> string
     /// Read-only preparation before concurrent results execution. Must not save data.
@@ -243,9 +285,6 @@ module FunctionValidation =
         parameters.ParamMap |> Map.toList |> List.map snd |> validateDefaults definition
 
 module FunctionDefinition =
-    let withParameterSupport support (definition: functionDefinition<'executor>) =
-        { definition with ParameterSupport = support }
-
     let tryPreviewValue key (definition: functionDefinition<'executor>) parameters =
         definition.ParameterSupport.Preview parameters |> List.tryFind (fun value -> value.Key = key) |> Option.map _.Value
 
@@ -275,6 +314,8 @@ module FunctionDefinition =
         types
 
     let private dependencies types entries =
+        // An empty table declares no inputs. A nonempty table must cover every output.
+        let entries = if List.isEmpty entries then types |> Map.toList |> List.map (fun (dataType, _) -> dataType, []) else entries
         let dependencies = Map.ofList entries
         if dependencies.Count <> List.length entries || (dependencies |> Map.toList |> List.map fst) <> (types |> Map.toList |> List.map fst) then
             invalidArg "dependencies" "Declare dependencies for every output exactly once, including outputs without inputs."
@@ -283,10 +324,12 @@ module FunctionDefinition =
             inputs |> List.iter SortopiaDataType.validate
         dependencies, (entries |> List.collect snd |> List.distinct |> List.sort)
 
-    let private resultsWithValidation version required inputs dataTypes inputError (execute: resultsFunction) : functionDefinition<resultsFunction> =
+    /// Build a results function with shared field and combination validation. Empty inputs mean no dependencies.
+    let results version required dataTypes inputs support (execute: resultsFunction) : functionDefinition<resultsFunction> =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types inputs
-        { Version = version; Description = ""; ParameterSupport = FunctionParameterSupport.empty; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        let inputError = FunctionParameterSupport.inputError support
+        { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = inputError; Prepare = ignore
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
@@ -296,48 +339,28 @@ module FunctionDefinition =
               execute host
               saved host }
 
-    let resultsWithInputs version required inputs dataTypes execute =
-        resultsWithValidation version required inputs dataTypes (fun _ _ -> "") execute
-
-    let resultsWithInputsValidated version required inputs dataTypes inputError execute =
-        resultsWithValidation version required inputs dataTypes inputError execute
-
-    let results version required dataTypes execute = resultsWithInputs version required (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) dataTypes execute
-
-    let resultsValidated version required dataTypes inputError execute =
-        resultsWithValidation version required (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) dataTypes inputError execute
-
-    let private setupWithParameterPolicy fromSources version required dataTypes sources (execute: setupFunction) : functionDefinition<setupFunction> =
+    /// Build a setup function with declared or source-derived requirements and shared validation.
+    let setup version parameterRequirements dataTypes inputs support (execute: setupFunction) : functionDefinition<setupFunction> =
+        let required, fromSources =
+            match parameterRequirements with
+            | setupParameterRequirements.Declared required -> required, false
+            | setupParameterRequirements.FromSources -> [], true
         let types = contract version required dataTypes
-        let dependencies, sources = dependencies types sources
+        let dependencies, sources = dependencies types inputs
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
-        { Version = version; Description = ""; ParameterSupport = FunctionParameterSupport.empty; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
-          InputError = (fun _ _ -> ""); Prepare = ignore
+        if fromSources && sources.IsEmpty then invalidArg "sources" "Source-derived parameters require source inputs."
+        let inputError = FunctionParameterSupport.inputError support
+        { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+          InputError = inputError; Prepare = ignore
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
               host.CancellationToken.ThrowIfCancellationRequested()
               let required = if fromSources then FunctionParameters.sourceRequirements (host.Parameters.ParamMap |> Map.toList |> List.map fst) else required
               FunctionParameters.validate required host.Parameters
+              inputError (host.Parameters.ParamMap |> Map.toList |> List.map snd) [] |> FunctionValidation.require
               if Set.ofList sources <> (projects |> Map.toList |> List.map fst |> Set.ofList)
                  || (projects |> Map.exists (fun _ id -> UMX.untag id = System.Guid.Empty)) then
                   invalidArg "sourceProjects" "Supply exactly the source projects required by this setup function."
               execute host projects
               saved host }
-
-    let setupWithSources version required dataTypes sources execute = setupWithParameterPolicy false version required dataTypes sources execute
-
-    let setupCopy version types execute =
-        setupWithParameterPolicy true version [] (types |> List.map (fun dataType -> dataType, []))
-            (types |> List.map (fun dataType -> dataType, [dataType])) execute
-
-    let setup version required dataTypes execute = setupWithSources version required dataTypes (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) execute
-
-    let setupWithSourcesValidated version required dataTypes sources inputError (execute: setupFunction) =
-        let definition = setupWithSources version required dataTypes sources (fun host projects ->
-            inputError (host.Parameters.ParamMap |> Map.toList |> List.map snd) [] |> FunctionValidation.require
-            execute host projects)
-        { definition with InputError = inputError }
-
-    let setupValidated version required dataTypes inputError execute =
-        setupWithSourcesValidated version required dataTypes (dataTypes |> List.map (fun (dataType, _) -> dataType, [])) inputError execute

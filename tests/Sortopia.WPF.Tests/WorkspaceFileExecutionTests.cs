@@ -137,9 +137,9 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var sourceTypes = ListModule.OfArray(new[] { testsType, modelsType });
         var projects = MapModule.OfArray(new[] { Tuple.Create(testsType, testsProject.Id), Tuple.Create(modelsType, modelsProject.Id) });
         var copies = 0;
-        var definition = FunctionDefinition.setupWithSources("1", required,
+        var definition = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(required),
             ListModule.OfArray(new[] { Tuple.Create(testsType, testsDefinition.DataTypes[testsType]), Tuple.Create(modelsType, modelsDefinition.DataTypes[modelsType]) }),
-            ListModule.OfSeq(sourceTypes.Select(type => Tuple.Create(type, ListModule.Singleton(type)))), FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(host =>
+            ListModule.OfSeq(sourceTypes.Select(type => Tuple.Create(type, ListModule.Singleton(type)))), FunctionParameterSupport.empty, FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(host =>
                 FuncConvert.FromFunc<FSharpMap<sortopiaDataType, Guid>, Unit>(sources =>
                 {
                     foreach (var dataType in sourceTypes)

@@ -12,7 +12,6 @@ module internal ModelGenerationDefinitions =
         ParameterSupport: functionParameterSupport
         RequiredParameters: paramKeyDescriptor list
         Outputs: (sortopiaDataType * string<paramKeyName> list) list
-        InputError: parameterBinding list -> parameterSpan list -> string
         Description: runExecutionPhase -> string
         Save: runHost -> unit
     }
@@ -22,25 +21,28 @@ module internal ModelGenerationDefinitions =
         let modelOutput = modelsType, InputGenerators.queryKeys modelKeys
         let description = algorithm.Description source constructor
         let support = algorithm.ParameterSupport includeTests source constructor.Guidance
-        let modelInputError defaults spans =
-            let error = algorithm.InputError source defaults spans
+        let modelCombinationError defaults spans =
+            let error = algorithm.CombinationError source defaults spans
             if error <> "" then error
             else
                 try
-                    constructor.Validate defaults spans
+                    constructor.ValidateCombinations defaults spans
                     ""
                 with error -> error.Message
         let defaults = ParameterDefaults.combine [support.Defaults; constructor.Defaults]
-        { ParameterSupport = { support with Defaults = defaults }
+        { ParameterSupport =
+              { support with
+                  Defaults = defaults
+                  EditorRules = ParameterRules.combine [support.EditorRules; constructor.EditorRules]
+                  CombinationError =
+                      if includeTests then InputGenerators.evaluationCombinationError InputGenerators.standardKeys modelCombinationError
+                      else modelCombinationError }
           RequiredParameters =
               if includeTests then InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name)
               else modelKeys
           Outputs =
               if includeTests then [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelOutput]
               else [modelOutput]
-          InputError =
-              if includeTests then InputGenerators.evaluationInputError InputGenerators.standardKeys modelInputError
-              else modelInputError
           Description = fun phase ->
               match includeTests, phase with
               | true, runExecutionPhase.Setup -> $"Generate full binary sortable tests. {description} Save both inputs in the setup database."
@@ -56,17 +58,16 @@ module internal ModelGenerationDefinitions =
     let private describe phase spec definition =
         definition
         |> FunctionDefinition.describe (spec.Description phase)
-        |> FunctionDefinition.withParameterSupport spec.ParameterSupport
 
     let private setup includeTests algorithm constructor =
         let spec = create includeTests modelPrefixMode.NoPrefix algorithm constructor
-        FunctionDefinition.setupValidated algorithm.Version spec.RequiredParameters spec.Outputs spec.InputError
+        FunctionDefinition.setup algorithm.Version (setupParameterRequirements.Declared spec.RequiredParameters) spec.Outputs [] spec.ParameterSupport
             (fun host _ -> spec.Save host)
         |> describe runExecutionPhase.Setup spec
 
     let private results includeTests source algorithm constructor =
         let spec = create includeTests source algorithm constructor
-        FunctionDefinition.resultsValidated algorithm.Version spec.RequiredParameters spec.Outputs spec.InputError
+        FunctionDefinition.results algorithm.Version spec.RequiredParameters spec.Outputs [] spec.ParameterSupport
             spec.Save
         |> describe runExecutionPhase.Results spec
 

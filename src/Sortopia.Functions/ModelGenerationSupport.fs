@@ -20,24 +20,38 @@ module internal ModelGenerationSupport =
             | modelPrefixMode.NoPrefix -> required ParamKeys.channelCountKey parameters * 1<channelCount>, 0<stageLength>
         (SimpleSorterStageLengths.forSuccessFraction (required ParamKeys.sorterSuccessFractionKey parameters) width prefixStages modelType).Stages
 
-    // Check partial defaults and every participating span value without expanding unrelated spans.
-    let inputError modelType validateAlgorithm source (defaults: parameterBinding list) (spans: parameterSpan list) =
+    let private rules modelType source =
+        let checkWidth name width =
+            if not (SimpleSorterModelType.supportsChannelCount width modelType) then
+                invalidArg name $"The {SimpleSorterModelType.toString modelType} function is incompatible with {name} ({width} channels): it requires {SimpleSorterModelType.channelCountRequirement modelType}."
+            true
+        let widthRule =
+            match source with
+            | modelPrefixMode.NoPrefix ->
+                ParameterRules.create ParamKeys.channelCountKey [] (SimpleSorterModelType.channelCountRequirement modelType) (checkWidth "ChannelCount")
+            | modelPrefixMode.CatalogPrefix ->
+                ParameterRules.create ParamKeys.prefixLibIdKey []
+                    $"Choose an available prefix with {SimpleSorterModelType.channelCountRequirement modelType}."
+                    (fun prefix ->
+                        if PrefixLib.tryGet prefix |> Option.isNone then
+                            invalidArg "PrefixLibId" $"PrefixLibId '{PrefixLibId.toString prefix}' is not available in the prefix catalog."
+                        checkWidth "PrefixLibId" (int prefix.ChannelCount))
+        ParameterRules.combine [ParameterRules.common; Map.ofList [
+            widthRule
+            ParameterRules.create ParamKeys.sorterCountKey [] "SorterCount must be positive and fit in a model array."
+                (fun count -> count >= 1 && count <= Array.MaxLength) ]]
+
+    // Field rules run first. Check only combinations, without expanding unrelated spans.
+    let combinationError modelType validateAlgorithm source (defaults: parameterBinding list) (spans: parameterSpan list) =
         let values key = inputValues key defaults spans
         try
             let widthKey = match source with modelPrefixMode.CatalogPrefix -> "PrefixLibId" | modelPrefixMode.NoPrefix -> "ChannelCount"
             let dimensions =
                 match source with
                 | modelPrefixMode.CatalogPrefix ->
-                    values ParamKeys.prefixLibIdKey |> List.map (fun prefix ->
-                        if PrefixLib.tryGet prefix |> Option.isNone then
-                            invalidArg "PrefixLibId" $"PrefixLibId '{PrefixLibId.toString prefix}' is not available in the prefix catalog."
-                        int prefix.ChannelCount, int prefix.StageLength)
+                    values ParamKeys.prefixLibIdKey |> List.map (fun prefix -> int prefix.ChannelCount, int prefix.StageLength)
                 | modelPrefixMode.NoPrefix -> values ParamKeys.channelCountKey |> List.map (fun width -> width, 0)
             let widths = dimensions |> List.map fst
-            for width in widths do
-                if not (SimpleSorterModelType.supportsChannelCount width modelType) then
-                    invalidArg widthKey $"The {SimpleSorterModelType.toString modelType} function is incompatible with {widthKey} ({width} channels): it requires {SimpleSorterModelType.channelCountRequirement modelType}."
-            values ParamKeys.rngTypeKey |> List.iter (RngType.fromString >> ignore)
             validateAlgorithm widthKey widths defaults spans
             let budgets = [
                 for width, prefix in dimensions do
@@ -48,8 +62,6 @@ module internal ModelGenerationSupport =
                         yield width, int recommendation.Stages ]
             let counts = values ParamKeys.sorterCountKey
             let replications = values ParamKeys.replKey
-            if counts |> List.exists (fun value -> value < 1 || value > Array.MaxLength) then invalidArg "SorterCount" "SorterCount must be positive and fit in a model array."
-            if replications |> List.exists (fun value -> value < 0) then invalidArg "Repl" "Repl must be nonnegative."
             if not counts.IsEmpty && not replications.IsEmpty then
                 let count = int64 (List.max counts)
                 if int64 (List.max replications) * count + count - 1L > int64 Int32.MaxValue then
@@ -102,9 +114,11 @@ module internal ModelGenerationSupport =
         + tests + "Repl selects a reproducible batch of SorterCount models. " + weights
 
     let create modelType fallback algorithmDefaults weights includeTests source constructorGuidance : functionParameterSupport =
-        { Defaults = defaults modelType fallback algorithmDefaults
-          Guidance = guidance modelType weights includeTests source constructorGuidance
-          Preview = fun parameters ->
-              [{ Key = "SuffixStages"; Label = "Suggested suffix stages"
-                 Value = parameterValue.IntegerValue (int (suffixStages modelType source parameters))
-                 Hint = "Suggested suffix stages are calculated for each combination using its channel count, prefix depth, model type, and success fraction. Fixed prefix stages are additional; success rates are provisional." }] }
+        { FunctionParameterSupport.empty with
+            Defaults = defaults modelType fallback algorithmDefaults
+            EditorRules = rules modelType source
+            Guidance = guidance modelType weights includeTests source constructorGuidance
+            Preview = fun parameters ->
+                [{ Key = "SuffixStages"; Label = "Suggested suffix stages"
+                   Value = parameterValue.IntegerValue (int (suffixStages modelType source parameters))
+                   Hint = "Suggested suffix stages are calculated for each combination using its channel count, prefix depth, model type, and success fraction. Fixed prefix stages are additional; success rates are provisional." }] }

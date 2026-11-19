@@ -67,4 +67,4 @@ module internal ParameterDefaults =
             text |> Option.map (ParameterBinding.fromText key.Name key.ValueType))
 
     let common context = commonAtWidth (suppliedWidth context |> Option.defaultValue 8) context
-    let support = { FunctionParameterSupport.empty with Defaults = common }
+    let support = { FunctionParameterSupport.empty with Defaults = common; EditorRules = ParameterRules.common }

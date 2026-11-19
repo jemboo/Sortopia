@@ -100,7 +100,7 @@ public sealed class PrefixSorterModelFunctionTests
     [InlineData("SorterSuccessFraction", "75%", "Choose")]
     [InlineData("StageLength", "2", "not used")]
     [InlineData("SorterCount", "0", "positive")]
-    [InlineData("Repl", "-1", "nonnegative")]
+    [InlineData("Repl", "-1", "0 or greater")]
     [InlineData("Repl", "2147483647", "indices")]
     [InlineData("RngType", "missing", "rngType")]
     [InlineData("SorterModelType", "Unknown", "not used")]

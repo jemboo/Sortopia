@@ -10,10 +10,9 @@ module SetupFunctions =
     let private modelsType = sortopiaDataType.SorterModelSet ""
 
     let standardTests =
-        FunctionDefinition.setup "1" standardKeys [testsType, queryKeys standardKeys]
+        FunctionDefinition.setup "1" (setupParameterRequirements.Declared standardKeys) [testsType, queryKeys standardKeys] [] ParameterDefaults.support
             (fun host _ -> host.Database.Save(host.Outputs.Output(testsType, []), fun () -> InputGenerators.standardTests host.Parameters))
         |> FunctionDefinition.describe "Generate the full set of binary sortable tests for ChannelCount in the selected data format. Save the tests in the setup database."
-        |> FunctionDefinition.withParameterSupport ParameterDefaults.support
 
     /// Copy both evaluation inputs unchanged, using a separate source project per type.
     let private copyEvaluationInputs (host: runHost) (projects: sourceProjects) =
@@ -38,9 +37,11 @@ module SetupFunctions =
         host.Database.Save(host.Outputs.Output(testsType, [testsReference]), fun () -> testsValue)
 
     let evaluationSource =
-        FunctionDefinition.setupCopy "2" [modelsType; testsType] copyEvaluationInputs
-        |> FunctionDefinition.describe "Copy sorter models and sortable tests from separately selected source projects. Supply every source results query key through a default or run span. Each local setup projection may retain a subset of its source's keys. Preserve models, their prefixes and activators, and the tests; validate matching widths before saving either input. No models or tests are generated."
-        |> FunctionDefinition.withParameterSupport
+        let support =
             { FunctionParameterSupport.empty with
                 Defaults = ParameterDefaults.combine [ParameterDefaults.common; ModelGenerators.sourceDefaults]
+                EditorRules = ParameterRules.combine [ParameterRules.common; ModelGenerators.sourceRules]
                 Guidance = fun _ _ -> "Copy both evaluation inputs unchanged from the selected source projects. Their results query keys determine the required parameters. Supply every source key through a default or span; each local setup projection may select a subset of its source's keys. Model families, prefixes, suffix lengths, and activators are inherited from the source data." }
+        FunctionDefinition.setup "2" setupParameterRequirements.FromSources [modelsType, []; testsType, []]
+            [modelsType, [modelsType]; testsType, [testsType]] support copyEvaluationInputs
+        |> FunctionDefinition.describe "Copy sorter models and sortable tests from separately selected source projects. Supply every source results query key through a default or run span. Each local setup projection may retain a subset of its source's keys. Preserve models, their prefixes and activators, and the tests; validate matching widths before saving either input. No models or tests are generated."

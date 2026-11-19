@@ -16,13 +16,12 @@ module internal InputGenerators =
     let mergeKeys = [ParamKey.describe ParamKeys.sortableDataFormatKey; ParamKey.describe ParamKeys.mergeLibIdKey]
     let prefixKeys = [ParamKey.describe ParamKeys.sortableDataFormatKey; ParamKey.describe ParamKeys.prefixLibIdKey]
 
-    let evaluationInputError testsKeys modelInputError defaults spans =
+    let evaluationCombinationError testsKeys modelCombinationError defaults spans =
         let values key = inputValues key defaults spans
-        let modelError = modelInputError defaults spans
+        let modelError = modelCombinationError defaults spans
         if modelError <> "" then modelError
         else
             try
-                values ParamKeys.sortableDataFormatKey |> List.iter (SortableDataFormat.fromString >> ignore)
                 let widths = values ParamKeys.channelCountKey
                 let has key = testsKeys |> List.exists (fun (descriptor: paramKeyDescriptor) -> descriptor.Name = key)
                 let checkWidth name width =
@@ -42,7 +41,6 @@ module internal InputGenerators =
 
     let standardTests parameters =
         let channels = required ParamKeys.channelCountKey parameters
-        if channels < 1 then invalidArg "ChannelCount" "ChannelCount must be positive."
         tests (msasF.create (UMX.tag channels) |> sortableTestsModel.MsasF) parameters
 
     let mergeTests parameters =

@@ -1,3 +1,4 @@
+using Sortopia.Functions;
 using Sortopia.Runs;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Commands;
@@ -11,11 +12,14 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     private readonly Func<bool> canEdit;
     private readonly Func<parameterValueType> valueType;
     private readonly Func<string>? key;
+    private readonly Func<functionParameterSupport?>? support;
     private string text;
-    public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null, Func<string>? key = null, Func<bool>? canEdit = null)
+    public WorkspaceTypedValue(string text, Func<parameterValueType> valueType, Action<WorkspaceTypedValue>? remove = null, Func<string>? key = null, Func<bool>? canEdit = null,
+        Func<functionParameterSupport?>? support = null)
     {
         this.canEdit = canEdit ?? (() => true);
         this.text = text; this.valueType = valueType; this.key = key;
+        this.support = support;
         LibraryId = new(this); Weights = new(this); RemoveCommand = new RelayCommand(() => remove?.Invoke(this));
     }
     public string Text
@@ -25,9 +29,7 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
     }
     public parameterValueType ValueType => valueType();
     public bool IsBoolean => ValueType == parameterValueType.Boolean;
-    public string[] Choices => ValueType == parameterValueType.SorterSuccessFraction
-        ? Sortopia.Sorting.SorterSuccessFraction.all.Select(Sortopia.Sorting.SorterSuccessFraction.toString).ToArray()
-        : key is null ? [] : WorkspaceParameterRules.Choices(key());
+    public string[] Choices => WorkspaceParameterRules.Choices(support?.Invoke(), key?.Invoke(), ValueType);
     public bool HasChoices => Choices.Length > 0;
     public bool IsLibraryId => ValueType is parameterValueType.SorterLibId or parameterValueType.PrefixLibId or parameterValueType.MergeLibId;
     public WorkspaceLibraryIdValue LibraryId { get; }
@@ -43,8 +45,9 @@ public sealed class WorkspaceTypedValue : WorkspaceFormItem
         set { if (value is { } choice) Text = choice.ToString(); }
     }
     public string TypeLabel => ParameterValue.label(ValueType);
-    public string Hint => key is null ? ParameterValue.hint(ValueType) : WorkspaceParameterRules.Hint(key(), ValueType);
-    public string Error => IsLibraryId ? LibraryId.Error : key is null ? ParameterValue.validationError(ValueType, Text) : WorkspaceParameterRules.Error(key(), ValueType, Text);
+    public string Hint => WorkspaceParameterRules.Hint(support?.Invoke(), key?.Invoke(), ValueType);
+    public string Error => IsLibraryId && LibraryId.Error is { Length: > 0 } error ? error
+        : WorkspaceParameterRules.Error(support?.Invoke(), key?.Invoke(), ValueType, Text);
     public RelayCommand RemoveCommand { get; }
     internal void RefreshType() { LibraryId.Refresh(); Weights.Refresh(); OnPropertyChanged(""); }
 }
@@ -65,14 +68,15 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
         Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
-        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null, Func<bool>? canEdit = null)
+        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null, Func<bool>? canEdit = null,
+        Func<functionParameterSupport?>? support = null)
     {
         this.canEdit = canEdit ?? (() => true);
         this.key = key; customType = type; this.source = source;
         this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
         this.requirements = requirements ?? (() => null);
         this.spanKeys = spanKeys ?? (() => []);
-        Value = new(value, () => ValueType, key: () => Key, canEdit: this.canEdit);
+        Value = new(value, () => ValueType, key: () => Key, canEdit: this.canEdit, support: support);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => { if (this.canEdit()) remove(this); }, this.canEdit);
         RefreshKeyChoices();

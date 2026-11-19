@@ -43,7 +43,7 @@ public sealed partial class WorkspaceConfigurationViewModel
                         "This parameter already has a default. Remove its span.", false, true, origin);
                 var error = bindings.Length > 1 ? "Default keys must be unique."
                     : (parameterValueType)value.valueType != key.ValueType ? $"The default must have type {type}."
-                    : WorkspaceParameterRules.Error(key.Name, key.ValueType, value.value);
+                    : WorkspaceParameterRules.Error(ParameterSupport(setup), key.Name, key.ValueType, value.value);
                 return new WorkspaceRequiredInput(key.Name, type, "Default", error.Length == 0 ? "Supplied by default" : "Invalid default",
                     error.Length == 0 ? value.value : $"{value.value} · {error}", false, error.Length > 0, origin);
             }

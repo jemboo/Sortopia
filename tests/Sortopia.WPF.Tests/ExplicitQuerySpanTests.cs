@@ -20,7 +20,7 @@ public sealed class ExplicitQuerySpanTests
     {
         var required = List(ParamKey.describe(ParamKeys.channelCountKey), ParamKey.describe(ParamKeys.messageKey));
         var output = sortopiaDataType.NewSortableTests("");
-        var definition = FunctionDefinition.results("1", required, List(Tuple.Create(output, List("ChannelCount"))), FuncConvert.FromFunc<runHost, Unit>(_ => null!));
+        var definition = FunctionDefinition.results("1", required, List(Tuple.Create(output, List("ChannelCount"))), [], FunctionParameterSupport.empty, FuncConvert.FromFunc<runHost, Unit>(_ => null!));
         var defaults = List(ParameterBinding.create(ParamKeys.messageKey, "fixed"));
         var spans = List(ParameterSpan.create(ParamKeys.channelCountKey, List(8, 16)));
         FunctionParameters.validateInputs(required, definition.DataTypes[output], defaults, spans);
@@ -28,7 +28,7 @@ public sealed class ExplicitQuerySpanTests
         Assert.Equal(new[] { 8, 16 }, sets.Select(set => set.TryFind(ParamKeys.channelCountKey).Value));
         Assert.All(sets, set => Assert.Equal("fixed", set.TryFind(ParamKeys.messageKey).Value));
         Assert.Contains("explicit", Assert.Throws<ArgumentException>(() => FunctionParameters.validateInputs(required, definition.DataTypes[output], defaults, List<parameterSpan>())).Message);
-        Assert.Throws<ArgumentException>(() => FunctionDefinition.results("1", required, List(Tuple.Create(output, List("Repl"))), definition.Execute));
+        Assert.Throws<ArgumentException>(() => FunctionDefinition.results("1", required, List(Tuple.Create(output, List("Repl"))), [], FunctionParameterSupport.empty, definition.Execute));
         Assert.Throws<ArgumentException>(() => FunctionParameters.validateInputs(required, definition.DataTypes[output], List<parameterBinding>(), spans));
         Assert.Throws<ArgumentException>(() => FunctionParameters.validateInputs(required, definition.DataTypes[output], List(defaults.Head, ParameterBinding.create(ParamKeys.replKey, 0)), spans));
     }

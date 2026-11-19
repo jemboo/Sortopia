@@ -110,7 +110,7 @@ public sealed class RunDatabaseTests : IDisposable
             var host = new runHost(runExecutionPhase.Results, parameterSet.fromBindings([]), storage, storage.Outputs, Token, 1, null, null);
             var before = host.Outputs.Stored;
             var definition = FunctionDefinition.results("1", ListModule.Empty<paramKeyDescriptor>(),
-                ListModule.Singleton(Tuple.Create(Type, ListModule.Empty<string>())), FuncConvert.FromFunc<runHost, Unit>(current =>
+                ListModule.Singleton(Tuple.Create(Type, ListModule.Empty<string>())), [], FunctionParameterSupport.empty, FuncConvert.FromFunc<runHost, Unit>(current =>
                 {
                     foreach (var output in current.Outputs.Planned) current.Database.Load(current.Database.Find(output));
                     foreach (var output in current.Outputs.Planned.Take(saveCount)) current.Database.Save(output, neverGenerate);

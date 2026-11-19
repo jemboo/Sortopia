@@ -36,7 +36,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         {
             var bindings = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
             var inputs = (includeSpans ? ActiveParameters(setup) : []).ToArray();
-            if (DefaultsError(bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0)) return "";
+            if (DefaultsError(setup, bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0)) return "";
             var defaults = ListModule.OfSeq(bindings.Select(ParameterBindingDto.toDomain));
             var spans = ListModule.OfSeq(inputs.Select(span =>
                 ParameterSpan.fromTexts(span.Key, span.ValueType, ListModule.OfSeq(span.Values.Select(value => value.Text)))));
@@ -55,7 +55,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!PhaseVersionCurrent(setup) || support is null) return "";
         var bindings = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
         var inputs = (IsRun ? ActiveParameters(setup) : []).ToArray();
-        if (DefaultsError(bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0))
+        if (DefaultsError(setup, bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0))
             return support.Guidance.Invoke(ListModule.Empty<parameterBinding>()).Invoke(ListModule.Empty<parameterSpan>());
         try
         {

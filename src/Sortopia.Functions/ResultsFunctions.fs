@@ -24,9 +24,8 @@ module ResultsFunctions =
         ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)
 
     let private generator version dataType keys make =
-        FunctionDefinition.results version keys [dataType, InputGenerators.queryKeys keys]
+        FunctionDefinition.results version keys [dataType, InputGenerators.queryKeys keys] [] ParameterDefaults.support
             (fun host -> host.Database.Save(host.Outputs.Output(dataType, []), fun () -> make host.Parameters))
-        |> FunctionDefinition.withParameterSupport ParameterDefaults.support
 
     let mergeSortableTests =
         generator "1" testsType InputGenerators.mergeKeys InputGenerators.mergeTests
@@ -70,16 +69,15 @@ module ResultsFunctions =
 
     let evaluateSorters =
         let required = [ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
-        FunctionDefinition.resultsWithInputs "4" required [evalType, [modelsType; testsType]]
-            [evalType, InputGenerators.queryKeys required] evaluate
+        FunctionDefinition.results "4" required [evalType, InputGenerators.queryKeys required]
+            [evalType, [modelsType; testsType]] ParameterDefaults.support evaluate
         |> FunctionDefinition.describe "Evaluate the sorter models including each model's prefix against the tests already saved in the setup database. Derive the channel count from SortableTests and require every sorter model to have that same channel count. Save the evaluations in the results database; optionally collect new sortable tests within the evaluations."
-        |> FunctionDefinition.withParameterSupport ParameterDefaults.support
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
     let evaluateMutants =
-        FunctionDefinition.resultsWithInputs "3" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [evalType, [modelsType; testsType]]
-            [evalType, [ParamKeys.sorterEvalTypeKey.Name]]
+        FunctionDefinition.results "3" [ParamKey.describe ParamKeys.sorterEvalTypeKey] [evalType, [ParamKeys.sorterEvalTypeKey.Name]]
+            [evalType, [modelsType; testsType]] ParameterDefaults.support
             (fun host -> saveEvaluation host (fun () ->
                 let parameters = host.Parameters
                 let models = models host
@@ -94,4 +92,3 @@ module ResultsFunctions =
                     SorterSetEval.makeSorterEvalsWithOptions (evaluationOptions host) sorters.Sorters tests evalType (UMX.tag false))
                 sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> sortopiaStorageData.SorterSetEval))
         |> FunctionDefinition.describe "Evaluate the prepared sorter models against setup tests in batches of 1,000, saving evaluations in the results database. Does not generate mutations or collect new sortable tests."
-        |> FunctionDefinition.withParameterSupport ParameterDefaults.support

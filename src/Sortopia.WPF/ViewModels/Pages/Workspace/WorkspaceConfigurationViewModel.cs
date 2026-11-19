@@ -28,15 +28,17 @@ public abstract class WorkspaceFormItem : ViewModelBase
 public sealed class WorkspaceParameterSpan : WorkspaceFormItem
 {
     private readonly Func<paramKeyDescriptor[]?> requirements;
+    private readonly Func<functionParameterSupport?>? support;
     private string key;
     private readonly Func<string, parameterBindingDto?> defaultValue;
     private readonly Func<IEnumerable<string>> suggestedKeys;
     private string[] keyChoices = [];
     public WorkspaceParameterSpan(string key, IEnumerable<string> values, Action<WorkspaceParameterSpan> remove, Func<string, parameterBindingDto?> defaultValue,
-        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null)
+        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<functionParameterSupport?>? support = null)
     {
         this.key = key; this.defaultValue = defaultValue; this.suggestedKeys = suggestedKeys ?? (() => []);
         this.requirements = requirements ?? (() => null);
+        this.support = support;
         Watch(Values, ValuesChanged);
         foreach (var value in values) AddValue(value);
         AddValueCommand = new RelayCommand(() => AddValue(""));
@@ -44,7 +46,7 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
         RefreshInherited();
     }
     private void ValuesChanged() { RefreshInherited(); NotifyChanged(); }
-    private void AddValue(string value) => Values.Add(new(value, () => ValueType, item => Values.Remove(item), () => Key));
+    private void AddValue(string value) => Values.Add(new(value, () => ValueType, item => Values.Remove(item), () => Key, support: support));
     public string[] KeyChoices => keyChoices;
     public bool HasRestrictedKeys => requirements() is not null;
     public string? SelectedKey
@@ -65,7 +67,7 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
     public parameterValueType ValueType => requirements()?.FirstOrDefault(value => value.Name == Key)?.ValueType
         ?? (defaultValue(Key) is { } value ? (parameterValueType)value.valueType : ParamKeys.valueType(Key));
     public string TypeLabel => ParameterValue.label(ValueType);
-    public string ValueHint => WorkspaceParameterRules.Hint(Key, ValueType);
+    public string ValueHint => WorkspaceParameterRules.Hint(support?.Invoke(), Key, ValueType);
     public string DefaultHint => defaultValue(Key) is { } value ? $"Conflicts with default: {value.value}"
         : "Additional parameter; its values are included in the combinations.";
     internal void RefreshInherited()
@@ -443,24 +445,24 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     }
     private parameterBindingDto[] EffectiveOutputDefaults => frozenSettings?.resultsParameterDefaults ?? MergeDefaults(InheritedDefaults(false), LocalResultsParameterDefaults).Where(value => !excludedResultsDefaults.Contains(value.keyName)).ToArray();
     private parameterBindingDto[] EffectiveSetupDefaults => frozenSettings?.setupParameterDefaults ?? MergeDefaults(InheritedDefaults(true), LocalSetupParameterDefaults).Where(value => !excludedSetupDefaults.Contains(value.keyName)).ToArray();
-    private static string DefaultsError(parameterBindingDto[] values)
+    private string DefaultsError(bool setup, parameterBindingDto[] values)
     {
         if (values.Any(value => string.IsNullOrWhiteSpace(value.keyName))) return "Enter a key for each default parameter.";
         if (values.Select(value => value.keyName).Distinct(StringComparer.Ordinal).Count() != values.Length) return "Default parameter keys must be unique.";
-        return values.Select(value => (value.keyName, Error: WorkspaceParameterRules.Error(value.keyName, (parameterValueType)value.valueType, value.value)))
+        return values.Select(value => (value.keyName, Error: WorkspaceParameterRules.Error(ParameterSupport(setup), value.keyName, (parameterValueType)value.valueType, value.value)))
             .Where(value => value.Error.Length > 0).Select(value => $"Parameter ‘{value.keyName}’: {value.Error}").FirstOrDefault() ?? "";
     }
     private string ParameterDefaultsError(bool setup)
     {
         var local = setup ? LocalSetupParameterDefaults : LocalResultsParameterDefaults;
         var localError = IsReadOnly ? "" : local.Where(row => row.Error.Length > 0).Select(row => $"Parameter ‘{row.Key}’: {row.Error}").FirstOrDefault()
-            ?? DefaultsError(local.Select(row => row.ToDto()).ToArray());
+            ?? DefaultsError(setup, local.Select(row => row.ToDto()).ToArray());
         var values = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
         var required = Requirements(setup);
         var outside = required is null ? null : values.FirstOrDefault(value => !required.Any(key => key.Name == value.keyName));
         return localError.Length > 0 ? localError : outside is not null
             ? $"Parameter ‘{outside.keyName}’ is not required by function ‘{(setup ? SetupFunctionName : ResultsFunctionName)}’. Remove its local default or choose a required key."
-            : FirstError(DefaultsError(values), FunctionInputsError(setup, false));
+            : FirstError(DefaultsError(setup, values), FunctionInputsError(setup, false));
     }
     public string ResultsParameterDefaultsError => ParameterDefaultsError(false);
     public string SetupParameterDefaultsError => ParameterDefaultsError(true);
@@ -651,7 +653,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         rows.Add(new(key, values, item => rows.Remove(item), name => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults : EffectiveOutputDefaults).FirstOrDefault(value => value.keyName == name),
             () => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults.Select(value => value.keyName).Concat(RequiredSetupKeys)
                 : EffectiveOutputDefaults.Select(value => value.keyName).Concat(EffectiveOutputKeys)).Concat(rows.Select(row => row.Key)),
-            () => Requirements(ReferenceEquals(rows, SetupParameters))));
+            () => Requirements(ReferenceEquals(rows, SetupParameters)), () => ParameterSupport(ReferenceEquals(rows, SetupParameters))));
     private void AddMissing(ObservableCollection<WorkspaceParameterSpan> rows, IEnumerable<string>? keys)
     { foreach (var key in MissingKeys(rows, keys)) AddSpan(rows, key, []); }
     private void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value) =>
@@ -659,7 +661,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
             () => (ReferenceEquals(rows, SetupParameterDefaults) ? EffectiveSetupDefaults : EffectiveOutputDefaults).Select(binding => binding.keyName),
             key => (ReferenceEquals(rows, SetupParameterDefaults) ? Parent?.EffectiveSetupDefaults : Parent?.EffectiveOutputDefaults)?.FirstOrDefault(binding => binding.keyName == key),
             () => Requirements(ReferenceEquals(rows, SetupParameterDefaults)),
-            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : [], () => !IsReadOnly));
+            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : [], () => !IsReadOnly,
+            () => ParameterSupport(ReferenceEquals(rows, SetupParameterDefaults))));
     private void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }
     public void LoadProject(projectSettingsDto value)

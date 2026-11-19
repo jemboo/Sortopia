@@ -39,29 +39,15 @@ module SgdFunctions =
         ParamKey.describe ParamKeys.paraRateKey
         ParamKey.describe ParamKeys.selfSymRateKey ]
 
-    let private inputError defaults spans =
+    let private combinationError defaults spans =
         try
             let ints key = inputValues key defaults spans
             let floats key = inputValues key defaults spans
-            for key in [ParamKeys.sorterPoolCountKey; ParamKeys.sorterCountPerPoolKey; ParamKeys.sorterChildCountKey; ParamKeys.adjustCeLengthFrequencyKey] do
-                if ints key |> List.exists (fun n -> n < 1) then invalidArg (string key.Name) "Must be positive."
-            for key in [ParamKeys.generationCountKey; ParamKeys.selectedSorterCountPerPoolKey; ParamKeys.initialPoolSeedKey] do
-                if ints key |> List.exists (fun n -> n < 0) then invalidArg (string key.Name) "Must be nonnegative."
             for retained in ints ParamKeys.selectedSorterCountPerPoolKey do
                 for size in ints ParamKeys.sorterCountPerPoolKey do
                     if retained > size then invalidArg "SelectedSorterCountPerPool" "Cannot exceed SorterCountPerPool."
-            for key in [ParamKeys.seedModificationRateKey; ParamKeys.modificationRateKey; ParamKeys.sortedFractionKey] do
-                if floats key |> List.exists (fun n -> not (Double.IsFinite n) || n < 0.0 || n > 1.0 || (key.Name = ParamKeys.sortedFractionKey.Name && n = 0.0)) then
-                    invalidArg (string key.Name) "Must be finite and between 0 and 1; SortedFraction must be positive."
             let weights = [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey] |> List.map floats
-            for values in weights do
-                if values |> List.exists (fun n -> not (Double.IsFinite n) || n < 0.0) then invalidArg "rates" "Mutation weights must be finite and nonnegative."
             if weights |> List.forall (List.contains 0.0) then invalidArg "rates" "At least one mutation weight must be positive."
-            for value in inputValues ParamKeys.rngTypeKey defaults spans do RngType.fromString value |> ignore
-            for value in inputValues ParamKeys.mutatorVariantKey defaults spans do
-                if value <> "V1" && value <> "V2" then invalidArg "MutatorVariantKey" "MSUF4 supports V1 and V2."
-            for value in inputValues ParamKeys.sorterEvalMeasureKey defaults spans do SorterEvalFunctions.fromCompactString value |> ignore
-            for value in inputValues ParamKeys.initialPoolSelectionKey defaults spans do InitialPoolSelection.fromString value |> ignore
             ""
         with error -> error.Message
 
@@ -148,8 +134,31 @@ module SgdFunctions =
         |> ParameterDefaults.select context
 
     let standardMsuf4Simple =
-        FunctionDefinition.resultsWithInputsValidated "4" keys [poolType, [modelsType; testsType]]
-            [poolType, keys |> List.map _.Name] inputError execute
+        let editorRules = Map.ofList [
+            for key in [ParamKeys.sorterPoolCountKey; ParamKeys.sorterCountPerPoolKey; ParamKeys.sorterChildCountKey; ParamKeys.adjustCeLengthFrequencyKey] do
+                ParameterRules.minimum key 1
+            for key in [ParamKeys.generationCountKey; ParamKeys.selectedSorterCountPerPoolKey; ParamKeys.initialPoolSeedKey] do
+                ParameterRules.minimum key 0
+            for key in [ParamKeys.seedModificationRateKey; ParamKeys.modificationRateKey] do
+                ParameterRules.create key [] "Must be finite and between 0 and 1." (fun n -> Double.IsFinite n && n >= 0. && n <= 1.)
+            ParameterRules.create ParamKeys.sortedFractionKey [] "Must be finite, greater than 0, and at most 1."
+                (fun n -> Double.IsFinite n && n > 0. && n <= 1.)
+            ParameterRules.create ParamKeys.mutatorVariantKey ["V1"; "V2"] "MSUF4 supports V1 and V2." (fun value -> value = "V1" || value = "V2")
+            ParameterRules.create ParamKeys.sorterEvalMeasureKey [] "Enter a valid sorter evaluation measure."
+                (fun value -> SorterEvalFunctions.fromCompactString value |> ignore; true)
+            ParameterRules.create ParamKeys.initialPoolSelectionKey ["Random"; "Best"]
+                "Random samples without replacement using InitialPoolSeed. Best ranks the full source with SorterEvalMeasure and ignores InitialPoolSeed; score ties use model ID."
+                (fun value -> InitialPoolSelection.fromString value |> ignore; true)
+            for key in [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey] do
+                ParameterRules.create key []
+                    "Finite nonnegative relative mutation weight. OrthoRate, ParaRate, and SelfSymRate are normalized together; at least one must be positive."
+                    (fun value -> Double.IsFinite value && value >= 0.)
+            ]
+        let support =
+            { ParameterDefaults.support with
+                Defaults = defaults; EditorRules = ParameterRules.combine [ParameterRules.common; editorRules]
+                CombinationError = combinationError }
+        FunctionDefinition.results "4" keys [poolType, keys |> List.map _.Name]
+            [poolType, [modelsType; testsType]] support execute
         |> fun definition -> { definition with Prepare = prepare }
-        |> FunctionDefinition.withParameterSupport { FunctionParameterSupport.empty with Defaults = defaults }
         |> FunctionDefinition.describe "Run GeneSort's fixed-pool Standard SGD on copied Simple MSUF4 models and sortable tests. InitialPoolSelection chooses Random (uniform sampling without replacement using InitialPoolSeed) or Best (evaluate the entire source and retain the best models using SorterEvalMeasure and DistinctSorterHashes). Best ignores InitialPoolSeed and breaks score ties by model ID. Source ranking is shared across mutation combinations within an execution batch. Multiple pools use disjoint models. Mutate every member, evaluate on the full test set, adjust CE limits, and select survivors with duplicate/recovery handling. Save final pools containing their models and evaluations. CSV reports read these pools directly. Optional run reporting records full population snapshots and lightweight pool statistics on independent schedules. Channel count comes from the tests; each model supplies its own prefix, which is evaluated against those tests. GenerationCount counts evolution steps after the initial evaluation. Cancellation restarts unfinished evolution and verifies previously saved reporting samples during replay."

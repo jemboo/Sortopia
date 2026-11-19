@@ -25,23 +25,27 @@ module internal ModelGenerators =
           Parameters = []
           Description = "All generated suffix entries are enabled."
           Guidance = "The function fixes the algorithm and Simple model type. All suffix entries are enabled; no activator parameters are required. "
-          Validate = fun _ _ -> ()
+          ValidateCombinations = fun _ _ -> ()
           Defaults = fun _ -> []
+          EditorRules = Map.empty
           Create = fun _ -> sorterModelGen.Simple }
         "simple-r",
         { Name = "SimpleR"
           Parameters = [ParamKey.describe ParamKeys.aMaxKey; ParamKey.describe ParamKeys.aInitialKey]
           Description = "Every suffix activator starts at AInitial, within [-AMax, AMax]; only positive activators enable entries."
           Guidance = "The function fixes the algorithm and SimpleR model type. AInitial sets every suffix activator's starting value and must be within [-AMax, AMax]. Only positive activators enable entries. "
-          Validate = fun defaults spans ->
+          ValidateCombinations = fun defaults spans ->
               let values key = inputValues key defaults spans
-              if values ParamKeys.aMaxKey |> List.exists (fun value -> value < 0) then
-                  invalidArg "AMax" "AMax must be nonnegative; it bounds SimpleR activators."
               for initial in values ParamKeys.aInitialKey do
                   for maximum in values ParamKeys.aMaxKey do
                       if int64 initial < -int64 maximum || int64 initial > int64 maximum then
                           invalidArg "AInitial" "AInitial must be within [-AMax, AMax] for every parameter combination."
           Defaults = fun _ -> [ParameterBinding.create ParamKeys.aMaxKey 1; ParameterBinding.create ParamKeys.aInitialKey 0]
+          EditorRules = [
+              ParameterRules.minimum ParamKeys.aMaxKey 0
+              ParameterRules.create ParamKeys.aInitialKey []
+                  "Starting value for every SimpleR suffix activator; must be within [-AMax, AMax]. Only positive activators enable entries." (fun _ -> true)
+          ] |> Map.ofList
           Create = fun parameters generator ->
               simpleSorterModelRGen.create generator (required ParamKeys.aMaxKey parameters) (required ParamKeys.aInitialKey parameters)
               |> sorterModelGen.SimpleR }
@@ -50,11 +54,11 @@ module internal ModelGenerators =
           Parameters = [ParamKey.describe ParamKeys.activationProbabilityKey]
           Description = "ActivationProbability controls Boolean suffix activators."
           Guidance = "The function fixes the algorithm and SimpleS model type. ActivationProbability controls Boolean suffix activators. "
-          Validate = fun defaults spans ->
-              if inputValues ParamKeys.activationProbabilityKey defaults spans
-                 |> List.exists (fun value -> not (Double.IsFinite value) || value < 0. || value > 1.) then
-                  invalidArg "ActivationProbability" "ActivationProbability must be finite and between 0 and 1; it controls SimpleS activators."
+          ValidateCombinations = fun _ _ -> ()
           Defaults = fun _ -> [ParameterBinding.create ParamKeys.activationProbabilityKey 0.5]
+          EditorRules = [ParameterRules.create ParamKeys.activationProbabilityKey []
+                            "Enter a probability between 0 and 1 (SimpleS only)."
+                            (fun value -> Double.IsFinite value && value >= 0. && value <= 1.)] |> Map.ofList
           Create = fun parameters generator ->
               simpleSorterModelSGen.create generator (required ParamKeys.activationProbabilityKey parameters)
               |> sorterModelGen.SimpleS } ]
@@ -102,8 +106,7 @@ module internal ModelGenerators =
           Parameters = [ParamKey.describe ParamKeys.excludeSelfCeKey]
           Version = "2"
           Description = description "compare-exchange (MSCE)" ""
-          InputError = ModelGenerationSupport.inputError modelType (fun _ _ defaults spans ->
-              inputValues ParamKeys.excludeSelfCeKey defaults spans |> ignore)
+          CombinationError = ModelGenerationSupport.combinationError modelType (fun _ _ _ _ -> ())
           ParameterSupport = ModelGenerationSupport.create modelType 8
               (fun _ -> [ParameterBinding.create ParamKeys.excludeSelfCeKey true]) weightGuidance
           SuffixStages = ModelGenerationSupport.suffixStages modelType
@@ -115,7 +118,7 @@ module internal ModelGenerators =
           Parameters = []
           Version = "2"
           Description = description "self-inverse (MSSI)" ""
-          InputError = ModelGenerationSupport.inputError modelType (fun _ _ _ _ -> ())
+          CombinationError = ModelGenerationSupport.combinationError modelType (fun _ _ _ _ -> ())
           ParameterSupport = ModelGenerationSupport.create modelType 8 (fun _ -> []) weightGuidance
           SuffixStages = ModelGenerationSupport.suffixStages modelType
           Create = fun rng width prefix stages _ ->
@@ -125,8 +128,7 @@ module internal ModelGenerators =
           Parameters = [ParamKey.describe ParamKeys.stageWeightsKey]
           Version = "2"
           Description = description "reflection-symmetric (MSRS)" ""
-          InputError = ModelGenerationSupport.inputError modelType (fun _ _ defaults spans ->
-              inputValues ParamKeys.stageWeightsKey defaults spans |> List.iter GenerationWeights.validateOps)
+          CombinationError = ModelGenerationSupport.combinationError modelType (fun _ _ _ _ -> ())
           ParameterSupport = ModelGenerationSupport.create modelType 8
               (fun _ -> [ParameterBinding.create ParamKeys.stageWeightsKey equalOps]) weightGuidance
           SuffixStages = ModelGenerationSupport.suffixStages modelType
@@ -134,24 +136,31 @@ module internal ModelGenerators =
               MsrsRandGen.create rng width prefix stages (required ParamKeys.stageWeightsKey parameters |> ops)
               |> SmmMsrsRandGen }
         let modelType = simpleSorterModelType.Msuf4
+        let rateRules =
+            [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey]
+            |> List.map (fun key ->
+                ParameterRules.create key []
+                    "Finite nonnegative relative rate. OrthoRate, ParaRate, and SelfSymRate are normalized together for the seed and every unfolding level; at least one must be positive."
+                    (fun value -> Double.IsFinite value && value >= 0.))
+            |> Map.ofList
         { Name = "msuf4"
           Parameters = [ParamKey.describe ParamKeys.orthoRateKey; ParamKey.describe ParamKeys.paraRateKey; ParamKey.describe ParamKeys.selfSymRateKey]
           // v6 uses 5x the original suffix capacity; v5 cached models use 3x.
           Version = "6"
           Description = description "4-channel seed unfolding (MSUF4)"
               " OrthoRate, ParaRate, and SelfSymRate are normalized together and used for the seed and every unfolding level. The channel count determines the number of levels."
-          InputError = ModelGenerationSupport.inputError modelType (fun _ _ defaults spans ->
+          CombinationError = ModelGenerationSupport.combinationError modelType (fun _ _ defaults spans ->
               let values key = inputValues key defaults spans
               let rateKeys = [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey]
-              for key in rateKeys do
-                  if values key |> List.exists (fun value -> not (Double.IsFinite value) || value < 0.) then
-                      invalidArg (string key.Name) $"{key.Name} must be finite and nonnegative. MSUF4 rates are normalized together."
               // A Cartesian product contains an all-zero choice exactly when each input contains zero.
               if rateKeys |> List.forall (fun key -> values key |> List.contains 0.) then
                   invalidArg "rates" "At least one of OrthoRate, ParaRate, and SelfSymRate must be positive for every parameter combination.")
-          ParameterSupport = ModelGenerationSupport.create modelType 8
-              (fun _ -> [ParameterBinding.create ParamKeys.orthoRateKey 1.; ParameterBinding.create ParamKeys.paraRateKey 1.; ParameterBinding.create ParamKeys.selfSymRateKey 1.])
-              "OrthoRate, ParaRate, and SelfSymRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
+          ParameterSupport = fun includeTests source constructorGuidance ->
+              ModelGenerationSupport.create modelType 8
+                  (fun _ -> [ParameterBinding.create ParamKeys.orthoRateKey 1.; ParameterBinding.create ParamKeys.paraRateKey 1.; ParameterBinding.create ParamKeys.selfSymRateKey 1.])
+                  "OrthoRate, ParaRate, and SelfSymRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
+                  includeTests source constructorGuidance
+              |> ParameterRules.withRules rateRules
           SuffixStages = ModelGenerationSupport.suffixStages modelType
           Create = fun rng width prefix stages parameters ->
               let rates = OpsGenerationProbabilities.fromWeights (required ParamKeys.orthoRateKey parameters)
@@ -163,11 +172,9 @@ module internal ModelGenerators =
           Parameters = [ParamKey.describe ParamKeys.seed6WeightsKey; ParamKey.describe ParamKeys.unfoldingWeightsKey]
           Version = "2"
           Description = description "6-channel seed unfolding (MSUF6)" ""
-          InputError = ModelGenerationSupport.inputError modelType (fun widthKey widths defaults spans ->
+          CombinationError = ModelGenerationSupport.combinationError modelType (fun widthKey widths defaults spans ->
               let values key = inputValues key defaults spans
-              values ParamKeys.seed6WeightsKey |> List.iter GenerationWeights.validateSeed6
               for weights in values ParamKeys.unfoldingWeightsKey do
-                  GenerationWeights.validateUnfolding weights
                   for width in widths do
                       let levels = Msuf6RandGen.unfoldingWidths width
                       if weights.Levels.Length <> levels.Length then
@@ -197,3 +204,11 @@ module internal ModelGenerators =
           for _, constructor in constructors do
               yield! fromOwner constructor.Parameters constructor.Defaults ]
         |> ParameterDefaults.select context
+
+    let sourceRules =
+        [ for algorithm in algorithms do
+              let support = algorithm.ParameterSupport false modelPrefixMode.NoPrefix ""
+              yield ParameterRules.forKeys algorithm.Parameters support.EditorRules
+          for _, constructor in constructors do
+              yield ParameterRules.forKeys constructor.Parameters constructor.EditorRules ]
+        |> ParameterRules.combine

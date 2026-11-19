@@ -82,6 +82,10 @@ module ParameterValue =
         | parameterValueType.UnfoldingWeights -> "Unfolding-level weights"
         | parameterValueType.SorterSuccessFraction -> "Sorter success fraction"
         | _ -> "Unknown type"
+    let choices = function
+        | parameterValueType.SorterSuccessFraction -> SorterSuccessFraction.all |> List.map SorterSuccessFraction.toString |> List.toArray
+        | _ -> [||]
+
     let hint = function
         | parameterValueType.Text -> "Text; spaces, line breaks, and blank values are preserved."
         | parameterValueType.Integer -> "Whole number from -2147483648 to 2147483647."

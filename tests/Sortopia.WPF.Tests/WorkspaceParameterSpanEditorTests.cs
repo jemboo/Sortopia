@@ -27,7 +27,8 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         return page;
     }
-    private static WorkspaceParameterSpan Span(string key, string text) => new(key, [text], _ => { }, _ => null);
+    private static WorkspaceParameterSpan Span(string key, string text) => new(key, [text], _ => { }, _ => null,
+        support: () => Sortopia.Functions.SetupFunctionCatalog.require(Sortopia.Functions.SetupFunctionNames.evaluationSource).ParameterSupport);
 
     [Theory]
     [InlineData("RngType", "SplitMix64", "NET")]

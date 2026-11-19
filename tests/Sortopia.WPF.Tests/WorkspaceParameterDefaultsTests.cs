@@ -172,7 +172,8 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     [Fact]
     public void Default_rows_resolve_known_types_and_validate_custom_types_without_losing_invalid_drafts()
     {
-        var row = new WorkspaceParameterBinding("ChannelCount", parameterValueType.Text, "bad", _ => { });
+        var row = new WorkspaceParameterBinding("ChannelCount", parameterValueType.Text, "bad", _ => { },
+            support: () => Sortopia.Functions.SetupFunctionCatalog.require(Sortopia.Functions.SetupFunctionNames.evaluationSource).ParameterSupport);
         Assert.False(row.IsCustomKey);
         Assert.Equal(parameterValueType.Integer, row.ValueType);
         Assert.NotEmpty(row.Error);

@@ -1,5 +1,6 @@
 namespace Sortopia.Functions
 
+open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Runs
 open Sortopia.Sorting
@@ -14,8 +15,9 @@ type internal simpleModelConstructor = {
     Parameters: paramKeyDescriptor list
     Description: string
     Guidance: string
-    Validate: parameterBinding list -> parameterSpan list -> unit
+    ValidateCombinations: parameterBinding list -> parameterSpan list -> unit
     Defaults: parameterDefaultContext -> parameterBinding list
+    EditorRules: Map<string<paramKeyName>, parameterEditorRule>
     Create: parameterSet -> simpleSorterModelGen -> sorterModelGen
 }
 
@@ -28,7 +30,7 @@ type internal simpleModelAlgorithm = {
     Parameters: paramKeyDescriptor list
     Version: string
     Description: modelPrefixMode -> simpleModelConstructor -> string
-    InputError: modelPrefixMode -> parameterBinding list -> parameterSpan list -> string
+    CombinationError: modelPrefixMode -> parameterBinding list -> parameterSpan list -> string
     ParameterSupport: bool -> modelPrefixMode -> string -> functionParameterSupport
     SuffixStages: modelPrefixMode -> parameterSet -> int<stageLength>
     Create: rngFactory -> int<channelCount> -> ce array -> int<stageLength> -> parameterSet -> simpleSorterModelGen

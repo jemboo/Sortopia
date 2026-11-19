@@ -141,7 +141,8 @@ public sealed class FunctionParameterSupportTests
                 FuncConvert.FromFunc<FSharpList<parameterSpan>, string>(_ => "Custom recipe guidance")),
             FuncConvert.FromFunc<parameterSet, FSharpList<functionPreviewValue>>(_ => ListModule.OfSeq(new[] {
                 new functionPreviewValue("WorkUnits", "Estimated work", parameterValue.NewIntegerValue(42), "Recipe-defined work."),
-                new functionPreviewValue("Mode", "Execution mode", parameterValue.NewTextValue("custom"), "") })));
+                new functionPreviewValue("Mode", "Execution mode", parameterValue.NewTextValue("custom"), "") })),
+            MapModule.Empty<string, parameterEditorRule>(), FunctionParameterSupport.empty.CombinationError);
         var proposed = WorkspaceParameterInitialValues.CreateMissing([], [], [ParamKey.describe(ParamKeys.sorterCountKey)], support);
         Assert.Equal("7", Assert.Single(proposed).value);
         var preview = WorkspaceParameterSetsPreview.Create(proposed, [], "", support);

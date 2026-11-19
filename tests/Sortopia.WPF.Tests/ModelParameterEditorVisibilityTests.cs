@@ -87,6 +87,27 @@ public sealed class ModelParameterEditorVisibilityTests
         Assert.Contains("[-AMax, AMax]", setup ? run.Editor.SetupParametersError : run.Editor.ResultsParametersError);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Changing_functions_refreshes_rules_on_retained_default_rows(bool setup)
+    {
+        var (module, _, run) = Hierarchy();
+        Family(module.Editor!, setup, "SimpleR");
+        var maximum = Local(module.Editor!, setup).Single(row => row.Key == "AMax");
+        maximum.Value.Text = "-1";
+        Assert.Contains("0 or greater", maximum.Value.Hint); Assert.NotEmpty(maximum.Value.Error);
+        Family(module.Editor!, setup, "SimpleS");
+        Assert.Empty(maximum.Value.Error);
+        Assert.Equal(Sortopia.Runs.ParameterValue.hint(Sortopia.Runs.parameterValueType.Integer), maximum.Value.Hint);
+        Family(module.Editor!, setup, "SimpleR");
+        Assert.Same(maximum, Visible(module.Editor!, setup).Single(row => row.Key == "AMax"));
+        Assert.Equal("-1", maximum.Value.Text); Assert.NotEmpty(maximum.Value.Error);
+        Assert.True((setup ? run.Editor!.SetupRequiredInputs : run.Editor!.ResultsRequiredInputs).Rows.Single(row => row.Key == "AMax").HasIssue);
+        maximum.Value.Text = "1";
+        Assert.False((setup ? run.Editor.SetupRequiredInputs : run.Editor.ResultsRequiredInputs).Rows.Single(row => row.Key == "AMax").HasIssue);
+    }
+
     [Fact]
     public void Wpf_default_lists_update_when_the_function_family_changes()
     {
