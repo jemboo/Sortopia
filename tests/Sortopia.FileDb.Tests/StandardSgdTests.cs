@@ -2,6 +2,7 @@ using Microsoft.FSharp.Collections;
 using Sortopia.Evaluation;
 using Sortopia.FileDb;
 using Sortopia.Functions;
+using Sortopia.Models.Sorting;
 using Sortopia.Runs;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Workspaces;
@@ -15,6 +16,7 @@ public sealed partial class PreparedExecutionTests
 {
     private static parameterBinding[] SgdParameters => [
         Bind("GenerationCount", "3"), Bind("SorterPoolCount", "1"), Bind("SorterCountPerPool", "2"),
+        Bind("InitialPoolSeed", "0"), Bind("InitialPoolSelection", "Random", parameterValueType.Text),
         Bind("SelectedSorterCountPerPool", "2"), Bind("SorterChildCount", "1"), Bind("MutationMod", "0"),
         Bind("AdjustCeLengthFrequency", "2"), Bind("SortedFraction", "0.99", parameterValueType.Floating),
         Bind("PrioritizeNewMutants", "true", parameterValueType.Boolean), Bind("DistinctSorterHashes", "true", parameterValueType.Boolean),
@@ -47,8 +49,8 @@ public sealed partial class PreparedExecutionTests
                 new setupDataTypeConfig(modelsType, models.Id, ListModule.Singleton("PrefixLibId")),
                 new setupDataTypeConfig(testsType, tests.Id, ListModule.Singleton("PrefixLibId")) }), ListModule.Singleton(prefixBinding));
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.standardMsuf4SimpleSgd);
-        var outputs = definition.SortopiaDataTypes.Select(type => new resultsDataTypeConfig(type,
-            ListModule.OfArray<string>(resultsSpans is null ? ["GenerationCount"] : ["GenerationCount", "OrthoRate", "SelfSymRate"])));
+        var queryKeys = new[] { "GenerationCount" }.Concat(resultsSpans?.Select(span => span.keyName) ?? []).Distinct();
+        var outputs = definition.SortopiaDataTypes.Select(type => new resultsDataTypeConfig(type, ListModule.OfSeq(queryKeys)));
         var consumer = Project("SorterSgd", projectConfiguration.NewBranchProjectConfig(new("Standard SGD",
             new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, definition.Version, ListModule.OfSeq(outputs), ListModule.OfArray(SgdParameters)), setup)), resultsSpans);
         if (reporting is not null)
@@ -70,7 +72,7 @@ public sealed partial class PreparedExecutionTests
     }
 
     [Fact]
-    public void Standard_SGD_copies_two_sources_executes_portably_and_reuses_final_population_for_partial_retries()
+    public void Standard_SGD_copies_two_sources_and_saves_only_final_pools_with_models_and_evaluations()
     {
         var (world, consumer) = SgdWorkspace();
         var sourceFiles = Directory.GetFiles(Root, "*.msgpack", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
@@ -82,23 +84,88 @@ public sealed partial class PreparedExecutionTests
         var parameters = Path.Combine(folder, "runParameters");
         var report = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(report);
         var outputs = Assert.Single(report.Results).StoredOutputs;
-        Assert.Equal(3, outputs.Length);
-        var poolsOutput = outputs.Single(value => value.Reference.DataType.IsSorterPoolSet);
+        var poolsOutput = Assert.Single(outputs);
+        Assert.True(poolsOutput.Reference.DataType.IsSorterPoolSet);
+        Assert.Single(DataFiles(folder, "results"));
+        Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterModelSet")));
+        Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterSetEval")));
         var store = new SortopiaFileDb(folder, consumer.Id);
         var pools = Assert.IsType<functionData.SorterPoolSet>(((ISortopiaDb)store).Load(poolsOutput.Reference, Token).ResultValue.Value).Item;
         Assert.Equal(3, pools.Generation);
         Assert.Equal(4, pools.History.Length);
         Assert.Single(pools.Pools);
         Assert.InRange(pools.Pools[0].Members.Length, 1, 2);
+        Assert.All(pools.Pools[0].Members, member => { Assert.NotNull(member.Model); Assert.NotNull(member.Evaluation); });
         var poolsBytes = File.ReadAllBytes(store.GetPath(poolsOutput.Reference));
-        var modelsOutput = outputs.Single(value => value.Reference.DataType.IsSorterModelSet);
-        File.Delete(store.GetPath(modelsOutput.Reference));
         var retry = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(retry);
         var retried = Assert.Single(retry.Results).StoredOutputs;
-        Assert.True(retried.Single(value => value.Reference.DataType.IsSorterPoolSet).Reused);
-        Assert.False(retried.Single(value => value.Reference.DataType.IsSorterModelSet).Reused);
+        Assert.True(Assert.Single(retried).Reused);
         Assert.Equal(poolsBytes, File.ReadAllBytes(store.GetPath(poolsOutput.Reference)));
-        Assert.Equal(outputState.Complete, Assert.Single(RunParameterExecution.inspectFolder(parameters, null!, Token)).Outputs.State);
+        var status = Assert.Single(RunParameterExecution.inspectFolder(parameters, null!, Token)).Outputs;
+        Assert.Equal(outputState.Complete, status.State); Assert.Equal(1, status.ExpectedCount);
+        File.Delete(store.GetPath(poolsOutput.Reference));
+        Assert.Equal(outputState.Pending, Assert.Single(RunParameterExecution.inspectFolder(parameters, null!, Token)).Outputs.State);
+        var regenerated = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(regenerated);
+        Assert.False(Assert.Single(Assert.Single(regenerated.Results).StoredOutputs).Reused);
+        Assert.Single(DataFiles(folder, "results"));
+        Assert.Equal(poolsBytes, File.ReadAllBytes(store.GetPath(poolsOutput.Reference)));
+    }
+
+    [Fact]
+    public void Initial_pool_seed_sweeps_keep_shared_samples_and_distinct_results_and_report_columns()
+    {
+        var (world, consumer) = SgdWorkspace(resultsSpans: [
+            new() { keyName = "GenerationCount", values = ["0"] },
+            new() { keyName = "InitialPoolSeed", values = ["0", "1"] },
+            new() { keyName = "MutationMod", values = ["0", "15"] }], reporting: new("Constant(100)", "Constant(1)"));
+        Completed(Prepare(world, consumer).Execution);
+        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var parameters = Path.Combine(folder, "runParameters");
+        var items = RunParameterFiles.listWorkItems(parameters, Token);
+        Assert.Equal(4, items.Length);
+        Assert.All(items, item => Assert.Equal("3", item.Results.FunctionVersion));
+        var executed = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(executed);
+        var references = executed.Results.SelectMany(result => result.StoredOutputs).Select(output => output.Reference).ToArray();
+        Assert.Equal(references.Length, references.Distinct().Count());
+        var samples = items.Select(item => new {
+            Seed = item.Parameters.TryFindText("InitialPoolSeed").Value,
+            Ids = EvolutionReportingStore.loadSnapshot(folder, item, 0, Token).Pools[0].Members.Select(member => SorterModel.getId(member.Model)).ToArray()
+        }).ToArray();
+        foreach (var group in samples.GroupBy(sample => sample.Seed))
+        {
+            Assert.Equal(group.First().Ids, group.Last().Ids);
+            Assert.Equal(2, group.First().Ids.Distinct().Count());
+        }
+        Assert.False(samples.First(sample => sample.Seed == "0").Ids.SequenceEqual(samples.First(sample => sample.Seed == "1").Ids));
+        var report = SorterEvalReportExport.exportFolder(parameters, null!, Path.Combine(temporary.FullName, "Pool seed report"), Token);
+        var rows = TypedReportTests.ReadCsv(report.SummaryPath);
+        Assert.Equal(4, rows.Length);
+        Assert.Equal(4, rows.Select(row => (row["Results.InitialPoolSeed"], row["Results.MutationMod"])).Distinct().Count());
+    }
+
+    [Fact]
+    public void Best_initial_pools_are_shared_across_mutation_and_seed_settings_and_reported()
+    {
+        var (world, consumer) = SgdWorkspace(resultsSpans: [
+            new() { keyName = "GenerationCount", values = ["0"] },
+            new() { keyName = "InitialPoolSelection", values = ["Best"] },
+            new() { keyName = "InitialPoolSeed", values = ["0", "99"] },
+            new() { keyName = "MutationMod", values = ["0", "3"] }], reporting: new("Constant(100)", "Constant(1)"));
+        Completed(Prepare(world, consumer).Execution);
+        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var parameters = Path.Combine(folder, "runParameters");
+        var items = RunParameterFiles.listWorkItems(parameters, Token);
+        Completed(RunParameterExecution.executeFolderWithOptions(parameters, null!, new(2), null!, Token));
+        var pools = items.Select(item => EvolutionReportingStore.loadSnapshot(folder, item, 0, Token).Pools[0]).ToArray();
+        var ids = pools[0].Members.Select(member => SorterModel.getId(member.Model)).ToArray();
+        Assert.Equal(2, ids.Distinct().Count());
+        Assert.All(pools, pool => {
+            Assert.Equal(pools[0].Id, pool.Id);
+            Assert.Equal(ids, pool.Members.Select(member => SorterModel.getId(member.Model)));
+            Assert.All(pool.Members, member => Assert.True(SorterEval.getIsSorted(member.Evaluation)));
+        });
+        var report = SorterEvalReportExport.exportFolder(parameters, null!, Path.Combine(temporary.FullName, "Best pool report"), Token);
+        Assert.All(TypedReportTests.ReadCsv(report.SummaryPath), row => Assert.Equal("Best", row["Results.InitialPoolSelection"]));
     }
 
     [Fact]
@@ -115,6 +182,8 @@ public sealed partial class PreparedExecutionTests
 
     [Theory]
     [InlineData("GenerationCount", "-1")]
+    [InlineData("InitialPoolSeed", "-1")]
+    [InlineData("InitialPoolSelection", "Invalid")]
     [InlineData("SorterCountPerPool", "0")]
     [InlineData("SelectedSorterCountPerPool", "3")]
     [InlineData("AdjustCeLengthFrequency", "0")]

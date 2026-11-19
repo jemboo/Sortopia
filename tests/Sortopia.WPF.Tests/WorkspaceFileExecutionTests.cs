@@ -145,7 +145,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
             definition.OutputDependencies, parameters, ListModule.OfSeq(publishedTests.Results.Concat(publishedModels.Results).SelectMany(call => call.StoredOutputs).Select(output => output.Reference)));
         runHost Host(WorkspaceSources sources) => new(runExecutionPhase.Setup, parameters,
             new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token),
-            null!, sources, Token, Environment.ProcessorCount, null);
+            null!, sources, Token, Environment.ProcessorCount, null, null);
         var reader = new WorkspaceSources(world, temporary.FullName);
         var setup = Host(reader);
         Assert.Contains("exactly the source projects", Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(projects.Remove(modelsType))).Message);

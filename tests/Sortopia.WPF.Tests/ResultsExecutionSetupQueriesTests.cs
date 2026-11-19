@@ -39,6 +39,8 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             module.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "8";
             var values = new Dictionary<string, string> {
                 ["GenerationCount"] = "0", ["SorterPoolCount"] = "1", ["SorterCountPerPool"] = "1", ["SelectedSorterCountPerPool"] = "1",
+                ["InitialPoolSeed"] = "0",
+                ["InitialPoolSelection"] = "Random",
                 ["SorterChildCount"] = "1", ["MutationMod"] = "0", ["AdjustCeLengthFrequency"] = "2", ["SortedFraction"] = "0.99",
                 ["PrioritizeNewMutants"] = "true", ["DistinctSorterHashes"] = "true", ["RngType"] = "LCG", ["MutatorVariantKey"] = "V2",
                 ["SorterEvalMeasure"] = Sortopia.Evaluation.SorterEvalMeasure.toCompactString(Sortopia.Evaluation.SorterEvalMeasure.stageBiasedFilterUnsorted),
@@ -65,6 +67,60 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
         await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
         Assert.Equal(4, page.SelectedExecution!.Files.Rows.Count);
         return page;
+    }
+
+    [Fact]
+    public async Task Validation_cache_rechecks_bytes_and_never_hides_changed_missing_or_damaged_outputs()
+    {
+        var workspace = await Generate(sgd: true, reporting: true);
+        try
+        {
+            using var page = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
+            page.SelectAllCommand.Execute(null);
+            await page.ExecuteAsync(); Assert.Empty(page.Error);
+            var path = page.Rows[0].Path;
+            var item = RunParameterFiles.loadFile(path);
+            var folder = Path.GetDirectoryName(workspace.RunParametersFolder)!;
+            var store = new SortopiaFileDb(folder, item.ProjectId);
+            var filesBefore = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order().ToArray();
+            var cache = new ResultsOutputValidationCache();
+            Assert.False(cache.Inspect(path, CancellationToken.None).Reused);
+            var reused = cache.Inspect(path, CancellationToken.None);
+            Assert.True(reused.Reused);
+            Assert.Equal(outputState.Complete, reused.Inspection.Outputs.State);
+
+            var ordinary = FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs).Values.First().Key;
+            foreach (var key in new[] { ordinary }.Concat(EvolutionReportingStore.keys(item)))
+            {
+                var output = store.GetPath(key.Reference);
+                var original = File.ReadAllBytes(output);
+                var timestamp = File.GetLastWriteTimeUtc(output);
+                var damaged = (byte[])original.Clone(); damaged[^1] ^= 1;
+                File.WriteAllBytes(output, damaged);
+                File.SetLastWriteTimeUtc(output, timestamp); // Size/dates alone cannot detect this change.
+                var invalid = cache.Inspect(path, CancellationToken.None);
+                Assert.False(invalid.Reused);
+                Assert.Equal(outputState.Invalid, invalid.Inspection.Outputs.State);
+                File.WriteAllBytes(output, original);
+                Assert.False(cache.Inspect(path, CancellationToken.None).Reused);
+                Assert.True(cache.Inspect(path, CancellationToken.None).Reused);
+                File.Delete(output);
+                var missing = cache.Inspect(path, CancellationToken.None);
+                Assert.False(missing.Reused);
+                Assert.Equal(outputState.Partial, missing.Inspection.Outputs.State);
+                File.WriteAllBytes(output, original);
+                Assert.False(cache.Inspect(path, CancellationToken.None).Reused);
+                Assert.True(cache.Inspect(path, CancellationToken.None).Reused);
+            }
+            using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+            Assert.Throws<OperationCanceledException>(() => cache.Inspect(path, cancelled.Token));
+            var parameterBytes = File.ReadAllBytes(path);
+            File.WriteAllBytes(path, [0]);
+            Assert.ThrowsAny<Exception>(() => cache.Inspect(path, CancellationToken.None));
+            File.WriteAllBytes(path, parameterBytes);
+            Assert.Equal(filesBefore, Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order());
+        }
+        finally { workspace.Cancel(); }
     }
 
     [Fact]
@@ -144,6 +200,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.False(model.CanExportReports);
             await model.ExecuteAsync(); Assert.Empty(model.Error);
             Assert.Equal(4, model.SelectedCount); Assert.True(model.CanExportReports);
+            Assert.All(model.Rows, row => Assert.True(Assert.Single(row.Parameters!.Results.DataTypes).Key.IsSorterPoolSet));
             var destination = Path.Combine(temporary.FullName, "SGD reports");
             await model.ExportReportsAsync(destination); Assert.Empty(model.Error);
             Assert.Contains("4 summary rows and 4 detail rows", model.Status);

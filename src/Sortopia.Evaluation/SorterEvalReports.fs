@@ -20,8 +20,7 @@ module SorterEvalReports =
     let private integer value = reportValue.Integer (int64 value)
     let private optional make value = value |> Option.map make |> Option.defaultValue reportValue.Missing
 
-    let summarize (source: sorterSetEval) =
-        let evaluations = source.SorterEvals
+    let summarizeEvaluations (evaluations: sorterEval array) =
         let channels = evaluations |> Array.map (SorterEval.getChannelCount >> UMX.untag) |> Array.distinct
         if channels.Length > 1 then invalidArg "source" "An evaluation report cannot mix channel counts within a results file."
         let successful = evaluations |> Array.filter SorterEval.getIsSorted
@@ -38,6 +37,8 @@ module SorterEvalReports =
           ObservedSuccessFraction = if evaluations.Length = 0 then None else Some (float successful.Length / float evaluations.Length)
           SuccessfulMinCeLength = minCes; SuccessfulMedianCeLength = medianCes
           SuccessfulMinStageLength = minStages; SuccessfulMedianStageLength = medianStages }
+
+    let summarize (source: sorterSetEval) = summarizeEvaluations source.SorterEvals
 
     let summaryColumns = [|
         column "ChannelCount" reportValueType.Integer

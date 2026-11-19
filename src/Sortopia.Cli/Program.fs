@@ -24,7 +24,7 @@ Folder execution considers every parameter file present, including older files;
 partial work reuses existing outputs. No manifests or execution receipts are needed.
 Results execution never runs setup. --jobs is a positive maximum concurrent job count (default 1).
 Selected files must own distinct outputs. Failed jobs are reported while other jobs continue.
-Export combines saved branch SorterSetEval outputs (including SGD final networks) into Summary.csv and Details.csv.
+Export combines saved branch SorterSetEval outputs or SGD SorterPoolSet results into Summary.csv and Details.csv.
 Details includes V1 statistics for each network, results parameters, and inherited setup query metadata.
 All selected evaluations must exist and be valid. Sampled SGD data also exports EvolutionSummary.csv and Snapshots.csv.
 Reports go directly to the project's data/results/reports by default, replacing the previous CSV export.

@@ -474,6 +474,8 @@ public sealed partial class PreparedExecutionTests : IDisposable
         File.WriteAllBytes(file, bytes);
         var status = Assert.Single(RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token)).Outputs;
         Assert.Equal(outputState.Invalid, status.State);
+        var parameterFile = Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack").Single();
+        Assert.Equal(outputState.Invalid, RunParameterExecution.inspectFileIntegrity(parameterFile, Token).Outputs.State);
         Assert.NotEmpty(status.Error);
         Assert.Single(status.Available);
         Assert.Equal(runExecutionStatus.Failed, RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token).Status);

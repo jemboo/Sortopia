@@ -67,6 +67,23 @@ module RunParameterExecution =
         token.ThrowIfCancellationRequested()
         let item = RunParameterFiles.loadFile path
         inspect (RunParameterFiles.projectFolder (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath path))) item token
+
+    /// A quick status check, not a substitute for inspectFile before consuming
+    /// results. Every ordinary output, snapshot and summary has its identity,
+    /// envelope bounds and compressed payload checksum checked.
+    let inspectFileIntegrity path (token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        let item = RunParameterFiles.loadFile path
+        let folder = RunParameterFiles.projectFolder (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath path))
+        let outputs =
+            try
+                let normal = planWorkItem item token |> Map.toArray |> Array.map (snd >> _.Key)
+                let keys = Array.append normal (EvolutionReportingStore.keys item)
+                OutputPlan.inspectIntegrity (SortopiaFileDb(folder, item.ProjectId)) keys token
+            with
+            | :? OperationCanceledException -> reraise ()
+            | error -> { State = outputState.Invalid; Available = []; ExpectedCount = 0; Error = error.GetBaseException().Message }
+        { Id = item.Id; RunId = item.RunId; Outputs = outputs }
     let private verifyInputs folder projectId references (token: CancellationToken) =
         let store = SortopiaFileDb(folder, projectId) :> ISortopiaDb
         for reference in references |> Seq.distinct do
@@ -195,9 +212,13 @@ module RunParameterExecution =
             let store = database :> ISortopiaDb
             let owners = Collections.Generic.Dictionary<string, Guid<workItemId>>(StringComparer.OrdinalIgnoreCase)
             let checkedInputs = Collections.Generic.HashSet<storedDataReference>()
-            // Reuse the validated snapshot for one invocation. Batch preflight still
-            // releases each payload, avoiding retention of an entire source sweep.
+            // Share validated read-only inputs common to every invocation. Mutation
+            // sweeps otherwise deserialize the same large model set in every worker.
+            // Inputs that vary across the batch are released after preflight, so a
+            // source sweep does not retain all of its model sets at once.
+            let sharedReferences = workItems |> Array.map (fun item -> Set.ofList item.SetupInputs) |> Set.intersectMany
             let mutable preparedInputs = Map.empty
+            let pending = Collections.Generic.HashSet<Guid<workItemId>>()
             let items = workItems |> Array.map (fun item ->
                 currentItem <- Some item.Id
                 token.ThrowIfCancellationRequested()
@@ -214,12 +235,26 @@ module RunParameterExecution =
                 let inspection = OutputPlan.inspect store plan token |> EvolutionReportingStore.includeInspection folder item token
                 if inspection.State = outputState.Invalid then invalidOp $"Work item {item.Id}: {inspection.Error}"
                 if inspection.State <> outputState.Complete then
+                    pending.Add item.Id |> ignore
                     let references = item.SetupInputs |> List.filter checkedInputs.Add
-                    if workItems.Length = 1 then
-                        preparedInputs <- references |> List.map (fun reference ->
-                            reference, (store.Load(reference, token) |> HostStorage.require).Value) |> Map.ofList
-                    else verifyInputs folder item.ProjectId references token
+                    for reference in references do
+                        let value = (store.Load(reference, token) |> HostStorage.require).Value
+                        if Set.contains reference sharedReferences then
+                            preparedInputs <- Map.add reference value preparedInputs
                 item, plan)
+            let preparationCache = RunPreparationCache()
+            // Expensive source preparation runs once per cache key with the full
+            // CPU allowance, before launching mutation workers. The cache keeps
+            // selected seed models, not every large source pool.
+            for item, _ in items do
+                if pending.Contains item.Id then
+                    currentItem <- Some item.Id
+                    token.ThrowIfCancellationRequested()
+                    context <- $"Preparing shared inputs for work item {item.Id}"
+                    notify progress context 0L (int64 items.Length)
+                    let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
+                    let host = FileResultsHost.createWithPreparedInputs Environment.ProcessorCount folder item.ProjectId item.Results item.Parameters inputs preparedInputs token
+                    (ResultsFunctionCatalog.require item.Results.FunctionName).Prepare { host with PreparationCache = Some preparationCache }
             currentItem <- None
             let workers = min options.MaxParallelJobs items.Length
             let evaluationParallelism = max 1 (Environment.ProcessorCount / workers)
@@ -247,7 +282,7 @@ module RunParameterExecution =
                             let reporting = item.Reporting |> Option.bind (fun _ ->
                                 if fst (EvolutionReportingStore.inspect folder item token) = outputState.Complete then None
                                 else Some (EvolutionReportingStore.create folder item token))
-                            let host = { host with EvolutionReporting = reporting }
+                            let host = { host with EvolutionReporting = reporting; PreparationCache = Some preparationCache }
                             (ResultsFunctionCatalog.require item.Results.FunctionName).Execute host
                             host.ResultsDb.StoredOutputs @ (EvolutionReportingStore.inspectOutputs folder item token).Available
                     results[index] <- Some { Phase = runExecutionPhase.Results; FunctionName = string item.Results.FunctionName

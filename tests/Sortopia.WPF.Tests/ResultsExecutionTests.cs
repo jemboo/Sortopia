@@ -37,6 +37,131 @@ public sealed class ResultsExecutionTests : IDisposable
     }
 
     [Fact]
+    public async Task Quick_status_checks_integrity_and_full_validation_checks_payload_contents_before_execution()
+    {
+        var workspace = await GenerateFiles();
+        using var page = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
+        page.SelectAllCommand.Execute(null);
+        await page.ExecuteAsync(); Assert.Empty(page.Error);
+        var row = page.Rows[0];
+        var item = row.Parameters!;
+        var key = FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs).Values.Single().Key;
+        var file = new SortopiaFileDb(Path.GetDirectoryName(workspace.RunParametersFolder)!, item.ProjectId).GetPath(key.Reference);
+        var envelope = Sortopia.Core.Serialization.MessagePackSetup.deserialize<dataEnvelopeDto>(File.ReadAllBytes(file));
+        byte[] malformed = [1, 2, 3];
+        var damaged = new dataEnvelopeDto(envelope.Version, envelope.ProjectId, envelope.Id, envelope.QueryId,
+            envelope.IsSetup, envelope.Kind, envelope.Label, envelope.QueryBytes, envelope.IdentityBytes,
+            envelope.Compression, envelope.RawLength, System.Security.Cryptography.SHA256.HashData(malformed), malformed);
+        File.WriteAllBytes(file, Sortopia.Core.Serialization.MessagePackSetup.serialize(damaged));
+        await page.RefreshAsync();
+        Assert.Equal("Complete", page.Rows.Single(value => value.Path == row.Path).Status);
+        Assert.Contains("File integrity checked", page.Status);
+        Assert.True(page.ValidateFullyCommand.CanExecute(null));
+        Assert.Equal(runExecutionStatus.Failed, RunParameterExecution.executeFile(row.Path, null!, CancellationToken.None).Status);
+        await page.ValidateFullyAsync();
+        Assert.Equal("Invalid", page.Rows.Single(value => value.Path == row.Path).Status);
+        Assert.Contains("Full validation finished", page.Status);
+        await page.RefreshAsync();
+        Assert.Equal("Invalid", page.Rows.Single(value => value.Path == row.Path).Status);
+        workspace.Cancel();
+    }
+
+    [Fact]
+    public async Task Parameter_rows_are_visible_before_output_inspection_and_update_in_place()
+    {
+        var workspace = await GenerateFiles();
+        using var page = new ResultsExecutionPageViewModel(() => { }, _ => null);
+        WorkItemStatusRow[]? published = null;
+        var remaining = new List<int>();
+        page.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName != nameof(page.Rows) || page.Rows.Count == 0) return;
+            Assert.Null(published);
+            published = page.Rows.ToArray();
+            Assert.True(page.IsBusy);
+            Assert.All(published, row =>
+            {
+                Assert.Equal("Checking", row.Status);
+                Assert.Equal("Checking outputs…", row.OutputSummary);
+                Assert.False(row.CanExecute);
+                Assert.NotNull(row.Parameters);
+                row.PropertyChanged += (_, property) =>
+                {
+                    if (property.PropertyName == nameof(row.Status) && !row.IsChecking)
+                        remaining.Add(page.Rows.Count(other => other.IsChecking));
+                };
+            });
+        };
+        await page.SetFolderAsync(workspace.RunParametersFolder, workspace.Selected!.Id);
+        Assert.Empty(page.Error);
+        Assert.NotNull(published);
+        Assert.Equal(3, page.FileCount);
+        Assert.Equal(new[] { 2, 1, 0 }, remaining);
+        Assert.All(published, row =>
+        {
+            Assert.Contains(row, page.Rows);
+            Assert.Equal("Pending", row.Status);
+            Assert.False(row.IsChecking);
+            Assert.True(row.CanExecute);
+        });
+        Assert.DoesNotContain("Checking", page.Status);
+        workspace.Cancel();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Interrupted_inspection_keeps_rows_visible_and_cannot_overwrite_a_new_folder(bool navigate)
+    {
+        var workspace = await GenerateFiles();
+        using var page = new ResultsExecutionPageViewModel(() => { }, _ => null);
+        WorkItemStatusRow[]? published = null;
+        Task navigation = Task.CompletedTask;
+        var interrupted = false;
+        WorkItemStatusRow? firstChecked = null;
+        var otherFolder = Path.Combine(temporary.FullName, "Other", "runParameters");
+        page.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName != nameof(page.Rows) || page.Rows.Count == 0) return;
+            published = page.Rows.ToArray();
+            foreach (var row in published) row.PropertyChanged += (_, property) =>
+            {
+                if (interrupted || property.PropertyName != nameof(WorkItemStatusRow.Status) || row.IsChecking) return;
+                interrupted = true;
+                firstChecked = row;
+                if (navigate) navigation = page.SetFolderAsync(otherFolder);
+                else page.Cancel();
+            };
+        };
+        await page.SetFolderAsync(workspace.RunParametersFolder);
+        await navigation;
+        Assert.Empty(page.Error);
+        Assert.True(interrupted);
+        Assert.NotNull(published);
+        Assert.NotNull(firstChecked);
+        Assert.Equal("Pending", firstChecked.Status);
+        Assert.All(published.Where(row => !ReferenceEquals(row, firstChecked)), row =>
+        {
+            Assert.Equal("Not checked", row.Status);
+            Assert.False(row.CanExecute);
+        });
+        if (navigate)
+        {
+            Assert.Equal(otherFolder, page.Folder);
+            Assert.Empty(page.Rows);
+            Assert.Contains("No runParameters folder", page.Status);
+        }
+        else
+        {
+            Assert.Equal(3, page.FileCount);
+            Assert.Contains("Cancelled", page.Status);
+            await page.RefreshAsync();
+            Assert.All(page.Rows, row => Assert.Equal("Pending", row.Status));
+        }
+        workspace.Cancel();
+    }
+
+    [Fact]
     public async Task Parallel_jobs_are_validated_remembered_and_execute_multiple_rows()
     {
         var workspace = await GenerateFiles();
@@ -381,6 +506,8 @@ public sealed class ResultsExecutionTests : IDisposable
         using var page = new ResultsExecutionPageViewModel(() => { }, _ => null);
         await page.SetFolderAsync(folder, Guid.NewGuid());
         Assert.Equal(0, page.FileCount);
+        Assert.Contains("folder contains 1 files", page.Status);
+        Assert.Contains("choose All runs", page.Status);
         Assert.False(page.ExecuteCommand.CanExecute(null));
         await page.SetFolderAsync(folder);
         Assert.Equal(1, page.FileCount);

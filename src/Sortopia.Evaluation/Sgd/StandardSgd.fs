@@ -11,11 +11,23 @@ open Sortopia.Sorting.Networks
 open Sortopia.Models.Sorting
 open Sortopia.Evaluation
 
+[<RequireQualifiedAccess>]
+type initialPoolSelection = Random | Best
+
+module InitialPoolSelection =
+    let toString = function initialPoolSelection.Random -> "Random" | initialPoolSelection.Best -> "Best"
+    let fromString = function
+        | "Random" -> initialPoolSelection.Random
+        | "Best" -> initialPoolSelection.Best
+        | _ -> invalidArg "InitialPoolSelection" "Choose Random or Best."
+
 type standardSgdSettings = {
     PoolCount: int
     SortersPerPool: int
     RetainedParentsPerPool: int
     ChildrenPerParent: int
+    InitialPoolSeed: int
+    InitialPoolSelection: initialPoolSelection
     Generations: int
     MutationMod: int
     AdjustCeLengthFrequency: int
@@ -23,6 +35,17 @@ type standardSgdSettings = {
     PrioritizeNewMutants: bool
     DistinctSorterHashes: bool
     SelectionMeasure: sorterEvalMeasure
+}
+
+/// Read-only seed models and evaluations, reusable across mutation combinations.
+/// Only the selected models are retained; the full source can be released.
+type preparedSgdPopulation = private {
+    Configuration: Guid
+    SourceId: Guid
+    TestsId: Guid
+    Prefix: ce array
+    RawCeLength: int
+    Seeds: (sorterModel * sorterEval) array array
 }
 
 // Adapted from GeneSort.Eval.V1/Sgd/SgdStandard/{SpMember,SorterPool,Pipeline}_Standard.
@@ -36,6 +59,8 @@ module StandardSgd =
             invalidArg "settings" "Retained parents must be between zero and SorterCountPerPool."
         if settings.Generations < 0 || settings.AdjustCeLengthFrequency < 1 then
             invalidArg "settings" "GenerationCount must be nonnegative and AdjustCeLengthFrequency positive."
+        if settings.InitialPoolSeed < 0 then
+            invalidArg "settings" "InitialPoolSeed must be nonnegative."
         if not (Double.IsFinite settings.SortedFraction) || settings.SortedFraction <= 0.0 || settings.SortedFraction > 1.0 then
             invalidArg "settings" "SortedFraction must be greater than zero and at most one."
         if int64 settings.PoolCount * int64 settings.SortersPerPool > int64 Int32.MaxValue
@@ -51,7 +76,11 @@ module StandardSgd =
     let prune settings (pool: sorterPool) =
         let eligible =
             if %(SorterEvalFunctions.getFilterUnsortedFlag settings.SelectionMeasure) then
-                pool.Members |> Array.filter (fun m -> SorterEval.getIsShortEnough (UMX.tag pool.RawCeLength) m.Evaluation)
+                // Adaptive RawCeLength is an inclusive last-CE index. The general
+                // getIsShortEnough helper instead expects an exclusive length bound.
+                pool.Members |> Array.filter (fun m ->
+                    SorterEval.getIsSorted m.Evaluation
+                    && int (SorterEval.getLastCeIndex m.Evaluation) <= pool.RawCeLength)
             else pool.Members
         let recovering = Array.isEmpty eligible
         let candidates = (if recovering then pool.Members else eligible) |> Array.sortBy (fun m -> m.Birthday, m.Id)
@@ -91,18 +120,26 @@ module StandardSgd =
             MinimumStageLength = pool.Members |> Array.map (fun m -> int (SorterEval.getStageLength m.Evaluation)) |> Array.min
             BestScore = pool.Members |> Array.map (score settings) |> Array.min })
 
-    let runObserved (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (models: sorterModelSet) tests (prefixCes: ce array) =
+    let private initialConfiguration settings =
+        identity [box (InitialPoolSelection.toString settings.InitialPoolSelection); box settings.PoolCount; box settings.SortersPerPool
+                  box (if settings.InitialPoolSelection = initialPoolSelection.Random then settings.InitialPoolSeed else 0)
+                  box (if settings.InitialPoolSelection = initialPoolSelection.Best then SorterEvalFunctions.toCompactString settings.SelectionMeasure else "")
+                  box (settings.InitialPoolSelection = initialPoolSelection.Best && settings.DistinctSorterHashes)]
+
+    let private preparedTests tests =
+        match tests with
+        | sortableTests.Bools values when int values.SortableCount >= 512 && Vector256.IsHardwareAccelerated ->
+            SortableBitv512Tests.fromBoolArrays values.Id values.ChannelCount values.SortableBinaryArrays |> sortableTests.Bitv512
+        | _ -> tests
+
+    let prepareInitialPopulation (options: ParallelOptions) settings (models: sorterModelSet) tests (prefixCes: ce array) =
         validateSettings settings
         options.CancellationToken.ThrowIfCancellationRequested()
         let channels = SortableTests.getChannelCount tests
         let prefix = ceBlock.create (UMX.tag Guid.Empty) channels prefixCes
         // Prepare once for the repeated count-only evaluations. Keep the source ID,
         // input order and duplicate lanes; saved setup data and cache keys stay unchanged.
-        let evaluationTests =
-            match tests with
-            | sortableTests.Bools values when int values.SortableCount >= 512 && Vector256.IsHardwareAccelerated ->
-                SortableBitv512Tests.fromBoolArrays values.Id channels values.SortableBinaryArrays |> sortableTests.Bitv512
-            | _ -> tests
+        let evaluationTests = preparedTests tests
         options.CancellationToken.ThrowIfCancellationRequested()
         let allModels = models.SorterModels
         for model in allModels do
@@ -112,14 +149,49 @@ module StandardSgd =
                 invalidArg "models" "The model prefix must match the source SortableTests prefix."
         let required = settings.PoolCount * settings.SortersPerPool
         if allModels.Length < required then invalidArg "models" $"SGD needs {required} starting models; the source contains {allModels.Length}."
-        // SorterModelSet enumerates in model-ID order, independent of file or map insertion order.
-        let mutable pools = allModels |> Array.take required |> Array.chunkBySize settings.SortersPerPool |> Array.mapi (fun poolIndex seeds ->
-            let poolId = identity [box "Sortopia.StandardSgd/pool/v1"; box (%models.Id); box poolIndex]
-            let evaluations = evaluate options evaluationTests prefix (int models.RawCeLength) seeds
-            let members = Array.map2 (fun model evaluation -> {
+        let seeds =
+            match settings.InitialPoolSelection with
+            | initialPoolSelection.Random ->
+                // Partial Fisher-Yates with unbiased bounded draws; source order is canonical.
+                let samplingRng = randomSplitMix64(UMX.tag (uint64 settings.InitialPoolSeed)) :> IRando
+                for index in 0 .. required - 1 do
+                    let selected = index + samplingRng.NextIndex(allModels.Length - index)
+                    let temp = allModels[index]
+                    allModels[index] <- allModels[selected]
+                    allModels[selected] <- temp
+                allModels |> Array.take required |> Array.chunkBySize settings.SortersPerPool |> Array.map (fun selected ->
+                    Array.zip selected (evaluate options evaluationTests prefix (int models.RawCeLength) selected))
+            | initialPoolSelection.Best ->
+                let evaluations = evaluate options evaluationTests prefix (int models.RawCeLength) allModels
+                let eligible = SorterEvalFunctions.filterEvaluations settings.SelectionMeasure evaluations |> Seq.map SorterEval.getSorterId |> Set.ofSeq
+                let measure = SorterEvalFunctions.getFunctionForMeasure settings.SelectionMeasure
+                let ranked = Array.zip allModels evaluations
+                             |> Array.filter (fun (_, evaluation) -> Set.contains (SorterEval.getSorterId evaluation) eligible)
+                             |> Array.sortBy (fun (model, evaluation) -> float (measure evaluation), SorterModel.getId model)
+                let ranked = if settings.DistinctSorterHashes then ranked |> Array.distinctBy (snd >> SorterEval.getSequenceHash) else ranked
+                if ranked.Length < required then
+                    invalidArg "models" $"Best selection needs {required} eligible models; only {ranked.Length} remain after the evaluation and duplicate filters."
+                ranked |> Array.take required |> Array.chunkBySize settings.SortersPerPool
+        options.CancellationToken.ThrowIfCancellationRequested()
+        { Configuration = initialConfiguration settings; SourceId = %models.Id; TestsId = %(SortableTests.getId tests)
+          Prefix = Array.copy prefixCes; RawCeLength = int models.RawCeLength; Seeds = seeds }
+
+    let runObservedPrepared (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (initial: preparedSgdPopulation) tests (prefixCes: ce array) =
+        validateSettings settings
+        options.CancellationToken.ThrowIfCancellationRequested()
+        if initial.Configuration <> initialConfiguration settings || initial.TestsId <> %(SortableTests.getId tests) || initial.Prefix <> prefixCes then
+            invalidArg "initial" "Prepared starting pools do not match the selection settings or tests."
+        let prefix = ceBlock.create (UMX.tag Guid.Empty) (SortableTests.getChannelCount tests) prefixCes
+        let evaluationTests = preparedTests tests
+        let mutable pools = initial.Seeds |> Array.mapi (fun poolIndex seeds ->
+            let poolId =
+                match settings.InitialPoolSelection with
+                | initialPoolSelection.Random -> identity [box "Sortopia.StandardSgd/pool/v2"; box initial.SourceId; box settings.InitialPoolSeed; box poolIndex]
+                | initialPoolSelection.Best -> identity [box "Sortopia.StandardSgd/best-pool/v1"; box initial.SourceId; box initial.TestsId; box initial.Configuration; box poolIndex]
+            let members = seeds |> Array.map (fun (model, evaluation) -> {
                 Id = identity [box poolId; box (SorterModel.getId model)]
-                Model = model; MutationIndex = 0; MutationMod = settings.MutationMod; Birthday = 0; ParentId = None; Evaluation = evaluation }) seeds evaluations
-            { Id = poolId; RawCeLength = int models.RawCeLength; Members = members })
+                Model = model; MutationIndex = 0; MutationMod = settings.MutationMod; Birthday = 0; ParentId = None; Evaluation = evaluation })
+            { Id = poolId; RawCeLength = initial.RawCeLength; Members = members })
         let history = ResizeArray<sorterPoolSummary>(summaries settings 0 pools)
         let report generation =
             options.CancellationToken.ThrowIfCancellationRequested()
@@ -156,5 +228,9 @@ module StandardSgd =
         options.CancellationToken.ThrowIfCancellationRequested()
         { Generation = settings.Generations; TestsId = SortableTests.getId tests; Pools = pools; History = history.ToArray() }
         |> SorterPoolSet.validate
+
+    let runObserved observe options settings mutator models tests prefix =
+        let initial = prepareInitialPopulation options settings models tests prefix
+        runObservedPrepared observe options settings mutator initial tests prefix
 
     let run options settings mutator models tests prefix = runObserved ignore options settings mutator models tests prefix

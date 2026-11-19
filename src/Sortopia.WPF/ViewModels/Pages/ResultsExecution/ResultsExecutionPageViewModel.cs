@@ -8,10 +8,13 @@ namespace Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 
 public sealed record RunFileChoice(Guid? Id, string Label);
 
-public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? inspection, string error = "", TimeProvider? timeProvider = null) : ViewModelBase, ISetupQueryRow
+public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? initialInspection, string error = "", TimeProvider? timeProvider = null, bool checking = false) : ViewModelBase, ISetupQueryRow
 {
     private bool selected;
     private workItemExecutionProgress? execution;
+    private workItemOutputStatus? inspection = initialInspection;
+    private string inspectionError = error;
+    private string inspectionStatus = checking ? "Checking" : "";
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private long? started;
     private TimeSpan? elapsed;
@@ -21,14 +24,15 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     public Guid? RunId => parameters?.RunId;
     public string FunctionName => parameters?.Results.FunctionName ?? "Unreadable";
     public outputState State => execution?.State == workItemExecutionState.Complete ? outputState.Complete : inspection?.Outputs.State ?? outputState.Invalid;
-    public string Status => execution?.State.ToString() ?? State.ToString();
+    public string Status => execution?.State.ToString() ?? (inspectionStatus.Length > 0 ? inspectionStatus : State.ToString());
+    public bool IsChecking => inspectionStatus == "Checking";
     public TimeSpan? Elapsed => started is { } timestamp ? clock.GetElapsedTime(timestamp) : elapsed;
     public string ElapsedText => Elapsed is { } value ? $"{(long)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}.{value.Milliseconds / 100}" : "—";
-    public string OutputSummary => inspection is null ? "" : $"{(State == outputState.Complete ? inspection.Outputs.ExpectedCount : inspection.Outputs.Available.Length)}/{inspection.Outputs.ExpectedCount} outputs"
+    public string OutputSummary => inspectionStatus.Length > 0 ? (IsChecking ? "Checking outputs…" : "Outputs not checked") : inspection is null ? "" : $"{(State == outputState.Complete ? inspection.Outputs.ExpectedCount : inspection.Outputs.Available.Length)}/{inspection.Outputs.ExpectedCount} outputs"
         + (parameters?.Reporting is null ? "" : State == outputState.Complete ? " · evolution reports complete" : " · evolution reports required");
-    public string Error => execution is { Error.Length: > 0 } ? execution.Error : error.Length > 0 ? error : inspection?.Outputs.Error ?? "";
+    public string Error => execution is { Error.Length: > 0 } ? execution.Error : inspectionError.Length > 0 ? inspectionError : inspection?.Outputs.Error ?? "";
     public bool HasError => Error.Length > 0;
-    public bool CanExecute => parameters is not null && State != outputState.Invalid;
+    public bool CanExecute => inspectionStatus.Length == 0 && parameters is not null && State != outputState.Invalid;
     public string[] Cells { get; private set; } = [];
     public bool HasSetupInputs => parameters?.SetupInputs.IsEmpty == false;
     public SetupQueryData SetupQueries { get; init; } = new() { Unavailable = parameters is null };
@@ -36,6 +40,21 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     public string InheritedSetupQueryDetails { get; init; } = parameters is null ? "The parameter file could not be read." : "These results do not consume setup files.";
     public bool IsSelected { get => selected; set { if (SetProperty(ref selected, value)) SelectionChanged?.Invoke(); } }
     internal event Action? SelectionChanged;
+    internal void UpdateInspection(workItemOutputStatus? value, string error = "")
+    {
+        inspection = value; inspectionError = error; inspectionStatus = "";
+        NotifyInspection();
+    }
+    internal void CancelInspection()
+    {
+        if (!IsChecking) return;
+        inspectionStatus = "Not checked";
+        NotifyInspection();
+    }
+    private void NotifyInspection()
+    {
+        foreach (var property in new[] { nameof(Status), nameof(State), nameof(IsChecking), nameof(OutputSummary), nameof(Error), nameof(HasError), nameof(CanExecute) }) OnPropertyChanged(property);
+    }
     internal void UpdateExecution(workItemExecutionProgress update)
     {
         if (update.State == workItemExecutionState.Running)
@@ -77,6 +96,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<WorkItemStatusRow> rows = [];
     private string[] parameterColumns = [];
     private WorkItemStatusRow[] files = [];
+    private ResultsOutputValidationCache validationCache = new();
     // Keep failed/cancelled attempts inspectable during this folder session; no tracking files.
     private readonly Dictionary<Guid, workItemExecutionProgress> outcomes = [];
     private readonly Dictionary<Guid, TimeSpan> elapsedTimes = [];
@@ -96,6 +116,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
             catch (Exception e) { Error = e.GetBaseException().Message; }
         }, () => !IsBusy);
         RefreshCommand = new RelayCommand(async () => await RefreshAsync(), () => !IsBusy && Folder.Length > 0);
+        ValidateFullyCommand = new RelayCommand(async () => await ValidateFullyAsync(), () => !IsBusy && Folder.Length > 0);
         ExecuteCommand = new RelayCommand(async () => await ExecuteAsync(), () => CanExecute);
         ExportReportsCommand = new RelayCommand(async () => await ExportReportsAsync(), () => CanExportReports);
         SelectAllCommand = new RelayCommand(() => SelectRows(_ => true), () => !IsBusy && Rows.Count > 0);
@@ -147,6 +168,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     public RelayCommand ReturnCommand { get; }
     public RelayCommand BrowseCommand { get; }
     public RelayCommand RefreshCommand { get; }
+    public RelayCommand ValidateFullyCommand { get; }
     public RelayCommand ExecuteCommand { get; }
     public RelayCommand ExportReportsCommand { get; }
     public RelayCommand SelectAllCommand { get; }
@@ -160,6 +182,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     public async Task SetFolderAsync(string path, Guid? runId = null)
     {
         Cancel();
+        if (!string.Equals(Folder, path, StringComparison.OrdinalIgnoreCase)) validationCache = new();
         outcomes.Clear();
         elapsedTimes.Clear(); runningRows.Clear();
         ExecutionProgress = new(0);
@@ -170,6 +193,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         await WorkAsync(token => LoadCoreAsync(runId, [], token));
     }
     public Task RefreshAsync() => WorkAsync(token => LoadCoreAsync(SelectedRun?.Id, SelectedPaths(), token));
+    public Task ValidateFullyAsync() => WorkAsync(token => LoadCoreAsync(SelectedRun?.Id, SelectedPaths(), token, fullValidation: true));
     private string[] SelectedPaths() => Rows.Where(row => row.IsSelected).Select(row => row.Path).ToArray();
     private void SelectRows(Func<WorkItemStatusRow, bool> select)
     {
@@ -196,19 +220,25 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
             return (definition?.RequiredParameters.Select(key => key.Name) ?? []).Concat(row.Parameters!.Parameters.ParamMap.Keys);
         }).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         foreach (var row in Rows) row.SetColumns(ParameterColumns);
-        Status = string.Join(" · ", new[] { "Pending", "Partial", "Running", "Complete", "Failed", "Cancelled", "Invalid" }
+        UpdateStatus();
+    }
+    private void UpdateStatus()
+    {
+        Status = string.Join(" · ", new[] { "Checking", "Not checked", "Pending", "Partial", "Running", "Complete", "Failed", "Cancelled", "Invalid" }
             .Select(state => (State: state, Count: Rows.Count(row => row.Status == state)))
             .Where(value => value.Count > 0 || value.State is "Pending" or "Complete")
             .Select(value => $"{value.Count:N0} {value.State.ToLowerInvariant()}"));
-        if (SelectedRun?.Id is not null && files.Any(row => row.Parameters is null))
+        if (SelectedRun?.Id is not null && Rows.Count == 0 && files.Length > 0)
+            Status = $"No readable parameter files match this run. The folder contains {files.Length:N0} files; choose All runs to inspect them.";
+        else if (SelectedRun?.Id is not null && files.Any(row => row.Parameters is null))
             Status += ". Unreadable files cannot be assigned to a run; choose All runs to inspect them.";
         Notify();
     }
-    private async Task LoadCoreAsync(Guid? runId, string[] selectedPaths, CancellationToken token)
+    private async Task LoadCoreAsync(Guid? runId, string[] selectedPaths, CancellationToken token, bool fullValidation = false)
     {
         var path = Folder;
         var selected = selectedPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Status = "Reading parameter files and checking their outputs…";
+        Status = "Reading parameter files…";
         var loaded = await Task.Run(() =>
         {
             if (path.Length == 0 || !Directory.Exists(path)) return [];
@@ -217,18 +247,16 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
             {
                 token.ThrowIfCancellationRequested();
                 runParameters? parameters = null;
-                workItemOutputStatus? inspection = null;
                 var error = "";
                 var setup = (Values: "Unavailable", Details: "The parameter file could not be read.", Queries: new SetupQueryData { Unavailable = true });
                 try
                 {
                     parameters = RunParameterFiles.loadFile(file);
                     setup = setupQueries.Read(parameters, token);
-                    inspection = RunParameterExecution.inspectFile(file, token);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception e) { error = e.GetBaseException().Message; }
-                return new WorkItemStatusRow(file, parameters, inspection, error, clock)
+                return new WorkItemStatusRow(file, parameters, null, error, clock, checking: parameters is not null && error.Length == 0)
                     { InheritedSetupQueryValues = setup.Values, InheritedSetupQueryDetails = setup.Details, SetupQueries = setup.Queries };
             }).ToArray();
         }, token);
@@ -258,6 +286,42 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         SelectRows(row => selected.Contains(row.Path));
         if (path.Length == 0) Status = "Select a saved run or browse to a runParameters folder.";
         else if (!Directory.Exists(path)) Status = "No runParameters folder yet. Generate run parameters locally first.";
+        else
+        {
+            // Publish the small parameter files before validating potentially large
+            // result payloads. An unfinished check must never look like an empty folder.
+            var toCheck = loaded.Where(row => row.IsChecking).ToArray();
+            var cache = validationCache;
+            try
+            {
+                // Decoding these object graphs concurrently increases GC pressure
+                // in the desktop process. Reuse content-verified checks instead.
+                for (var index = 0; index < toCheck.Length; index++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    Status = $"{files.Length:N0} parameter files found. {(fullValidation ? "Fully validating outputs" : "Checking file integrity")}: {index:N0} of {toCheck.Length:N0} files…";
+                    var row = toCheck[index];
+                    workItemOutputStatus? inspection = null;
+                    var error = "";
+                    try { inspection = await Task.Run(() => fullValidation ? cache.Inspect(row.Path, token).Inspection
+                        : cache.InspectIntegrity(row.Path, token), token); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception e) { error = e.GetBaseException().Message; }
+                    token.ThrowIfCancellationRequested();
+                    row.UpdateInspection(inspection, error);
+                    // Property notifications can navigate away or cancel the load.
+                    token.ThrowIfCancellationRequested();
+                    Notify();
+                }
+                token.ThrowIfCancellationRequested();
+                UpdateStatus();
+                Status += fullValidation ? " · Full validation finished." : " · File integrity checked; payloads are validated before use.";
+            }
+            finally
+            {
+                foreach (var row in toCheck) row.CancelInspection();
+            }
+        }
     }
     public Task ExecuteAsync() => CanExecute ? WorkAsync(async token =>
     {
@@ -343,7 +407,7 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
     {
         if (changingSelection) return;
         foreach (var property in new[] { nameof(IsBusy), nameof(CanChooseRun), nameof(CanExecute), nameof(CanExportReports), nameof(FileCount), nameof(SelectedCount), nameof(SelectionSummary), nameof(CommandLine) }) OnPropertyChanged(property);
-        foreach (var command in new[] { BrowseCommand, RefreshCommand, ExecuteCommand, ExportReportsCommand, SelectAllCommand, SelectPendingCommand, ClearSelectionCommand, CancelCommand }) command?.RaiseCanExecuteChanged();
+        foreach (var command in new[] { BrowseCommand, RefreshCommand, ValidateFullyCommand, ExecuteCommand, ExportReportsCommand, SelectAllCommand, SelectPendingCommand, ClearSelectionCommand, CancelCommand }) command?.RaiseCanExecuteChanged();
     }
     public void Cancel() => cancellation?.Cancel();
     public void Dispose() { Cancel(); foreach (var row in files) row.SelectionChanged -= Notify; }

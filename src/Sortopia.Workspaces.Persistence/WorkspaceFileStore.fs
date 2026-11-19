@@ -64,7 +64,7 @@ type WorkspaceFileStore private () =
                 raise (IOException("A workspace file already exists at this location. Reopen the workspace to load it."))
         requireNew ()
         let plan = WorkspaceSavePlan.prepare rootFolder definition token copies moves
-        WorkspaceFileStore.ValidateDocuments(None, plan.Definition, None)
+        WorkspaceFileStore.ValidateDocuments(None, plan.Definition, Set.empty)
         requireNew ()
         let result = WorkspaceCommit.commit plan token
         WorkspaceDisk.rememberSavedDocument (normalizeRoot rootFolder) result.Definition
@@ -73,7 +73,7 @@ type WorkspaceFileStore private () =
     static member SaveDocument(rootFolder: string, definition: WorkspaceDocument, savedDefinition: WorkspaceDocument, token: CancellationToken,
                                [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderCopy>)>] copies: IReadOnlyList<WorkspaceFolderCopy>,
                                [<Optional; DefaultParameterValue(null: IReadOnlyList<WorkspaceFolderMove>)>] moves: IReadOnlyList<WorkspaceFolderMove>) =
-        WorkspaceFileStore.SaveDocumentCore(rootFolder, definition, savedDefinition, token, copies, moves, None, [||])
+        WorkspaceFileStore.SaveDocumentCore(rootFolder, definition, savedDefinition, token, copies, moves, Set.empty, [||])
 
     static member private SaveDocumentCore(rootFolder, definition, savedDefinition, token: CancellationToken, copies, moves, resumeProject, removedFiles: string array) =
         token.ThrowIfCancellationRequested()
@@ -110,7 +110,7 @@ type WorkspaceFileStore private () =
         let _, folder = WorkspaceProjectState.find projectId previous
         let data = Path.Combine(normalizeRoot rootFolder, folder, "data")
         let removed = if Directory.Exists data then [| data |] else [||]
-        WorkspaceFileStore.SaveDocumentCore(rootFolder, next, savedDefinition, token, null, null, Some projectId, removed)
+        WorkspaceFileStore.SaveDocumentCore(rootFolder, next, savedDefinition, token, null, null, Set.singleton projectId, removed)
 
     /// Files, including unreadable ones, keep a project's ancestors locked.
     static member ProjectsWithRunParameters(rootFolder: string, savedDefinition: WorkspaceDocument) =
@@ -149,9 +149,18 @@ type WorkspaceFileStore private () =
         let next = if resume then WorkspaceProjectState.resume previous projectId else previous
         let data = Path.Combine(root, relative, "data")
         let paths = if resume && Directory.Exists data then Array.append (paths |> Array.filter (fun path -> not (WorkspaceFolderCopy.Inside(data, path)))) [| data |] else paths
-        WorkspaceFileStore.SaveDocumentCore(root, next, savedDefinition, token, null, null, (if resume then Some projectId else None), paths).Definition
+        WorkspaceFileStore.SaveDocumentCore(root, next, savedDefinition, token, null, null, (if resume then Set.singleton projectId else Set.empty), paths).Definition
 
-    static member private ValidateDocuments(previous: WorkspaceDocument option, next: WorkspaceDocument, resumeProject: Guid option) =
+    /// Reset a saved workspace, module, project or run. Definitions stay in place; unused projects become editable.
+    static member ResetGeneratedFiles(rootFolder: string, savedDefinition: WorkspaceDocument, kind: string, nodeId: Guid, token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        WorkspaceDisk.verifySavedFiles savedDefinition |> ignore
+        let root = normalizeRoot rootFolder
+        let previous = WorkspaceDisk.documentBaseline savedDefinition
+        let next, resumed, paths = WorkspaceReset.plan root previous kind nodeId token
+        WorkspaceFileStore.SaveDocumentCore(root, next, savedDefinition, token, null, null, resumed, paths)
+
+    static member private ValidateDocuments(previous: WorkspaceDocument option, next: WorkspaceDocument, resumeProjects: Set<Guid>) =
         let rec projects (modules: ModuleDocument array) = seq {
             for m in modules do
                 yield! m.Projects
@@ -162,7 +171,7 @@ type WorkspaceFileStore private () =
             let dto = p.Definition
             let old = oldProjects |> Option.bind (fun values -> match values.TryGetValue dto.id with true, p -> Some p | _ -> None)
             match old with
-            | Some original when original.Definition.isSealed && resumeProject <> Some dto.id ->
+            | Some original when original.Definition.isSealed && not (Set.contains dto.id resumeProjects) ->
                 let before = original.Definition
                 if not dto.isSealed
                    || not (equalBytes (MessagePackSetup.serialize dto.configuration) (MessagePackSetup.serialize before.configuration)) then

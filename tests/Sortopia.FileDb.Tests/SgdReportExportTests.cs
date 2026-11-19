@@ -37,9 +37,14 @@ public sealed partial class PreparedExecutionTests
         {
             var item = RunParameterFiles.loadFile(file);
             var store = new SortopiaFileDb(folder, item.ProjectId);
-            var reference = RunParameterExecution.inspectFile(file, Token).Outputs.Available.Single(output => output.Reference.DataType.IsSorterSetEval).Reference;
-            var saved = Assert.IsType<functionData.SorterSetEval>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
-            foreach (var evaluation in saved.SorterEvals)
+            var reference = Assert.Single(RunParameterExecution.inspectFile(file, Token).Outputs.Available).Reference;
+            Assert.True(reference.DataType.IsSorterPoolSet);
+            var saved = Assert.IsType<functionData.SorterPoolSet>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
+            var evaluations = saved.Pools.SelectMany(pool => pool.Members).Select(member => member.Evaluation).DistinctBy(SorterEval.getSorterId).ToArray();
+            var summary = Assert.Single(TypedReportTests.ReadCsv(export.SummaryPath), row => row["WorkItemId"] == item.Id.ToString());
+            Assert.Equal(evaluations.Length.ToString(CultureInfo.InvariantCulture), summary["EvaluatedSorterCount"]);
+            Assert.Equal(evaluations.Count(SorterEval.getIsSorted).ToString(CultureInfo.InvariantCulture), summary["SuccessfulSorterCount"]);
+            foreach (var evaluation in evaluations)
             {
                 var v1 = Assert.IsType<sorterEval.V2>(evaluation).Item.ToV1();
                 var row = Assert.Single(details, row => row["WorkItemId"] == item.Id.ToString() && row["SorterId"] == v1.SorterId.ToString());
@@ -57,12 +62,18 @@ public sealed partial class PreparedExecutionTests
                 Assert.Equal(v1.ReflectiveCount.ToString(CultureInfo.InvariantCulture), row["ReflectiveCount"]);
                 Assert.Equal(ResultsFunctionNames.standardMsuf4SimpleSgd, row["ResultsFunction"]);
                 Assert.Equal(consumer.Runs[0].Id.ToString(), row["RunId"]);
+                Assert.Equal(reference.Id.ToString(), row["ResultsDataId"]);
+                Assert.Equal(store.GetPath(reference), row["ResultsFile"]);
+                Assert.Equal(saved.TestsId.ToString(), row["SortableTestsId"]);
+                Assert.Empty(row["SorterSetEvalId"]); Assert.Empty(row["SorterSetId"]);
                 Assert.Contains("channelCount=8", row["Setup.SortableTests.Query.PrefixLibId"]);
                 Assert.Equal(item.Parameters.TryFindText("OrthoRate").Value, row["Results.OrthoRate"]);
                 Assert.Equal(item.Parameters.TryFindText("SelfSymRate").Value, row["Results.SelfSymRate"]);
             }
         }
         foreach (var file in original) Assert.Equal(file.Value, SHA256.HashData(File.ReadAllBytes(file.Key)));
+        Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterModelSet")));
+        Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterSetEval")));
         var cliDestination = Path.Combine(temporary.FullName, "CLI sweep report");
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].Id.ToString(), "--output", cliDestination]));
         Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(cliDestination, "Details.csv")));

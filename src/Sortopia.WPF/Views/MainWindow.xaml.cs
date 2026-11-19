@@ -36,7 +36,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = new MainWindowViewModel(PickWorkspaceFolder, confirmWorkspaceChanges: ConfirmWorkspaceChanges,
-            pickExistingWorkspaceFolder: PickExistingWorkspaceFolder, openWorkspaceFolder: OpenFolderInExplorer);
+            pickExistingWorkspaceFolder: PickExistingWorkspaceFolder, openWorkspaceFolder: OpenFolderInExplorer,
+            confirmWorkspaceReset: ConfirmWorkspaceReset);
     }
 
     private static void OpenFolderInExplorer(string folder)
@@ -52,6 +53,9 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
         return dialog.Choice;
     }
+
+    private bool ConfirmWorkspaceReset(WorkspaceResetRequest request) =>
+        new WorkspaceResetDialog(request) { Owner = this }.ShowDialog() == true;
 
     private string? PickExistingWorkspaceFolder(WorkspaceFolderRequest request)
     {

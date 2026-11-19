@@ -131,6 +131,8 @@
                   </StackPanel>
                     <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
                             ToolTip="{Binding RemoveHint}" ToolTipService.ShowOnDisabled="True" />
+                    <Button x:Name="ResetGeneratedFilesButton" Content="Reset…" Command="{Binding ResetGeneratedFilesCommand}" Margin="8,0,0,4"
+                            AutomationProperties.Name="Reset generated files" ToolTip="{Binding ResetGeneratedFilesHint}" ToolTipService.ShowOnDisabled="True" />
                 </WrapPanel>
                 <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Margin="0,0,0,8">
                     <TextBlock x:Name="SelectionHint" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" />

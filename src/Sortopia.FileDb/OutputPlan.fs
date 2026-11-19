@@ -18,6 +18,22 @@ type outputInspection = {
 }
 
 module OutputPlan =
+    /// File integrity only; used to display availability without materializing
+    /// every saved model and snapshot. Execution retains the full inspect path.
+    let inspectIntegrity (store: SortopiaFileDb) (keys: dataKey array) (token: CancellationToken) =
+        let available, errors = ResizeArray<storedOutput>(), ResizeArray<string>()
+        for key in keys do
+            token.ThrowIfCancellationRequested()
+            match store.CheckIntegrity(key, token) with
+            | Ok (Some reference) -> available.Add { Reference = reference; Reused = true }
+            | Ok None -> ()
+            | Error error -> errors.Add $"{key.Reference.DataType}: {error}"
+        token.ThrowIfCancellationRequested()
+        { State = if errors.Count > 0 then outputState.Invalid
+                  elif available.Count = keys.Length then outputState.Complete
+                  elif available.Count = 0 then outputState.Pending else outputState.Partial
+          Available = List.ofSeq available; ExpectedCount = keys.Length; Error = String.Join(Environment.NewLine, errors) }
+
     let create projectId databaseName isSetup functionName version
                (outputs: Map<sortopiaDataType, _>) (dependencies: Map<sortopiaDataType, sortopiaDataType list>)
                parameters (inputs: storedDataReference list) =

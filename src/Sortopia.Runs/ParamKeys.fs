@@ -91,6 +91,8 @@ module ParamKeys =
     let generationsPerMergedSetKey = ParamKey.integer "GenerationsPerMergedSet"
     let generationsPerSubsetKey = ParamKey.integer "GenerationsPerSubset"
     let idKey = ParamKey.guid "Id"
+    let initialPoolSeedKey = ParamKey.integer "InitialPoolSeed"
+    let initialPoolSelectionKey = ParamKey.text "InitialPoolSelection"
     let insertionRateKey = ParamKey.floating "InsertionRate"
     let latticeDistanceKey = ParamKey.integer "LatticeDistance"
     let maxOrbitKey = ParamKey.integer "MaxOrbit"
@@ -181,6 +183,8 @@ module ParamKeys =
         ParamKey.describe generationsPerMergedSetKey
         ParamKey.describe generationsPerSubsetKey
         ParamKey.describe idKey
+        ParamKey.describe initialPoolSeedKey
+        ParamKey.describe initialPoolSelectionKey
         ParamKey.describe insertionRateKey
         ParamKey.describe latticeDistanceKey
         ParamKey.describe maxOrbitKey

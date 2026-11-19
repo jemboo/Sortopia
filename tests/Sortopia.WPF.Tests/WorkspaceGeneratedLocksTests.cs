@@ -10,7 +10,8 @@ namespace Sortopia.WPF.Tests;
 public sealed class WorkspaceGeneratedLocksTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-generated-locks-");
-    private WorkspacePageViewModel Open() => new(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
+    private WorkspacePageViewModel Open(Func<WorkspaceResetRequest, bool>? confirmReset = null, Func<bool>? isResultsExecutionBusy = null) => new(() => { }, _ => null,
+        new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), confirmReset: confirmReset, isResultsExecutionBusy: isResultsExecutionBusy);
     private static WorkspaceTreeNode Find(WorkspacePageViewModel page, Guid id) => page.Roots[0].DescendantsAndSelf().Single(node => node.Id == id);
 
     private async Task<(WorkspacePageViewModel Page, Guid[] Runs)> Create(bool branch)
@@ -111,4 +112,84 @@ public sealed class WorkspaceGeneratedLocksTests : IDisposable
     }
 
     public void Dispose() => temporary.Delete(true);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reset_subtree_clears_artifacts_unlocks_editors_and_keeps_other_branches(bool branch)
+    {
+        var (page, runs) = await Create(branch);
+        WorkspaceResetRequest? confirmation = null;
+        page = Open(request => { confirmation = request; return true; });
+        var run = Find(page, runs[0]); var project = run.Parent!; var child = project.Parent!;
+        var ancestorId = child.Parent!.Id; var childId = child.Id; var projectId = project.Id;
+        var projectFolder = project.GetFolderPath(page.WorkspaceFolder);
+        var otherFolder = Find(page, runs[2]).Parent!.GetFolderPath(page.WorkspaceFolder);
+        var otherFiles = Directory.GetFiles(otherFolder, "*", SearchOption.AllDirectories).ToDictionary(p => p, File.ReadAllBytes);
+        var reports = Directory.CreateDirectory(Path.Combine(projectFolder, "data", "results", "reports"));
+        File.WriteAllText(Path.Combine(reports.FullName, "summary.csv"), "old report");
+        // Container reset does not require parameter files or results to be readable.
+        File.WriteAllText(Path.Combine(projectFolder, "runParameters", "broken.msgpack"), "broken");
+        page.Selected = child;
+        var path = page.SelectedConfigurationPath;
+        Assert.True(page.ResetGeneratedFilesCommand.CanExecute(null));
+        await page.ResetGeneratedFilesAsync(); Assert.Empty(page.Error);
+        Assert.Equal(path, confirmation!.Path); Assert.Equal(1, confirmation.ProjectCount); Assert.Equal(2, confirmation.RunCount);
+        Assert.Equal(childId, page.Selected!.Id);
+        Assert.False(Directory.Exists(Path.Combine(projectFolder, "runParameters")));
+        Assert.False(Directory.Exists(Path.Combine(projectFolder, "data")));
+        Assert.True(Find(page, projectId).Editor!.IsEditable);
+        Assert.True(Find(page, childId).Editor!.IsEditable);
+        Assert.True(Find(page, ancestorId).Editor!.IsReadOnly);
+        Assert.Equal(otherFiles.Keys.Order(), Directory.GetFiles(otherFolder, "*", SearchOption.AllDirectories).Order());
+        foreach (var (file, bytes) in otherFiles) Assert.Equal(bytes, File.ReadAllBytes(file));
+        page.Selected = Find(page, runs[0]); await page.RefreshRunParameterFilesAsync();
+        Assert.Empty(page.SelectedExecution!.Files.Rows);
+        Assert.False(page.HasUnsavedChanges);
+        page = Open(_ => true);
+        Assert.True(Find(page, projectId).Editor!.IsEditable);
+        Assert.True(Find(page, childId).Editor!.IsEditable);
+        page.Selected = page.Roots.Single();
+        await page.ResetGeneratedFilesAsync(); Assert.Empty(page.Error);
+        Assert.All(page.Roots[0].DescendantsAndSelf().Where(n => !n.IsRun && !n.IsWorkspace), n => Assert.True(n.Editor!.IsEditable));
+        Assert.Equal(3, page.Roots[0].DescendantsAndSelf().Count(n => n.IsRun));
+        Assert.False(Directory.Exists(Path.Combine(otherFolder, "runParameters")));
+        Find(page, ancestorId).Editor!.ResultsParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "8";
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        page = Open();
+        Assert.Equal("8", Find(page, runs[0]).Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
+    }
+
+    [Fact]
+    public async Task Reset_requires_confirmation_and_a_saved_workspace()
+    {
+        var (page, runs) = await Create(false);
+        var files = Directory.GetFiles(page.WorkspaceFolder, "*", SearchOption.AllDirectories).ToDictionary(p => p, File.ReadAllBytes);
+        page.Selected = Find(page, runs[0]).Parent;
+        await page.ResetGeneratedFilesAsync(); // Missing dialog callback defaults to cancellation.
+        var prompts = 0;
+        page = Open(_ => { prompts++; return false; });
+        page.Selected = page.Roots[0];
+        await page.ResetGeneratedFilesAsync(); Assert.Equal(1, prompts);
+        page.AddModuleCommand.Execute(null);
+        Assert.True(page.HasUnsavedChanges);
+        Assert.False(page.ResetGeneratedFilesCommand.CanExecute(null));
+        await page.ResetGeneratedFilesAsync(); Assert.Equal(1, prompts);
+        Assert.Equal(files.Keys.Order(), Directory.GetFiles(page.WorkspaceFolder, "*", SearchOption.AllDirectories).Order());
+        foreach (var (path, bytes) in files) Assert.Equal(bytes, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public async Task Reset_waits_for_results_execution_to_finish_cancelling()
+    {
+        await Create(false);
+        var busy = true; var prompts = 0;
+        var page = Open(_ => { prompts++; return true; }, () => busy);
+        page.Selected = page.Roots[0];
+        Assert.False(page.ResetGeneratedFilesCommand.CanExecute(null));
+        await page.ResetGeneratedFilesAsync(); Assert.Equal(0, prompts);
+        busy = false;
+        Assert.True(page.ResetGeneratedFilesCommand.CanExecute(null));
+        await page.ResetGeneratedFilesAsync(); Assert.Equal(1, prompts); Assert.Empty(page.Error);
+    }
 }

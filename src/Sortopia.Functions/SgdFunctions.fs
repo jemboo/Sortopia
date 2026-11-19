@@ -16,12 +16,13 @@ module SgdFunctions =
     let private modelsType = sortopiaDataType.SorterModelSet ""
     let private testsType = sortopiaDataType.SortableTests ""
     let private poolType = sortopiaDataType.SorterPoolSet ""
-    let private evalType = sortopiaDataType.SorterSetEval ""
 
     let private keys = [
         ParamKey.describe ParamKeys.generationCountKey
         ParamKey.describe ParamKeys.sorterPoolCountKey
         ParamKey.describe ParamKeys.sorterCountPerPoolKey
+        ParamKey.describe ParamKeys.initialPoolSeedKey
+        ParamKey.describe ParamKeys.initialPoolSelectionKey
         ParamKey.describe ParamKeys.selectedSorterCountPerPoolKey
         ParamKey.describe ParamKeys.sorterChildCountKey
         ParamKey.describe ParamKeys.mutationModKey
@@ -44,7 +45,7 @@ module SgdFunctions =
             let floats key = inputValues key defaults spans
             for key in [ParamKeys.sorterPoolCountKey; ParamKeys.sorterCountPerPoolKey; ParamKeys.sorterChildCountKey; ParamKeys.adjustCeLengthFrequencyKey] do
                 if ints key |> List.exists (fun n -> n < 1) then invalidArg (string key.Name) "Must be positive."
-            for key in [ParamKeys.generationCountKey; ParamKeys.selectedSorterCountPerPoolKey] do
+            for key in [ParamKeys.generationCountKey; ParamKeys.selectedSorterCountPerPoolKey; ParamKeys.initialPoolSeedKey] do
                 if ints key |> List.exists (fun n -> n < 0) then invalidArg (string key.Name) "Must be nonnegative."
             for retained in ints ParamKeys.selectedSorterCountPerPoolKey do
                 for size in ints ParamKeys.sorterCountPerPoolKey do
@@ -60,54 +61,75 @@ module SgdFunctions =
             for value in inputValues ParamKeys.mutatorVariantKey defaults spans do
                 if value <> "V1" && value <> "V2" then invalidArg "MutatorVariantKey" "MSUF4 supports V1 and V2."
             for value in inputValues ParamKeys.sorterEvalMeasureKey defaults spans do SorterEvalFunctions.fromCompactString value |> ignore
+            for value in inputValues ParamKeys.initialPoolSelectionKey defaults spans do InitialPoolSelection.fromString value |> ignore
             ""
         with error -> error.Message
+
+    let private settings p = {
+        PoolCount = required ParamKeys.sorterPoolCountKey p; SortersPerPool = required ParamKeys.sorterCountPerPoolKey p
+        InitialPoolSeed = required ParamKeys.initialPoolSeedKey p
+        InitialPoolSelection = required ParamKeys.initialPoolSelectionKey p |> InitialPoolSelection.fromString
+        RetainedParentsPerPool = required ParamKeys.selectedSorterCountPerPoolKey p; ChildrenPerParent = required ParamKeys.sorterChildCountKey p
+        Generations = required ParamKeys.generationCountKey p; MutationMod = required ParamKeys.mutationModKey p
+        AdjustCeLengthFrequency = required ParamKeys.adjustCeLengthFrequencyKey p; SortedFraction = required ParamKeys.sortedFractionKey p
+        PrioritizeNewMutants = required ParamKeys.prioritizeNewMutantsKey p; DistinctSorterHashes = required ParamKeys.distinctSorterHashesKey p
+        SelectionMeasure = required ParamKeys.sorterEvalMeasureKey p |> SorterEvalFunctions.fromCompactString }
+
+    let private loadTests (host: runHost) =
+        match host.SetupDb.Load testsType with
+        | functionData.SortableTests (tests, prefix) -> tests, prefix
+        | _ -> invalidOp "Expected setup sortable tests."
+
+    let private initialPopulation (host: runHost) settings tests prefix =
+        let prepare () =
+            let models = match host.SetupDb.Load modelsType with functionData.SorterModelSet value -> value | _ -> invalidOp "Expected setup sorter models."
+            EvaluationInputs.validateCopiedModels (SortableTests.getChannelCount tests) prefix models
+            if models.SorterModels |> Array.exists (function sorterModel.Simple (simpleSorterModel.Msuf4 _) -> false | _ -> true) then
+                invalidArg "models" "sorter-sgd.standard.msuf4.simple requires Simple MSUF4 source models."
+            StandardSgd.prepareInitialPopulation
+                (ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)) settings models tests prefix
+        match settings.InitialPoolSelection, host.PreparationCache with
+        | initialPoolSelection.Best, Some cache ->
+            let references = [host.SetupDb.Reference modelsType; host.SetupDb.Reference testsType]
+            let key = GuidUtils.guidFromObjs [box "StandardSgd/best-preparation/v1"; box (sprintf "%A" references);
+                                             box settings.PoolCount; box settings.SortersPerPool; box settings.DistinctSorterHashes;
+                                             box (SorterEvalFunctions.toCompactString settings.SelectionMeasure)] |> string
+            cache.GetOrAdd(key, fun () -> box (prepare ())) :?> preparedSgdPopulation
+        | _ -> prepare ()
+
+    let private prepare (host: runHost) =
+        let configuration = settings host.Parameters
+        if configuration.InitialPoolSelection = initialPoolSelection.Best then
+            let tests, prefix = loadTests host
+            initialPopulation host configuration tests prefix |> ignore
 
     let private execute (host: runHost) =
         let inputs = [host.SetupDb.Reference modelsType; host.SetupDb.Reference testsType]
         let mutable evolved = false
         let evolve () =
             evolved <- true
-            let models = match host.SetupDb.Load modelsType with functionData.SorterModelSet value -> value | _ -> invalidOp "Expected setup sorter models."
-            let tests, prefix = match host.SetupDb.Load testsType with functionData.SortableTests (tests, prefix) -> tests, prefix | _ -> invalidOp "Expected setup sortable tests."
+            let tests, prefix = loadTests host
             let channels = SortableTests.getChannelCount tests
-            EvaluationInputs.validateCopiedModels channels prefix models
-            if models.SorterModels |> Array.exists (function sorterModel.Simple (simpleSorterModel.Msuf4 _) -> false | _ -> true) then
-                invalidArg "models" "sorter-sgd.standard.msuf4.simple requires Simple MSUF4 source models."
             let p = host.Parameters
+            let configuration = settings p
+            let initial = initialPopulation host configuration tests prefix
             let mutator = SimpleSorterModelMutator.getMsuf4ModelMutator channels
                               (required ParamKeys.rngTypeKey p |> RngType.fromString |> RngFactory.create) (UMX.tag true)
                               (required ParamKeys.seedModificationRateKey p |> UMX.tag) (required ParamKeys.modificationRateKey p |> UMX.tag)
                               (required ParamKeys.orthoRateKey p |> UMX.tag) (required ParamKeys.paraRateKey p |> UMX.tag) (required ParamKeys.selfSymRateKey p |> UMX.tag)
                               (required ParamKeys.mutatorVariantKey p |> MutatorVariant.fromString)
                           |> sorterModelMutator.Simple
-            let settings = {
-                PoolCount = required ParamKeys.sorterPoolCountKey p; SortersPerPool = required ParamKeys.sorterCountPerPoolKey p
-                RetainedParentsPerPool = required ParamKeys.selectedSorterCountPerPoolKey p; ChildrenPerParent = required ParamKeys.sorterChildCountKey p
-                Generations = required ParamKeys.generationCountKey p; MutationMod = required ParamKeys.mutationModKey p
-                AdjustCeLengthFrequency = required ParamKeys.adjustCeLengthFrequencyKey p; SortedFraction = required ParamKeys.sortedFractionKey p
-                PrioritizeNewMutants = required ParamKeys.prioritizeNewMutantsKey p; DistinctSorterHashes = required ParamKeys.distinctSorterHashesKey p
-                SelectionMeasure = required ParamKeys.sorterEvalMeasureKey p |> SorterEvalFunctions.fromCompactString }
             let observe snapshot = host.EvolutionReporting |> Option.iter (fun reporting -> reporting.Observe snapshot)
-            StandardSgd.runObserved observe (ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)) settings mutator models tests prefix
+            StandardSgd.runObservedPrepared observe (ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)) configuration mutator initial tests prefix
             |> functionData.SorterPoolSet
         host.ResultsDb.SaveIfMissing(poolType, inputs, evolve)
         // A different reporting schedule may need fresh observations even when
         // the final population is already cached. Sampling never changes evolution.
         if host.EvolutionReporting.IsSome && not evolved then evolve () |> ignore
-        let pools () = match host.ResultsDb.Load poolType with functionData.SorterPoolSet value -> value | _ -> invalidOp "Expected saved SGD pools."
-        host.ResultsDb.SaveIfMissing(modelsType, inputs, fun () ->
-            let value = pools ()
-            let models = value.Pools |> Array.collect _.Members |> Array.map _.Model |> Array.distinctBy SorterModel.getId
-            sorterModelSet.create (UMX.tag (Guid.NewGuid())) models (value.Pools |> Array.map _.RawCeLength |> Array.max |> UMX.tag) |> functionData.SorterModelSet)
-        host.ResultsDb.SaveIfMissing(evalType, inputs, fun () ->
-            let value = pools ()
-            let evaluations = value.Pools |> Array.collect _.Members |> Array.map _.Evaluation |> Array.distinctBy SorterEval.getSorterId
-            sorterSetEval.create (UMX.tag (Guid.NewGuid())) (UMX.tag (Guid.NewGuid())) value.TestsId evaluations |> functionData.SorterSetEval)
         host.EvolutionReporting |> Option.iter (fun reporting -> reporting.Complete())
 
     let standardMsuf4Simple =
-        let outputs = [poolType; modelsType; evalType]
-        FunctionDefinition.resultsWithInputsValidated "1" keys (outputs |> List.map (fun output -> output, [modelsType; testsType]))
-            (outputs |> List.map (fun output -> output, keys |> List.map _.Name)) inputError execute
-        |> FunctionDefinition.describe "Run GeneSort's fixed-pool Standard SGD on copied Simple MSUF4 models and sortable tests. Seed pools in model-ID order; mutate every member, evaluate on the full test set, adjust CE limits, and select survivors with duplicate/recovery handling. Save final pools, models, and evaluations. Optional run reporting records full population snapshots and lightweight pool statistics on independent schedules. Channel count and prefix come from setup inputs. GenerationCount counts evolution steps after the initial evaluation. Cancellation restarts unfinished evolution and verifies previously saved reporting samples during replay."
+        FunctionDefinition.resultsWithInputsValidated "3" keys [poolType, [modelsType; testsType]]
+            [poolType, keys |> List.map _.Name] inputError execute
+        |> fun definition -> { definition with Prepare = prepare }
+        |> FunctionDefinition.describe "Run GeneSort's fixed-pool Standard SGD on copied Simple MSUF4 models and sortable tests. InitialPoolSelection chooses Random (uniform sampling without replacement using InitialPoolSeed) or Best (evaluate the entire source and retain the best models using SorterEvalMeasure and DistinctSorterHashes). Best ignores InitialPoolSeed and breaks score ties by model ID. Source ranking is shared across mutation combinations within an execution batch. Multiple pools use disjoint models. Mutate every member, evaluate on the full test set, adjust CE limits, and select survivors with duplicate/recovery handling. Save final pools containing their models and evaluations. CSV reports read these pools directly. Optional run reporting records full population snapshots and lightweight pool statistics on independent schedules. Channel count and prefix come from setup inputs. GenerationCount counts evolution steps after the initial evaluation. Cancellation restarts unfinished evolution and verifies previously saved reporting samples during replay."

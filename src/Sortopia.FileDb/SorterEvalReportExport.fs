@@ -29,11 +29,12 @@ module SorterEvalReportExport =
         let project = RunParameterFiles.projectFolder parametersFolder
         Path.Combine(project, "data", "results", "reports")
 
-    /// Evaluation reports also apply to functions such as SGD that save an
-    /// evaluation alongside other outputs. Use the declared output contract.
+    let private isReportOutput (dataType: sortopiaDataType) = dataType.IsSorterSetEval || dataType.IsSorterPoolSet
+
+    /// Report saved evaluations or evaluations embedded in final SGD pools.
     let isSupported (item: runParameters) =
         item.SetupSetNumber.IsSome && not item.SetupInputs.IsEmpty
-        && (item.Results.DataTypes |> Map.exists (fun dataType _ -> dataType.IsSorterSetEval))
+        && (item.Results.DataTypes |> Map.exists (fun dataType _ -> isReportOutput dataType))
 
     let private integer value = reportValue.Integer (int64 value)
     let private optionalInteger value = value |> Option.map integer |> Option.defaultValue reportValue.Missing
@@ -114,7 +115,7 @@ module SorterEvalReportExport =
             token.ThrowIfCancellationRequested()
             try
                 let item = RunParameterFiles.loadFile path
-                if not (isSupported item) then invalidOp "Reports require saved branch run parameters with SorterSetEval outputs, such as sorter evaluation or SGD."
+                if not (isSupported item) then invalidOp "Reports require saved branch run parameters with SorterSetEval or SorterPoolSet outputs."
                 let folder = RunParameterFiles.projectFolder (Path.GetDirectoryName path)
                 let store = SortopiaFileDb(folder, item.ProjectId)
                 let plan = FileResultsHost.plan item.ProjectId item.Results item.Parameters item.SetupInputs
@@ -139,7 +140,7 @@ module SorterEvalReportExport =
                     match dynamicColumns.TryGetValue name with
                     | true, old when old <> kind -> invalidOp $"Report column '{name}' has inconsistent saved value types."
                     | _ -> dynamicColumns[name] <- kind
-                plan |> Map.toArray |> Array.filter (fun (dataType, _) -> dataType.IsSorterSetEval) |> Array.map (fun (dataType, output) ->
+                plan |> Map.toArray |> Array.filter (fun (dataType, _) -> isReportOutput dataType) |> Array.map (fun (dataType, output) ->
                     let reference = output.Key.Reference
                     if not (outputIds.Add(reference.ProjectId, reference.Id)) then invalidOp "Selected parameter files refer to the same results file. Select each results file only once."
                     let metadata = ReportRow.create ([
@@ -190,14 +191,21 @@ module SorterEvalReportExport =
                             match (source.Store :> ISortopiaDb).TryLoad(source.Output.Key, token) |> HostStorage.require with
                             | Some saved -> saved
                             | None -> invalidOp "Results have not been generated. Execute this file before exporting reports."
-                        let evaluations = match saved.Value with functionData.SorterSetEval value -> value | _ -> invalidOp "Expected a saved sorter evaluation."
-                        let metadata = ReportRow.combine source.Metadata (ReportRow.create [
-                            "SorterSetEvalId", reportValue.Identifier (%evaluations.SorterSetEvalId)
-                            "SorterSetId", reportValue.Identifier (%evaluations.SorterSetId)
-                            "SortableTestsId", reportValue.Identifier (%evaluations.SorterTestId) ])
-                        summary.Write(ReportRow.combine metadata (evaluations |> SorterEvalReports.summarize |> SorterEvalReports.summaryRow), token)
+                        let evaluations, identities =
+                            match saved.Value with
+                            | functionData.SorterSetEval value ->
+                                value.SorterEvals, [
+                                    "SorterSetEvalId", reportValue.Identifier (%value.SorterSetEvalId)
+                                    "SorterSetId", reportValue.Identifier (%value.SorterSetId)
+                                    "SortableTestsId", reportValue.Identifier (%value.SorterTestId) ]
+                            | functionData.SorterPoolSet value ->
+                                let evaluations = value.Pools |> Array.collect _.Members |> Array.map _.Evaluation |> Array.distinctBy SorterEval.getSorterId
+                                evaluations, ["SortableTestsId", reportValue.Identifier (%value.TestsId)]
+                            | _ -> invalidOp "Expected saved sorter evaluations or pools."
+                        let metadata = ReportRow.combine source.Metadata (ReportRow.create identities)
+                        summary.Write(ReportRow.combine metadata (evaluations |> SorterEvalReports.summarizeEvaluations |> SorterEvalReports.summaryRow), token)
                         summaryRows <- summaryRows + 1
-                        for evaluation in evaluations.SorterEvals do
+                        for evaluation in evaluations do
                             details.Write(ReportRow.combine metadata (SorterEvalReports.detailRow evaluation), token)
                             detailRows <- detailRows + 1L
                     with

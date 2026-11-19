@@ -42,6 +42,8 @@ internal static class WorkspaceParameterInitialValues
             "SorterSuccessFraction" => "99%",
             "SorterCount" => "100",
             "Repl" => "0",
+            "InitialPoolSeed" => "0",
+            "InitialPoolSelection" => "Random",
             "ExcludeSelfCe" => "true",
             "CollectSortableTests" => "false",
             "SortableDataFormat" => "Bools",

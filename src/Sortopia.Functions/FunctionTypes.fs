@@ -50,6 +50,12 @@ type IEvolutionReporting =
     abstract Observe: Sortopia.Evaluation.Sgd.sorterPoolSet -> unit
     abstract Complete: unit -> unit
 
+/// An execution-scoped cache for read-only preparation, never persisted or global.
+type RunPreparationCache() =
+    let values = System.Collections.Concurrent.ConcurrentDictionary<string, System.Lazy<obj>>()
+    member _.GetOrAdd(key, factory: unit -> obj) =
+        values.GetOrAdd(key, fun _ -> System.Lazy<obj>(factory, LazyThreadSafetyMode.ExecutionAndPublication)).Value
+
 /// Bound for one parameter set, with phase-appropriate database access.
 type runHost = {
     Phase: runExecutionPhase
@@ -61,6 +67,7 @@ type runHost = {
     /// Runtime CPU allowance for evaluation inside this invocation.
     EvaluationParallelism: int
     EvolutionReporting: IEvolutionReporting option
+    PreparationCache: RunPreparationCache option
 }
 
 type sourceProjects = Map<sortopiaDataType, Guid<projectId>>
@@ -106,6 +113,8 @@ type functionDefinition<'executor> = {
     /// Validate the supplied values, including relationships between keys.
     /// Missing keys are allowed here so module/project defaults can be checked too.
     InputError: parameterBinding list -> parameterSpan list -> string
+    /// Read-only preparation before concurrent results execution. Must not save data.
+    Prepare: runHost -> unit
     Execute: 'executor
 }
 with
@@ -229,7 +238,7 @@ module FunctionDefinition =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types inputs
         { Version = version; Description = ""; ModelGeneration = None; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
-          InputError = inputError
+          InputError = inputError; Prepare = ignore
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
               host.CancellationToken.ThrowIfCancellationRequested()
@@ -255,7 +264,7 @@ module FunctionDefinition =
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
         { Version = version; Description = ""; ModelGeneration = None; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
-          InputError = fun _ _ -> ""
+          InputError = (fun _ _ -> ""); Prepare = ignore
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
               host.CancellationToken.ThrowIfCancellationRequested()

@@ -86,7 +86,7 @@ module FileResultsHost =
                     | None -> (store.Load(reference, token) |> HostStorage.require).Value
                 member _.SaveIfMissing(_, _, _) = invalidOp "The setup database is read-only during results execution."
                 member _.StoredOutputs = outputs }
-        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; EvolutionReporting = None
+        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; EvolutionReporting = None; PreparationCache = None
           SetupDb = setup
           ResultsDb = FileRunDatabase(store, plan, token)
           SourceResults = HostStorage.noSources }
@@ -136,7 +136,7 @@ type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: Cancellation
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
                                         branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes
                                         definition.OutputDependencies parameters inputs
-            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; EvolutionReporting = None
+            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; EvolutionReporting = None; PreparationCache = None
               SetupDb = FileRunDatabase(store, plan, token)
               ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
               SourceResults = sources }

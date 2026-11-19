@@ -170,4 +170,104 @@ public sealed class RemovalTests : IDisposable
         Save(edit, saved); Assert.False(File.Exists(path));
     }
     public void Dispose() => temporary.Delete(true);
+
+    [Theory]
+    [InlineData("workspace")]
+    [InlineData("module")]
+    [InlineData("project")]
+    public void Reset_containers_preserves_definitions_and_unlisted_files_and_releases_projects(string kind)
+    {
+        var saved = Create();
+        var module = saved.Modules[0]; var project = module.Projects[0];
+        var folder = Path.Combine(Root, "sorting", "search");
+        Directory.CreateDirectory(Path.Combine(folder, "runParameters"));
+        Directory.CreateDirectory(Path.Combine(folder, "data", "results", "reports"));
+        File.WriteAllText(Path.Combine(folder, "runParameters", "bad.msgpack"), "unreadable");
+        File.WriteAllText(Path.Combine(folder, "data", "results", "reports", "summary.csv"), "old report");
+        File.WriteAllText(Path.Combine(folder, "notes.txt"), "keep");
+        var outside = Directory.CreateDirectory(Path.Combine(Root, "unlisted", "data"));
+        File.WriteAllText(Path.Combine(outside.FullName, "notes.txt"), "keep outside");
+        var id = kind == "workspace" ? saved.Definition.id : kind == "module" ? module.Definition.id : project.Definition.id;
+        var result = WorkspaceFileStore.ResetGeneratedFiles(Root, saved, kind, id, Token);
+        Assert.Empty(result.CleanupWarnings);
+        Assert.False(Directory.Exists(Path.Combine(folder, "data")));
+        Assert.False(Directory.Exists(Path.Combine(folder, "runParameters")));
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(folder, "notes.txt")));
+        Assert.Equal("keep outside", File.ReadAllText(Path.Combine(outside.FullName, "notes.txt")));
+        var loaded = WorkspaceFileStore.LoadDocument(Root);
+        Assert.Equal(saved.Definition.id, loaded.Definition.id);
+        Assert.Equal(project.Definition.id, loaded.Modules[0].Projects[0].Definition.id);
+        Assert.Equal(project.Runs.Select(r => r.id), loaded.Modules[0].Projects[0].Runs.Select(r => r.id));
+        Assert.False(loaded.Modules[0].Projects[0].Definition.isSealed);
+        Assert.Empty(WorkspaceFileStore.ProjectsWithRunParameters(Root, loaded));
+        WorkspaceFileStore.ResetGeneratedFiles(Root, loaded, kind, id, Token); // Idempotent.
+        Assert.Empty(Directory.GetFileSystemEntries(Root, ".sortopia-*"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reset_run_preserves_shared_outputs_until_last_run_and_invalidates_reports(bool branch)
+    {
+        var saved = Create(branch, secondRun: true);
+        var edit = Clone(saved); var p = edit.Modules[0].Projects[0];
+        p.Runs[1].resultsParameterSpans = Clone(p.Runs[0].resultsParameterSpans);
+        p.Runs[1].setupParameterSpans = Clone(p.Runs[0].setupParameterSpans);
+        saved = Save(edit, saved); p = saved.Modules[0].Projects[0];
+        var folder = Path.Combine(Root, "sorting", "search");
+        foreach (var run in p.Runs)
+        {
+            var generated = RunParameterExecution.generateInScope(WorkspaceRunDocument.resolveByRunId(saved, run.id), Root, null!, Token);
+            Assert.Equal(runExecutionStatus.Completed, generated.Execution.Status);
+            foreach (var id in generated.WorkItemIds)
+                Assert.Equal(runExecutionStatus.Completed, RunParameterExecution.executeFile(Path.Combine(folder, "runParameters", id + ".msgpack"), null!, Token).Status);
+        }
+        var reports = Directory.CreateDirectory(Path.Combine(folder, "data", "results", "reports"));
+        File.WriteAllText(Path.Combine(reports.FullName, "summary.csv"), "stale report");
+        saved = WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "run", p.Runs[0].id, Token).Definition;
+        Assert.True(saved.Modules[0].Projects[0].Definition.isSealed);
+        Assert.False(Directory.Exists(reports.FullName));
+        var work = RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token);
+        Assert.NotEmpty(work);
+        Assert.All(work, item => Assert.Equal(outputState.Complete, item.Outputs.State));
+        Assert.All(RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token), item => Assert.Equal(p.Runs[1].id, item.RunId));
+        saved = WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "run", p.Runs[1].id, Token).Definition;
+        Assert.False(saved.Modules[0].Projects[0].Definition.isSealed);
+        Assert.False(Directory.Exists(Path.Combine(folder, "data")));
+        Assert.False(Directory.Exists(Path.Combine(folder, "runParameters")));
+        Assert.Equal(2, saved.Modules[0].Projects[0].Runs.Length);
+    }
+
+    [Fact]
+    public void Reset_failure_cancellation_and_stale_baseline_leave_files_and_locks_unchanged()
+    {
+        var saved = Create(); var project = saved.Modules[0].Projects[0];
+        var folder = Path.Combine(Root, "sorting", "search");
+        Directory.CreateDirectory(Path.Combine(folder, "data"));
+        Directory.CreateDirectory(Path.Combine(folder, "runParameters"));
+        var payload = Path.Combine(folder, "data", "payload.bin");
+        File.WriteAllText(payload, "keep on failure");
+        File.WriteAllText(Path.Combine(folder, "runParameters", "bad.msgpack"), "unreadable");
+        var before = Directory.GetFiles(Root, "*", SearchOption.AllDirectories).ToDictionary(p => p, File.ReadAllBytes);
+        void Unchanged()
+        {
+            Assert.Equal(before.Keys.Order(), Directory.GetFiles(Root, "*", SearchOption.AllDirectories).Order());
+            foreach (var (path, bytes) in before) Assert.Equal(bytes, File.ReadAllBytes(path));
+            Assert.True(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Definition.isSealed);
+            Assert.Empty(Directory.GetFileSystemEntries(Root, ".sortopia-*"));
+        }
+        using (var locked = new FileStream(payload, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.ThrowsAny<IOException>(() => WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "project", project.Definition.id, Token));
+        Unchanged();
+        using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(folder, "project"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.True(Record.Exception(() => WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "project", project.Definition.id, Token)) is IOException or UnauthorizedAccessException);
+        Unchanged();
+        Assert.ThrowsAny<OperationCanceledException>(() => WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "workspace", saved.Definition.id, new CancellationToken(true)));
+        Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "module", Guid.NewGuid(), Token));
+        Unchanged();
+        var edit = Clone(saved); edit.Definition.workspaceName = "Changed elsewhere";
+        Save(edit, saved);
+        Assert.Throws<IOException>(() => WorkspaceFileStore.ResetGeneratedFiles(Root, saved, "project", project.Definition.id, Token));
+        Assert.True(File.Exists(payload));
+    }
 }

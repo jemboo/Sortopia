@@ -12,6 +12,7 @@
     <Compile Include="WorkspaceSavePlan.fs" />
     <Compile Include="WorkspaceCommit.fs" />
     <Compile Include="WorkspaceProjectState.fs" />
+    <Compile Include="WorkspaceReset.fs" />
     <Compile Include="WorkspaceFileStore.fs" />
     <Compile Include="WorkspaceRunGeneration.fs" />
     <Compile Include="WorkspaceImport.fs" />

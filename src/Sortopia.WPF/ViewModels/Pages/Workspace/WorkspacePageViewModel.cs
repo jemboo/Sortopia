@@ -39,7 +39,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
 
     public WorkspacePageViewModel(Action returnHome, Func<string?, string?> pickFolder, WorkspaceFolderSettings settings,
         Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null,
-        Action<string>? openFolder = null, Action? inspectFiles = null, Func<string, Guid?, Task>? openResultsExecution = null)
+        Action<string>? openFolder = null, Action? inspectFiles = null, Func<string, Guid?, Task>? openResultsExecution = null,
+        Func<WorkspaceResetRequest, bool>? confirmReset = null, Func<bool>? isResultsExecutionBusy = null)
     {
         this.returnHome = returnHome;
         this.pickFolder = pickFolder;
@@ -77,6 +78,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
         InitializeRunParameterCommands(openResultsExecution);
+        InitializeResetCommand(confirmReset, isResultsExecutionBusy);
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasStructuralErrors));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         try
@@ -567,6 +569,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(GenerationInstructions));
         OnPropertyChanged(nameof(ResumeProjectEditingHint));
         NotifyRunParameterCommands();
+        ResetGeneratedFilesCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(ResetGeneratedFilesHint));
         foreach (var property in new[] { nameof(AddProjectLabel), nameof(AddRunLabel), nameof(ShowRootModuleAction), nameof(ShowBranchModuleAction), nameof(ShowProjectAction), nameof(ShowRunAction), nameof(SelectionHint), nameof(PasteHint) }) OnPropertyChanged(property);
         OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanEdit));
         OnPropertyChanged(nameof(CanModifyWorkspace)); OnPropertyChanged(nameof(HasPendingRemoval));

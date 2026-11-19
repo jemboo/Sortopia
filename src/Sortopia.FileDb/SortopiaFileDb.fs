@@ -45,7 +45,7 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         let path = Path.Combine(typeFolder reference, string reference.Id + ".msgpack")
         checkPath path
         path
-    let read reference (expectedQuery: byte array option) (expectedIdentity: byte array option) (token: CancellationToken) =
+    let readEnvelope reference (expectedQuery: byte array option) (expectedIdentity: byte array option) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
         let path = filePath reference
         use stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
@@ -61,6 +61,7 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
             invalidOp $"Stored data identity does not match its reference: {path}"
         if isNull dto.QueryBytes || isNull dto.IdentityBytes || isNull dto.Payload || isNull dto.Checksum then
             invalidOp $"Incomplete stored data: {path}"
+        if dto.RawLength < 0 || dto.RawLength > DataCodec.maxRawBytes then invalidOp "Invalid uncompressed data length."
         if DataKey.hashId dto.QueryBytes <> reference.QueryId || DataKey.hashId dto.IdentityBytes <> reference.Id
            || dto.IdentityBytes.Length < dto.QueryBytes.Length
            || not (dto.IdentityBytes.AsSpan().StartsWith(dto.QueryBytes.AsSpan())) then
@@ -73,6 +74,9 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
                 invalidOp $"Stored data key collision: {path}")
         if SHA256.HashData dto.Payload <> dto.Checksum then invalidOp $"Stored data checksum failed: {path}"
         token.ThrowIfCancellationRequested()
+        dto
+    let read reference expectedQuery expectedIdentity token =
+        let dto = readEnvelope reference expectedQuery expectedIdentity token
         { Reference = reference; Value = DataCodec.decode dto.Kind dto.RawLength dto.Payload }
     let tryRead (key: dataKey) token =
         try Some (read key.Reference (Some key.QueryBytes) (Some key.IdentityBytes) token) with
@@ -117,6 +121,15 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
 
     member _.ProjectFolder = projectFolder
     member _.GetPath reference = filePath reference
+
+    /// Fast, read-only file integrity check for status displays. This verifies
+    /// the envelope and compressed payload checksum, without decoding models.
+    /// Consumers must still use TryLoad/Load for full payload validation.
+    member _.CheckIntegrity(key: dataKey, token: CancellationToken) = protect (fun () ->
+        try
+            readEnvelope key.Reference (Some key.QueryBytes) (Some key.IdentityBytes) token |> ignore
+            Some key.Reference
+        with :? FileNotFoundException | :? DirectoryNotFoundException -> None)
 
     /// Read immutable query metadata without loading model/test payloads.
     /// The exact saved reference is checked before any values are returned.

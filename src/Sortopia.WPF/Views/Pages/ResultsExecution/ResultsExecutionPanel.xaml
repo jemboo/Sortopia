@@ -24,11 +24,13 @@
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
    <Button x:Name="ExecuteSelectedButton" Content="Execute selected" Command="{Binding ExecuteCommand}" Margin="0,0,8,6" />
    <Button x:Name="ExportReportsButton" Content="Export CSV reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
-           ToolTip="Combine selected completed evaluation or SGD files into Summary.csv and Details.csv. Details includes each network's V1 statistics, results parameters, and inherited setup query values. Reports go to this project's data/results/reports; later exports use dated subfolders." />
+           ToolTip="Combine selected completed evaluations or SGD pools into Summary.csv and Details.csv. Details includes each network's V1 statistics, results parameters, and inherited setup query values. Exports replace the CSV files in this project's data/results/reports folder." />
    <Button Content="Select all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
    <Button Content="Select pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
    <Button Content="Clear selection" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />
    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,6" />
+   <Button x:Name="ValidateFullyButton" Content="Fully validate" Command="{Binding ValidateFullyCommand}" Margin="0,0,8,6"
+           ToolTip="Decode and validate model and report contents. Unchanged files reuse earlier full checks in this folder session." />
    <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,8,6" />
   </WrapPanel>
   <StackPanel Grid.Row="2" Margin="0,0,0,8">
@@ -40,6 +42,8 @@
    </StackPanel>
    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,4,0,0" />
    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
+   <TextBlock Text="Refresh checks file identities and checksums. Fully validate also checks model and report contents; execution and export always do this."
+              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="Select rows with Ctrl/Shift, or use Select all. Complete outputs are reused. Each selected file must have distinct outputs. Failed jobs do not stop other selected jobs."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="Click a Setup column header to sort by that inherited query value. Select a row and expand Inherited setup query values to inspect or copy its setup combination. Failed rows also have Error details."
