@@ -1,7 +1,7 @@
 using System.Globalization;
+using Microsoft.FSharp.Collections;
 using Sortopia.Runs;
 using Sortopia.Functions;
-using Sortopia.Models.Sorting;
 using Sortopia.Sorting.Catalog;
 using Sortopia.Workspaces.Serialization;
 
@@ -11,6 +11,34 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 internal static class WorkspaceParameterInitialValues
 {
     private const int DefaultChannels = 8;
+
+    internal static parameterBindingDto[] CreateMissing(parameterBindingDto[] current, parameterBindingDto[] related,
+        paramKeyDescriptor[] missing, functionParameterSupport? support)
+    {
+        // Invalid existing entries remain editable; they must not prevent suggesting other defaults.
+        static IEnumerable<parameterBinding> ValidBindings(IEnumerable<parameterBindingDto> values)
+        {
+            foreach (var value in values)
+            {
+                parameterBinding binding;
+                try { binding = ParameterBindingDto.toDomain(value); }
+                catch (ArgumentException) { continue; }
+                yield return binding;
+            }
+        }
+        var channels = ChannelCount(current);
+        if (channels == 0) channels = ChannelCount(related);
+        var context = new parameterDefaultContext(ListModule.OfSeq(ValidBindings(current)),
+            ListModule.OfSeq(ValidBindings(related)), ListModule.OfSeq(missing));
+        var suggested = support?.Defaults.Invoke(context).ToDictionary(binding => binding.KeyName);
+        return missing.Select(key => new parameterBindingDto {
+            keyName = key.Name, valueType = (int)key.ValueType,
+            value = suggested?.TryGetValue(key.Name, out var binding) == true
+                ? binding.ValueType == key.ValueType ? binding.FormattedValue
+                    : throw new ArgumentException($"The default provider returned the wrong type for '{key.Name}'.")
+                : For(key, channels)
+        }).ToArray();
+    }
 
     internal static int ChannelCount(IEnumerable<parameterBindingDto> values)
     {
@@ -32,9 +60,9 @@ internal static class WorkspaceParameterInitialValues
         return 0;
     }
 
-    internal static string For(paramKeyDescriptor key, int channels, modelGenerationMetadata? model = null)
+    internal static string For(paramKeyDescriptor key, int channels)
     {
-        if (channels <= 0) channels = model?.Algorithm.IsMsuf6 == true ? 12 : DefaultChannels;
+        if (channels <= 0) channels = DefaultChannels;
         return key.Name switch
         {
             "ChannelCount" => channels.ToString(CultureInfo.InvariantCulture),
@@ -53,26 +81,10 @@ internal static class WorkspaceParameterInitialValues
             "OrthoRate" or "ParaRate" or "SelfSymRate" => "1",
             "StageWeights" or "Seed4Weights" => "1,1,1",
             "Seed6Weights" => "1,1,1,1,1,1,1",
-            "UnfoldingWeights" => string.Join(";", Enumerable.Repeat("1,1,1", UnfoldingLevels(channels, model))),
             "RngType" => "SplitMix64",
             "SorterEvalType" => "V1",
             _ => ForType(key, channels)
         };
-    }
-
-    internal static int SuggestedChannelCount(int channels, modelGenerationMetadata? model)
-    {
-        if (model is null) return channels;
-        return channels > 1 && SimpleSorterModelType.supportsChannelCount(channels, model.Algorithm)
-            ? channels : model.Algorithm.IsMsuf6 ? 12 : DefaultChannels;
-    }
-
-    private static int UnfoldingLevels(int channels, modelGenerationMetadata? model)
-    {
-        int seedWidth = model?.Algorithm.IsMsuf6 == true ? 6 : 4;
-        int levels = 0;
-        for (long width = seedWidth; width < channels; width *= 2) ++levels;
-        return levels;
     }
 
     private static string ForType(paramKeyDescriptor key, int channels) => key.ValueType switch

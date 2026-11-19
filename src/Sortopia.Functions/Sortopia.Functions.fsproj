@@ -2,7 +2,10 @@
   <ItemGroup>
     <Compile Include="SourceContracts.fs" />
     <Compile Include="FunctionTypes.fs" />
+    <Compile Include="EvolutionSampling.fs" />
     <Compile Include="FunctionNames.fs" />
+    <Compile Include="ModelGenerationTypes.fs" />
+    <Compile Include="ModelGenerationSupport.fs" />
     <Compile Include="ModelGenerators.fs" />
     <Compile Include="InputGenerators.fs" />
     <Compile Include="ModelGenerationDefinitions.fs" />

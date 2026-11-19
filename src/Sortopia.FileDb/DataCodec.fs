@@ -5,16 +5,14 @@ open MessagePack
 open Sortopia.Functions
 open Sortopia.Core.Serialization
 open Sortopia.Sorting.Serialization.Inputs
-open Sortopia.Sorting.Serialization.Networks
 open Sortopia.Models.Sorting.Serialization
 open Sortopia.Evaluation.Serialization
 
 [<MessagePackObject>]
-type functionPayloadDto = {
+type sortopiaStorageDataDto = {
     [<Key(0)>] Version: int
     [<Key(1)>] Kind: string
     [<Key(2)>] Data: byte array
-    [<Key(3)>] Prefix: ceDto array
 }
 
 module internal DataCodec =
@@ -27,31 +25,29 @@ module internal DataCodec =
                                 .WithCompression(MessagePackCompression.Lz4BlockArray)
     let supported kind = List.contains kind ["SortableTests"; "SorterModelSet"; "SorterSetEval"; "SorterPoolSet"; "SorterPoolSummarySet"]
     let encode value =
-        let data, prefix =
+        let data =
             match value with
-            | functionData.SortableTests (tests, prefix) ->
-                tests |> SortableTestsDto.fromDomain |> MessagePackSetup.serialize, prefix |> Array.map CeDto.fromDomain
-            | functionData.SorterModelSet models -> models |> SorterModelSetDto.fromDomain |> MessagePackSetup.serialize, [||]
-            | functionData.SorterSetEval evaluation -> evaluation |> SorterSetEvalDto.fromDomain |> MessagePackSetup.serialize, [||]
-            | functionData.SorterPoolSet pools -> pools |> SorterPoolSetDto.fromDomain |> MessagePackSetup.serialize, [||]
-            | functionData.SorterPoolSummarySet summaries -> summaries |> Sortopia.Evaluation.Sgd.SorterPoolSummarySet.validate |> MessagePackSetup.serialize, [||]
-        let dto = { Version = 1; Kind = FunctionData.kind value; Data = data; Prefix = prefix }
+            | sortopiaStorageData.SortableTests tests -> tests |> SortableTestsDto.fromDomain |> MessagePackSetup.serialize
+            | sortopiaStorageData.SorterModelSet models -> models |> SorterModelSetDto.fromDomain |> MessagePackSetup.serialize
+            | sortopiaStorageData.SorterSetEval evaluation -> evaluation |> SorterSetEvalDto.fromDomain |> MessagePackSetup.serialize
+            | sortopiaStorageData.SorterPoolSet pools -> pools |> SorterPoolSetDto.fromDomain |> MessagePackSetup.serialize
+            | sortopiaStorageData.SorterPoolSummarySet summaries -> summaries |> Sortopia.Evaluation.Sgd.SorterPoolSummarySet.validate |> MessagePackSetup.serialize
+        let dto = { Version = 2; Kind = SortopiaStorageData.kind value; Data = data }
         let raw = MessagePackSetup.serialize dto
         if raw.Length > maxRawBytes then invalidOp "The data exceeds the 1 GiB uncompressed storage limit."
         MessagePackSerializer.Serialize(dto, compressedOptions), raw.Length
 
     let decode kind rawLength (bytes: byte array) =
         if rawLength < 0 || rawLength > maxRawBytes then invalidOp "Invalid uncompressed data length."
-        let dto = MessagePackSerializer.Deserialize<functionPayloadDto>(ReadOnlyMemory<byte>(bytes), compressedOptions)
-        if isNull (box dto) || dto.Version <> 1 then invalidOp "Unsupported data payload schema."
-        if dto.Kind <> kind || isNull dto.Data || isNull dto.Prefix then invalidOp "Invalid data payload."
+        let dto = MessagePackSerializer.Deserialize<sortopiaStorageDataDto>(ReadOnlyMemory<byte>(bytes), compressedOptions)
+        if isNull (box dto) || dto.Version <> 2 then invalidOp "Unsupported data payload schema."
+        if dto.Kind <> kind || isNull dto.Data then invalidOp "Invalid data payload."
         if (MessagePackSetup.serialize dto).Length <> rawLength then invalidOp "Data payload length does not match its envelope."
-        if kind <> "SortableTests" && dto.Prefix.Length <> 0 then invalidOp "Unexpected prefix data."
         match kind with
         | "SortableTests" ->
-            functionData.SortableTests (dto.Data |> MessagePackSetup.deserialize<sortableTestsDto> |> SortableTestsDto.toDomain, dto.Prefix |> Array.map CeDto.toDomain)
-        | "SorterModelSet" -> dto.Data |> MessagePackSetup.deserialize<sorterModelSetDto> |> SorterModelSetDto.toDomain |> functionData.SorterModelSet
-        | "SorterSetEval" -> dto.Data |> MessagePackSetup.deserialize<sorterSetEvalDto> |> SorterSetEvalDto.toDomain |> functionData.SorterSetEval
-        | "SorterPoolSet" -> dto.Data |> MessagePackSetup.deserialize<sorterPoolSetDto> |> SorterPoolSetDto.toDomain |> functionData.SorterPoolSet
-        | "SorterPoolSummarySet" -> dto.Data |> MessagePackSetup.deserialize<Sortopia.Evaluation.Sgd.sorterPoolSummarySet> |> Sortopia.Evaluation.Sgd.SorterPoolSummarySet.validate |> functionData.SorterPoolSummarySet
+            dto.Data |> MessagePackSetup.deserialize<sortableTestsDto> |> SortableTestsDto.toDomain |> sortopiaStorageData.SortableTests
+        | "SorterModelSet" -> dto.Data |> MessagePackSetup.deserialize<sorterModelSetDto> |> SorterModelSetDto.toDomain |> sortopiaStorageData.SorterModelSet
+        | "SorterSetEval" -> dto.Data |> MessagePackSetup.deserialize<sorterSetEvalDto> |> SorterSetEvalDto.toDomain |> sortopiaStorageData.SorterSetEval
+        | "SorterPoolSet" -> dto.Data |> MessagePackSetup.deserialize<sorterPoolSetDto> |> SorterPoolSetDto.toDomain |> sortopiaStorageData.SorterPoolSet
+        | "SorterPoolSummarySet" -> dto.Data |> MessagePackSetup.deserialize<Sortopia.Evaluation.Sgd.sorterPoolSummarySet> |> Sortopia.Evaluation.Sgd.SorterPoolSummarySet.validate |> sortopiaStorageData.SorterPoolSummarySet
         | _ -> invalidOp $"Unsupported stored data kind '{kind}'."

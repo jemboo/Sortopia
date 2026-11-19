@@ -14,10 +14,9 @@ module CeBlockOpsInt =
 
 
     let evalWithCancellation (token: CancellationToken) (sits: sortableIntTests)
-             (prefix: ceBlock)
              (ceBlk: ceBlock) =
             token.ThrowIfCancellationRequested()
-            CeBlock.validateWidth sits.ChannelCount prefix ceBlk
+            CeBlock.validateWidth sits.ChannelCount ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let mutable unsortedCount = 0
             let ces = ceBlk.CeArray
@@ -54,13 +53,13 @@ module CeBlockOpsInt =
                 finally
                     pool.Return(workArray)
 
-            ceBlockEval.create prefix ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
+            ceBlockEval.create ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
 
 
     let evalAndCollectWithCancellation (token: CancellationToken) (sits: sortableIntTests)
-                (prefix: ceBlock) (ceBlk: ceBlock) =
+                (ceBlk: ceBlock) =
             token.ThrowIfCancellationRequested()
-            CeBlock.validateWidth sits.ChannelCount prefix ceBlk
+            CeBlock.validateWidth sits.ChannelCount ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let ces = ceBlk.CeArray
             let sw = sits.ChannelCount
@@ -102,11 +101,10 @@ module CeBlockOpsInt =
 
             let newTests = Seq.toArray results |> sortableIntTests.create (Guid.NewGuid() |> UMX.tag) sw
             ceBlockEval.create
-                        prefix
                         ceBlk
                         ceUseCounts
                         (results.Count |> UMX.tag<sortableCount>)
                         (Some (sortableTests.Ints newTests))
 
-    let eval tests prefix block = evalWithCancellation CancellationToken.None tests prefix block
-    let evalAndCollectNewSortableTests tests prefix block = evalAndCollectWithCancellation CancellationToken.None tests prefix block
+    let eval tests block = evalWithCancellation CancellationToken.None tests block
+    let evalAndCollectNewSortableTests tests block = evalAndCollectWithCancellation CancellationToken.None tests block

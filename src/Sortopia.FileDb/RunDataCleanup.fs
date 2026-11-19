@@ -12,7 +12,6 @@ open Sortopia.Functions
 module RunDataCleanup =
     let plan folder projectId (removed: Set<Guid<runId>>) keepData (token: CancellationToken) =
         let deleted = ResizeArray<string>()
-        let queries = Collections.Generic.Dictionary<Guid<sortopiaDataId>, ResizeArray<storedDataReference list>>()
         let references = Collections.Generic.HashSet<Guid<sortopiaDataId>>()
         let check (path: string) =
             if File.GetAttributes(path).HasFlag FileAttributes.ReparsePoint then
@@ -28,12 +27,7 @@ module RunDataCleanup =
                 if Set.contains item.RunId removed then
                     deleted.Add path
                 else
-                    for key in EvolutionReportingStore.keys item do references.Add key.Id |> ignore
-                    for output in item.Results.Outputs do
-                        let key = DataKey.create projectId (string item.Results.DatabaseName) false (string item.Results.FunctionName)
-                                      item.Results.FunctionVersion output.DataType output.QueryParameterKeys item.Parameters []
-                        if not (queries.ContainsKey key.QueryId) then queries[key.QueryId] <- ResizeArray()
-                        queries[key.QueryId].Add item.SetupInputs
+                    for key in RunOutputFiles.keys item do references.Add key.Id |> ignore
                     for input in item.SetupInputs do
                         if input.ProjectId = projectId then references.Add input.Id |> ignore
         let data = Path.Combine(folder, "data")
@@ -52,11 +46,8 @@ module RunDataCleanup =
                             if header.ProjectId <> UMX.untag projectId then invalidOp $"Data file belongs to another project: {path}"
                             let dataType = SortopiaDataType.create header.Kind header.Label
                             let reference = { ProjectId = projectId; Id = UMX.tag header.Id; QueryId = UMX.tag header.QueryId
-                                              IsSetup = header.IsSetup; DataType = dataType }
+                                              Phase = RunExecutionPhase.fromIsSetup header.IsSetup; DataType = dataType }
                             let dependencies = DataEnvelope.dependencies header
-                            let prepared = match queries.TryGetValue reference.QueryId with
-                                           | true, batches -> batches |> Seq.exists (fun inputs -> dependencies |> List.forall (fun input -> List.contains input inputs))
-                                           | _ -> false
-                            if not (references.Contains reference.Id || prepared || keepData reference dependencies) then
+                            if not (references.Contains reference.Id || keepData reference dependencies) then
                                 deleted.Add path
         deleted.ToArray()

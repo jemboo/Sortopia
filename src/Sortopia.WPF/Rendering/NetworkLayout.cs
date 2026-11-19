@@ -27,6 +27,7 @@ public sealed class NetworkLayout
     {
         TotalStages = network.StageCount;
         TotalComparators = network.ComparatorCount;
+        var source = network.ToSorter();
         var bands = new List<StageBand>();
         var comparators = new List<ComparatorPosition>();
         var frameX = new double[network.StageLengths.Take(stageCount).Sum() + 1];
@@ -40,7 +41,7 @@ public sealed class NetworkLayout
             var end = offset + network.StageLengths[stage];
             for (var index = offset; index < end; index++)
             {
-                var comparator = network.Comparators[index];
+                var comparator = source.Ce(index);
                 var ce = new ComparatorEndpoints(comparator.LowChannel, comparator.HighChannel);
                 if (occupied.Any(other => ce.Low <= other.High && other.Low <= ce.High))
                 {
@@ -105,7 +106,12 @@ public sealed class NetworkLayout
         if (mode == 3)
         {
             filtered = NetworkTransforms.Compact(filtered);
-            var queues = indices.GroupBy(i => (network.Comparators[i].LowChannel, network.Comparators[i].HighChannel))
+            var source = network.ToSorter();
+            var queues = indices.GroupBy(i =>
+                {
+                    var ce = source.Ce(i);
+                    return (ce.LowChannel, ce.HighChannel);
+                })
                 .ToDictionary(g => g.Key, g => new Queue<int>(g));
             indices = filtered.Comparators.Select(ce => queues[(ce.LowChannel, ce.HighChannel)].Dequeue()).ToList();
         }

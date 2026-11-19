@@ -144,7 +144,7 @@ public abstract class SgdResultsViewModel : ViewModelBase
         get
         {
             if (lastPlottedUsage is not { } usage) return "";
-            var inputs = usage.Exhaustive ? $"all {usage.Tested:N0} {usage.InputKind}" : $"{usage.Tested:N0} sampled {usage.InputKind}";
+            var inputs = usage.Exhaustive ? $"all {usage.Tested:N0} binary inputs" : $"{usage.Tested:N0} sampled binary inputs";
             return $"{usage.Failed:N0} failures across {inputs}";
         }
     }

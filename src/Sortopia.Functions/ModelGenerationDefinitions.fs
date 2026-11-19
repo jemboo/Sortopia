@@ -2,7 +2,6 @@ namespace Sortopia.Functions
 
 open FSharp.UMX
 open Sortopia.Runs
-open Sortopia.Models.Sorting
 
 /// One generation contract and save routine, adapted to either execution phase.
 module internal ModelGenerationDefinitions =
@@ -10,28 +9,33 @@ module internal ModelGenerationDefinitions =
     let private testsType = sortopiaDataType.SortableTests ""
 
     type private specification = {
-        Metadata: modelGenerationMetadata
+        ParameterSupport: functionParameterSupport
         RequiredParameters: paramKeyDescriptor list
         Outputs: (sortopiaDataType * string<paramKeyName> list) list
         InputError: parameterBinding list -> parameterSpan list -> string
         Description: runExecutionPhase -> string
-        Save: IRunDatabase -> parameterSet -> unit
+        Save: runHost -> unit
     }
 
-    // Keep the algorithm's input keys and generator together for both phases.
-    let private algorithm source = function
-        | simpleSorterModelType.Msce -> ModelGenerators.msceKeys source, ModelGenerators.msce source
-        | simpleSorterModelType.Mssi -> ModelGenerators.mssiKeys source, ModelGenerators.mssi source
-        | simpleSorterModelType.Msrs -> ModelGenerators.msrsKeys source, ModelGenerators.msrs source
-        | simpleSorterModelType.Msuf4 -> ModelGenerators.msuf4Keys source, ModelGenerators.msuf4 source
-        | simpleSorterModelType.Msuf6 -> ModelGenerators.msuf6Keys source, ModelGenerators.msuf6 source
-
-    let private create includeTests source modelType family =
-        let keys, makeModels = algorithm source modelType
-        let modelKeys = ModelGenerators.familyKeys family keys
+    let private create includeTests source (algorithm: simpleModelAlgorithm) constructor =
+        let modelKeys = ModelGenerators.keys source algorithm constructor
         let modelOutput = modelsType, InputGenerators.queryKeys modelKeys
-        let description = ModelGenerators.familyDescription source modelType family
-        { Metadata = { Algorithm = modelType; Family = family; PrefixMode = source }
+        let description = algorithm.Description source constructor
+        let support = algorithm.ParameterSupport includeTests source constructor
+        let modelInputError defaults spans =
+            let error = algorithm.InputError source defaults spans
+            if error <> "" then error
+            else
+                try
+                    constructor.Validate defaults spans
+                    ""
+                with error -> error.Message
+        let defaults (context: parameterDefaultContext) =
+            // Constructors own their defaults; expose only requested missing keys, in descriptor order.
+            let proposed = support.Defaults context @ constructor.Defaults context
+                           |> List.map (fun binding -> binding.KeyName, binding) |> Map.ofList
+            context.Missing |> List.choose (fun key -> Map.tryFind key.Name proposed)
+        { ParameterSupport = { support with Defaults = defaults }
           RequiredParameters =
               if includeTests then InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name)
               else modelKeys
@@ -39,35 +43,35 @@ module internal ModelGenerationDefinitions =
               if includeTests then [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelOutput]
               else [modelOutput]
           InputError =
-              if includeTests then InputGenerators.evaluationInputError InputGenerators.standardKeys modelType
-              else ModelGenerators.inputError source modelType
+              if includeTests then InputGenerators.evaluationInputError InputGenerators.standardKeys modelInputError
+              else modelInputError
           Description = fun phase ->
               match includeTests, phase with
               | true, runExecutionPhase.Setup -> $"Generate full binary sortable tests. {description} Save both inputs in the setup database."
               | true, _ -> $"Generate full binary sortable tests. {description} Save both outputs in the results database for use by other projects."
               | false, runExecutionPhase.Setup -> description + " Save the models in the setup database."
               | false, _ -> description + " Save the models in the results database."
-          Save = fun database parameters ->
+          Save = fun host ->
               // Keep each factory lazy and independent; models are published before tests.
-              database.SaveIfMissing(modelsType, [], fun () -> makeModels family parameters)
+              host.Database.Save(host.Outputs.Output(modelsType, []), fun () -> ModelGenerators.models source algorithm constructor host.Parameters)
               if includeTests then
-                  database.SaveIfMissing(testsType, [], fun () -> InputGenerators.standardTests parameters) }
+                  host.Database.Save(host.Outputs.Output(testsType, []), fun () -> InputGenerators.standardTests host.Parameters) }
 
     let private describe phase spec definition =
         definition
         |> FunctionDefinition.describe (spec.Description phase)
-        |> FunctionDefinition.generatesModels spec.Metadata.Algorithm spec.Metadata.Family spec.Metadata.PrefixMode
+        |> FunctionDefinition.withParameterSupport spec.ParameterSupport
 
-    let private setup includeTests modelType family =
-        let spec = create includeTests modelPrefixMode.NoPrefix modelType family
-        FunctionDefinition.setupValidated (ModelGenerators.version modelType) spec.RequiredParameters spec.Outputs spec.InputError
-            (fun host _ -> spec.Save host.SetupDb host.Parameters)
+    let private setup includeTests algorithm constructor =
+        let spec = create includeTests modelPrefixMode.NoPrefix algorithm constructor
+        FunctionDefinition.setupValidated algorithm.Version spec.RequiredParameters spec.Outputs spec.InputError
+            (fun host _ -> spec.Save host)
         |> describe runExecutionPhase.Setup spec
 
-    let private results includeTests source modelType family =
-        let spec = create includeTests source modelType family
-        FunctionDefinition.resultsValidated (ModelGenerators.version modelType) spec.RequiredParameters spec.Outputs spec.InputError
-            (fun host -> spec.Save host.ResultsDb host.Parameters)
+    let private results includeTests source algorithm constructor =
+        let spec = create includeTests source algorithm constructor
+        FunctionDefinition.resultsValidated algorithm.Version spec.RequiredParameters spec.Outputs spec.InputError
+            spec.Save
         |> describe runExecutionPhase.Results spec
 
     let setupModels = setup false

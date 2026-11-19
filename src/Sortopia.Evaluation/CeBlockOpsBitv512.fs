@@ -53,7 +53,7 @@ module CeBlockOpsBitv512 =
     let applyCas workBuffer low high = applyCasCount 512 workBuffer low high > 0
 
     let private evaluateNetworks (options: ParallelOptions) collect reportFirstFailedLane
-                                 (blocks: sortBlockBitv512[]) prefix networks =
+                                 (blocks: sortBlockBitv512[]) networks =
         // Vectors is a defensive-copy property. Snapshot once, then share read-only.
         let sources = blocks |> Array.map _.Vectors
         SimdBatch.mapNetworks options (fun networkIndex network ->
@@ -84,13 +84,12 @@ module CeBlockOpsBitv512 =
                             let bit = BitOperations.TrailingZeroCount bits
                             values.Add(Array.init block.Length (fun channel -> int ((work[channel].GetElement(word) >>> bit) &&& 1UL))) |> ignore
                             bits <- bits &&& (bits - 1UL)
-            SimdBatch.finishNetwork prefix network usage unsorted 2<symbolSetSize> failures) networks
+            SimdBatch.finishNetwork network usage unsorted 2<symbolSetSize> failures) networks
 
     let private countFailuresByBlocks
         (options: ParallelOptions)
         reportFirstFailedLane
         (simdSortableBlocks: sortBlockBitv512[])
-        (prefix: ceBlock)
         (ceBlocks: ceBlock array)
         : ceBlockEval [] =
 
@@ -156,38 +155,37 @@ module CeBlockOpsBitv512 =
         ) |> ignore
 
         Array.init numNetworks (fun i ->
-            ceBlockEval.create prefix ceBlocks.[i] globalUsage.[i] (globalUnsortedCount.[i] |> UMX.tag) None
+            ceBlockEval.create ceBlocks.[i] globalUsage.[i] (globalUnsortedCount.[i] |> UMX.tag) None
         )
 
-    let private countFailures options report (blocks: sortBlockBitv512[]) prefix (networks: ceBlock[]) =
+    let private countFailures options report (blocks: sortBlockBitv512[]) (networks: ceBlock[]) =
         if SimdBatch.preferNetworks options networks.Length blocks.Length then
-            evaluateNetworks options false report blocks prefix networks
-        else countFailuresByBlocks options report blocks prefix networks
+            evaluateNetworks options false report blocks networks
+        else countFailuresByBlocks options report blocks networks
 
-    let evalSimdSortBlocks (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
-        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        countFailures (ParallelOptions()) None inputs prefix ceBlocks
+    let evalSimdSortBlocks (simdSortableBlocks: sortBlockBitv512 seq) (ceBlocks: ceBlock[]) =
+        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) ceBlocks simdSortableBlocks
+        countFailures (ParallelOptions()) None inputs ceBlocks
 
     let eval
             (test: sortableBitv512Tests)
-            (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
-            CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-            countFailures (ParallelOptions()) None test.SimdSortBlocks prefix ceBlocks
+            CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+            countFailures (ParallelOptions()) None test.SimdSortBlocks ceBlocks
 
     /// Counts swaps and all failures for one sorter without tracking or reconstructing a counterexample.
     let evalCounts (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
-        CeBlock.validateWidth test.ChannelCount ceBlock.Empty network
-        countFailures (ParallelOptions(CancellationToken = token)) None test.SimdSortBlocks ceBlock.Empty [| network |] |> Array.exactlyOne
+        CeBlock.validateWidth test.ChannelCount network
+        countFailures (ParallelOptions(CancellationToken = token)) None test.SimdSortBlocks [| network |] |> Array.exactlyOne
 
     let private evalWithFirstLane (test: sortableBitv512Tests) (network: ceBlock) (token: CancellationToken) =
         token.ThrowIfCancellationRequested()
-        CeBlock.validateWidth test.ChannelCount ceBlock.Empty network
+        CeBlock.validateWidth test.ChannelCount network
         let blocks = test.SimdSortBlocks
         let firstLanes = Array.create blocks.Length -1
         let recordLane _ blockIndex lane = firstLanes[blockIndex] <- lane
-        let result = countFailures (ParallelOptions(CancellationToken = token)) (Some recordLane) blocks ceBlock.Empty [| network |] |> Array.exactlyOne
+        let result = countFailures (ParallelOptions(CancellationToken = token)) (Some recordLane) blocks [| network |] |> Array.exactlyOne
         let firstLane =
             firstLanes |> Array.tryFindIndex (fun lane -> lane >= 0)
             |> Option.map (fun index -> index, firstLanes[index])
@@ -211,7 +209,6 @@ module CeBlockOpsBitv512 =
     let private collectFailuresByBlocks
             (options: ParallelOptions)
             (simdSortableBlocks: sortBlockBitv512[])
-            (prefix: ceBlock)
             (ceBlocks: ceBlock array)
             : ceBlockEval [] =
 
@@ -309,36 +306,34 @@ module CeBlockOpsBitv512 =
                 else None
 
             ceBlockEval.create
-                prefix
                 ceBlocks.[i]
                 globalUsage.[i]
                 (uniqueUnsortedCount |> UMX.tag<sortableCount>)
                 failTest
         )
 
-    let private collectFailures options (blocks: sortBlockBitv512[]) prefix (networks: ceBlock[]) =
+    let private collectFailures options (blocks: sortBlockBitv512[]) (networks: ceBlock[]) =
         if SimdBatch.preferNetworks options networks.Length blocks.Length then
-            evaluateNetworks options true None blocks prefix networks
-        else collectFailuresByBlocks options blocks prefix networks
+            evaluateNetworks options true None blocks networks
+        else collectFailuresByBlocks options blocks networks
 
-    let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockBitv512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
-        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        collectFailures (ParallelOptions()) inputs prefix ceBlocks
+    let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockBitv512 seq) (ceBlocks: ceBlock[]) =
+        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) ceBlocks simdSortableBlocks
+        collectFailures (ParallelOptions()) inputs ceBlocks
 
     let evalAndCollectNewSortableTests
             (test: sortableBitv512Tests)
-            (prefix: ceBlock)
             (ceBlocks: ceBlock []) =
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        collectFailures (ParallelOptions()) test.SimdSortBlocks ceBlocks
 
     /// Runtime limits apply to this invocation only; inputs remain unchanged.
-    let evalWithOptions (options: ParallelOptions) (test: sortableBitv512Tests) prefix ceBlocks =
+    let evalWithOptions (options: ParallelOptions) (test: sortableBitv512Tests) ceBlocks =
         options.CancellationToken.ThrowIfCancellationRequested()
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        countFailures options None test.SimdSortBlocks prefix ceBlocks
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        countFailures options None test.SimdSortBlocks ceBlocks
 
-    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableBitv512Tests) prefix ceBlocks =
+    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableBitv512Tests) ceBlocks =
         options.CancellationToken.ThrowIfCancellationRequested()
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures options test.SimdSortBlocks prefix ceBlocks
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        collectFailures options test.SimdSortBlocks ceBlocks

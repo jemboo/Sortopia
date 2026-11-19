@@ -108,9 +108,9 @@ public sealed class RunExecutionTests
         Assert.Equal(2, updates.First(update => update.Message.StartsWith("Results")).Completed);
         foreach (var result in report.Results)
         {
-            var tests = Assert.IsType<functionData.SortableTests>(host.Load(report.Setup[result.SetupSetNumber.Value - 1].StoredOutputs.Single(output => output.Reference.DataType.IsSortableTests).Reference));
-            var evaluation = Assert.IsType<functionData.SorterSetEval>(host.Load(Assert.Single(result.StoredOutputs).Reference));
-            Assert.Equal(SortableTests.getId(tests.Item1), evaluation.Item.SorterTestId);
+            var tests = Assert.IsType<sortopiaStorageData.SortableTests>(host.Load(report.Setup[result.SetupSetNumber.Value - 1].StoredOutputs.Single(output => output.Reference.DataType.IsSortableTests).Reference));
+            var evaluation = Assert.IsType<sortopiaStorageData.SorterSetEval>(host.Load(Assert.Single(result.StoredOutputs).Reference));
+            Assert.Equal(SortableTests.getId(tests.Item), evaluation.Item.SorterTestId);
         }
     }
 

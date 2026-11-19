@@ -314,7 +314,7 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
     }
 
     private static NetworkDefinition GenerateNetwork(NetworkGeneratorSettings generator) =>
-        new(generator.Label, RandomNetwork.toStagesWithPrefix(generator.Snapshot().CreateModel()));
+        new(generator.Label, RandomNetwork.toStages(generator.Snapshot().CreateModel()));
 
     private void Generate()
     {
@@ -353,7 +353,11 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         try
         {
             var progress = new Progress<int>(done => ShowProgress($"Checking {done:N0} / {total:N0} binary inputs…"));
-            var result = await Task.Run(() => NetworkCheck.Run(network, samples, cancellation.Token, progress), cancellation.Token);
+            var result = await Task.Run(() =>
+            {
+                var check = new NetworkCheck(network.Width, samples, useSimd: false, cancellation.Token);
+                return check.Evaluate(network.ToSorter(), cancellation.Token, progress: progress);
+            }, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             Status = "";
             Usage = result;

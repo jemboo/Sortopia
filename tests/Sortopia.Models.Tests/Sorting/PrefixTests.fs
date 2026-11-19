@@ -5,6 +5,7 @@ open FSharp.UMX
 open Xunit
 open Sortopia.Core
 open Sortopia.Core.Serialization
+open Sortopia.Permutations
 open Sortopia.Sorting
 open Sortopia.Sorting.Networks
 open Sortopia.Sorting.Inputs
@@ -59,14 +60,14 @@ let ``bounded msuf4 unfolding preserves every truncation boundary and sorter ide
     let channels = UMX.tag<channelCount> width
     let generated = SimpleSorterModelGen.makeUniform rngFactory.SmxFactory channels (prefix ()) 5<stageLength> simpleSorterModelType.Msuf4 (UMX.tag true)
                     |> SimpleSorterModelGen.makeSorterModelFromId modelId
-    let full = SimpleSorterModel.makeSorterWithoutPrefix None generated
+    let full = SimpleSorterModel.makeSorter None generated
+    let suffix = full.Ces |> Array.skip (prefix ()).Length
     // Explicit CE representation gives an independent materialization oracle with
     // the same model ID, prefix and expanded suffix.
-    let explicit = msce.create modelId channels (prefix ()) (full.Ces |> Array.map Ce.toIndex) |> simpleSorterModel.Msce
-    for limit in 0 .. full.Ces.Length + 1 do
+    let explicit = msce.create modelId channels (prefix ()) (suffix |> Array.map Ce.toIndex) |> simpleSorterModel.Msce
+    for limit in 0 .. suffix.Length + 1 do
         let budget = Some (UMX.tag<ceLength> limit)
-        Assert.Equal(SimpleSorterModel.makeSorterWithoutPrefix budget explicit, SimpleSorterModel.makeSorterWithoutPrefix budget generated)
-        Assert.Equal(SimpleSorterModel.makeSorterWithPrefix budget explicit, SimpleSorterModel.makeSorterWithPrefix budget generated)
+        Assert.Equal(SimpleSorterModel.makeSorter budget explicit, SimpleSorterModel.makeSorter budget generated)
 
 [<Theory>]
 [<InlineData("ce")>]
@@ -104,30 +105,23 @@ let ``prefix is immutable and included in model and generator equality`` kind =
 [<InlineData("rs")>]
 [<InlineData("uf4")>]
 [<InlineData("uf6")>]
-let ``both sorter forms limit only the suffix and have distinct materialized identities`` kind =
-    for m in model kind (prefix ()) |> wrap do
-        let all = (SorterModel.makeSorterWithoutPrefix m None).Ces
-        for limit in [None; Some 0<ceLength>; Some 1<ceLength>; Some 1000<ceLength>] do
-            let suffix = SorterModel.makeSorterWithoutPrefix m limit
-            let full = SorterModel.makeSorterWithPrefix m limit
-            let expectedSuffix = match limit with None -> all | Some n -> Array.truncate (int n) all
-            Assert.Equal<ce>(expectedSuffix, suffix.Ces)
-            Assert.Equal<ce>(Array.append (prefix ()) expectedSuffix, full.Ces)
-            Assert.NotEqual(suffix.SorterId, full.SorterId)
-            Assert.Equal(full.SorterId, (SorterModel.makeSorterWithPrefix m limit).SorterId)
-        Assert.NotEqual((SorterModel.makeSorterWithPrefix m None).SorterId,
-                        (SorterModel.makeSorterWithPrefix m (Some 0<ceLength>)).SorterId)
-        Assert.Throws<ArgumentException>(fun () -> SorterModel.makeSorterWithoutPrefix m (Some -1<ceLength>) |> ignore) |> ignore
-        Assert.Throws<ArgumentException>(fun () -> SorterModel.makeSorterWithPrefix m (Some -1<ceLength>) |> ignore) |> ignore
-    let plain = model kind [||] |> sorterModel.Simple
-    Assert.Equal(SorterModel.makeSorterWithoutPrefix plain None, SorterModel.makeSorterWithPrefix plain None)
+let ``sorter creation always includes the prefix and limits only the active suffix`` kind =
+    for fixedPrefix in [[||]; prefix ()] do
+        for m in model kind fixedPrefix |> wrap do
+            let all = (SorterModel.makeSorter m None).Ces |> Array.skip fixedPrefix.Length
+            for limit in [None; Some 0<ceLength>; Some 1<ceLength>; Some 1000<ceLength>] do
+                let full = SorterModel.makeSorter m limit
+                let expectedSuffix = match limit with None -> all | Some n -> Array.truncate (int n) all
+                Assert.Equal<ce>(Array.append fixedPrefix expectedSuffix, full.Ces)
+                Assert.Equal(full.SorterId, (SorterModel.makeSorter m limit).SorterId)
+            Assert.NotEqual((SorterModel.makeSorter m None).SorterId,
+                            (SorterModel.makeSorter m (Some 0<ceLength>)).SorterId)
+            Assert.Throws<ArgumentException>(fun () -> SorterModel.makeSorter m (Some -1<ceLength>) |> ignore) |> ignore
     let source = model kind (prefix ())
     let inactiveR = simpleSorterModelR.create source 0 (Array.zeroCreate (SimpleSorterModel.getLength source))
     let inactiveS = simpleSorterModelS.create source (Array.create (SimpleSorterModel.getLength source) false)
-    Assert.Empty((inactiveR.MakeSorterWithoutPrefix None).Ces)
-    Assert.Empty((inactiveS.MakeSorterWithoutPrefix None).Ces)
-    Assert.Equal<ce>(prefix (), (inactiveR.MakeSorterWithPrefix None).Ces)
-    Assert.Equal<ce>(prefix (), (inactiveS.MakeSorterWithPrefix None).Ces)
+    Assert.Equal<ce>(prefix (), (inactiveR.MakeSorter None).Ces)
+    Assert.Equal<ce>(prefix (), (inactiveS.MakeSorter None).Ces)
 
 [<Theory>]
 [<InlineData("ce")>]
@@ -154,7 +148,7 @@ let ``generator identity includes prefix order and all generation paths preserve
                       (fun g -> SorterModelGen.makeSorterModelFromIndex (UMX.tag 4) g) ] do
             let first, replay = make gen, make restored
             Assert.Equal<ce>(prefix (), SorterModel.getPrefix replay)
-            Assert.Equal(SorterModel.makeSorterWithPrefix first None, SorterModel.makeSorterWithPrefix replay None)
+            Assert.Equal(SorterModel.makeSorter first None, SorterModel.makeSorter replay None)
 
 [<Theory>]
 [<InlineData("ce")>]
@@ -179,7 +173,7 @@ let ``mutation and serialization retain the fixed prefix for simple and activate
                            |> MessagePackSetup.deserialize<sorterModelDto> |> SorterModelDto.toDomain
             Assert.Equal<ce>(prefix (), SorterModel.getPrefix child)
             Assert.Equal<ce>(prefix (), SorterModel.getPrefix restored)
-            Assert.Equal(SorterModel.makeSorterWithPrefix child None, SorterModel.makeSorterWithPrefix restored None)
+            Assert.Equal(SorterModel.makeSorter child None, SorterModel.makeSorter restored None)
     Assert.Equal<ce>(prefix (), SimpleSorterModel.getPrefix source)
 
 [<Fact>]
@@ -234,17 +228,17 @@ let private apply (ces: ce array) (input: int array) =
 [<InlineData("rs")>]
 [<InlineData("uf4")>]
 [<InlineData("uf6")>]
-let ``presorted suffix evaluation matches full sorter execution`` kind =
+let ``extracting the suffix preserves prepared input evaluation`` kind =
     for m in model kind (prefix ()) |> wrap do
         let width = SorterModel.getChannelCount m
         let inputs = Array.init (1 <<< int width) (fun bits -> Array.init (int width) (fun channel -> (bits >>> channel) &&& 1))
         for limit in [None; Some 0<ceLength>; Some 1<ceLength>] do
-            let full = SorterModel.makeSorterWithPrefix m limit
-            let suffix = SorterModel.makeSorterWithoutPrefix m limit
+            let full = SorterModel.makeSorter m limit
+            let suffix = full.Ces |> Array.skip (prefix ()).Length
             let presorted = inputs |> Array.map (apply (prefix ()))
             Array.iter2 (fun input presorted ->
                 let expected = apply full.Ces input
-                let actual = apply suffix.Ces presorted
+                let actual = apply suffix presorted
                 Assert.Equal<int>(expected :> seq<int>, actual :> seq<int>)) inputs presorted
             let datasets values =
                 let ints = values |> Array.map (fun input -> sortableIntArray.create(input, width, 2<symbolSetSize>))
@@ -253,13 +247,14 @@ let ``presorted suffix evaluation matches full sorter execution`` kind =
                    SortableBitv512Tests.fromBoolArrays (UMX.tag (Guid.NewGuid())) width bools |> sortableTests.Bitv512 |]
             let block ces = ceBlock.create (UMX.tag (Guid.NewGuid())) width ces
             for original, presorted in Array.zip (datasets inputs) (datasets presorted) do
-                let fullResult = CeBlockOps.evalWithSorterTest original ceBlock.Empty (block full.Ces) (UMX.tag false)
-                let suffixResult = CeBlockOps.evalWithSorterTest presorted (block (prefix ())) (block suffix.Ces) (UMX.tag false)
+                let fullResult = CeBlockOps.evalWithSorterTest original (block full.Ces) (UMX.tag false)
+                let suffixResult = CeBlockOps.evalWithSorterTest presorted (block suffix) (UMX.tag false)
                 Assert.Equal(fullResult.UnsortedCount, suffixResult.UnsortedCount)
                 let expectedUsage = fullResult.UseCountArray |> Array.skip (prefix ()).Length
                 Assert.Equal<int>(expectedUsage :> seq<int>, suffixResult.UseCountArray :> seq<int>)
-                Assert.Equal<ce>(prefix (), suffixResult.UsedCes |> Array.take (prefix ()).Length)
-                Assert.All(suffixResult.extractCeUseArray |> Array.take (prefix ()).Length, fun usage -> Assert.Equal(-1, usage.UseCount))
+                Assert.All(suffixResult.extractCeUseArray, fun usage ->
+                    Assert.True(usage.UseCount > 0)
+                    Assert.Equal(suffix[int usage.CeIndex], usage.Ce))
 
 [<Fact>]
 let ``odd width adjacent prefix leaves the last channel untouched`` () =
@@ -267,9 +262,41 @@ let ``odd width adjacent prefix leaves the last channel untouched`` () =
     let source = msce.create modelId 9<channelCount> prefix [|Ce.toIndex (ce.create 7 8)|]
     let values = [|8; 7; 6; 5; 4; 3; 2; 1; 0|]
     Assert.Equal(0, (apply source.Prefix values).[8])
-    let expected = apply (source.MakeSorterWithPrefix None).Ces values
-    let actual = apply (source.MakeSorterWithoutPrefix None).Ces (apply source.Prefix values)
+    let expected = apply (source.MakeSorter None).Ces values
+    let suffix = (source.MakeSorter None).Ces |> Array.skip prefix.Length
+    let actual = apply suffix (apply source.Prefix values)
     Assert.Equal<int>(expected :> seq<int>, actual :> seq<int>)
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``stage conversion preserves disjoint and empty native suffix stages`` prefixed =
+    let channels = 6<channelCount>
+    let prefix = if prefixed then [|ce.create 0 1|] else [||]
+    let source =
+        mssi.create modelId channels prefix
+            [|permSi.create [|0;1;3;2;4;5|]
+              permSi.create [|0;1;2;3;4;5|]
+              permSi.create [|0;1;2;3;5;4|]|]
+        |> simpleSorterModel.Mssi
+    let expectedSuffix = [|[|ce.create 2 3|]; [||]; [|ce.create 4 5|]|]
+    let expected = if prefixed then Array.append [|prefix|] expectedSuffix else expectedSuffix
+    let actual = RandomNetwork.toStages source
+    Assert.Equal(channels, actual.ChannelCount)
+    Assert.Equal<stage>(expected |> Array.map (fun ces -> stage.create ces channels), actual.Stages)
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``CE stage conversion preserves suffix grouping at the prefix boundary`` prefixed =
+    let channels = 6<channelCount>
+    let prefix = if prefixed then [|ce.create 0 1|] else [||]
+    let source =
+        msce.create modelId channels prefix ([|ce.create 2 3; ce.create 4 5; ce.create 2 4|] |> Array.map Ce.toIndex)
+        |> simpleSorterModel.Msce
+    let expectedSuffix = [|[|ce.create 2 3; ce.create 4 5|]; [|ce.create 2 4|]|]
+    let expected = if prefixed then Array.append [|prefix|] expectedSuffix else expectedSuffix
+    Assert.Equal<stage>(expected |> Array.map (fun ces -> stage.create ces channels), (RandomNetwork.toStages source).Stages)
 
 [<Theory>]
 [<InlineData("ce")>]
@@ -279,12 +306,12 @@ let ``odd width adjacent prefix leaves the last channel untouched`` () =
 [<InlineData("uf6")>]
 let ``stage conversion and model sets include the prefix in full sorter form`` kind =
     let source = model kind (prefix ())
-    let stages = RandomNetwork.toStagesWithPrefix source
+    let stages = RandomNetwork.toStages source
     let flattened = stages.Stages |> Array.collect (fun stage -> stage.Ces)
     Assert.Equal<ce>(prefix (), flattened |> Array.take (prefix ()).Length)
-    Assert.Equal((SimpleSorterModel.makeSorterWithPrefix None source).Ces.Length, flattened.Length)
+    Assert.Equal((SimpleSorterModel.makeSorter None source).Ces.Length, flattened.Length)
     let models = sorterModelSet.create (UMX.tag (Guid.NewGuid())) [|sorterModel.Simple source|] 100<ceLength>
-    let full = SorterModelSet.makeSorterSetWithPrefix (UMX.tag (Guid.NewGuid())) (Some 0<ceLength>) models
-    let suffix = SorterModelSet.makeSorterSetWithoutPrefix (UMX.tag (Guid.NewGuid())) (Some 0<ceLength>) models
-    Assert.Equal<ce>(prefix (), full.Sorters.[0].Ces)
-    Assert.Empty(suffix.Sorters.[0].Ces)
+    let suffix = (SimpleSorterModel.makeSorter None source).Ces |> Array.skip (prefix ()).Length
+    for limit in [0; 1; suffix.Length + 1] do
+        let full = SorterModelSet.makeSorterSet (UMX.tag (Guid.NewGuid())) (Some (UMX.tag limit)) models
+        Assert.Equal<ce>(Array.append (prefix ()) (Array.truncate limit suffix), full.Sorters.[0].Ces)

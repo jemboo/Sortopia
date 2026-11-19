@@ -90,9 +90,8 @@ public sealed partial class PreparedExecutionTests
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterModelSet")));
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterSetEval")));
         var store = new SortopiaFileDb(folder, consumer.Id);
-        var pools = Assert.IsType<functionData.SorterPoolSet>(((ISortopiaDb)store).Load(poolsOutput.Reference, Token).ResultValue.Value).Item;
+        var pools = Assert.IsType<sortopiaStorageData.SorterPoolSet>(((ISortopiaDb)store).Load(poolsOutput.Reference, Token).ResultValue.Value).Item;
         Assert.Equal(3, pools.Generation);
-        Assert.Equal(4, pools.History.Length);
         Assert.Single(pools.Pools);
         Assert.InRange(pools.Pools[0].Members.Length, 1, 2);
         Assert.All(pools.Pools[0].Members, member => { Assert.NotNull(member.Model); Assert.NotNull(member.Evaluation); });
@@ -123,13 +122,13 @@ public sealed partial class PreparedExecutionTests
         var parameters = Path.Combine(folder, "runParameters");
         var items = RunParameterFiles.listWorkItems(parameters, Token);
         Assert.Equal(4, items.Length);
-        Assert.All(items, item => Assert.Equal("3", item.Results.FunctionVersion));
+        Assert.All(items, item => Assert.Equal("4", item.Results.FunctionVersion));
         var executed = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(executed);
         var references = executed.Results.SelectMany(result => result.StoredOutputs).Select(output => output.Reference).ToArray();
         Assert.Equal(references.Length, references.Distinct().Count());
         var samples = items.Select(item => new {
             Seed = item.Parameters.TryFindText("InitialPoolSeed").Value,
-            Ids = EvolutionReportingStore.loadSnapshot(folder, item, 0, Token).Pools[0].Members.Select(member => SorterModel.getId(member.Model)).ToArray()
+            Ids = RunOutputFiles.loadSnapshot(folder, item, 0, Token).Pools[0].Members.Select(member => SorterModel.getId(member.Model)).ToArray()
         }).ToArray();
         foreach (var group in samples.GroupBy(sample => sample.Seed))
         {
@@ -156,7 +155,7 @@ public sealed partial class PreparedExecutionTests
         var parameters = Path.Combine(folder, "runParameters");
         var items = RunParameterFiles.listWorkItems(parameters, Token);
         Completed(RunParameterExecution.executeFolderWithOptions(parameters, null!, new(2), null!, Token));
-        var pools = items.Select(item => EvolutionReportingStore.loadSnapshot(folder, item, 0, Token).Pools[0]).ToArray();
+        var pools = items.Select(item => RunOutputFiles.loadSnapshot(folder, item, 0, Token).Pools[0]).ToArray();
         var ids = pools[0].Members.Select(member => SorterModel.getId(member.Model)).ToArray();
         Assert.Equal(2, ids.Distinct().Count());
         Assert.All(pools, pool => {

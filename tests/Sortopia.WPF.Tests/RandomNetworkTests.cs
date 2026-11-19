@@ -201,7 +201,7 @@ public sealed class RandomNetworkTests
         var model = vm.Setup.Generator.Snapshot().CreateModel();
         var child = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(
             vm.Evolution.Mutation.Create(model), model, 0, 1);
-        Assert.Equal(width, RandomNetwork.toStagesWithPrefix(child).ChannelCount);
+        Assert.Equal(width, RandomNetwork.toStages(child).ChannelCount);
     }
 
     [Theory]
@@ -251,8 +251,8 @@ public sealed class RandomNetworkTests
         Assert.Equal(expected, mutator);
         var mutant = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(mutator, model, 0, 1);
         var replay = Sortopia.Models.Sorting.Simple.SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(expected, model, 0, 1);
-        Assert.Equal(new NetworkDefinition("expected", RandomNetwork.toStagesWithPrefix(replay)).Comparators,
-            new NetworkDefinition("child", RandomNetwork.toStagesWithPrefix(mutant)).Comparators);
+        Assert.Equal(new NetworkDefinition("expected", RandomNetwork.toStages(replay)).Comparators,
+            new NetworkDefinition("child", RandomNetwork.toStages(mutant)).Comparators);
     }
 
     [Theory]
@@ -300,22 +300,27 @@ public sealed class RandomNetworkTests
     [Fact]
     public void Checks_distinguish_proof_samples_and_counterexamples()
     {
+        var token = TestContext.Current.CancellationToken;
+        var settings = new NetworkGeneratorSettings();
         var small = CatalogNetwork.LoadAll().First(n => n.Width == 8);
-        var verified = NetworkCheck.Run(small, CancellationToken.None);
+        var check = new NetworkCheck(small.Width, settings.SamplesFor(small.Width), useSimd: false, token);
+        var complete = small.ToSorter();
+        var verified = check.Evaluate(complete, token);
         Assert.True(verified.Exhaustive);
         Assert.Equal(256, verified.Tested);
         Assert.Null(verified.Counterexample);
         var large = CatalogNetwork.LoadAll().First(n => n.Width == 32);
-        var sampled = NetworkCheck.Run(large, CancellationToken.None);
+        var sampled = new NetworkCheck(large.Width, settings.SamplesFor(large.Width), useSimd: false, token)
+            .Evaluate(large.ToSorter(), token);
         Assert.False(sampled.Exhaustive);
         Assert.Equal(4096, sampled.Tested);
         Assert.Null(sampled.Counterexample);
         var incomplete = new NetworkDefinition("one CE", RandomNetwork.generate("msce", 8, 1, Guid.NewGuid()));
-        var failure = NetworkCheck.Run(incomplete, CancellationToken.None);
+        var failure = check.Evaluate(incomplete.ToSorter(), token);
         Assert.NotNull(failure.Counterexample);
         var output = NetworkTrace.Create(incomplete, failure.Counterexample!).Values[^1];
         Assert.False(output.SequenceEqual(output.Order()));
-        Assert.Throws<OperationCanceledException>(() => NetworkCheck.Run(small, new CancellationToken(true)));
+        Assert.Throws<OperationCanceledException>(() => check.Evaluate(complete, new CancellationToken(true)));
     }
 
     [Fact]
@@ -405,7 +410,7 @@ public sealed class RandomNetworkTests
         vm.GenerateCommand.Execute(null);
         var first = vm.SelectedNetwork.Comparators.ToArray();
         var seed = vm.SeedText;
-        var replay = new NetworkDefinition("replay", RandomNetwork.toStagesWithPrefix(vm.Generator.Snapshot().CreateModel()));
+        var replay = new NetworkDefinition("replay", RandomNetwork.toStages(vm.Generator.Snapshot().CreateModel()));
         Assert.Equal(first, replay.Comparators);
         Assert.Contains($"seed {seed}", vm.GenerationLabel);
         vm.GenerateCommand.Execute(null);
@@ -433,14 +438,17 @@ public sealed class RandomNetworkTests
     public void Exhaustive_testing_reaches_20_channels_and_rejects_21(int width)
     {
         var network = new NetworkDefinition("exhaustive", RandomNetwork.generate("msce", width, 1, Guid.Empty));
-        var result = NetworkCheck.Run(network, CancellationToken.None);
+        var result = new NetworkCheck(width, null, useSimd: false, CancellationToken.None)
+            .Evaluate(network.ToSorter(), CancellationToken.None);
         Assert.True(result.Exhaustive);
         Assert.Equal(1 << width, result.Tested);
         Assert.True(result.Failed > 0);
         Assert.Equal(1 << (width - 2), result.CeUses.Single());
         var large = new NetworkDefinition("21", RandomNetwork.generate("msce", 21, 1, Guid.Empty));
-        Assert.Throws<ArgumentOutOfRangeException>(() => NetworkCheck.Run(large, null, CancellationToken.None));
-        Assert.False(NetworkCheck.Run(large, CancellationToken.None).Exhaustive);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new NetworkCheck(large.Width, null, useSimd: false, CancellationToken.None));
+        var sampled = new NetworkCheck(large.Width, new NetworkGeneratorSettings().SamplesFor(large.Width), useSimd: false, CancellationToken.None)
+            .Evaluate(large.ToSorter(), CancellationToken.None);
+        Assert.False(sampled.Exhaustive);
     }
 
     [Fact]
@@ -455,17 +463,20 @@ public sealed class RandomNetworkTests
             for (var i = 0; i < expected.Length; i++) expected[i] += trace.SwapCounts[i];
             if (!trace.Values[^1].SequenceEqual(trace.Values[^1].Order())) failures++;
         }
-        var result = NetworkCheck.Run(network, null, CancellationToken.None);
+        var complete = network.ToSorter();
+        var result = new NetworkCheck(network.Width, null, useSimd: false, CancellationToken.None)
+            .Evaluate(complete, CancellationToken.None);
         Assert.Equal(16, result.Tested);
         Assert.Equal(failures, result.Failed);
         Assert.Equal(expected, result.CeUses);
-        var sampled = NetworkCheck.Run(network, 123, CancellationToken.None);
+        var sampleCheck = new NetworkCheck(network.Width, 123, useSimd: false, CancellationToken.None);
+        var sampled = sampleCheck.Evaluate(complete, CancellationToken.None);
         Assert.Equal(123, sampled.Tested);
         Assert.False(sampled.Exhaustive);
-        Assert.Equal(sampled.CeUses, NetworkCheck.Run(network, 123, CancellationToken.None).CeUses);
+        Assert.Equal(sampled.CeUses, sampleCheck.Evaluate(complete, CancellationToken.None).CeUses);
         Assert.All(sampled.CeUses, n => Assert.InRange(n, 0, 123));
         foreach (var count in new[] { 0, -1, NetworkCheck.MaxSamples + 1 })
-            Assert.Throws<ArgumentOutOfRangeException>(() => NetworkCheck.Run(network, count, CancellationToken.None));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new NetworkCheck(network.Width, count, useSimd: false, CancellationToken.None));
     }
 
     [Fact]
@@ -530,7 +541,8 @@ public sealed class RandomNetworkTests
     public void Removing_unused_CEs_and_compacting_preserve_outputs()
     {
         var original = RedundantNetwork();
-        var result = NetworkCheck.Run(original, CancellationToken.None);
+        var check = new NetworkCheck(original.Width, null, useSimd: false, CancellationToken.None);
+        var result = check.Evaluate(original.ToSorter(), CancellationToken.None);
         Assert.Equal(new[] { 4, 0, 4 }, result.CeUses);
         var pruned = NetworkTransforms.RemoveUnusedCes(original, result);
         Assert.Equal(2, pruned.StageCount);
@@ -547,7 +559,8 @@ public sealed class RandomNetworkTests
             Sortopia.Sorting.Networks.stage.create(new[] { original.Comparators[0] }, 4),
             Sortopia.Sorting.Networks.stage.create(new[] { original.Comparators[1], original.Comparators[2] }, 4)
         }, 4));
-        var retained = NetworkTransforms.RemoveUnusedCes(partial, NetworkCheck.Run(partial, CancellationToken.None));
+        var partialUsage = check.Evaluate(partial.ToSorter(), CancellationToken.None);
+        var retained = NetworkTransforms.RemoveUnusedCes(partial, partialUsage);
         Assert.Equal(2, retained.StageCount);
         Assert.Equal(2, retained.ComparatorCount); // Remove unused CEs even inside a used stage.
         Assert.Single(retained.Sequence.Stages[1].Ces);
@@ -634,12 +647,13 @@ public sealed class RandomNetworkTests
     public void Preserved_usage_matches_retesting_the_same_inputs(int? samples)
     {
         var network = new NetworkDefinition("random", RandomNetwork.generate("msce", 8, 60, Guid.Empty));
-        var usage = NetworkCheck.Run(network, samples, CancellationToken.None);
+        var check = new NetworkCheck(network.Width, samples, useSimd: false, CancellationToken.None);
+        var usage = check.Evaluate(network.ToSorter(), CancellationToken.None);
         var pruned = NetworkTransforms.RemoveUnusedCes(network, usage);
         var kept = NetworkTransforms.PreserveUsage(network, pruned, usage, true)!;
         var compacted = NetworkTransforms.Compact(pruned);
         var mapped = NetworkTransforms.PreserveUsage(pruned, compacted, kept, false)!;
-        var checkedAgain = NetworkCheck.Run(compacted, samples, CancellationToken.None);
+        var checkedAgain = check.Evaluate(compacted.ToSorter(), CancellationToken.None);
         Assert.Equal(checkedAgain.CeUses, mapped.CeUses);
         Assert.Equal(checkedAgain.Failed, mapped.Failed);
         Assert.Equal(checkedAgain.Tested, mapped.Tested);
@@ -689,7 +703,8 @@ public sealed class RandomNetworkTests
         Assert.Equal(preview.Comparators.Count, layout.Comparators.Count);
         Assert.True(layout.Width > layout.CutoffX);
         Assert.Equal(new[] { 0, 1 }, preview.Values[^1]);
-        var result = NetworkCheck.Run(network, CancellationToken.None);
+        var result = new NetworkCheck(network.Width, null, useSimd: false, CancellationToken.None)
+            .Evaluate(network.ToSorter(), CancellationToken.None);
         Assert.Equal(4, result.Tested);
         Assert.Equal(0, result.Failed);
         Assert.Equal(1, result.CeUses[0]);
@@ -815,7 +830,8 @@ public sealed class RandomNetworkTests
         var stages = pairs.Select(p => Sortopia.Sorting.Networks.stage.create(new[] { Sortopia.Sorting.Networks.ce.create(p.Item1, p.Item2) }, 8)).ToArray();
         var network = new NetworkDefinition("render", Sortopia.Sorting.Networks.stageSequence.create(stages, 8));
         var compact = NetworkTransforms.Compact(network);
-        var usage = NetworkCheck.Run(network, CancellationToken.None);
+        var usage = new NetworkCheck(network.Width, null, useSimd: false, CancellationToken.None)
+            .Evaluate(network.ToSorter(), CancellationToken.None);
         var mapped = NetworkTransforms.PreserveUsage(network, compact, usage, false);
         var input = Enumerable.Range(0, 8).Reverse().ToArray();
         var before = NetworkTrace.CreateForPlayback(network, input);
@@ -847,7 +863,8 @@ public sealed class RandomNetworkTests
     public void Switching_display_modes_releases_the_old_width_when_unloaded() => OnSta(() =>
     {
         var network = new NetworkDefinition("long", RandomNetwork.generate("msce", 2, 60, Guid.Empty));
-        var usage = NetworkCheck.Run(network, CancellationToken.None);
+        var usage = new NetworkCheck(network.Width, null, useSimd: false, CancellationToken.None)
+            .Evaluate(network.ToSorter(), CancellationToken.None);
         var diagram = new NetworkDiagram { StaticNetwork = network, Usage = usage };
         var unconstrained = new Size(double.PositiveInfinity, double.PositiveInfinity);
         diagram.Measure(unconstrained);
@@ -936,7 +953,8 @@ public sealed class RandomNetworkTests
         Assert.Equal(128, run.Usage.Tested);
         Assert.False(run.Usage.Exhaustive);
         Assert.All(run.Usage.CeUses, count => Assert.True(count > 0));
-        var checkedAgain = NetworkCheck.Run(run.Network, 128, token);
+        var checkedAgain = new NetworkCheck(run.Network.Width, 128, useSimd: false, token)
+            .Evaluate(run.Network.ToSorter(), token);
         Assert.Equal(checkedAgain.Failed, run.Usage.Failed);
         Assert.Equal(checkedAgain.CeUses, run.Usage.CeUses);
         Assert.Equal(run.Network.StageLengths, NetworkTransforms.Compact(run.Network).StageLengths);
@@ -2135,17 +2153,17 @@ public sealed class RandomNetworkTests
     public void Bit512_evaluation_matches_failure_and_swap_counts_without_counterexamples(int width, int? samples)
     {
         var token = TestContext.Current.CancellationToken;
-        var inputs = new PreparedNetworkCheck(width, samples, [], useSimd: true, token);
+        var inputs = new NetworkCheck(width, samples, useSimd: true, token);
         var network = new NetworkDefinition("comparison", RandomNetwork.generate("msce", width, 12, Guid.Empty));
-        var expected = NetworkCheck.Run(network, samples, token);
-        var suffix = Sortopia.Sorting.Networks.sorter.create(Guid.NewGuid(), width, network.Comparators);
-        var actual = inputs.EvaluateSuffix(suffix, token);
+        var complete = network.ToSorter();
+        var expected = new NetworkCheck(width, samples, useSimd: false, token).Evaluate(complete, token);
+        var actual = inputs.Evaluate(complete, token, includeCounterexample: false);
         Assert.Equal(expected.Tested, actual.Tested);
         Assert.Equal(expected.Exhaustive, actual.Exhaustive);
         Assert.Equal(expected.Failed, actual.Failed);
         Assert.Null(actual.Counterexample);
         Assert.Equal(expected.CeUses.ToArray(), actual.CeUses.ToArray());
-        Assert.Throws<OperationCanceledException>(() => inputs.EvaluateSuffix(suffix, new CancellationToken(true)));
+        Assert.Throws<OperationCanceledException>(() => inputs.Evaluate(complete, new CancellationToken(true)));
     }
 
     [Fact]
@@ -3683,13 +3701,13 @@ public sealed class RandomNetworkTests
         samplingPicker.SetCurrentValue(ComboBox.SelectedItemProperty, first);
         CompleteRun(vm.Sampling.GenerateAsync);
         Assert.Equal("Prefix1 · 1 stage", vm.Sampling.GenerationResult!.Prefix);
-        Assert.Equal(81, vm.Sampling.GenerationResult.Inputs);
-        Assert.Equal(81, ((HeaderedContentControl)FindSgdElement(host, "TestInputsResult")).Content);
-        Assert.Contains("distinct prefix outputs", vm.Sampling.Summary);
+        Assert.Equal(256, vm.Sampling.GenerationResult.Inputs);
+        Assert.Equal(256, ((HeaderedContentControl)FindSgdElement(host, "TestInputsResult")).Content);
+        Assert.Contains("binary inputs", vm.Sampling.Summary);
         vm.Setup.Generator.SamplesText = "513";
         vm.Setup.Generator.CountText = "3";
         CompleteRun(vm.Sampling.GenerateAsync);
-        Assert.InRange(vm.Sampling.GenerationResult!.Inputs, 1, 81);
+        Assert.Equal(513, vm.Sampling.GenerationResult!.Inputs);
         Assert.Equal(513, vm.Sampling.LatestCandidate!.RequestedSamples);
         var original = vm.Sampling.LatestCandidate!;
         Assert.Equal(first.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(original.Model));
@@ -3705,7 +3723,8 @@ public sealed class RandomNetworkTests
         var evolutionPicker = (ComboBox)FindSgdElement(host, "PrefixPicker");
         Assert.Equal("Evolution prefix", System.Windows.Automation.AutomationProperties.GetName(evolutionPicker));
         Assert.Equal("Prefix1/1", vm.Evolution.Prefix.Selected.Key);
-        var before = Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, vm.Evolution.Parent!.Model).Ces;
+        var before = Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorter(null, vm.Evolution.Parent!.Model).Ces
+            .Skip(Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent.Model).Length).ToArray();
         var nextPrefix = vm.Evolution.Prefix.Choices.Single(choice => choice.Key == "PrefixA/3");
         CompleteRun(() =>
         {
@@ -3715,13 +3734,15 @@ public sealed class RandomNetworkTests
         });
         Assert.True(evolutionPicker.IsEnabled);
         Assert.Equal(nextPrefix.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent!.Model));
-        Assert.Equal(before, Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, vm.Evolution.Parent.Model).Ces);
+        Assert.Equal(before, Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorter(null, vm.Evolution.Parent.Model).Ces
+            .Skip(Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent.Model).Length));
         Assert.Equal(first.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(original.Model));
         Assert.Equal(0, vm.Evolution.Generation);
-        var reduced = PrefixNetworkTests.ReducedOracle(vm.Evolution.Parent.RawNetwork, nextPrefix.Comparators, vm.Evolution.Usage!.FixedCes, 513);
-        Assert.Equal(reduced.CeUses, vm.Evolution.Usage.CeUses);
-        Assert.Equal(reduced.Tested, vm.Evolution.Usage.Tested);
-        Assert.True(vm.Evolution.Usage.Tested < 513);
+        var raw = vm.Evolution.Parent.RawNetwork;
+        var fullCheck = new NetworkCheck(raw.Width, 513, useSimd: false, CancellationToken.None)
+            .Evaluate(raw.ToSorter(), CancellationToken.None);
+        Assert.Equal(fullCheck.CeUses, vm.Evolution.Usage!.CeUses);
+        Assert.Equal(513, vm.Evolution.Usage.Tested);
         Render("prefix-evolution.png");
 
         vm.Evolution.Children = 2;
@@ -3733,7 +3754,7 @@ public sealed class RandomNetworkTests
         Assert.Equal(1, vm.Evolution.Generation);
         Assert.Equal(nextPrefix.Comparators, Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent.Model));
         Assert.Equal(513, vm.Evolution.Parent.RequestedSamples);
-        Assert.Equal(reduced.Tested, vm.Evolution.Usage!.Tested);
+        Assert.Equal(513, vm.Evolution.Usage!.Tested);
         var retainedParent = vm.Evolution.Parent;
         var none = vm.Evolution.Prefix.Choices.Single(choice => choice.Key == "none");
         CompleteRun(() =>
@@ -3752,8 +3773,9 @@ public sealed class RandomNetworkTests
         });
         Assert.Equal(0, vm.Evolution.Generation);
         Assert.Empty(Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(vm.Evolution.Parent!.Model));
-        Assert.Equal(Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, retainedParent.Model).Ces,
-            Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorterWithoutPrefix(null, vm.Evolution.Parent.Model).Ces);
+        Assert.Equal(Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorter(null, retainedParent.Model).Ces
+                .Skip(Sortopia.Models.Sorting.Simple.SimpleSorterModel.getPrefix(retainedParent.Model).Length),
+            Sortopia.Models.Sorting.Simple.SimpleSorterModel.makeSorter(null, vm.Evolution.Parent.Model).Ces);
     }
 
     private static SgdResultsViewModel Results(SgdPageViewModel vm) =>

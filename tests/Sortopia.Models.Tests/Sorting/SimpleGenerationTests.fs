@@ -52,7 +52,7 @@ let ``UF6 reuses the typed seed and unfolding configuration in every stage`` () 
         Assert.All(stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes, fun pair -> Assert.Equal(twoOrbitPairType.Para, pair))
         Assert.All(stage.TwoOrbitUnfolderSteps[1].TwoOrbitPairTypes, fun pair -> Assert.Equal(twoOrbitPairType.Ortho, pair))
     Assert.Equal<ce>(prefix, model.Prefix)
-    Assert.Equal<ce>(prefix, (model.MakeSorterWithPrefix (Some 0<ceLength>)).Ces)
+    Assert.Equal<ce>(prefix, (model.MakeSorter (Some 0<ceLength>)).Ces)
 
 [<Fact>]
 let ``UF4 and reflection symmetric generation honor zero weight exclusions`` () =
@@ -83,7 +83,7 @@ let ``uniform adapter retains concrete generator identities and seeded output`` 
             | simpleSorterModelType.Msuf6 -> msuf6RandGen.create rng channels prefix 5<stageLength> (Uf6GenRates.makeUniform width) |> SmmMsuf6RandGen
         let current = SimpleSorterModelGen.makeUniform rng channels prefix 5<stageLength> kind (UMX.tag true)
         Assert.Equal(SimpleSorterModelGen.getId previous, SimpleSorterModelGen.getId current)
-        let draw gen = SimpleSorterModelGen.makeSorterModelFromId id gen |> SimpleSorterModel.makeSorterWithPrefix None
+        let draw gen = SimpleSorterModelGen.makeSorterModelFromId id gen |> SimpleSorterModel.makeSorter None
         Assert.Equal(draw previous, draw current)
 
 [<Fact>]
@@ -118,5 +118,5 @@ let ``configured base generators also support activated models`` () =
     let baseGen = Msuf6RandGen.create rngFactory.SmxFactory 12<channelCount> prefix 5<stageLength> para4Seed [ops 1. 0. 0.] |> SmmMsuf6RandGen
     let r = (simpleSorterModelRGen.create baseGen 0 0).MakeSorterModelFromIndex (UMX.tag 0)
     let s = (simpleSorterModelSGen.create baseGen 0.0).MakeSorterModelFromIndex (UMX.tag 0)
-    Assert.Equal<ce>(prefix, (r.MakeSorterWithPrefix None).Ces)
-    Assert.Equal<ce>(prefix, (s.MakeSorterWithPrefix None).Ces)
+    Assert.Equal<ce>(prefix, (r.MakeSorter None).Ces)
+    Assert.Equal<ce>(prefix, (s.MakeSorter None).Ces)

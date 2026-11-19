@@ -68,7 +68,7 @@ public sealed class SorterSuccessFractionTests
         Assert.Contains($"{fraction} target", guidance);
         var settings = editor.ToProjectSettings();
         var parameters = parameterSet.fromBindings((setup ? settings.setupParameterDefaults : settings.resultsParameterDefaults).Select(ParameterBindingDto.toDomain));
-        var generated = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(setup, name, parameters))).Item;
+        var generated = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(setup, name, parameters))).Item;
         var value = Assert.Single(generated.SorterModels);
         var simple = value switch { sorterModel.Simple s => s.Item, sorterModel.SimpleR r => r.Item.Model, sorterModel.SimpleS s => s.Item.Model, _ => throw new InvalidOperationException() };
         Assert.Equal(model == "msce" ? width * stages / 2 : stages, SimpleSorterModel.getLength(simple));

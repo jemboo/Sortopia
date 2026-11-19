@@ -12,7 +12,7 @@ open Sortopia.Core.Serialization
 
 type dataFileInspection = { Kind: string; Description: string; Json: string }
 
-/// Read-only projections for the file inspector. Never materializes functionData.
+/// Read-only projections for the file inspector. Never materializes sortopiaStorageData.
 module FileInspection =
     let private json value = JsonSerializer.Serialize(value)
     let private maxMetadataBytes = 4 * 1024 * 1024

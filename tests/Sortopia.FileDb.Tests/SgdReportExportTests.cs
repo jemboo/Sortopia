@@ -39,7 +39,7 @@ public sealed partial class PreparedExecutionTests
             var store = new SortopiaFileDb(folder, item.ProjectId);
             var reference = Assert.Single(RunParameterExecution.inspectFile(file, Token).Outputs.Available).Reference;
             Assert.True(reference.DataType.IsSorterPoolSet);
-            var saved = Assert.IsType<functionData.SorterPoolSet>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
+            var saved = Assert.IsType<sortopiaStorageData.SorterPoolSet>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
             var evaluations = saved.Pools.SelectMany(pool => pool.Members).Select(member => member.Evaluation).DistinctBy(SorterEval.getSorterId).ToArray();
             var summary = Assert.Single(TypedReportTests.ReadCsv(export.SummaryPath), row => row["WorkItemId"] == item.Id.ToString());
             Assert.Equal(evaluations.Length.ToString(CultureInfo.InvariantCulture), summary["EvaluatedSorterCount"]);

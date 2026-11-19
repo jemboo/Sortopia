@@ -23,7 +23,7 @@ internal sealed class SavedSetupQueries(string projectFolder)
             token.ThrowIfCancellationRequested();
             var text = SortopiaDataType.text(reference.DataType);
             var label = SortopiaDataType.kindName(reference.DataType) + (text.Length == 0 ? "" : $" · {text}");
-            if (!reference.IsSetup || reference.ProjectId != item.ProjectId)
+            if (reference.Phase != runExecutionPhase.Setup || reference.ProjectId != item.ProjectId)
             {
                 rows.Add(($"{label}: Unavailable", $"{label}: The input is not a setup file in this project."));
                 queries.Inputs[reference.DataType] = null;

@@ -32,7 +32,7 @@ public sealed class UniformModelFunctionTests
         return parameterSet.fromBindings((setup ? settings.setupParameterDefaults : settings.resultsParameterDefaults).Select(ParameterBindingDto.toDomain));
     }
     private static sorterModelSet Generate(bool setup, string model, parameterSet parameters, string family = "Simple") =>
-        Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(setup, Function(model, setup, family), parameters))).Item;
+        Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(setup, Function(model, setup, family), parameters))).Item;
     private static simpleSorterModel Simple(sorterModel model) => model switch {
         sorterModel.Simple value => value.Item, sorterModel.SimpleR value => value.Item.Model, sorterModel.SimpleS value => value.Item.Model,
         _ => throw new InvalidOperationException()
@@ -75,7 +75,7 @@ public sealed class UniformModelFunctionTests
         var otherValues = Parameters(Module(!setup, model, family), !setup);
         var repeated = Generate(!setup, model, otherValues, family);
         Assert.Equal(generated.SorterModels.Select(SorterModel.getId), repeated.SorterModels.Select(SorterModel.getId));
-        Assert.Equal(generated.SorterModels.Select(value => SorterModel.makeSorterWithPrefix(value, null!)), repeated.SorterModels.Select(value => SorterModel.makeSorterWithPrefix(value, null!)));
+        Assert.Equal(generated.SorterModels.Select(value => SorterModel.makeSorter(value, null!)), repeated.SorterModels.Select(value => SorterModel.makeSorter(value, null!)));
         var next = Generate(setup, model, values.WithBinding(ParameterBinding.create(ParamKeys.replKey, 1)), family);
         Assert.Empty(generated.SorterModels.Select(SorterModel.getId).Intersect(next.SorterModels.Select(SorterModel.getId)));
     }
@@ -191,7 +191,7 @@ public sealed class UniformModelFunctionTests
             foreach (var call in report.Results) {
                 Assert.NotNull(call.Parameters.TryFind(branch ? "OrthoRate" : "UnfoldingWeights"));
                 var stored = db.Load(Assert.Single(call.StoredOutputs).Reference, TestContext.Current.CancellationToken); Assert.True(stored.IsOk);
-                var models = Assert.IsType<functionData.SorterModelSet>(stored.ResultValue.Value).Item;
+                var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(stored.ResultValue.Value).Item;
                 Assert.All(models.SorterModels, model => Assert.Empty(SorterModel.getPrefix(model)));
             }
             Assert.Equal(2, Directory.GetFiles(Path.Combine(copy, "data", "results", "SorterModelSet"), "*.msgpack").Length);

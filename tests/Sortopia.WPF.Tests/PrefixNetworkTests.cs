@@ -30,7 +30,10 @@ public sealed class PrefixNetworkTests
         Assert.Equal(2, candidate.Network.Comparators.Count(c => c.LowChannel == 0 && c.HighChannel == 1));
         Assert.Equal(3, candidate.Score.ComparatorCount);
         Assert.Equal(2, candidate.Score.StageCount);
-        Assert.Equal(ReducedOracle(candidate.Network, prefix, candidate.Usage.FixedCes, null).CeUses, candidate.Usage.CeUses);
+        var expected = new NetworkCheck(candidate.Network.Width, null, useSimd: false, CancellationToken.None)
+            .Evaluate(candidate.Network.ToSorter(), CancellationToken.None);
+        Assert.Equal(expected.CeUses, candidate.Usage.CeUses);
+        Assert.Equal(4, candidate.RawUsage.CeUses[0]);
         Assert.Equal(prefix, SimpleSorterModel.getPrefix(candidate.Model));
         Assert.True(candidate.RawUsage.IsFixedCe(1));
         foreach (var mode in new[] { 1, 2, 3 })
@@ -55,39 +58,53 @@ public sealed class PrefixNetworkTests
     [InlineData(64, 1025, false)]
     [InlineData(64, 1025, true)]
     [InlineData(8, 1, true)]
-    public void PresortedSuffixChecksCountEachDistinctPrefixOutputOnce(int width, int? samples, bool simd)
+    [InlineData(3, 513, false)]
+    [InlineData(3, 513, true)]
+    public void PreparedInputsAreReusedAcrossCompleteSortersWithDifferentPrefixes(int width, int? samples, bool simd)
     {
         var token = TestContext.Current.CancellationToken;
         ce[] prefix = [ce.create(0, 1), ce.create(1, 2), ce.create(0, 1)];
-        var generator = msceRandGen.create(rngFactory.SmxFactory, width, prefix, true, 7);
-        var inputs = new PreparedNetworkCheck(width, samples, prefix, simd, token);
-        // The prepared set owns its prefix, and evaluation must not mutate the cached inputs.
-        prefix[0] = ce.create(0, width - 1);
+        var inputs = new NetworkCheck(width, samples, simd, token);
+        var reference = new NetworkCheck(width, samples, useSimd: false, token);
+        ce[][] prefixes = [prefix, [ce.create(0, width - 1)], []];
         for (var index = 0; index < 3; index++)
         {
+            var generator = msceRandGen.create(rngFactory.SmxFactory, width, prefixes[index], true, 7);
             var model = simpleSorterModel.NewMsce(generator.MakeSorterModelFromIndex(index));
             var candidate = NetworkSearch.Prepare("prefixed", model, samples, token, inputs);
-            var fullCheck = ReducedOracle(candidate.RawNetwork, SimpleSorterModel.getPrefix(model), candidate.RawUsage.FixedCes, samples);
+            var fullCheck = reference.Evaluate(candidate.RawNetwork.ToSorter(), token);
+            Assert.Equal(samples ?? (1 << width), inputs.Count);
             Assert.Equal(fullCheck.Tested, candidate.RawUsage.Tested);
             Assert.Equal(fullCheck.Exhaustive, candidate.RawUsage.Exhaustive);
             Assert.Equal(fullCheck.Failed, candidate.RawUsage.Failed);
-            Assert.True(candidate.RawUsage.UsesReducedInputs);
             Assert.Equal(samples, candidate.RequestedSamples);
             Assert.Null(candidate.RawUsage.Counterexample);
             Assert.Equal(fullCheck.CeUses, candidate.RawUsage.CeUses);
-            Assert.Equal(3, candidate.RawUsage.FixedCes.Count(fixedCe => fixedCe));
+            Assert.Equal(prefixes[index].Length, candidate.RawUsage.FixedCes.Count(fixedCe => fixedCe));
             var replay = NetworkSearch.Prepare("replay", model, samples, token, inputs);
             Assert.Equal(candidate.RawUsage.CeUses, replay.RawUsage.CeUses);
             Assert.Equal(candidate.RawUsage.Failed, replay.RawUsage.Failed);
             Assert.Null(replay.RawUsage.Counterexample);
-            var compactCheck = ReducedOracle(candidate.Network, SimpleSorterModel.getPrefix(model), candidate.Usage.FixedCes, samples);
+            var compactCheck = reference.Evaluate(candidate.Network.ToSorter(), token);
             Assert.Equal(compactCheck.CeUses, candidate.Usage.CeUses);
             Assert.Equal(compactCheck.Failed, candidate.Score.Failures);
         }
-        var wrong = simpleSorterModel.NewMsce(msceRandGen.create(rngFactory.SmxFactory, width, [], true, 7).MakeSorterModelFromIndex(0));
-        Assert.Throws<ArgumentException>(() => NetworkSearch.Prepare("wrong prefix", wrong, samples, token, inputs));
-        Assert.Throws<OperationCanceledException>(() => inputs.EvaluateSuffix(
-            SimpleSorterModel.makeSorterWithoutPrefix(null, wrong), new CancellationToken(true)));
+        var empty = sorter.create(Guid.NewGuid(), width, []);
+        var expectedEmpty = reference.Evaluate(empty, token);
+        var actualEmpty = inputs.Evaluate(empty, token);
+        Assert.Equal(expectedEmpty.Failed, actualEmpty.Failed);
+        Assert.Equal(inputs.Count, actualEmpty.Tested);
+        Assert.Empty(actualEmpty.CeUses);
+        int[] suffix = [Ce.toIndex(ce.create(0, 1))];
+        var modelForCoverage = simpleSorterModel.NewMsce(msce.create(Guid.NewGuid(), width, [], suffix));
+        Assert.Throws<ArgumentException>(() => NetworkSearch.Prepare("wrong coverage", modelForCoverage, samples == 1 ? 2 : 1, token, inputs));
+        var otherWidth = width == 64 ? 63 : width + 1;
+        var wrongWidth = simpleSorterModel.NewMsce(msce.create(Guid.NewGuid(), otherWidth, [], suffix));
+        Assert.Throws<ArgumentException>(() => NetworkSearch.Prepare("wrong width", wrongWidth, samples, token, inputs));
+        Assert.Throws<ArgumentException>(() => inputs.Evaluate(sorter.create(Guid.NewGuid(), otherWidth, []), token));
+        Assert.Throws<OperationCanceledException>(() => new NetworkCheck(width, samples, simd, new CancellationToken(true)));
+        Assert.Throws<OperationCanceledException>(() => inputs.Evaluate(
+            empty, new CancellationToken(true)));
     }
 
     [Theory]
@@ -103,11 +120,12 @@ public sealed class PrefixNetworkTests
         var generator = SimpleSorterModelGen.makeUniform(rngFactory.SmxFactory, width, prefix, 3,
             SimpleSorterModelType.fromString(kind), true);
         var model = SimpleSorterModelGen.makeSorterModelFromIndex(0, generator);
-        var inputs = new PreparedNetworkCheck(width, 513, prefix, useSimd: false, token);
+        var inputs = new NetworkCheck(width, 513, useSimd: false, token);
         var parent = NetworkSearch.Prepare(kind, model, 513, token, inputs);
-        Assert.Equal(SimpleSorterModel.makeSorterWithPrefix(null, model).Ces.Length, parent.RawNetwork.ComparatorCount);
+        Assert.Equal(SimpleSorterModel.makeSorter(null, model).Ces.Length, parent.RawNetwork.ComparatorCount);
         Assert.Equal(prefix, parent.RawNetwork.Comparators.Take(prefix.Length));
-        Assert.Equal(ReducedOracle(parent.RawNetwork, prefix, parent.RawUsage.FixedCes, 513).CeUses, parent.RawUsage.CeUses);
+        var parentCheck = inputs.Evaluate(parent.RawNetwork.ToSorter(), token);
+        Assert.Equal(parentCheck.CeUses, parent.RawUsage.CeUses);
         var children = new List<SearchCandidate>();
         await NetworkSearch.NextGenerationAsync(parent, RandomNetwork.createMutator(model, 0.5), 1, 3, token,
             inputs: inputs, candidateEvaluated: (child, _) => { children.Add(child); return Task.CompletedTask; });
@@ -117,7 +135,7 @@ public sealed class PrefixNetworkTests
             Assert.Equal(prefix, SimpleSorterModel.getPrefix(child.Model));
             Assert.Equal(prefix.Length, child.Usage.FixedCes.Count(fixedCe => fixedCe));
             Assert.Equal(513, child.RequestedSamples);
-            var expected = ReducedOracle(child.RawNetwork, prefix, child.RawUsage.FixedCes, 513);
+            var expected = inputs.Evaluate(child.RawNetwork.ToSorter(), token);
             Assert.Equal(expected.Tested, child.RawUsage.Tested);
             Assert.Equal(expected.Failed, child.RawUsage.Failed);
             Assert.Equal(expected.CeUses, child.RawUsage.CeUses);
@@ -152,14 +170,16 @@ public sealed class PrefixNetworkTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void EmptySuffixUsesOnlyTheOnceAppliedPrefix(bool simd)
+    public void PrefixOnlySorterIsEvaluatedExactlyOnce(bool simd)
     {
         ce[] prefix = [ce.create(0, 1), ce.create(1, 2)];
         var token = TestContext.Current.CancellationToken;
-        var inputs = new PreparedNetworkCheck(3, null, prefix, simd, token);
-        var actual = inputs.EvaluateSuffix(sorter.create(Guid.NewGuid(), 3, []), token);
-        var complete = NetworkDefinition.FromSorter("prefix only", sorter.create(Guid.NewGuid(), 3, prefix));
-        var expected = ReducedOracle(complete, prefix, actual.FixedCes, null);
+        var inputs = new NetworkCheck(3, null, simd, token);
+        var complete = sorter.create(Guid.NewGuid(), 3, prefix);
+        var actual = inputs.Evaluate(complete, token, includeCounterexample: false);
+        var expected = new NetworkCheck(3, null, useSimd: false, token).Evaluate(complete, token);
+        Assert.Equal(8, actual.Tested);
+        Assert.Empty(actual.FixedCes); // Prefix ownership stays with the model and search, not the evaluator.
         Assert.Equal(expected.Failed, actual.Failed);
         Assert.Null(actual.Counterexample);
         Assert.DoesNotContain("first failing input", actual.Description);
@@ -168,67 +188,43 @@ public sealed class PrefixNetworkTests
     }
 
     [Theory]
-    [InlineData(8, 81, false)]
-    [InlineData(8, 81, true)]
-    [InlineData(9, 162, false)]
-    [InlineData(9, 162, true)]
-    [InlineData(20, 59049, false)]
-    [InlineData(20, 59049, true)]
-    public void Prefix1ExhaustiveInputsUseTheReducedCatalogSet(int width, int expectedCount, bool simd)
+    [InlineData(8, false)]
+    [InlineData(8, true)]
+    [InlineData(9, false)]
+    [InlineData(9, true)]
+    [InlineData(20, false)]
+    [InlineData(20, true)]
+    public void CatalogPrefixIsMeasuredAgainstEveryOriginalInput(int width, bool simd)
     {
         var token = TestContext.Current.CancellationToken;
         var prefix = SorterDataParse.getCeArrayFromPrefixLib(prefixLibId.create(width, 1, prefixLibVariant.Prefix1)).Value;
-        var inputs = new PreparedNetworkCheck(width, null, prefix, simd, token);
-        var actual = inputs.EvaluateSuffix(sorter.create(Guid.NewGuid(), width, []), token);
+        var inputs = new NetworkCheck(width, null, simd, token);
+        var actual = inputs.Evaluate(sorter.create(Guid.NewGuid(), width, prefix), token);
+        var expectedCount = 1 << width;
         Assert.Equal(expectedCount, inputs.Count);
         Assert.Equal(expectedCount, actual.Tested);
-        Assert.Equal(expectedCount - width - 1, actual.Failed); // The width + 1 sorted binary sequences are all present.
+        // Each sorted output with its transition inside a compared pair has two original inputs.
+        Assert.Equal(expectedCount - (width + 1 + width / 2), actual.Failed);
         Assert.True(actual.Exhaustive);
-        Assert.All(actual.CeUses, count => Assert.Equal(0, count));
-        Assert.All(actual.FixedCes, fixedCe => Assert.True(fixedCe));
+        Assert.All(actual.CeUses, count => Assert.Equal(expectedCount / 4, count));
+        Assert.Empty(actual.FixedCes);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void MultiStageCatalogPrefixMatchesDistinctOutputOracle(bool simd)
+    public void MultiStageCatalogPrefixMatchesCompleteNetworkOracle(bool simd)
     {
         var token = TestContext.Current.CancellationToken;
         var prefix = SorterDataParse.getCeArrayFromPrefixLib(prefixLibId.create(8, 3, prefixLibVariant.PrefixA)).Value;
         var model = simpleSorterModel.NewMsce(msceRandGen.create(rngFactory.SmxFactory, 8, prefix, true, 5).MakeSorterModelFromIndex(0));
-        var inputs = new PreparedNetworkCheck(8, null, prefix, simd, token);
+        var inputs = new NetworkCheck(8, null, simd, token);
         var candidate = NetworkSearch.Prepare("PrefixA", model, null, token, inputs);
-        var expected = ReducedOracle(candidate.RawNetwork, prefix, candidate.RawUsage.FixedCes, null);
-        Assert.True(expected.Tested < 256);
+        var expected = new NetworkCheck(8, null, useSimd: false, token)
+            .Evaluate(candidate.RawNetwork.ToSorter(), token);
+        Assert.Equal(256, expected.Tested);
         Assert.Equal(expected.Tested, candidate.RawUsage.Tested);
         Assert.Equal(expected.Failed, candidate.RawUsage.Failed);
         Assert.Equal(expected.CeUses, candidate.RawUsage.CeUses);
-    }
-
-    internal static NetworkCheckResult ReducedOracle(NetworkDefinition network, ce[] prefix, IReadOnlyList<bool> fixedCes, int? samples)
-    {
-        var seen = new HashSet<string>();
-        var random = samples is null ? null : new Random(NetworkCheck.SampleSeed);
-        var input = new int[network.Width];
-        var uses = new int[network.ComparatorCount];
-        var failed = 0;
-        for (var index = 0; index < NetworkCheck.InputCount(network.Width, samples); index++)
-        {
-            NetworkCheck.FillInput(input, index, random);
-            foreach (var comparator in prefix)
-                if (input[comparator.LowChannel] > input[comparator.HighChannel])
-                    (input[comparator.LowChannel], input[comparator.HighChannel]) = (input[comparator.HighChannel], input[comparator.LowChannel]);
-            if (!seen.Add(string.Concat(input))) continue;
-            for (var ceIndex = 0; ceIndex < network.ComparatorCount; ceIndex++)
-            {
-                if (fixedCes[ceIndex]) continue;
-                var comparator = network.Comparators[ceIndex];
-                if (input[comparator.LowChannel] <= input[comparator.HighChannel]) continue;
-                (input[comparator.LowChannel], input[comparator.HighChannel]) = (input[comparator.HighChannel], input[comparator.LowChannel]);
-                uses[ceIndex]++;
-            }
-            if (!input.SequenceEqual(input.Order())) failed++;
-        }
-        return new(seen.Count, samples is null, null, failed, uses);
     }
 }

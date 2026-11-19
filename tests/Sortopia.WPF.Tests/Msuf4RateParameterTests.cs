@@ -54,7 +54,7 @@ public sealed class Msuf4RateParameterTests
 
     private static msuf4 Generate(string phase, WorkspaceConfigurationViewModel editor, parameterSet parameters)
     {
-        var output = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(phase == "setup",
+        var output = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(phase == "setup",
             phase == "setup" ? editor.SetupFunctionName : editor.ResultsFunctionName, parameters))).Item;
         var simple = Assert.Single(output.SorterModels) switch {
             sorterModel.Simple value => value.Item, sorterModel.SimpleR value => value.Item.Model,

@@ -33,7 +33,8 @@ public sealed class NetworkTrace
         IsPreview = preview;
         var stageCount = preview ? PreviewStages(network) : network.StageCount;
         var ceCount = preview ? network.StageLengths.Take(stageCount).Sum() : network.ComparatorCount;
-        var displayedCes = network.Comparators.Take(ceCount).ToArray();
+        var source = network.ToSorter();
+        var displayedCes = Enumerable.Range(0, ceCount).Select(source.Ce).ToArray();
         var sortable = sortableIntArray.create(input, network.Width, network.Width);
         var uses = new int[ceCount];
         var history = sortable.SortByCesWithHistory(displayedCes, uses);

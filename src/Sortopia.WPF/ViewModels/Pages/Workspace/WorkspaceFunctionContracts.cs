@@ -45,71 +45,29 @@ public sealed partial class WorkspaceConfigurationViewModel
         catch (ArgumentException error) { return error.Message; }
     }
 
-    private modelGenerationMetadata? ModelGeneration(bool setup) => setup
-        ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.ModelGeneration?.Value : null
-        : ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.ModelGeneration?.Value : null;
+    private functionParameterSupport? ParameterSupport(bool setup) => setup
+        ? SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var setupDefinition) ? setupDefinition.ParameterSupport : null
+        : ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var resultsDefinition) ? resultsDefinition.ParameterSupport : null;
 
-    private string ModelInputGuidance(bool setup)
+    private string FunctionInputGuidance(bool setup)
     {
-        var model = ModelGeneration(setup);
-        if (model is null) return "";
-        bool prefix = model.PrefixMode.IsCatalogPrefix;
-        var dimensions = prefix ? "Channel count and prefix stage length come from PrefixLibId. SorterSuccessFraction determines the random suffix capacity; the fixed prefix is always added. "
-            : "ChannelCount sets the width; SorterSuccessFraction determines the stage capacity with zero prefix stages. The generated models have no fixed prefix. ";
-        var outputs = setup ? SetupFunctionCatalog.require(SetupFunctionName).SortopiaDataTypes
-            : ResultsFunctionCatalog.require(ResultsFunctionName).SortopiaDataTypes;
-        var tests = outputs.Any(output => output.IsSortableTests)
-            ? "Generates full sortable tests using ChannelCount and SortableDataFormat. Tests and models have separate output projections. " : "";
-        var family = model.Family.IsSimpleR
-            ? "The function fixes the algorithm and SimpleR model type. AInitial sets every suffix activator's starting value and must be within [-AMax, AMax]. Only positive activators enable entries. "
-            : model.Family.IsSimpleS
-                ? "The function fixes the algorithm and SimpleS model type. ActivationProbability controls Boolean suffix activators. "
-                : model.Family.IsSimple
-                    ? "The function fixes the algorithm and Simple model type. All suffix entries are enabled; no activator parameters are required. "
-                    : "";
-        var weights = model.Algorithm.IsMsuf4
-            ? "OrthoRate, ParaRate, and SelfSymRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
-            : "Mode weights are shared by every stage; UF6 has separate seed and unfolding-level weights. Every width and unfolding span combination must be compatible.";
-        return family
-            + dimensions + "Choose 50%, 90%, or 99% of generated networks sorting every input. These budgets are provisional; custom weights and inactive entries can change the actual success rate. "
-            + tests + "Repl selects a reproducible batch of SorterCount models. " + weights;
-    }
-    private string ModelStageLengthSuggestion(bool setup)
-    {
-        var model = ModelGeneration(setup);
-        if (!PhaseVersionCurrent(setup) || model is null) return "";
-        var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
-        var spans = IsRun ? ActiveParameters(setup).ToArray() : [];
-        parameterValue[] Values(string key)
-        {
-            var bindings = defaults.Where(value => value.keyName == key).ToArray();
-            var matches = spans.Where(span => span.Key == key).ToArray();
-            if (bindings.Length > 1 || matches.Length > 1 || bindings.Length > 0 && matches.Length > 0) return [];
-            var texts = bindings.Select(value => value.value).Concat(matches.SelectMany(span => span.Values.Select(value => value.Text))).ToArray();
-            var parsed = texts.Select(text => ParameterValue.tryParse(ParamKeys.valueType(key), text)).ToArray();
-            return parsed.Any(value => value is null) ? [] : parsed.Select(value => value.Value).Distinct().ToArray();
-        }
-        var fractions = Values("SorterSuccessFraction").OfType<parameterValue.SorterSuccessFractionValue>().Select(value => value.Item).ToArray();
+        var support = ParameterSupport(setup);
+        if (!PhaseVersionCurrent(setup) || support is null) return "";
+        var bindings = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
+        var inputs = (IsRun ? ActiveParameters(setup) : []).ToArray();
+        if (DefaultsError(bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0))
+            return support.Guidance.Invoke(ListModule.Empty<parameterBinding>()).Invoke(ListModule.Empty<parameterSpan>());
         try
         {
-            var dimensions = model.PrefixMode.IsCatalogPrefix
-                ? Values("PrefixLibId").OfType<parameterValue.PrefixLibIdValue>().Select(value => (Width: value.Item.ChannelCount, Prefix: value.Item.StageLength)).ToArray()
-                : Values("ChannelCount").OfType<parameterValue.IntegerValue>().Select(value => (Width: value.Item, Prefix: 0)).ToArray();
-            if (fractions.Length == 0 || dimensions.Length == 0) return "Select a success fraction and channel count or prefix to see the suggested stage length. ";
-            var suggestions = (from dimension in dimensions from fraction in fractions
-                select SimpleSorterStageLengths.forSuccessFraction(fraction, dimension.Width, dimension.Prefix, model.Algorithm)).ToArray();
-            if (suggestions.Any(value => !value.IsSupported)) return "Stage suggestion unavailable for an unsupported channel count. ";
-            var minimum = suggestions.Min(value => value.Stages); var maximum = suggestions.Max(value => value.Stages);
-            if (suggestions.Length == 1)
-                return $"Suggested random suffix: {minimum:N0} stages ({dimensions[0].Width} channels, {dimensions[0].Prefix} prefix stages, {SorterSuccessFraction.toString(fractions[0])} target; {suggestions[0].Source}). ";
-            return $"Suggested random suffix: {minimum:N0}–{maximum:N0} stages across the selected widths, prefixes, and success fractions. ";
+            var defaults = ListModule.OfSeq(bindings.Select(ParameterBindingDto.toDomain));
+            var spans = ListModule.OfSeq(inputs.Select(span =>
+                ParameterSpan.fromTexts(span.Key, span.ValueType, ListModule.OfSeq(span.Values.Select(value => value.Text)))));
+            return support.Guidance.Invoke(defaults).Invoke(spans);
         }
-        catch (ArgumentException error) { return $"Stage suggestion unavailable: {error.Message} "; }
+        catch (ArgumentException error) { return error.Message; }
     }
-    public string ResultsInputGuidance => HasResultsContract ? ModelStageLengthSuggestion(false) + ModelInputGuidance(false) : "";
-    public string SetupInputGuidance => SetupParametersFromSources
-        ? "Copy both evaluation inputs unchanged from the selected source projects. Their results query keys determine the required parameters. Supply every source key through a default or span; each local setup projection may select a subset of its source's keys. Model families, prefixes, suffix lengths, and activators are inherited from the source data."
-        : HasSetupContract ? ModelStageLengthSuggestion(true) + ModelInputGuidance(true) : "";
+    public string ResultsInputGuidance => FunctionInputGuidance(false);
+    public string SetupInputGuidance => FunctionInputGuidance(true);
     public bool HasResultsInputGuidance => ResultsInputGuidance.Length > 0;
     public bool HasSetupInputGuidance => SetupInputGuidance.Length > 0;
     public bool HasResultsContract => ResultsFunctionCatalog.functions.ContainsKey(ResultsFunctionName);

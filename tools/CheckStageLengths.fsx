@@ -22,7 +22,7 @@ for kind in [simpleSorterModelType.Msce; simpleSorterModelType.Mssi; simpleSorte
     let measure index =
         let id = Guid(index, 2026s, 1115s, [|1uy;2uy;3uy;4uy;5uy;6uy;7uy;8uy|]) |> UMX.tag<sorterModelId>
         let model = SimpleSorterModelGen.makeSorterModelFromId id generator
-        let stages = (RandomNetwork.toStagesWithoutPrefix model).Stages
+        let stages = (RandomNetwork.toStages model).Stages
         let rows = [|0xAAAAUL; 0xCCCCUL; 0xF0F0UL; 0xFF00UL|]
         let mutable comparisons, depth, answer = 0, 0, 0
         for stage in stages do

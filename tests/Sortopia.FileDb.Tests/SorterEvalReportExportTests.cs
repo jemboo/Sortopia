@@ -27,7 +27,7 @@ public sealed partial class PreparedExecutionTests
             var item = RunParameterFiles.loadFile(row["ParameterFile"]);
             var store = new SortopiaFileDb(copy, item.ProjectId);
             var reference = Assert.Single(RunParameterExecution.inspectFile(row["ParameterFile"], Token).Outputs.Available).Reference;
-            var evaluations = Assert.IsType<functionData.SorterSetEval>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
+            var evaluations = Assert.IsType<sortopiaStorageData.SorterSetEval>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
             Assert.Equal(reference.Id.ToString(), row["ResultsDataId"]); Assert.Equal(item.Id.ToString(), row["WorkItemId"]);
             Assert.Equal(item.RunId.ToString(), row["RunId"]); Assert.Equal(evaluations.SorterTestId.ToString(), row["SortableTestsId"]);
             Assert.Equal("8", row["Setup.SorterModelSet.Query.ChannelCount"]);

@@ -39,7 +39,7 @@ public sealed class FunctionOutputContractTests : IDisposable
         }
         return settings;
     }
-    private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
+    private static FSharpList<sortopiaStorageData> Invoke(bool setup, string name, parameterSet parameters, params sortopiaStorageData[] inputs)
         => CatalogTestHost.Invoke(setup, name, parameters, inputs);
 
     [Fact]
@@ -104,20 +104,20 @@ public sealed class FunctionOutputContractTests : IDisposable
     [Fact]
     public void Added_publishers_and_chunked_evaluator_execute_as_independent_functions()
     {
-        var tests = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(false, ResultsFunctionNames.standardSortableTests,
+        var tests = Assert.IsType<sortopiaStorageData.SortableTests>(Assert.Single(Invoke(false, ResultsFunctionNames.standardSortableTests,
             Parameters([RunExecutionTests.Binding("ChannelCount", "4", parameterValueType.Integer), Format]))));
-        Assert.Equal(16, SortableTests.getSortableCount(tests.Item1));
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels, Parameters(RunExecutionTests.UniformModelDefaults()))));
+        Assert.Equal(16, SortableTests.getSortableCount(tests.Item));
+        var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels, Parameters(RunExecutionTests.UniformModelDefaults()))));
         Assert.Equal(3, models.Item.Count);
         var combined = Invoke(false, ResultsFunctionNames.standardMssiSimpleEvaluationInputs, Parameters(Combined(false).resultsParameterDefaults));
         Assert.Equal(2, combined.Length);
-        var normal = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval, Parameters(EvaluationDefaults), combined.ToArray())));
-        var mutants = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.mutantEval,
+        var normal = Assert.IsType<sortopiaStorageData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval, Parameters(EvaluationDefaults), combined.ToArray())));
+        var mutants = Assert.IsType<sortopiaStorageData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.mutantEval,
             Parameters([RunExecutionTests.Binding("SorterEvalType", "V1")]), combined.ToArray())));
         Assert.Equal(normal.Item.SorterEvals, mutants.Item.SorterEvals);
         var manyModels = Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels,
             Parameters(RunExecutionTests.UniformModelDefaults()).WithBinding(ParameterBinding.create(ParamKeys.sorterCountKey, 1001)));
-        var multipleChunks = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.mutantEval,
+        var multipleChunks = Assert.IsType<sortopiaStorageData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.mutantEval,
             Parameters([RunExecutionTests.Binding("SorterEvalType", "V1")]), [tests, .. manyModels])));
         Assert.Equal(1001, multipleChunks.Item.SorterEvals.Length);
     }
@@ -135,10 +135,10 @@ public sealed class FunctionOutputContractTests : IDisposable
         var name = SetupFunctionNames.evaluationSource;
         var models = Assert.Single(Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels, Parameters(RunExecutionTests.UniformModelDefaults(prefix ? 8 : 4))));
         var generated = Invoke(true, name, parameters, source, models);
-        var sourceTests = Assert.IsType<functionData.SortableTests>(source);
-        var reused = Assert.IsType<functionData.SortableTests>(generated.Single(value => value.IsSortableTests));
-        Assert.Same(sourceTests.Item1, reused.Item1); Assert.Same(sourceTests.Item2, reused.Item2);
-        Assert.Equal(3, Assert.IsType<functionData.SorterModelSet>(generated.Single(value => value.IsSorterModelSet)).Item.Count);
+        var sourceTests = Assert.IsType<sortopiaStorageData.SortableTests>(source);
+        var reused = Assert.IsType<sortopiaStorageData.SortableTests>(generated.Single(value => value.IsSortableTests));
+        Assert.Same(sourceTests.Item, reused.Item);
+        Assert.Equal(3, Assert.IsType<sortopiaStorageData.SorterModelSet>(generated.Single(value => value.IsSorterModelSet)).Item.Count);
         Assert.Equal(2, SetupFunctionCatalog.functions[name].SourceDataTypes.Length);
         Assert.Same(models, generated.Single(value => value.IsSorterModelSet));
         var wrongChannels = parameters.WithBinding(ParameterBinding.create(ParamKeys.channelCountKey, 6));

@@ -94,11 +94,11 @@ type reportingRunParametersDto = {
 module internal RunParameterCodec =
     let reference (value: storedDataReference) : dataReferenceDto = {
         ProjectId = UMX.untag value.ProjectId; Id = UMX.untag value.Id; QueryId = UMX.untag value.QueryId
-        IsSetup = value.IsSetup; Kind = SortopiaDataType.kindName value.DataType; Label = SortopiaDataType.text value.DataType; Reused = false }
+        IsSetup = RunExecutionPhase.toIsSetup value.Phase; Kind = SortopiaDataType.kindName value.DataType; Label = SortopiaDataType.text value.DataType; Reused = false }
     let readReference (value: dataReferenceDto) : storedDataReference =
         if value.ProjectId = Guid.Empty || value.Id = Guid.Empty || value.QueryId = Guid.Empty then invalidOp "Invalid saved setup reference."
         { ProjectId = UMX.tag value.ProjectId; Id = UMX.tag value.Id; QueryId = UMX.tag value.QueryId
-          IsSetup = value.IsSetup; DataType = SortopiaDataType.create value.Kind value.Label }
+          Phase = RunExecutionPhase.fromIsSetup value.IsSetup; DataType = SortopiaDataType.create value.Kind value.Label }
 
     // Primitive values retain their native MessagePack representation. Catalog IDs
     // use their canonical, validated wire text, just as workspace definitions do.

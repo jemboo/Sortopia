@@ -49,21 +49,13 @@ module SimpleSorterModel =
         | Msuf4 msuf4 -> msuf4.Id
         | Msuf6 msuf6 -> msuf6.Id
 
-    let makeSorterWithoutPrefix (maxCeLength: int<ceLength> option) (model: simpleSorterModel)  : sorter =
+    let makeSorter (maxCeLength: int<ceLength> option) (model: simpleSorterModel)  : sorter =
         match model with
-        | Msce msce -> msce.MakeSorterWithoutPrefix(maxCeLength)
-        | Mssi mssi -> mssi.MakeSorterWithoutPrefix(maxCeLength)
-        | Msrs msrs -> msrs.MakeSorterWithoutPrefix(maxCeLength)
-        | Msuf4 msuf4 -> msuf4.MakeSorterWithoutPrefix(maxCeLength)
-        | Msuf6 msuf6 -> msuf6.MakeSorterWithoutPrefix(maxCeLength)
-
-    let makeSorterWithPrefix (maxCeLength: int<ceLength> option) (model: simpleSorterModel)  : sorter =
-        match model with
-        | Msce msce -> msce.MakeSorterWithPrefix(maxCeLength)
-        | Mssi mssi -> mssi.MakeSorterWithPrefix(maxCeLength)
-        | Msrs msrs -> msrs.MakeSorterWithPrefix(maxCeLength)
-        | Msuf4 msuf4 -> msuf4.MakeSorterWithPrefix(maxCeLength)
-        | Msuf6 msuf6 -> msuf6.MakeSorterWithPrefix(maxCeLength)
+        | Msce msce -> msce.MakeSorter(maxCeLength)
+        | Mssi mssi -> mssi.MakeSorter(maxCeLength)
+        | Msrs msrs -> msrs.MakeSorter(maxCeLength)
+        | Msuf4 msuf4 -> msuf4.MakeSorter(maxCeLength)
+        | Msuf6 msuf6 -> msuf6.MakeSorter(maxCeLength)
 
     let getChannelCount (model: simpleSorterModel) : int<channelCount> =
         match model with

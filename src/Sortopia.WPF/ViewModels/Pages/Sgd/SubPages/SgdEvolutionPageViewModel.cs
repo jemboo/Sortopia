@@ -118,7 +118,7 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
             var candidate = await Task.Run(() =>
             {
                 var model = SimpleSorterModel.withPrefix(prefix, previous.Model);
-                var inputs = new PreparedNetworkCheck(previous.Network.Width, samples, prefix, useAvx512, token);
+                var inputs = new NetworkCheck(previous.Network.Width, samples, useAvx512, token);
                 return NetworkSearch.Prepare(label, model, samples, token, inputs);
             }, token);
             token.ThrowIfCancellationRequested();
@@ -144,8 +144,7 @@ public sealed class SgdEvolutionPageViewModel : SgdResultsViewModel
             var parent = Parent!;
             var samples = setup.Generator.SamplesFor(parent.Network.Width);
             var useAvx512 = setup.UseAvx512;
-            var inputs = await Task.Run(() => new PreparedNetworkCheck(parent.Network.Width, samples,
-                SimpleSorterModel.getPrefix(parent.Model), useAvx512, token), token);
+            var inputs = await Task.Run(() => new NetworkCheck(parent.Network.Width, samples, useAvx512, token), token);
             token.ThrowIfCancellationRequested();
             if (samples != parent.RequestedSamples)
             {

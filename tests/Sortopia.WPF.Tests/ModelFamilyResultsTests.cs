@@ -30,7 +30,6 @@ public sealed class ModelFamilyResultsTests
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey(oldName));
         Assert.Throws<ArgumentException>(() => ResultsFunctionCatalog.require(oldName));
         var definition = ResultsFunctionCatalog.require(name);
-        FunctionMetadataTests.AssertModelMetadata(definition.ModelGeneration?.Value, algorithm, family, group == "sorter-model-set.prefix");
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models").Editor!;
         editor.ResultsFunctionName = name; editor.AddRequiredResultsDefaultsCommand.Execute(null);
         var keys = definition.RequiredParameters.Select(key => key.Name).ToArray();
@@ -68,12 +67,12 @@ public sealed class ModelFamilyResultsTests
         editor.ResultsParameterDefaults.Single(row => row.Key == "AInitial").Value.Text = initial.ToString();
         Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = parameterSet.fromBindings(editor.ToProjectSettings().resultsParameterDefaults.Select(ParameterBindingDto.toDomain));
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, editor.ResultsFunctionName, parameters))).Item;
+        var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, editor.ResultsFunctionName, parameters))).Item;
         foreach (var model in models.SorterModels)
         {
             var value = Assert.IsType<sorterModel.SimpleR>(model).Item;
             Assert.Equal(maximum, value.AMax); Assert.All(value.Activators, actual => Assert.Equal(initial, actual));
-            var prefix = SorterModel.getPrefix(model); var output = SorterModel.makeSorterWithPrefix(model, null!).Ces;
+            var prefix = SorterModel.getPrefix(model); var output = SorterModel.makeSorter(model, null!).Ces;
             Assert.Equal(prefix, output.Take(prefix.Length));
             Assert.Equal(initial > 0, output.Length > prefix.Length);
         }

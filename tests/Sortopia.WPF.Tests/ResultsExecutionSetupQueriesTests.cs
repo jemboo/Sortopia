@@ -23,7 +23,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-execution-setup-values-");
 
-    private async Task<WorkspacePageViewModel> Generate(bool sgd = false, bool reporting = false)
+    private async Task<WorkspacePageViewModel> Generate(bool sgd = false, bool reporting = false, bool generateFiles = true)
     {
         var root = Directory.CreateDirectory(Path.Combine(temporary.FullName, "Workspace")).FullName;
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(root);
@@ -63,10 +63,85 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
         if (sgd)
             foreach (var output in project.Editor.ResultsQueryOutputs) output.Keys.Single(key => key.Key == "OrthoRate").Selected = true;
         else Assert.Single(Assert.Single(project.Editor.ResultsQueryOutputs).Keys).Selected = true;
-        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); page.Selected = run;
-        await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
-        Assert.Equal(4, page.SelectedExecution!.Files.Rows.Count);
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
+        page.Selected = page.Roots.SelectMany(root => root.DescendantsAndSelf()).Single(node => node.Id == run.Id);
+        if (generateFiles)
+        {
+            await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
+            Assert.Equal(4, page.SelectedExecution!.Files.Rows.Count);
+        }
         return page;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reporting_alignment_validates_inherited_defaults_and_every_sweep_value_before_generation(bool summaries)
+    {
+        var page = await Generate(sgd: true, reporting: true, generateFiles: false);
+        try
+        {
+            var run = page.Selected!;
+            var editor = run.Editor!;
+            Assert.True(page.GenerateRunParametersCommand.CanExecute(null));
+            var inheritedCount = run.Parent!.Parent!.Editor!.ResultsParameterDefaults.Single(row => row.Key == "GenerationCount");
+            async Task Save(bool invalid = false)
+            {
+                var runId = run.Id;
+                await page.SaveWorkspaceAsync();
+                if (invalid)
+                {
+                    Assert.Contains("GenerationCount 250", page.Error);
+                    Assert.Contains("Draft saved", page.Status);
+                }
+                else Assert.Empty(page.Error);
+                run = page.Roots.SelectMany(root => root.DescendantsAndSelf()).Single(node => node.Id == runId);
+                page.Selected = run;
+                editor = run.Editor!;
+                inheritedCount = run.Parent!.Parent!.Editor!.ResultsParameterDefaults.Single(row => row.Key == "GenerationCount");
+            }
+            WorkspaceReportingSchedule Schedule() => summaries ? editor.SummaryReporting : editor.SnapshotReporting;
+            if (summaries)
+            {
+                editor.SnapshotReporting.Interval = "1";
+                editor.SummaryReporting.Interval = "100";
+                await Save();
+            }
+            inheritedCount.Value.Text = "250";
+            Assert.Contains("GenerationCount 250", editor.ReportingError);
+            Assert.Contains("Constant(100)", editor.ReportingError);
+            Assert.Contains(summaries ? "summary schedule" : "full snapshot schedule", editor.ReportingError);
+            Assert.Contains(editor.ReportingError, editor.ValidationError);
+            Assert.Contains(editor.ReportingError, page.GenerationHint);
+            await Save(invalid: true);
+            Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
+            await page.GenerateRunParametersAsync();
+            Assert.False(Directory.Exists(page.RunParametersFolder));
+
+            Schedule().Interval = "50";
+            Assert.Empty(editor.ReportingError);
+            await Save();
+            Assert.True(page.GenerateRunParametersCommand.CanExecute(null));
+            Schedule().Interval = "100";
+            inheritedCount.Value.Text = "300";
+            Assert.Empty(editor.ReportingError);
+
+            var counts = WorkspaceParameterSetsPreviewTests.AddSpan(run, "GenerationCount", false, "100", "200", "250", "300");
+            Assert.Contains("GenerationCount 250", editor.ReportingError);
+            Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
+            counts.Values[2].Text = "400";
+            Assert.Empty(editor.ReportingError);
+            await Save();
+            Assert.True(page.GenerateRunParametersCommand.CanExecute(null));
+            editor.ResultsParameters.Single(row => row.Key == "GenerationCount").Values[2].Text = "250";
+            editor.ReportingEnabled = false;
+            Assert.Empty(editor.ReportingError);
+            await Save();
+            Assert.True(page.GenerateRunParametersCommand.CanExecute(null));
+            editor.ReportingEnabled = true;
+            Assert.Contains("GenerationCount 250", editor.ReportingError);
+        }
+        finally { page.Cancel(); }
     }
 
     [Fact]
@@ -90,7 +165,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.Equal(outputState.Complete, reused.Inspection.Outputs.State);
 
             var ordinary = FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs).Values.First().Key;
-            foreach (var key in new[] { ordinary }.Concat(EvolutionReportingStore.keys(item)))
+            foreach (var key in new[] { ordinary }.Concat(RunOutputFiles.keys(item)))
             {
                 var output = store.GetPath(key.Reference);
                 var original = File.ReadAllBytes(output);

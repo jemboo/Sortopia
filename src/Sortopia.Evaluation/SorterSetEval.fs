@@ -42,7 +42,6 @@ module SorterSetEval =
     let makeSorterEvalsWithOptions
                 (options: ParallelOptions)
                 (sorters: sorter array)
-                (prefix: ceBlock)
                 (sortableTests: sortableTests)
                 (sorterEvalType:sorterEvalType)
                 (collectNewSortableTests: bool<collectNewSortableTests>) :sorterEval array =
@@ -56,7 +55,6 @@ module SorterSetEval =
         let ceBlockEvals : ceBlockEval array =
                 CeBlockOps.evalWithSorterTestsWithOptions options
                         sortableTests
-                        prefix
                         ceBlocks
                         %collectNewSortableTests
 
@@ -74,14 +72,12 @@ module SorterSetEval =
             (options: ParallelOptions)
             (sorterSetEvalId: Guid<sorterSetEvalId>)
             (sorterSet: sorterSet)
-            (prefix: ceBlock)
             (sortableTests: sortableTests)
             (sorterEvalType:sorterEvalType)
             (collectNewSortableTests: bool<collectNewSortableTests>) : sorterSetEval =
 
         let sorterEvals = makeSorterEvalsWithOptions options
                             sorterSet.Sorters
-                            prefix
                             sortableTests
                             sorterEvalType
                             collectNewSortableTests
@@ -93,11 +89,11 @@ module SorterSetEval =
                     sorterEvals
 
 
-    let makeSorterEvals sorters prefix tests evalType collect =
-        makeSorterEvalsWithOptions (ParallelOptions()) sorters prefix tests evalType collect
+    let makeSorterEvals sorters tests evalType collect =
+        makeSorterEvalsWithOptions (ParallelOptions()) sorters tests evalType collect
 
-    let makeSorterSetEval id sorters prefix tests evalType collect =
-        makeSorterSetEvalWithOptions (ParallelOptions()) id sorters prefix tests evalType collect
+    let makeSorterSetEval id sorters tests evalType collect =
+        makeSorterSetEvalWithOptions (ParallelOptions()) id sorters tests evalType collect
 
     let makeFullDataTableRecords (source: sorterSetEval) : Sortopia.Reporting.dataTableRecord seq =
         source.SorterEvals

@@ -230,9 +230,20 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public WorkspaceReportingSchedule SummaryReporting { get; }
     public bool SupportsReporting => IsRun && ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var definition) && definition.SupportsEvolutionReporting;
     public bool ReportingEnabled { get => reportingEnabled; set { if (IsEditable && SetProperty(ref reportingEnabled, value)) NotifyChanged(); } }
-    public string ReportingError => !IsRun || !ReportingEnabled ? "" : !SupportsReporting ? "The results function does not support evolution reporting."
-        : SnapshotReporting.Error.Length > 0 ? "Full snapshots: " + SnapshotReporting.Error
-        : SummaryReporting.Error.Length > 0 ? "Summaries: " + SummaryReporting.Error : "";
+    public string ReportingError
+    {
+        get
+        {
+            if (!IsRun || !ReportingEnabled) return "";
+            if (!SupportsReporting) return "The results function does not support evolution reporting.";
+            if (SnapshotReporting.Error.Length > 0) return "Full snapshots: " + SnapshotReporting.Error;
+            if (SummaryReporting.Error.Length > 0) return "Summaries: " + SummaryReporting.Error;
+            var counts = EffectiveOutputDefaults.Where(value => value.keyName == "GenerationCount").Select(value => value.value)
+                .Concat(ActiveResultsParameters.Where(row => row.Key == "GenerationCount").SelectMany(row => row.Values.Select(value => value.Text)));
+            try { SgdReporting.validateGenerationCounts(new(SnapshotReporting.Schedule, SummaryReporting.Schedule), counts); return ""; }
+            catch (Exception error) { return error.GetBaseException().Message; }
+        }
+    }
     public bool IsReadOnly => frozenSettings is not null || generatedParametersLock;
     public bool IsEditable => !IsReadOnly;
     internal void SetGeneratedParametersLock(bool locked)
@@ -391,14 +402,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     {
         if (!CanAddRequiredDefaults(setup)) return;
         var missing = MissingDefaultParameters(setup);
-        var channels = WorkspaceParameterInitialValues.ChannelCount(setup ? EffectiveSetupDefaults : EffectiveOutputDefaults);
-        if (channels == 0) channels = WorkspaceParameterInitialValues.ChannelCount(setup ? EffectiveOutputDefaults : EffectiveSetupDefaults);
-        var model = ModelGeneration(setup);
-        if (missing.Any(key => key.Name is "ChannelCount" or "PrefixLibId"))
-            channels = WorkspaceParameterInitialValues.SuggestedChannelCount(channels, model);
-        var additions = missing.Select(key => new parameterBindingDto {
-            keyName = key.Name, valueType = (int)key.ValueType, value = WorkspaceParameterInitialValues.For(key, channels, model)
-        }).ToArray();
+        var additions = WorkspaceParameterInitialValues.CreateMissing(
+            setup ? EffectiveSetupDefaults : EffectiveOutputDefaults,
+            setup ? EffectiveOutputDefaults : EffectiveSetupDefaults, missing, ParameterSupport(setup));
         Quietly(() =>
         {
             (setup ? SetupParameterDefaultsOverride : ResultsParameterDefaultsOverride).IsOverridden = true;
@@ -507,10 +513,10 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupParameterSetsSummary => $"{SetCount(ActiveSetupParameters)} setup parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
     public WorkspaceParameterSetsPreview ResultsParameterSetsPreview => !IsRun ? WorkspaceParameterSetsPreview.Empty
         : resultsPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveOutputDefaults, ActiveResultsParameters,
-            FirstError(ResultsParameterDefaultsError, ResultsParametersError), PhaseVersionCurrent(false) ? ModelGeneration(false) : null);
+            FirstError(ResultsParameterDefaultsError, ResultsParametersError), PhaseVersionCurrent(false) ? ParameterSupport(false) : null);
     public WorkspaceParameterSetsPreview SetupParameterSetsPreview => !IsRun || !IsBranch ? WorkspaceParameterSetsPreview.Empty
         : setupPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveSetupDefaults, ActiveSetupParameters,
-            FirstError(SetupParameterDefaultsError, SetupParametersError), PhaseVersionCurrent(true) ? ModelGeneration(true) : null);
+            FirstError(SetupParameterDefaultsError, SetupParametersError), PhaseVersionCurrent(true) ? ParameterSupport(true) : null);
     private static string FirstError(params string[] errors) => errors.FirstOrDefault(error => error.Length > 0) ?? "";
     public string ResultsSettingsError => FirstError(ResultsDatabaseError, ResultsFunctionError, OutputTypesError, ResultsQueryKeysError);
     public string SetupSettingsError => FirstError(SetupDatabaseError, SetupFunctionError, SetupDataTypesError, SetupQueryKeysError);

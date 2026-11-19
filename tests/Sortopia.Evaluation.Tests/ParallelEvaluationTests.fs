@@ -47,7 +47,6 @@ module ParallelEvaluationTests =
         let rng = Random(574)
         let values = Array.init 1103 (fun _ -> Array.init 6 (fun _ -> rng.Next(symbols)))
         let before = values |> Array.map Array.copy
-        let prefix = block [|ce.create 0 5|]
         let networks = Array.init networkCount (fun n ->
             Array.init (n % 9) (fun _ -> let low = rng.Next(5) in ce.create low (rng.Next(low + 1, 6))) |> block)
         let expected = networks |> Array.map (fun network ->
@@ -68,13 +67,15 @@ module ParallelEvaluationTests =
         for inputs in formats values symbols do
             for workers in [1; 2; 16] do
                 let options = ParallelOptions(MaxDegreeOfParallelism = workers)
-                let result = CeBlockOps.evalWithSorterTestsWithOptions options inputs prefix networks (UMX.tag collect)
+                let result = CeBlockOps.evalWithSorterTestsWithOptions options inputs networks (UMX.tag collect)
                 for i in 0 .. networks.Length - 1 do
                     let usage, count, residual = expected[i]
                     Assert.Equal<int>(usage, result[i].UseCountArray)
                     Assert.Equal(count, int result[i].UnsortedCount)
                     Assert.Equal(networks[i].CeBlockId, result[i].CeBlock.CeBlockId)
-                    Assert.Equal<ce>(prefix.CeArray, result[i].Prefix.CeArray)
+                    let used = Array.zip networks[i].CeArray usage |> Array.choose (fun (ce, count) -> if count > 0 then Some ce else None)
+                    Assert.Equal<ce>(used, result[i].UsedCes)
+                    Assert.Equal(used.Length, int result[i].CeLength)
                     if collect then Assert.True((residual = failures result[i].SortableTests))
                     else Assert.True(result[i].SortableTests.IsNone)
         Assert.True((before = values))
@@ -83,8 +84,8 @@ module ParallelEvaluationTests =
     let ``empty batches empty tests and cancellation preserve all format contracts`` () =
         for inputs in formats [||] 2 do
             let options = ParallelOptions(MaxDegreeOfParallelism = 16)
-            Assert.Empty(CeBlockOps.evalWithSorterTestsWithOptions options inputs ceBlock.Empty [||] (UMX.tag false))
-            let result = CeBlockOps.evalWithSorterTestsWithOptions options inputs ceBlock.Empty (Array.init 32 (fun _ -> block [|ce.create 0 1|])) (UMX.tag true)
+            Assert.Empty(CeBlockOps.evalWithSorterTestsWithOptions options inputs [||] (UMX.tag false))
+            let result = CeBlockOps.evalWithSorterTestsWithOptions options inputs (Array.init 32 (fun _ -> block [|ce.create 0 1|])) (UMX.tag true)
             Assert.All(result, fun value -> Assert.Equal(0, int value.UnsortedCount); Assert.Equal<int>([|0|], value.UseCountArray))
             let cancelled = ParallelOptions(MaxDegreeOfParallelism = 16, CancellationToken = CancellationToken(true))
-            Assert.Throws<OperationCanceledException>(fun () -> CeBlockOps.evalWithSorterTestsWithOptions cancelled inputs ceBlock.Empty [|block [||]|] (UMX.tag false) |> ignore) |> ignore
+            Assert.Throws<OperationCanceledException>(fun () -> CeBlockOps.evalWithSorterTestsWithOptions cancelled inputs [|block [||]|] (UMX.tag false) |> ignore) |> ignore

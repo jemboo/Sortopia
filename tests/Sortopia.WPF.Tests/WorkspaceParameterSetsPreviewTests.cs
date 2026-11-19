@@ -171,7 +171,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         AddSpan(run, "SorterSuccessFraction", setup, "50%", "90%", "99%");
         WorkspaceParameterSetsPreview Preview() => setup ? run.Editor!.SetupParameterSetsPreview : run.Editor!.ResultsParameterSetsPreview;
         var preview = Preview();
-        Assert.True(preview.HasSuffixStages); Assert.Equal(6, preview.Rows.Length);
+        Assert.True(preview.HasPreviews); Assert.Equal(6, preview.Rows.Length);
         foreach (var row in preview.Rows)
         {
             var width = row.ParameterSet.TryFind(ParamKeys.channelCountKey).Value;
@@ -182,16 +182,16 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
                 (false, 4, 50) => 5, (false, 4, 90) => 9, (false, 4, 99) => 15,
                 (false, 8, 50) => 22, (false, 8, 90) => 33, (false, 8, 99) => 49,
                 _ => throw new InvalidOperationException() };
-            Assert.Equal(expected, row.SuffixStages);
+            Assert.Equal(expected, FunctionParameterSupportTests.SuffixStages(row));
             Assert.Null(row.ParameterSet.TryFind(ParamKeys.stageLengthKey));
             Assert.Equal(row.ParameterSet.ParamMap.Count, row.Values.Length);
         }
         var reps = AddSpan(run, "Repl", setup, Enumerable.Range(0, 100).Select(value => value.ToString()).ToArray());
         Assert.Equal(600, (int)Preview().TotalCount);
         Assert.Equal(WorkspaceParameterSetsPreview.MaximumRows, Preview().Rows.Length);
-        Assert.All(Preview().Rows, row => Assert.NotNull(row.SuffixStages));
+        Assert.All(Preview().Rows, row => Assert.NotNull(FunctionParameterSupportTests.SuffixStages(row)));
         reps.Values.Last().Text = "invalid";
-        Assert.Empty(Preview().Rows); Assert.False(Preview().HasSuffixStages); Assert.NotEmpty(Preview().Error);
+        Assert.Empty(Preview().Rows); Assert.False(Preview().HasPreviews); Assert.NotEmpty(Preview().Error);
     }
 
     [Fact]
@@ -204,17 +204,17 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
         var prefix = module.Editor.ResultsParameterDefaults.Single(row => row.Key == "PrefixLibId").Value;
         var fraction = module.Editor.ResultsParameterDefaults.Single(row => row.Key == "SorterSuccessFraction").Value;
-        Assert.Equal(48, Assert.Single(run.Editor!.ResultsParameterSetsPreview.Rows).SuffixStages);
+        Assert.Equal(48, FunctionParameterSupportTests.SuffixStages(Assert.Single(run.Editor!.ResultsParameterSetsPreview.Rows)));
         prefix.Text = PrefixLibId.toString(prefixLibId.create(8, 3, prefixLibVariant.PrefixA));
-        Assert.Equal(46, Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).SuffixStages);
+        Assert.Equal(46, FunctionParameterSupportTests.SuffixStages(Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows)));
         fraction.Text = "50%";
-        Assert.Equal(19, Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).SuffixStages);
+        Assert.Equal(19, FunctionParameterSupportTests.SuffixStages(Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows)));
         prefix.Text = "invalid";
-        Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows); Assert.False(run.Editor.ResultsParameterSetsPreview.HasSuffixStages);
+        Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows); Assert.False(run.Editor.ResultsParameterSetsPreview.HasPreviews);
         module.Editor.ResultsFunctionName = ResultsFunctionNames.standardSortableTests;
         module.Editor.AddRequiredResultsDefaultsCommand.Execute(null);
-        Assert.False(run.Editor.ResultsParameterSetsPreview.HasSuffixStages);
-        Assert.Null(Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows).SuffixStages);
+        Assert.False(run.Editor.ResultsParameterSetsPreview.HasPreviews);
+        Assert.Null(FunctionParameterSupportTests.SuffixStages(Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows)));
     }
 
     public void Dispose() => temporary.Delete(recursive: true);

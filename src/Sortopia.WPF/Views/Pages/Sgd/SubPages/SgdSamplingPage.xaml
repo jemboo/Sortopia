@@ -108,7 +108,7 @@
                                     <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Success / Failures" Content="{Binding GenerationOutcomes}" ToolTip="Generated sorters since Clear. A success passes every input tested in its draw." />
                                     <TextBlock Text="Last generated sorter" Style="{StaticResource SectionTitle}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                     <StackPanel DataContext="{Binding GenerationResult}">
-                                        <HeaderedContentControl x:Name="TestInputsResult" Style="{StaticResource ResultRow}" Header="Test inputs" Content="{Binding Inputs, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" ToolTip="Actual inputs evaluated. With a prefix, each distinct presorted input is tested once." />
+                                        <HeaderedContentControl x:Name="TestInputsResult" Style="{StaticResource ResultRow}" Header="Test inputs" Content="{Binding Inputs, TargetNullValue=—, FallbackValue=—}" ContentStringFormat="{}{0:N0}" ToolTip="Binary inputs evaluated against the complete sorter. Sampled runs include every draw, including duplicates." />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Coverage" Content="{Binding Coverage, TargetNullValue=—, FallbackValue=—}" />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Method" Content="{Binding Method, TargetNullValue=—, FallbackValue=—}" />
                                         <HeaderedContentControl Style="{StaticResource ResultRow}" Header="Channels" Content="{Binding Channels, TargetNullValue=—, FallbackValue=—}" />

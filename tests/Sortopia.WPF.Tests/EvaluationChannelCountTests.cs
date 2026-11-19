@@ -15,12 +15,12 @@ public sealed class EvaluationChannelCountTests
         ParameterBinding.create(ParamKeys.sorterEvalTypeKey, evaluator),
         ParameterBinding.create(ParamKeys.collectSortableTestsKey, collect)]);
 
-    private static functionData Tests(int channels) => Assert.Single(CatalogTestHost.Invoke(false,
+    private static sortopiaStorageData Tests(int channels) => Assert.Single(CatalogTestHost.Invoke(false,
         ResultsFunctionNames.standardSortableTests, parameterSet.fromBindings([
             ParameterBinding.create(ParamKeys.channelCountKey, channels),
             ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")])));
 
-    private static functionData.SorterModelSet Models(int channels) => Assert.IsType<functionData.SorterModelSet>(
+    private static sortopiaStorageData.SorterModelSet Models(int channels) => Assert.IsType<sortopiaStorageData.SorterModelSet>(
         Assert.Single(CatalogTestHost.Invoke(false, ResultsFunctionNames.uniformMssiSimpleSorterModels,
             parameterSet.fromBindings(RunExecutionTests.UniformModelDefaults(channels).Select(ParameterBindingDto.toDomain)))));
 
@@ -31,11 +31,11 @@ public sealed class EvaluationChannelCountTests
     public void Evaluation_derives_the_channel_count_from_the_tests(int channels, string evaluator, bool collect)
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.sorterEval);
-        Assert.Equal("3", definition.Version);
+        Assert.Equal("4", definition.Version);
         Assert.Equal(new[] { "SorterEvalType", "CollectSortableTests" }, definition.RequiredParameters.Select(key => key.Name));
         Assert.DoesNotContain("ChannelCount", definition.DataTypes.Values.SelectMany(keys => keys));
         var models = Models(channels);
-        var result = Assert.IsType<functionData.SorterSetEval>(Assert.Single(CatalogTestHost.Invoke(false,
+        var result = Assert.IsType<sortopiaStorageData.SorterSetEval>(Assert.Single(CatalogTestHost.Invoke(false,
             ResultsFunctionNames.sorterEval, Parameters(evaluator, collect), models, Tests(channels))));
         Assert.Equal(models.Item.Count, result.Item.SorterEvals.Length);
         Assert.All(result.Item.SorterEvals, evaluation => Assert.Equal(channels, SorterEval.getChannelCount(evaluation)));
@@ -52,7 +52,7 @@ public sealed class EvaluationChannelCountTests
         var channels = SorterModel.getChannelCount(mixed.SorterModels[0]);
         Assert.Contains(mixed.SorterModels.Skip(1), model => SorterModel.getChannelCount(model) != channels);
         var error = Assert.Throws<ArgumentException>(() => CatalogTestHost.Invoke(false,
-            ResultsFunctionNames.sorterEval, Parameters(evaluator, false), functionData.NewSorterModelSet(mixed), Tests(channels)));
+            ResultsFunctionNames.sorterEval, Parameters(evaluator, false), sortopiaStorageData.NewSorterModelSet(mixed), Tests(channels)));
         Assert.Contains("models and tests must have the same channel count", error.Message);
     }
 

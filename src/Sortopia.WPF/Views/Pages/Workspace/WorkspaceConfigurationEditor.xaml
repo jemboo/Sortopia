@@ -326,11 +326,12 @@
                       Visibility="{Binding SupportsReporting, Converter={StaticResource VisibleWhen}}" Tag="{Binding ReportingError}">
                 <StackPanel Margin="4,6,0,0" IsEnabled="{Binding IsEditable}">
                     <CheckBox Content="Save evolution snapshots and summaries" IsChecked="{Binding ReportingEnabled}" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                    <TextBlock Text="Full snapshots retain every model and its evaluation. Summaries retain pool statistics for smaller, more frequent samples. Generation 0 and the final generation are always included." Style="{StaticResource Help}" />
+                    <TextBlock Text="Full snapshots retain every model and its evaluation. Summaries retain pool statistics. GenerationCount must fall on both schedules; no extra final snapshot or summary is added. The last snapshot uses the final result file." Style="{StaticResource Help}" />
                     <StackPanel IsEnabled="{Binding ReportingEnabled}">
                         <ContentControl Content="{Binding SnapshotReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
                         <ContentControl Content="{Binding SummaryReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
                     </StackPanel>
+                    <TextBlock x:Name="EvolutionReportingError" Text="{Binding ReportingError}" Style="{StaticResource InlineError}" />
                     <TextBlock Text="The schedules are frozen when parameter files are generated. Export their CSV reports from Results execution after the run completes." Style="{StaticResource Help}" />
                 </StackPanel>
             </Expander>

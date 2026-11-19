@@ -60,7 +60,7 @@ module SorterEvalReportExport =
         for name in ["SetupSetNumber"; "ResultsSetNumber"; "SetupSuffixStages"; "ResultsSuffixStages"] do
             { Name = name; ValueType = reportValueType.Integer } |]
 
-    type private source = { Store: SortopiaFileDb; Output: plannedOutput; Metadata: reportRow; ParameterFile: string; Folder: string; Item: runParameters }
+    type private source = { Database: IRunDatabase; Output: plannedOutput; Metadata: reportRow; ParameterFile: string; Folder: string; Item: runParameters }
 
     let private snapshotColumns = [|
         for name in ["Generation"; "PoolIndex"; "MemberIndex"; "Birthday"; "MutationIndex"; "MutationMod"] do
@@ -79,12 +79,12 @@ module SorterEvalReportExport =
             use summary = new CsvReportWriter(summaryStream, columns EvolutionReports.columns)
             use snapshots = new CsvReportWriter(snapshotStream, columns snapshotColumns)
             for source in reporting do
-                let samples, rows = EvolutionReportingStore.load source.Folder source.Item token
+                let samples, rows = RunOutputFiles.loadSamples source.Folder source.Item token
                 for row in rows do
                     summary.Write(ReportRow.combine source.Metadata (EvolutionReports.row row), token)
                     summaryRows <- summaryRows + 1L
                 for generation in samples.Snapshots do
-                    let snapshot = EvolutionReportingStore.loadSnapshot source.Folder source.Item generation token
+                    let snapshot = RunOutputFiles.loadSnapshot source.Folder source.Item generation token
                     if snapshot.Pools.Length <> samples.PoolCount then invalidOp "Snapshot pool count differs from the execution parameters."
                     for poolIndex, pool in snapshot.Pools |> Array.indexed do
                         for memberIndex, memberValue in pool.Members |> Array.indexed do
@@ -95,7 +95,7 @@ module SorterEvalReportExport =
                                 "ModelId", reportValue.Identifier (%SorterModel.getId memberValue.Model)
                                 "Birthday", integer memberValue.Birthday; "MutationIndex", integer memberValue.MutationIndex; "MutationMod", integer memberValue.MutationMod
                                 "SortableTestsId", reportValue.Identifier (%snapshot.TestsId)
-                                "SnapshotFile", reportValue.Text (EvolutionReportingStore.snapshotPath source.Folder source.Item generation) ]
+                                "SnapshotFile", reportValue.Text (RunOutputFiles.snapshotPath source.Folder source.Item generation) ]
                             snapshots.Write(ReportRow.combine source.Metadata (ReportRow.combine metadata (SorterEvalReports.detailRow memberValue.Evaluation)), token)
                             snapshotRows <- snapshotRows + 1L
         reporting.Length > 0, summaryRows, snapshotRows
@@ -118,7 +118,9 @@ module SorterEvalReportExport =
                 if not (isSupported item) then invalidOp "Reports require saved branch run parameters with SorterSetEval or SorterPoolSet outputs."
                 let folder = RunParameterFiles.projectFolder (Path.GetDirectoryName path)
                 let store = SortopiaFileDb(folder, item.ProjectId)
-                let plan = FileResultsHost.plan item.ProjectId item.Results item.Parameters item.SetupInputs
+                let allOutputs = RunOutputFiles.plan item
+                let database = FileRunDatabase(store, allOutputs, token) :> IRunDatabase
+                let plan = allOutputs |> Map.filter (fun output _ -> Map.containsKey output.DataType item.Results.DataTypes)
                 let setupValues = [
                     for reference in item.SetupInputs |> List.sort do
                         let prefix = inputName reference.DataType
@@ -140,7 +142,8 @@ module SorterEvalReportExport =
                     match dynamicColumns.TryGetValue name with
                     | true, old when old <> kind -> invalidOp $"Report column '{name}' has inconsistent saved value types."
                     | _ -> dynamicColumns[name] <- kind
-                plan |> Map.toArray |> Array.filter (fun (dataType, _) -> isReportOutput dataType) |> Array.map (fun (dataType, output) ->
+                plan |> Map.toArray |> Array.filter (fun (descriptor, _) -> isReportOutput descriptor.DataType) |> Array.map (fun (descriptor, output) ->
+                    let dataType = descriptor.DataType
                     let reference = output.Key.Reference
                     if not (outputIds.Add(reference.ProjectId, reference.Id)) then invalidOp "Selected parameter files refer to the same results file. Select each results file only once."
                     let metadata = ReportRow.create ([
@@ -159,7 +162,7 @@ module SorterEvalReportExport =
                         "ResultsSetNumber", integer item.SetNumber
                         "SetupSuffixStages", optionalInteger item.SetupSuffixStages
                         "ResultsSuffixStages", optionalInteger item.ResultsSuffixStages ] @ setupValues @ parameters)
-                    { Store = store; Output = output; Metadata = metadata; ParameterFile = path; Folder = folder; Item = item })
+                    { Database = database; Output = output; Metadata = metadata; ParameterFile = path; Folder = folder; Item = item })
             with
             | :? OperationCanceledException -> reraise ()
             | error -> invalidOp $"Cannot report '{path}': {error.GetBaseException().Message}")
@@ -187,18 +190,15 @@ module SorterEvalReportExport =
                 for source in sources do
                     token.ThrowIfCancellationRequested()
                     try
-                        let saved =
-                            match (source.Store :> ISortopiaDb).TryLoad(source.Output.Key, token) |> HostStorage.require with
-                            | Some saved -> saved
-                            | None -> invalidOp "Results have not been generated. Execute this file before exporting reports."
+                        let saved = source.Database.Load source.Output.Key.Reference
                         let evaluations, identities =
-                            match saved.Value with
-                            | functionData.SorterSetEval value ->
+                            match saved with
+                            | sortopiaStorageData.SorterSetEval value ->
                                 value.SorterEvals, [
                                     "SorterSetEvalId", reportValue.Identifier (%value.SorterSetEvalId)
                                     "SorterSetId", reportValue.Identifier (%value.SorterSetId)
                                     "SortableTestsId", reportValue.Identifier (%value.SorterTestId) ]
-                            | functionData.SorterPoolSet value ->
+                            | sortopiaStorageData.SorterPoolSet value ->
                                 let evaluations = value.Pools |> Array.collect _.Members |> Array.map _.Evaluation |> Array.distinctBy SorterEval.getSorterId
                                 evaluations, ["SortableTestsId", reportValue.Identifier (%value.TestsId)]
                             | _ -> invalidOp "Expected saved sorter evaluations or pools."

@@ -45,7 +45,7 @@ module internal DataEnvelope =
                         let kind = reader.ReadString()
                         let label = reader.ReadString()
                         yield { ProjectId = UMX.tag project; Id = UMX.tag id; QueryId = UMX.tag query
-                                IsSetup = setup; DataType = SortopiaDataType.create kind label } ]
+                                Phase = RunExecutionPhase.fromIsSetup setup; DataType = SortopiaDataType.create kind label } ]
         if stream.Position <> stream.Length then invalidOp "Unexpected stored dependency metadata."
         inputs
 
@@ -75,7 +75,7 @@ module internal DataEnvelope =
         if version <> 1 || compression <> "messagepack-lz4-array/1" then invalidOp $"Unsupported data schema or compression: {path}"
         if rawLength < 0 || checksum.Length <> 32 || int64 length + reader.Consumed + int64 headerLength <> stream.Length then
             invalidOp $"Invalid stored payload size or checksum metadata: {path}"
-        if UMX.untag (DataKey.hashId query) <> queryId || UMX.untag (DataKey.hashId identity) <> id
+        if UMX.untag (DataKey.hashQueryId query) <> queryId || UMX.untag (DataKey.hashId identity) <> id
            || not (identity.AsSpan().StartsWith(query.AsSpan())) then invalidOp $"Stored data identity hashes are invalid: {path}"
         token.ThrowIfCancellationRequested()
         { Envelope = { Version = version; ProjectId = projectId; Id = id; QueryId = queryId; IsSetup = setup

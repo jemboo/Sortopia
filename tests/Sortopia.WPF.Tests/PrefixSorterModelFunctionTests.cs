@@ -31,7 +31,7 @@ public sealed class PrefixSorterModelFunctionTests
         _ => []
     };
     private static parameterSet Parameters(string model = "Mssi", int width = 8, int repl = 0) => parameterSet.fromBindings(ListModule.OfArray(Defaults(model, width, repl)));
-    private static sorterModelSet Generate(parameterSet parameters, string model = "Mssi", string family = "Simple") => Assert.IsType<functionData.SorterModelSet>(
+    private static sorterModelSet Generate(parameterSet parameters, string model = "Mssi", string family = "Simple") => Assert.IsType<sortopiaStorageData.SorterModelSet>(
         Assert.Single(CatalogTestHost.Invoke(false, Function(model, family), parameters))).Item;
 
     private static void AssertFamily(string family, sorterModel model) => Assert.True(family switch {
@@ -68,7 +68,7 @@ public sealed class PrefixSorterModelFunctionTests
             Assert.Equal(type == "Msce" ? width * stages / 2 : stages, SimpleSorterModel.getLength(simple));
             Assert.Equal(width, SorterModel.getChannelCount(model));
             Assert.Equal(expectedPrefix, SorterModel.getPrefix(model));
-            var sorter = SorterModel.makeSorterWithPrefix(model, null!);
+            var sorter = SorterModel.makeSorter(model, null!);
             Assert.Equal(expectedPrefix, sorter.Ces.Take(expectedPrefix.Length));
             Assert.True(sorter.Ces.Length >= expectedPrefix.Length);
             if (family == "Simple") Assert.True(sorter.Ces.Length > expectedPrefix.Length);
@@ -77,7 +77,7 @@ public sealed class PrefixSorterModelFunctionTests
         var repeated = Generate(Inputs(), type, family);
         Assert.Equal(set.SorterModels.Select(SorterModel.getId), repeated.SorterModels.Select(SorterModel.getId));
         foreach (var pair in set.SorterModels.Zip(repeated.SorterModels))
-            Assert.Equal(SorterModel.makeSorterWithPrefix(pair.First, null!).Ces, SorterModel.makeSorterWithPrefix(pair.Second, null!).Ces);
+            Assert.Equal(SorterModel.makeSorter(pair.First, null!).Ces, SorterModel.makeSorter(pair.Second, null!).Ces);
         Assert.Empty(set.SorterModels.Select(SorterModel.getId).Intersect(Generate(Inputs(1), type, family).SorterModels.Select(SorterModel.getId)));
     }
 
@@ -148,7 +148,7 @@ public sealed class PrefixSorterModelFunctionTests
             : Parameters().WithBinding(ParameterBinding.create(ParamKeys.activationProbabilityKey, probability));
         foreach (var model in Generate(inputs, family: family).SorterModels) {
             var prefix = SorterModel.getPrefix(model);
-            var full = SorterModel.makeSorterWithPrefix(model, null!).Ces;
+            var full = SorterModel.makeSorter(model, null!).Ces;
             if (probability == 0) Assert.Equal(prefix, full);
             else Assert.True(full.Length > prefix.Length);
             if (model is sorterModel.SimpleR r) { Assert.Equal(0, r.Item.AMax); Assert.All(r.Item.Activators, value => Assert.Equal(0, value)); }
@@ -252,7 +252,7 @@ public sealed class PrefixSorterModelFunctionTests
                 var output = Assert.Single(call.StoredOutputs); Assert.False(output.Reused);
                 var stored = store.Load(output.Reference, TestContext.Current.CancellationToken);
                 Assert.True(stored.IsOk, stored.IsError ? stored.ErrorValue : "");
-                var models = Assert.IsType<functionData.SorterModelSet>(stored.ResultValue.Value).Item;
+                var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(stored.ResultValue.Value).Item;
                 Assert.Equal(3, models.Count);
                 var width = call.Parameters.TryFind(ParamKeys.prefixLibIdKey).Value.ChannelCount;
                 Assert.All(models.SorterModels, model => {

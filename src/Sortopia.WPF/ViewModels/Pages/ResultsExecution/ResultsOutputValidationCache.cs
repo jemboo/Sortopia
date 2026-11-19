@@ -38,12 +38,11 @@ internal sealed class ResultsOutputValidationCache
         token.ThrowIfCancellationRequested();
         path = Path.GetFullPath(path);
         var item = RunParameterFiles.loadFile(path);
-        EvolutionReportingStore.validate(item);
         var folder = RunParameterFiles.projectFolder(Path.GetDirectoryName(path)!);
         var store = new SortopiaFileDb(folder, item.ProjectId);
-        var plan = FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs);
+        var plan = RunOutputFiles.plan(item);
         var paths = new[] { path }.Concat(plan.Values.Select(output => store.GetPath(output.Key.Reference)))
-            .Concat(EvolutionReportingStore.keys(item).Select(key => store.GetPath(key.Reference))).ToArray();
+            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToArray();
         var before = Fingerprints(paths, token);
         if (before is not null && receipts.TryGetValue(path, out var receipt)
             && receipt.Inspection.Outputs.State == outputState.Complete && Same(before, receipt.Hashes))

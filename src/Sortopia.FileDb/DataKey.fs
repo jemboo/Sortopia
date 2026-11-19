@@ -12,7 +12,7 @@ open Sortopia.Sorting.Catalog
 
 type internal decodedQueryKey = {
     ProjectId: Guid<projectId>
-    IsSetup: bool
+    Phase: runExecutionPhase
     DataType: sortopiaDataType
     Parameters: parameterBinding list
 }
@@ -30,8 +30,9 @@ type dataKey = private {
     member this.IdentityBytes = Array.copy this.identityBytes
 
 module DataKey =
-    let internal hashId (bytes: byte array) : Guid<sortopiaDataId> =
-        SHA256.HashData bytes |> Array.take 16 |> Guid |> UMX.tag
+    let private hash (bytes: byte array) = SHA256.HashData bytes |> Array.take 16 |> Guid
+    let internal hashId bytes : Guid<sortopiaDataId> = hash bytes |> UMX.tag
+    let internal hashQueryId bytes : Guid<sortopiaQueryId> = hash bytes |> UMX.tag
 
     let private encode action =
         use stream = new MemoryStream()
@@ -78,7 +79,7 @@ module DataKey =
                 | PrefixLibIdValue value -> (value :> IStableSerializable).WriteStableBytes writer
                 | MergeLibIdValue value -> (value :> IStableSerializable).WriteStableBytes writer
                 | OpsWeightsValue _ | Seed6WeightsValue _ | UnfoldingWeightsValue _ | SorterSuccessFractionValue _ -> writer.Write binding.FormattedValue)
-        let dependencies = inputs |> List.distinct |> List.sortBy (fun value -> value.ProjectId, value.IsSetup, value.QueryId, value.Id, value.DataType)
+        let dependencies = inputs |> List.distinct |> List.sortBy (fun value -> value.ProjectId, value.Phase, value.QueryId, value.Id, value.DataType)
         let identity = encode (fun writer ->
             writer.Write query
             writer.Write dependencies.Length
@@ -86,10 +87,10 @@ module DataKey =
                 writer.Write((UMX.untag input.ProjectId).ToByteArray())
                 writer.Write((UMX.untag input.Id).ToByteArray())
                 writer.Write((UMX.untag input.QueryId).ToByteArray())
-                writer.Write input.IsSetup
+                writer.Write(RunExecutionPhase.toIsSetup input.Phase)
                 writer.Write(SortopiaDataType.kindName input.DataType)
                 writer.Write(SortopiaDataType.text input.DataType))
-        { reference = { ProjectId = projectId; Id = hashId identity; QueryId = hashId query; IsSetup = isSetup; DataType = dataType }
+        { reference = { ProjectId = projectId; Id = hashId identity; QueryId = hashQueryId query; Phase = RunExecutionPhase.fromIsSetup isSetup; DataType = dataType }
           queryBytes = query; identityBytes = identity }
 
     /// Decode only the parameters actually included in a saved query projection.
@@ -142,4 +143,4 @@ module DataKey =
         let parameters = parameterSet.fromBindings bindings
         let canonical = create projectId database setup functionName version dataType (bindings |> List.map _.KeyName) parameters []
         if canonical.QueryBytes <> bytes then invalidOp "Stored query metadata is not canonical."
-        { ProjectId = projectId; IsSetup = setup; DataType = dataType; Parameters = bindings }
+        { ProjectId = projectId; Phase = RunExecutionPhase.fromIsSetup setup; DataType = dataType; Parameters = bindings }

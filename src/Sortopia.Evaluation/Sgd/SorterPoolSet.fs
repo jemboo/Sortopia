@@ -23,29 +23,18 @@ type sorterPool = {
     Members: sorterPoolMember array
 }
 
-type sorterPoolSummary = {
-    Generation: int
-    PoolIndex: int
-    MemberCount: int
-    SuccessfulCount: int
-    RawCeLength: int
-    MinimumCeLength: int
-    MinimumStageLength: int
-    BestScore: float
-}
-
-/// Final population and scalar history; model prefixes and mutation cursors are preserved.
+/// Population at one generation; model prefixes and mutation cursors are preserved.
+/// Sampled history is stored separately as SorterPoolSummarySet results.
 type sorterPoolSet = {
     Generation: int
     TestsId: Guid<sortableTestsId>
     Pools: sorterPool array
-    History: sorterPoolSummary array
 }
 
 module SorterPoolSet =
     let validate (value: sorterPoolSet) =
         if value.Generation < 0 || %value.TestsId = Guid.Empty then invalidArg "value" "Invalid SGD generation or tests identity."
-        if isNull value.Pools || value.Pools.Length = 0 || isNull value.History then invalidArg "value" "An SGD result needs pools and history."
+        if isNull value.Pools || value.Pools.Length = 0 then invalidArg "value" "An SGD result needs pools."
         let unique name ids =
             if ids |> Array.contains Guid.Empty || (Array.distinct ids).Length <> ids.Length then
                 invalidArg "value" $"Invalid or duplicate {name} identities."
@@ -58,9 +47,4 @@ module SorterPoolSet =
                     invalidArg "value" "Invalid SGD mutation cursor or birthday."
                 if SorterModel.getChannelCount memberValue.Model <> SorterEval.getChannelCount memberValue.Evaluation then
                     invalidArg "value" "SGD model and evaluation widths differ."
-        for summary in value.History do
-            if summary.Generation < 0 || summary.Generation > value.Generation || summary.PoolIndex < 0 || summary.PoolIndex >= value.Pools.Length
-               || summary.MemberCount <= 0 || summary.SuccessfulCount < 0 || summary.SuccessfulCount > summary.MemberCount
-               || summary.RawCeLength < 0 || summary.MinimumCeLength < 0 || summary.MinimumStageLength < 0 || not (Double.IsFinite summary.BestScore) then
-                invalidArg "value" "Invalid SGD history."
         value

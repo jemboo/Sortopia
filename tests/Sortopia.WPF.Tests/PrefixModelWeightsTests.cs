@@ -42,7 +42,7 @@ public sealed class PrefixModelWeightsTests
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
         Assert.Equal(model == "msuf4" ? "6" : "2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = Parameters(editor); FunctionValidation.validate(definition, parameters);
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
+        var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
         Assert.Equal(2, models.Count);
         if (model == "msuf6") Assert.Equal(12, parameters.TryFind(ParamKeys.prefixLibIdKey).Value.ChannelCount);
     }
@@ -62,7 +62,7 @@ public sealed class PrefixModelWeightsTests
         Assert.Empty(editor.ResultsParameterDefaultsError);
         var values = Parameters(editor);
         Assert.Equal(2, values.TryFind(ParamKeys.unfoldingWeightsKey).Value.Levels.Length);
-        var set = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), values))).Item;
+        var set = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), values))).Item;
         foreach (var value in set.SorterModels)
         {
             var simple = Assert.IsType<sorterModel.Simple>(value).Item;
@@ -159,7 +159,7 @@ public sealed class PrefixModelWeightsTests
             foreach (var call in report.Results) {
                 var output = Assert.Single(call.StoredOutputs); Assert.False(output.Reused);
                 var saved = db.Load(output.Reference, TestContext.Current.CancellationToken); Assert.True(saved.IsOk);
-                var models = Assert.IsType<functionData.SorterModelSet>(saved.ResultValue.Value).Item;
+                var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(saved.ResultValue.Value).Item;
                 foreach (var item in models.SorterModels) {
                     var simple = Assert.IsType<sorterModel.Simple>(item).Item;
                     if (simple is simpleSorterModel.Msuf4 uf4)

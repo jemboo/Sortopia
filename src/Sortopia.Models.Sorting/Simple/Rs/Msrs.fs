@@ -39,7 +39,7 @@ type msrs =
 
     member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
-    /// Suffix size only; full-sorter properties come from MakeSorterWithPrefix.
+    /// Suffix size only; full-sorter properties come from MakeSorter.
     member this.CeLength with get () = (this.StageLength * %this.ChannelCount / 2) |> UMX.tag<ceLength>
     member this.StageLength with get () = this.perm_Rss.Length |> UMX.tag<stageLength>
     member this.ChannelCount with get () = this.channelCount
@@ -74,15 +74,10 @@ type msrs =
                 |> Array.map (fun tbit -> ce.create tbit.First tbit.Second))
         ModelPrefix.truncate maxCeLength allCes
 
-    /// Limit the suffix CEs; use with inputs already presorted by Prefix.
-    member this.MakeSorterWithoutPrefix (maxCeLength: int<ceLength> option) =
-        let ces = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize this.Id this.ChannelCount this.prefix false ces
-
     /// Prepend the fixed prefix after limiting the suffix. The prefix is never truncated.
-    member this.MakeSorterWithPrefix (maxCeLength: int<ceLength> option) =
+    member this.MakeSorter (maxCeLength: int<ceLength> option) =
         let suffix = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize this.Id this.ChannelCount this.prefix true suffix
+        ModelPrefix.materialize this.Id this.ChannelCount this.prefix suffix
 
 
 module Msrs =
@@ -101,8 +96,5 @@ module Msrs =
     /// Converts an Msrs instance to a Sorter by mapping each Perm_Rs to comparison elements (Ce) via TwoOrbits.
     /// <param name="msrs">The Msrs instance to convert.</param>
     /// <returns>A Sorter instance with the same width and derived comparison elements.</returns>
-    let makeSorterWithoutPrefix (model: msrs) : sorter =
-        model.MakeSorterWithoutPrefix None
-
-    let makeSorterWithPrefix (model: msrs) : sorter =
-        model.MakeSorterWithPrefix None
+    let makeSorter (model: msrs) : sorter =
+        model.MakeSorter None

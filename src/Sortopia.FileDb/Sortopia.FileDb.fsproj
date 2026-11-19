@@ -11,7 +11,7 @@
     <Compile Include="OutputPlan.fs" />
     <Compile Include="FileRunHost.fs" />
     <Compile Include="RunParameterFiles.fs" />
-    <Compile Include="EvolutionReportingStore.fs" />
+    <Compile Include="RunOutputFiles.fs" />
     <Compile Include="RunDataCleanup.fs" />
     <Compile Include="FileInspection.fs" />
     <Compile Include="RunParameterExecution.fs" />

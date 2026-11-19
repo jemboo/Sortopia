@@ -17,7 +17,7 @@ module internal SimdBatch =
     let mapNetworks (options: ParallelOptions) evaluate (networks: ceBlock[]) =
         EvaluationParallel.mapIndexed options evaluate networks
 
-    let finishNetwork prefix (network: ceBlock) usage unsorted symbolCount (failures: HashSet<int[]> option) =
+    let finishNetwork (network: ceBlock) usage unsorted symbolCount (failures: HashSet<int[]> option) =
         let count, residual =
             match failures with
             | None -> unsorted, None
@@ -25,7 +25,7 @@ module internal SimdBatch =
             | Some values ->
                 let tests = values |> Seq.map (fun value -> sortableIntArray.create(value, network.ChannelCount, symbolCount)) |> Seq.toArray
                 values.Count, Some (sortableIntTests.create (UMX.tag (Guid.NewGuid())) network.ChannelCount tests |> sortableTests.Ints)
-        ceBlockEval.create prefix network (ceUseCounts.CreateFromArray usage) (UMX.tag count) residual
+        ceBlockEval.create network (ceUseCounts.CreateFromArray usage) (UMX.tag count) residual
 
     let comparatorChannels (network: ceBlock) =
         let ces = network.CeArray
@@ -33,12 +33,12 @@ module internal SimdBatch =
            Highs = ces |> Array.map (fun ce -> int ce.HighChannel) |}
 
     // Raw block streams carry width on each block. Typed datasets validate their blocks at construction.
-    let prepareBlocks (widthOf: 'block -> int) prefix (networks: ceBlock[]) blocks =
+    let prepareBlocks (widthOf: 'block -> int) (networks: ceBlock[]) blocks =
         if isNull networks then nullArg "ceBlocks"
         let inputs = Seq.toArray blocks
         if inputs.Length > 0 && networks.Length > 0 then
             let width = widthOf inputs[0]
-            CeBlock.validateBatchWidth (UMX.tag width) prefix networks
+            CeBlock.validateBatchWidth (UMX.tag width) networks
             if inputs |> Array.exists (fun block -> widthOf block <> width) then
                 invalidArg "simdSortableBlocks" "All input blocks must have the same width."
         inputs

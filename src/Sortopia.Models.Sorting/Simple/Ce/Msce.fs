@@ -33,7 +33,7 @@ type msce =
     member this.Id with get () = this.id
     member this.ChannelCount with get () = this.channelCount
     member this.CeCodes with get () = Array.copy this.ceCodes
-    /// Suffix size only; full-sorter properties come from MakeSorterWithPrefix.
+    /// Suffix size only; full-sorter properties come from MakeSorter.
     member this.CeLength with get () = (this.ceCodes.Length |> UMX.tag<ceLength>)
     member this.StageLength with get () =
                 ((2 * this.CeCodes.Length) / %this.ChannelCount) |> UMX.tag<stageLength>
@@ -68,15 +68,10 @@ type msce =
         let allCes = this.ceCodes |> Array.map (Ce.fromIndex)
         ModelPrefix.truncate maxCeLength allCes
 
-    /// Limit the suffix CEs; use with inputs already presorted by Prefix.
-    member this.MakeSorterWithoutPrefix (maxCeLength: int<ceLength> option) =
-        let ces = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize this.Id this.ChannelCount this.prefix false ces
-
     /// Prepend the fixed prefix after limiting the suffix. The prefix is never truncated.
-    member this.MakeSorterWithPrefix (maxCeLength: int<ceLength> option) =
+    member this.MakeSorter (maxCeLength: int<ceLength> option) =
         let suffix = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize this.Id this.ChannelCount this.prefix true suffix
+        ModelPrefix.materialize this.Id this.ChannelCount this.prefix suffix
 
 
 module Msce =

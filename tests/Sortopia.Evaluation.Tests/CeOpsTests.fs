@@ -33,7 +33,7 @@ type CeOpsTests() =
         
         // Act
         let collectNewSortableTests = true |> UMX.tag<collectNewSortableTests>
-        let ceBlockEval = CeBlockOps.evalWithSorterTest sortableTests ceBlock.Empty ceBlk collectNewSortableTests
+        let ceBlockEval = CeBlockOps.evalWithSorterTest sortableTests ceBlk collectNewSortableTests
         
         // Assert
         let boolTests = match (ceBlockEval).SortableTests.Value with | sortableTests.Bools bt -> bt | _ -> failwith "Expected Bools"
@@ -62,7 +62,7 @@ type CeOpsTests() =
         
         // Act
         let collectNewSortableTests = true |> UMX.tag<collectNewSortableTests>
-        let ceBlockEval = CeBlockOps.evalWithSorterTest sortableTests ceBlock.Empty ceBlk collectNewSortableTests
+        let ceBlockEval = CeBlockOps.evalWithSorterTest sortableTests ceBlk collectNewSortableTests
         
         // Assert
         let intTests = match (ceBlockEval).SortableTests.Value with | sortableTests.Ints it -> it | _ -> failwith "Expected Ints"
@@ -86,7 +86,7 @@ type CeOpsTests() =
 
         // Act
         let collectNewSortableTests = true |> UMX.tag<collectNewSortableTests>
-        let result = CeBlockOps.evalWithSorterTest sortableTests ceBlock.Empty ceBlk collectNewSortableTests
+        let result = CeBlockOps.evalWithSorterTest sortableTests ceBlk collectNewSortableTests
         
         // Assert
         let intTests = match result.SortableTests.Value with | sortableTests.Ints it -> it | _ -> failwith "Expected Ints"
@@ -108,10 +108,10 @@ type CeOpsTests() =
         |]
         let network = ceBlock.create (Guid.NewGuid() |> UMX.tag) width [| createCe 0 1 |]
         for test in tests do
-            let countsOnly = CeBlockOps.evalWithSorterTest test ceBlock.Empty network (UMX.tag false)
+            let countsOnly = CeBlockOps.evalWithSorterTest test network (UMX.tag false)
             countsOnly.SortableTests.IsNone |> should be True
             %countsOnly.UnsortedCount |> should equal 1
-            let collected = CeBlockOps.evalWithSorterTest test ceBlock.Empty network (UMX.tag true)
+            let collected = CeBlockOps.evalWithSorterTest test network (UMX.tag true)
             collected.SortableTests.IsSome |> should be True
             %collected.UnsortedCount |> should equal 1
 
@@ -134,7 +134,7 @@ type CeOpsTests() =
             if lanes = 32 then SortableUint8v256Tests.fromIntArrays id width arrays |> sortableTests.Uint8v256
             else SortableUint8v512Tests.fromIntArrays id width arrays |> sortableTests.Uint8v512
         let network = ceBlock.create (Guid.NewGuid() |> UMX.tag) width [||]
-        let result = CeBlockOps.evalWithSorterTest tests ceBlock.Empty network (UMX.tag true)
+        let result = CeBlockOps.evalWithSorterTest tests network (UMX.tag true)
         %result.UnsortedCount |> should equal 2
         match result.SortableTests with
         | Some (sortableTests.Ints failures) ->

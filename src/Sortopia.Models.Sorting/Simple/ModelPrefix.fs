@@ -37,15 +37,14 @@ module internal ModelPrefix =
 
     /// IDs distinguish materialized sequences while retaining the source model ID in their derivation.
     let materialize (modelId: Guid<sorterModelId>) (channelCount: int<channelCount>)
-                   (prefix: ce array) includePrefix (suffix: ce array) =
-        let ces = if includePrefix then Array.append prefix suffix else suffix
+                   (prefix: ce array) (suffix: ce array) =
+        let ces = Array.append prefix suffix
         let id =
             seq {
                 yield box "Sortopia.Models.Sorting/materializedSorter/v1"
                 yield box (UMX.untag modelId)
                 yield box (int channelCount)
-                // Empty prefixes have identical full and suffix forms.
-                yield box (includePrefix && prefix.Length > 0)
+                yield box (prefix.Length > 0)
                 yield! hashValues prefix
                 yield! hashValues suffix
             }

@@ -13,9 +13,9 @@ open Sortopia.Sorting.Inputs
 module CeBlockOpsBinary =
 
 
-    let evalWithCancellation (token: CancellationToken) (sbts: sortableBinaryTests) (prefix: ceBlock) (ceBlk: ceBlock) :ceBlockEval =
+    let evalWithCancellation (token: CancellationToken) (sbts: sortableBinaryTests) (ceBlk: ceBlock) :ceBlockEval =
             token.ThrowIfCancellationRequested()
-            CeBlock.validateWidth sbts.ChannelCount prefix ceBlk
+            CeBlock.validateWidth sbts.ChannelCount ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let mutable unsortedCount = 0
             let ces = ceBlk.CeArray
@@ -53,12 +53,12 @@ module CeBlockOpsBinary =
                 finally
                     pool.Return(workArray)
 
-            ceBlockEval.create prefix ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
+            ceBlockEval.create ceBlk ceUseCounts (unsortedCount |> UMX.tag<sortableCount>) None
 
 
-    let evalAndCollectWithCancellation (token: CancellationToken) (sbts: sortableBinaryTests) (prefix: ceBlock) (ceBlk: ceBlock) :ceBlockEval =
+    let evalAndCollectWithCancellation (token: CancellationToken) (sbts: sortableBinaryTests) (ceBlk: ceBlock) :ceBlockEval =
             token.ThrowIfCancellationRequested()
-            CeBlock.validateWidth sbts.ChannelCount prefix ceBlk
+            CeBlock.validateWidth sbts.ChannelCount ceBlk
             let ceUseCounts = ceUseCounts.Create ceBlk.CeLength
             let ces = ceBlk.CeArray
             let sw = sbts.ChannelCount
@@ -102,11 +102,10 @@ module CeBlockOpsBinary =
 
             let newTests = Seq.toArray results |> sortableBinaryTests.create (Guid.NewGuid() |> UMX.tag) sw
             ceBlockEval.create
-                            prefix
                             ceBlk
                             ceUseCounts
                             (results.Count |> UMX.tag<sortableCount>)
                             (Some (sortableTests.Bools newTests))
 
-    let eval tests prefix block = evalWithCancellation CancellationToken.None tests prefix block
-    let evalAndCollectNewSortableTests tests prefix block = evalAndCollectWithCancellation CancellationToken.None tests prefix block
+    let eval tests block = evalWithCancellation CancellationToken.None tests block
+    let evalAndCollectNewSortableTests tests block = evalAndCollectWithCancellation CancellationToken.None tests block

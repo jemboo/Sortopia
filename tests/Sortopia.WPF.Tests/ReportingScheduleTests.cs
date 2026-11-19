@@ -12,6 +12,8 @@ public sealed class ReportingScheduleTests
         var editor = new WorkspaceReportingSchedule("Summary", "1", () => true, () => changes++);
         Assert.Equal("Constant(1)", editor.Schedule);
         Assert.Contains("0, 1, 2, 3", editor.Preview);
+        Assert.DoesNotContain("plus the final generation", editor.Preview);
+        Assert.Contains("GenerationCount must be a scheduled point", editor.Preview);
         editor.Interval = "0"; Assert.NotEmpty(editor.Error); Assert.Empty(editor.Preview);
         editor.Load("Exponential(0.25, 10)");
         Assert.True(editor.IsIncreasing); Assert.Equal("10", editor.Interval); Assert.Equal("0.25", editor.Growth);

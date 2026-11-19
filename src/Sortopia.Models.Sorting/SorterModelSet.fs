@@ -53,20 +53,12 @@ module SorterModelSet =
         SorterModel.getId model
 
 
-    let makeSorterSetWithoutPrefix (id:Guid<sorterSetId>)
+    /// Materialize each complete sorter, applying the optional limit to its active suffix.
+    let makeSorterSet (id:Guid<sorterSetId>)
                       (maxCeCount: int<ceLength> option)
                       (sorterModelSet: sorterModelSet) : sorterSet =
         let sorters =
             sorterModelSet.SorterModels
-            |> Array.map (fun sm -> SorterModel.makeSorterWithoutPrefix sm maxCeCount)
-        sorterSet.create id sorters
-
-
-    let makeSorterSetWithPrefix (id:Guid<sorterSetId>)
-                      (maxCeCount: int<ceLength> option)
-                      (sorterModelSet: sorterModelSet) : sorterSet =
-        let sorters =
-            sorterModelSet.SorterModels
-            |> Array.map (fun sm -> SorterModel.makeSorterWithPrefix sm maxCeCount)
+            |> Array.map (fun sm -> SorterModel.makeSorter sm maxCeCount)
         sorterSet.create id sorters
 

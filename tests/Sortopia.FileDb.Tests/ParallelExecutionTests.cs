@@ -57,9 +57,9 @@ public sealed partial class PreparedExecutionTests
             ISortopiaDb store = new SortopiaFileDb(folder, item.ProjectId);
             // Factories deliberately fail after meeting. They must overlap even
             // though no data is published, proving generation is outside the lock.
-            return store.GetOrCreate(plan.Values.Single().Key, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => {
+            return store.GetOrCreate(plan.Values.Single().Key, FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => {
                 Assert.True(barrier.SignalAndWait(TimeSpan.FromSeconds(15)), "Independent factories were serialized.");
-                return FSharpResult<functionData, string>.NewError("factory reached");
+                return FSharpResult<sortopiaStorageData, string>.NewError("factory reached");
             }), Token);
         }, Token)).ToArray();
         var results = await Task.WhenAll(tasks);

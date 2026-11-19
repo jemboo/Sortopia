@@ -31,7 +31,7 @@ let model_arrays_are_owned_and_cannot_invalidate_activator_lengths () =
     codes.[0] <- -1
     model.CeCodes.[1] <- -1
     Assert.Equal<int>([|1; 3|], model.CeCodes)
-    Assert.Equal<ce>([|Ce.fromIndex 1; Ce.fromIndex 3|], activated.MakeSorterWithoutPrefix(None).Ces)
+    Assert.Equal<ce>([|Ce.fromIndex 1; Ce.fromIndex 3|], activated.MakeSorter(None).Ces)
     let permutations = [|permSi.create [|1; 0; 3; 2|]|]
     let si = mssi.create modelId 4<channelCount> [||] permutations
     permutations.[0] <- permSi.create [|3; 2; 1; 0|]

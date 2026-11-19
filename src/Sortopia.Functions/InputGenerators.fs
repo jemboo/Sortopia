@@ -16,9 +16,9 @@ module internal InputGenerators =
     let mergeKeys = [ParamKey.describe ParamKeys.sortableDataFormatKey; ParamKey.describe ParamKeys.mergeLibIdKey]
     let prefixKeys = [ParamKey.describe ParamKeys.sortableDataFormatKey; ParamKey.describe ParamKeys.prefixLibIdKey]
 
-    let evaluationInputError testsKeys modelType defaults spans =
+    let evaluationInputError testsKeys modelInputError defaults spans =
         let values key = inputValues key defaults spans
-        let modelError = ModelGenerators.inputError modelPrefixMode.NoPrefix modelType defaults spans
+        let modelError = modelInputError defaults spans
         if modelError <> "" then modelError
         else
             try
@@ -35,23 +35,21 @@ module internal InputGenerators =
                 ""
             with error -> error.Message
 
-    let private tests model prefix parameters =
+    let private tests model parameters =
         let format = required ParamKeys.sortableDataFormatKey parameters |> SortableDataFormat.fromString
         let tests = SortableTestsModel.makeSortableTests (Guid.NewGuid() |> UMX.tag) model format
-        functionData.SortableTests (tests, prefix)
+        sortopiaStorageData.SortableTests tests
 
     let standardTests parameters =
         let channels = required ParamKeys.channelCountKey parameters
         if channels < 1 then invalidArg "ChannelCount" "ChannelCount must be positive."
-        tests (msasF.create (UMX.tag channels) |> sortableTestsModel.MsasF) [||] parameters
+        tests (msasF.create (UMX.tag channels) |> sortableTestsModel.MsasF) parameters
 
     let mergeTests parameters =
         let library = required ParamKeys.mergeLibIdKey parameters
         let model = msasM.create library.ChannelCount library.MergeDimension mergeSuffixType.NoSuffix library.SorterLibVariant
-        let prefix = model.CeArray |> Option.defaultWith (fun () -> invalidArg "MergeLibId" "The merge prefix is unavailable.")
-        tests (sortableTestsModel.MsasMi model) prefix parameters
+        tests (sortableTestsModel.MsasMi model) parameters
 
     let prefixTests parameters =
         let library = required ParamKeys.prefixLibIdKey parameters
-        let prefix = SorterDataParse.getCeArrayFromPrefixLib library |> Option.defaultWith (fun () -> invalidArg "PrefixLibId" "The prefix is unavailable.")
-        tests (msasPfx.create library |> sortableTestsModel.MsasPfx) prefix parameters
+        tests (msasPfx.create library |> sortableTestsModel.MsasPfx) parameters

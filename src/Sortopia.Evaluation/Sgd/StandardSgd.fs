@@ -43,7 +43,6 @@ type preparedSgdPopulation = private {
     Configuration: Guid
     SourceId: Guid
     TestsId: Guid
-    Prefix: ce array
     RawCeLength: int
     Seeds: (sorterModel * sorterEval) array array
 }
@@ -103,22 +102,11 @@ module StandardSgd =
             { pool with RawCeLength = cutoff
                         Members = pool.Members |> Array.filter (fun m -> int (SorterEval.getLastCeIndex m.Evaluation) <= cutoff) }
 
-    let private evaluate (options: ParallelOptions) tests (prefix: ceBlock) rawCeLength (models: sorterModel array) =
+    let private evaluate (options: ParallelOptions) tests rawCeLength (models: sorterModel array) =
         options.CancellationToken.ThrowIfCancellationRequested()
         let padded = min (float Int32.MaxValue) (float rawCeLength * 1.1) |> int |> UMX.tag<ceLength> |> Some
-        let sorters = models |> EvaluationParallel.map options (fun model ->
-            if prefix.CeArray.Length = 0 then SorterModel.makeSorterWithPrefix model padded
-            else SorterModel.makeSorterWithoutPrefix model padded)
-        SorterSetEval.makeSorterEvalsWithOptions options sorters prefix tests sorterEvalType.V2 (UMX.tag false)
-
-    let private summaries settings generation pools =
-        pools |> Array.mapi (fun index pool -> {
-            Generation = generation; PoolIndex = index; MemberCount = pool.Members.Length
-            SuccessfulCount = pool.Members |> Array.filter (fun m -> SorterEval.getIsSorted m.Evaluation) |> Array.length
-            RawCeLength = pool.RawCeLength
-            MinimumCeLength = pool.Members |> Array.map (fun m -> int (SorterEval.getCeLength m.Evaluation)) |> Array.min
-            MinimumStageLength = pool.Members |> Array.map (fun m -> int (SorterEval.getStageLength m.Evaluation)) |> Array.min
-            BestScore = pool.Members |> Array.map (score settings) |> Array.min })
+        let sorters = models |> EvaluationParallel.map options (fun model -> SorterModel.makeSorter model padded)
+        SorterSetEval.makeSorterEvalsWithOptions options sorters tests sorterEvalType.V2 (UMX.tag false)
 
     let private initialConfiguration settings =
         identity [box (InitialPoolSelection.toString settings.InitialPoolSelection); box settings.PoolCount; box settings.SortersPerPool
@@ -132,11 +120,10 @@ module StandardSgd =
             SortableBitv512Tests.fromBoolArrays values.Id values.ChannelCount values.SortableBinaryArrays |> sortableTests.Bitv512
         | _ -> tests
 
-    let prepareInitialPopulation (options: ParallelOptions) settings (models: sorterModelSet) tests (prefixCes: ce array) =
+    let prepareInitialPopulation (options: ParallelOptions) settings (models: sorterModelSet) tests =
         validateSettings settings
         options.CancellationToken.ThrowIfCancellationRequested()
         let channels = SortableTests.getChannelCount tests
-        let prefix = ceBlock.create (UMX.tag Guid.Empty) channels prefixCes
         // Prepare once for the repeated count-only evaluations. Keep the source ID,
         // input order and duplicate lanes; saved setup data and cache keys stay unchanged.
         let evaluationTests = preparedTests tests
@@ -144,9 +131,6 @@ module StandardSgd =
         let allModels = models.SorterModels
         for model in allModels do
             if SorterModel.getChannelCount model <> channels then invalidArg "models" "The models and tests must have the same channel count."
-            let modelPrefix = SorterModel.getPrefix model
-            if prefixCes.Length > 0 && modelPrefix.Length > 0 && modelPrefix <> prefixCes then
-                invalidArg "models" "The model prefix must match the source SortableTests prefix."
         let required = settings.PoolCount * settings.SortersPerPool
         if allModels.Length < required then invalidArg "models" $"SGD needs {required} starting models; the source contains {allModels.Length}."
         let seeds =
@@ -160,9 +144,9 @@ module StandardSgd =
                     allModels[index] <- allModels[selected]
                     allModels[selected] <- temp
                 allModels |> Array.take required |> Array.chunkBySize settings.SortersPerPool |> Array.map (fun selected ->
-                    Array.zip selected (evaluate options evaluationTests prefix (int models.RawCeLength) selected))
+                    Array.zip selected (evaluate options evaluationTests (int models.RawCeLength) selected))
             | initialPoolSelection.Best ->
-                let evaluations = evaluate options evaluationTests prefix (int models.RawCeLength) allModels
+                let evaluations = evaluate options evaluationTests (int models.RawCeLength) allModels
                 let eligible = SorterEvalFunctions.filterEvaluations settings.SelectionMeasure evaluations |> Seq.map SorterEval.getSorterId |> Set.ofSeq
                 let measure = SorterEvalFunctions.getFunctionForMeasure settings.SelectionMeasure
                 let ranked = Array.zip allModels evaluations
@@ -174,14 +158,13 @@ module StandardSgd =
                 ranked |> Array.take required |> Array.chunkBySize settings.SortersPerPool
         options.CancellationToken.ThrowIfCancellationRequested()
         { Configuration = initialConfiguration settings; SourceId = %models.Id; TestsId = %(SortableTests.getId tests)
-          Prefix = Array.copy prefixCes; RawCeLength = int models.RawCeLength; Seeds = seeds }
+          RawCeLength = int models.RawCeLength; Seeds = seeds }
 
-    let runObservedPrepared (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (initial: preparedSgdPopulation) tests (prefixCes: ce array) =
+    let runObservedPrepared (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (initial: preparedSgdPopulation) tests =
         validateSettings settings
         options.CancellationToken.ThrowIfCancellationRequested()
-        if initial.Configuration <> initialConfiguration settings || initial.TestsId <> %(SortableTests.getId tests) || initial.Prefix <> prefixCes then
+        if initial.Configuration <> initialConfiguration settings || initial.TestsId <> %(SortableTests.getId tests) then
             invalidArg "initial" "Prepared starting pools do not match the selection settings or tests."
-        let prefix = ceBlock.create (UMX.tag Guid.Empty) (SortableTests.getChannelCount tests) prefixCes
         let evaluationTests = preparedTests tests
         let mutable pools = initial.Seeds |> Array.mapi (fun poolIndex seeds ->
             let poolId =
@@ -192,10 +175,9 @@ module StandardSgd =
                 Id = identity [box poolId; box (SorterModel.getId model)]
                 Model = model; MutationIndex = 0; MutationMod = settings.MutationMod; Birthday = 0; ParentId = None; Evaluation = evaluation })
             { Id = poolId; RawCeLength = initial.RawCeLength; Members = members })
-        let history = ResizeArray<sorterPoolSummary>(summaries settings 0 pools)
         let report generation =
             options.CancellationToken.ThrowIfCancellationRequested()
-            observe { Generation = generation; TestsId = SortableTests.getId tests; Pools = pools; History = [||] }
+            observe { Generation = generation; TestsId = SortableTests.getId tests; Pools = pools }
         report 0
         for generation in 0 .. settings.Generations - 1 do
             options.CancellationToken.ThrowIfCancellationRequested()
@@ -208,7 +190,7 @@ module StandardSgd =
                         let mutationIndex = parent.MutationIndex + index
                         let model = SorterModelMutator.makeMutantSorterModelFromIndexAndMod mutator parent.Model (UMX.tag mutationIndex) (UMX.tag parent.MutationMod)
                         parent, mutationIndex, model)) |> Array.concat
-                let childEvals = children |> Array.map (fun (_, _, model) -> model) |> evaluate options evaluationTests prefix pool.RawCeLength
+                let childEvals = children |> Array.map (fun (_, _, model) -> model) |> evaluate options evaluationTests pool.RawCeLength
                 let childMembers = Array.map2 (fun ((parent: sorterPoolMember), cursor, model) evaluation -> {
                     Id = identity [box parent.Id; box cursor; box (SorterModelMutator.getId mutator)]
                     Model = model; MutationIndex = 0; MutationMod = parent.MutationMod; Birthday = generation
@@ -217,20 +199,19 @@ module StandardSgd =
                                        |> Array.map (fun m -> { m with MutationIndex = m.MutationIndex + settings.ChildrenPerParent })
                 let retained =
                     if adjust then
-                        let evaluations = retained |> Array.map _.Model |> evaluate options evaluationTests prefix pool.RawCeLength
+                        let evaluations = retained |> Array.map _.Model |> evaluate options evaluationTests pool.RawCeLength
                         Array.map2 (fun memberValue evaluation -> { memberValue with Evaluation = evaluation }) retained evaluations
                     else retained
                 { pool with Members = Array.append retained childMembers }
                 |> (if adjust then adjustCeLength settings.SortedFraction else id)
                 |> prune settings)
-            history.AddRange(summaries settings (generation + 1) pools)
             report (generation + 1)
         options.CancellationToken.ThrowIfCancellationRequested()
-        { Generation = settings.Generations; TestsId = SortableTests.getId tests; Pools = pools; History = history.ToArray() }
+        { Generation = settings.Generations; TestsId = SortableTests.getId tests; Pools = pools }
         |> SorterPoolSet.validate
 
-    let runObserved observe options settings mutator models tests prefix =
-        let initial = prepareInitialPopulation options settings models tests prefix
-        runObservedPrepared observe options settings mutator initial tests prefix
+    let runObserved observe options settings mutator models tests =
+        let initial = prepareInitialPopulation options settings models tests
+        runObservedPrepared observe options settings mutator initial tests
 
-    let run options settings mutator models tests prefix = runObserved ignore options settings mutator models tests prefix
+    let run options settings mutator models tests = runObserved ignore options settings mutator models tests

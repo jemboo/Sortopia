@@ -9,43 +9,71 @@ open Sortopia.Workspaces
 
 module internal HostStorage =
     let require = function Ok value -> value | Error message -> invalidOp message
-    let unavailableDatabase reason = {
-        new IRunDatabase with
-            member _.SaveIfMissing(_, _, _) = invalidOp reason
-            member _.Reference _ = invalidOp reason
-            member _.Load _ = invalidOp reason
-            member _.StoredOutputs = [] }
-    let noSources = {
-        new ISourceResults with
-            member _.Find(_, _, _) = invalidOp "Source results are available only to setup functions with configured sources."
-            member _.Load _ = invalidOp "Source results are available only to setup functions with configured sources." }
+    let noSources () = invalidOp "Source results are available only to setup functions with configured sources."
 
-/// Saves one phase's declared outputs with their own projections and dependencies.
-/// The host retains references, not payloads; factories run only on cache misses.
-type FileRunDatabase(store: ISortopiaDb, plan: Map<sortopiaDataType, plannedOutput>, token: CancellationToken) =
+/// Saves one phase's declared outputs and reads its authorized inputs.
+/// Output factories run only on cache misses; input reads never count as saved outputs.
+type FileRunDatabase internal (store: ISortopiaDb, plan: Map<runDataOutput, plannedOutput>, token: CancellationToken,
+                               inputs: Map<storedDataReference, unit -> sortopiaStorageData>,
+                               findSource: Guid<projectId> * sortopiaDataType * parameterSet -> storedData) =
     let saved = ResizeArray<storedOutput>()
-    let reference dataType =
-        saved |> Seq.tryFind (fun output -> output.Reference.DataType = dataType) |> Option.map (fun output -> output.Reference)
-        |> Option.defaultWith (fun () -> invalidOp $"'{dataType}' has not been saved in this invocation.")
-    interface IRunDatabase with
-        member _.StoredOutputs = saved |> Seq.toList
-        member _.Reference dataType = token.ThrowIfCancellationRequested(); reference dataType
-        member _.Load dataType = (store.Load(reference dataType, token) |> HostStorage.require).Value
-        member _.SaveIfMissing(dataType, dependencies, factory) =
+    let outputs = RunOutputs(plan |> Map.toList |> List.map fst, fun () -> saved |> Seq.toList)
+    let sources = Collections.Generic.Dictionary<storedDataReference, storedData>()
+    let planned descriptor =
+        token.ThrowIfCancellationRequested()
+        plan |> Map.tryFind descriptor |> Option.defaultWith (fun () -> invalidArg "output" "The output does not match this invocation's plan.")
+    let publish descriptor factory (supplied: sortopiaStorageData option) =
+        let output = planned descriptor
+        let previous = saved |> Seq.tryFind (fun value -> value.Reference = output.Key.Reference)
+        let validate value =
+            if SortopiaStorageData.kind value <> SortopiaDataType.kindName descriptor.DataType then invalidOp "The generated payload does not match its declared saved data type."
+            output.Validate value
+        supplied |> Option.iter validate
+        let make () =
             token.ThrowIfCancellationRequested()
-            let output = plan |> Map.tryFind dataType |> Option.defaultWith (fun () -> invalidArg "dataType" $"The selected function does not declare '{dataType}'.")
-            if saved |> Seq.exists (fun output -> output.Reference.DataType = dataType) then
-                invalidOp $"'{dataType}' was already saved in this invocation."
-            if List.sort dependencies <> output.Dependencies then
-                invalidArg "dependencies" "The saved output's dependencies must exactly match its declared output plan."
-            if not (DataCodec.supported (SortopiaDataType.kindName dataType)) then invalidOp $"Storage for '{dataType}' is not implemented."
-            let make () =
-                token.ThrowIfCancellationRequested()
-                let value = factory ()
-                if FunctionData.kind value <> SortopiaDataType.kindName dataType then invalidOp "The generated payload does not match its declared saved data type."
-                Ok value
-            let value, reused = store.GetOrCreate(output.Key, make, token) |> HostStorage.require
-            saved.Add { Reference = value.Reference; Reused = reused }
+            let value = factory ()
+            validate value
+            Ok value
+        let value, reused = store.GetOrCreate(output.Key, make, token) |> HostStorage.require
+        validate value.Value
+        if reused then
+            supplied |> Option.iter (fun expected ->
+                if DataCodec.encode value.Value <> DataCodec.encode expected then
+                    invalidOp $"Saved output differs from replay: {output.Key.Id}")
+        if previous.IsNone then saved.Add { Reference = value.Reference; Reused = reused }
+    new(store, plan, token) = FileRunDatabase(store, plan, token, Map.empty, fun _ -> HostStorage.noSources ())
+    member _.Outputs = outputs
+    interface IRunDatabase with
+        member _.Find(output: runDataOutput) = (planned output).Key.Reference
+        member _.Find(dataType: sortopiaDataType) =
+            token.ThrowIfCancellationRequested()
+            let references = Seq.append (inputs |> Map.toSeq |> Seq.map fst)
+                                        (plan |> Map.toSeq |> Seq.map (fun (_, output) -> output.Key.Reference))
+            match references |> Seq.filter (fun reference -> reference.DataType = dataType) |> Seq.distinct |> Seq.toList with
+            | [reference] -> reference
+            | [] -> invalidArg "dataType" $"No declared input or planned output matches '{dataType}'."
+            | _ -> invalidArg "dataType" $"Ambiguous data type '{dataType}'; use an exact output descriptor or source query."
+        member _.Find(projectId, dataType, parameters) =
+            token.ThrowIfCancellationRequested()
+            let data = findSource (projectId, dataType, parameters)
+            sources[data.Reference] <- data
+            data.Reference
+        member _.Load reference =
+            token.ThrowIfCancellationRequested()
+            match sources.TryGetValue reference, Map.tryFind reference inputs with
+            | (true, data), _ -> data.Value
+            | _, Some read -> read ()
+            | _ ->
+                let output = plan |> Map.toSeq |> Seq.map snd |> Seq.tryFind (fun output -> output.Key.Reference = reference)
+                             |> Option.defaultWith (fun () -> invalidArg "reference" "The reference is not an authorized input or planned output for this invocation.")
+                let value =
+                    match store.TryLoad(output.Key, token) |> HostStorage.require with
+                    | Some saved -> saved.Value
+                    | None -> invalidOp "The planned output has not been generated. Execute this invocation before loading its outputs."
+                output.Validate value
+                value
+        member _.Save(output, factory: unit -> sortopiaStorageData) = publish output factory None
+        member _.Save(output, value: sortopiaStorageData) = publish output (fun () -> value) (Some value)
 
 /// Results execution needs only a project folder, a frozen configuration and exact
 /// setup references. It deliberately has no workspace or upstream-project access.
@@ -56,62 +84,45 @@ module FileResultsHost =
             invalidOp $"Results function '{config.FunctionName}' requires version {config.FunctionVersion}; installed version is {definition.Version}."
         FunctionConfiguration.validateOutputs definition config.DataTypes
         FunctionValidation.validate definition parameters
-        if inputs |> List.exists (fun reference -> reference.ProjectId <> projectId || not reference.IsSetup) then
+        if inputs |> List.exists (fun reference -> reference.ProjectId <> projectId || reference.Phase <> runExecutionPhase.Setup) then
             invalidArg "inputs" "Results inputs must be project-local setup references."
         OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
                           config.DataTypes definition.OutputDependencies parameters inputs
 
+    let planWithReporting projectId (config: resultsConfig) parameters inputs reporting =
+        let ordinary = plan projectId config parameters inputs
+        match reporting with
+        | None -> ordinary
+        | Some _ ->
+            if not (ResultsFunctionCatalog.require config.FunctionName).SupportsEvolutionReporting then
+                invalidArg "reporting" "The selected results function does not support evolution reporting."
+            let final = ordinary |> Map.toList |> List.map fst |> List.find (fun output -> output.DataType = sortopiaDataType.SorterPoolSet "")
+            let samples = EvolutionSampling.plan parameters final reporting |> EvolutionSampling.outputs parameters
+            let sampled = OutputPlan.bind projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion samples
+            sampled |> Map.fold (fun outputs descriptor output -> Map.add descriptor output outputs) ordinary
+
     let internal createWithPreparedInputs evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list)
-                                         (prepared: Map<storedDataReference, functionData>) (token: CancellationToken) =
+                                         (prepared: Map<storedDataReference, sortopiaStorageData>) reporting (token: CancellationToken) =
         if evaluationParallelism < 1 then invalidArg "evaluationParallelism" "Evaluation parallelism must be positive."
         let definition = ResultsFunctionCatalog.require config.FunctionName
         // Setup can produce more types than results consumes; freeze only those needed.
         let inputs = outputs |> List.map _.Reference |> List.filter (fun reference -> List.contains reference.DataType definition.SourceDataTypes)
-        let plan = plan projectId config parameters inputs
+        let plan = planWithReporting projectId config parameters inputs reporting
         let store = SortopiaFileDb(folder, projectId) :> ISortopiaDb
-        let find dataType =
-            if not (List.contains dataType definition.SourceDataTypes) then
-                invalidArg "dataType" "The results function does not declare this setup input."
-            match outputs |> List.filter (fun output -> output.Reference.DataType = dataType) with
-            | [output] when output.Reference.ProjectId = projectId && output.Reference.IsSetup -> output.Reference
-            | _ -> invalidOp $"The setup batch must provide exactly one project-local '{dataType}' input."
-        let setup = {
-            new IRunDatabase with
-                member _.Reference dataType = token.ThrowIfCancellationRequested(); find dataType
-                member _.Load dataType =
-                    token.ThrowIfCancellationRequested()
-                    let reference = find dataType
-                    match prepared |> Map.tryFind reference with
-                    | Some value -> value
-                    | None -> (store.Load(reference, token) |> HostStorage.require).Value
-                member _.SaveIfMissing(_, _, _) = invalidOp "The setup database is read-only during results execution."
-                member _.StoredOutputs = outputs }
-        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; EvolutionReporting = None; PreparationCache = None
-          SetupDb = setup
-          ResultsDb = FileRunDatabase(store, plan, token)
-          SourceResults = HostStorage.noSources }
+        let reads = inputs |> List.map (fun reference ->
+            reference, fun () ->
+                match prepared |> Map.tryFind reference with
+                | Some value -> value
+                | None -> (store.Load(reference, token) |> HostStorage.require).Value) |> Map.ofList
+        let database = FileRunDatabase(store, plan, token, reads, fun _ -> HostStorage.noSources ())
+        { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; Reporting = reporting; PreparationCache = None
+          Database = database; Outputs = database.Outputs }
 
     let createWithParallelism evaluationParallelism folder projectId config parameters outputs token =
-        createWithPreparedInputs evaluationParallelism folder projectId config parameters outputs Map.empty token
+        createWithPreparedInputs evaluationParallelism folder projectId config parameters outputs Map.empty None token
 
     let create folder projectId config parameters outputs token =
         createWithParallelism Environment.ProcessorCount folder projectId config parameters outputs token
-
-type private SourceResults(scope, root, entries: setupDataTypeConfig list, token: CancellationToken) =
-    let loaded = Collections.Generic.Dictionary<storedDataReference, storedData>()
-    interface ISourceResults with
-        member _.Find(projectId, dataType, parameters) =
-            token.ThrowIfCancellationRequested()
-            let entry = entries |> List.tryFind (fun entry -> entry.SourceProjectId = projectId && entry.DataType = dataType)
-                        |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" "This project and data type are not configured as a source for this setup function.")
-            let data = WorkspaceData.loadScopedSource scope root entry parameters token
-            loaded[data.Reference] <- data
-            data.Reference
-        member _.Load reference =
-            token.ThrowIfCancellationRequested()
-            match loaded.TryGetValue reference with
-            | true, data -> data.Value
-            | _ -> invalidArg "reference" "Find the source result through this host before loading it."
 
 /// Binds a saved run to setup/results storage and read-only source access, much
 /// like GeneSort's runHost/runStorage/workflowSources, without catalog registration.
@@ -130,16 +141,21 @@ type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: Cancellation
         | run.RootRun _ -> invalidOp "A root run has no setup database."
         | run.BranchRun branch ->
             let entries = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
-            let sources = SourceResults(scope, workspaceRoot, entries, token)
+            let findSource (projectId, dataType, parameters) =
+                token.ThrowIfCancellationRequested()
+                let entry = entries |> List.tryFind (fun entry -> entry.SourceProjectId = projectId && entry.DataType = dataType)
+                            |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" "This project and data type are not configured as a source for this setup function.")
+                WorkspaceData.loadScopedSource scope workspaceRoot entry parameters token
             let definition = SetupFunctionCatalog.require branch.SetupFunctionName
-            let inputs = entries |> List.map (fun entry -> (sources :> ISourceResults).Find(entry.SourceProjectId, entry.DataType, parameters))
+            let sources = entries |> List.map (fun entry -> findSource (entry.SourceProjectId, entry.DataType, parameters))
+            let inputs = sources |> List.map _.Reference
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
                                         branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes
                                         definition.OutputDependencies parameters inputs
-            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; EvolutionReporting = None; PreparationCache = None
-              SetupDb = FileRunDatabase(store, plan, token)
-              ResultsDb = HostStorage.unavailableDatabase "Results writes are not allowed during setup. Read source results through SourceResults."
-              SourceResults = sources }
+            let reads = sources |> List.map (fun data -> data.Reference, fun () -> data.Value) |> Map.ofList
+            let database = FileRunDatabase(store, plan, token, reads, findSource)
+            { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; Reporting = None; PreparationCache = None
+              Database = database; Outputs = database.Outputs }
     member _.ForResults(parameters, setupOutputs) =
         FileResultsHost.create folder parent.Id parent.Snapshot.Results parameters setupOutputs token
     interface IRunHostFactory with

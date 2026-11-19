@@ -84,7 +84,7 @@ public sealed class SgdSamplingPageViewModel : SgdResultsViewModel
             {
                 Status = repeat ? "Sampling random seeds. Choose Stop to finish the batch."
                     : "Generating, testing and compacting the starting network…";
-                var inputs = await Task.Run(() => new PreparedNetworkCheck(recipe.Width, samples, recipe.Prefix, useAvx512, token), token);
+                var inputs = await Task.Run(() => new NetworkCheck(recipe.Width, samples, useAvx512, token), token);
                 token.ThrowIfCancellationRequested();
                 while (true)
                 {

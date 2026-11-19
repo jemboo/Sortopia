@@ -38,7 +38,7 @@ type msuf4 =
 
     member this.Prefix = Array.copy this.prefix
     member this.Id with get () = this.id
-    /// Suffix size only; full-sorter properties come from MakeSorterWithPrefix.
+    /// Suffix size only; full-sorter properties come from MakeSorter.
     member this.CeLength with get () = (this.StageLength * %this.ChannelCount / 2) |> UMX.tag<ceLength>
     member this.ChannelCount with get () = this.channelCount
     member this.TwoOrbitUnfolder4s with get () = Array.copy this.twoOrbitUnfolder4s
@@ -77,15 +77,10 @@ type msuf4 =
             |> Seq.truncate (int length)
             |> Seq.toArray
 
-    /// Limit the suffix CEs; use with inputs already presorted by Prefix.
-    member this.MakeSorterWithoutPrefix (maxCeLength: int<ceLength> option) =
-        let ces = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize this.Id this.ChannelCount this.prefix false ces
-
     /// Prepend the fixed prefix after limiting the suffix. The prefix is never truncated.
-    member this.MakeSorterWithPrefix (maxCeLength: int<ceLength> option) =
+    member this.MakeSorter (maxCeLength: int<ceLength> option) =
         let suffix = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize this.Id this.ChannelCount this.prefix true suffix
+        ModelPrefix.materialize this.Id this.ChannelCount this.prefix suffix
 
 
 module Msuf4 =

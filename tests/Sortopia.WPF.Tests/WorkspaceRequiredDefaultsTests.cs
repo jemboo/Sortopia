@@ -105,7 +105,7 @@ public sealed class WorkspaceRequiredDefaultsTests
             if (function.Name == SetupFunctionNames.evaluationStandardMssiSimple)
             {
                 var generated = CatalogTestHost.Invoke(true, SetupFunctionNames.evaluationStandardMssiSimple, parameters);
-                Assert.Equal(100, ((functionData.SorterModelSet)generated.Single(value => value.IsSorterModelSet)).Item.Count);
+                Assert.Equal(100, ((sortopiaStorageData.SorterModelSet)generated.Single(value => value.IsSorterModelSet)).Item.Count);
             }
         }
     }

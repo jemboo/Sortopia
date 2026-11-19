@@ -15,10 +15,10 @@ public sealed class SourceEvaluationInputsTests
 {
     private static readonly sortopiaDataType ModelsType = sortopiaDataType.NewSorterModelSet("");
     private static readonly sortopiaDataType TestsType = sortopiaDataType.NewSortableTests("");
-    private static functionData Models(int channels = 4) => Assert.Single(CatalogTestHost.Invoke(false,
+    private static sortopiaStorageData Models(int channels = 4) => Assert.Single(CatalogTestHost.Invoke(false,
         ResultsFunctionNames.uniformMssiSimpleSorterModels,
         parameterSet.fromBindings(RunExecutionTests.UniformModelDefaults(channels).Select(ParameterBindingDto.toDomain))));
-    private static functionData Tests(int channels = 4) => Assert.Single(CatalogTestHost.Invoke(false,
+    private static sortopiaStorageData Tests(int channels = 4) => Assert.Single(CatalogTestHost.Invoke(false,
         ResultsFunctionNames.mergeSortableTests, parameterSet.fromBindings([
             ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(channels).First(value => value.MergeDimension == 2)),
             ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")])));
@@ -119,14 +119,14 @@ public sealed class SourceEvaluationInputsTests
     public void Changing_one_source_changes_only_its_own_local_output_identity()
     {
         var definition = SetupFunctionCatalog.require(SetupFunctionNames.evaluationSource);
-        var models = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false, ModelsType);
-        var tests = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), false, TestsType);
-        var changed = new storedDataReference(models.ProjectId, Guid.NewGuid(), models.QueryId, false, ModelsType);
+        var models = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), runExecutionPhase.Results, ModelsType);
+        var tests = new storedDataReference(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), runExecutionPhase.Results, TestsType);
+        var changed = new storedDataReference(models.ProjectId, Guid.NewGuid(), models.QueryId, runExecutionPhase.Results, ModelsType);
         var project = Guid.NewGuid();
         var parameters = parameterSet.fromBindings([]);
         var first = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [models, tests]);
         var second = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [changed, tests]);
-        Assert.NotEqual(first[ModelsType].Key.Id, second[ModelsType].Key.Id);
-        Assert.Equal(first[TestsType].Key.Id, second[TestsType].Key.Id);
+        Assert.NotEqual(first.Single(pair => Equals(pair.Key.DataType, ModelsType)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, ModelsType)).Value.Key.Id);
+        Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, TestsType)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, TestsType)).Value.Key.Id);
     }
 }

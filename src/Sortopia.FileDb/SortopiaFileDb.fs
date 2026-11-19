@@ -11,13 +11,13 @@ open Sortopia.Runs
 open Sortopia.Functions
 open Sortopia.Core.Serialization
 
-type storedData = { Reference: storedDataReference; Value: functionData }
+type storedData = { Reference: storedDataReference; Value: sortopiaStorageData }
 
 type ISortopiaDb =
     abstract TryLoad: dataKey * CancellationToken -> Result<storedData option, string>
     abstract Load: storedDataReference * CancellationToken -> Result<storedData, string>
     abstract FindResults: dataKey * CancellationToken -> Result<storedData list, string>
-    abstract GetOrCreate: dataKey * (unit -> Result<functionData, string>) * CancellationToken -> Result<storedData * bool, string>
+    abstract GetOrCreate: dataKey * (unit -> Result<sortopiaStorageData, string>) * CancellationToken -> Result<storedData * bool, string>
 
 /// Immutable data files. Each writer holds a project lock only for get-or-create;
 /// readers need no lock, and incomplete temporary files are never considered data.
@@ -40,7 +40,7 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
             current <- Path.GetDirectoryName current
     let typeFolder (reference: storedDataReference) =
         if reference.ProjectId <> projectId then invalidArg "reference" "The data belongs to a different project."
-        Path.Combine(dataFolder, (if reference.IsSetup then "setup" else "results"), SortopiaDataType.kindName reference.DataType)
+        Path.Combine(dataFolder, (if RunExecutionPhase.toIsSetup reference.Phase then "setup" else "results"), SortopiaDataType.kindName reference.DataType)
     let filePath reference =
         let path = Path.Combine(typeFolder reference, string reference.Id + ".msgpack")
         checkPath path
@@ -56,13 +56,13 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         if isNull (box dto) || dto.Version <> 1 || dto.Compression <> "messagepack-lz4-array/1" then
             invalidOp $"Unsupported stored-data schema or compression: {path}"
         if dto.ProjectId <> UMX.untag reference.ProjectId || dto.Id <> UMX.untag reference.Id
-           || dto.QueryId <> UMX.untag reference.QueryId || dto.IsSetup <> reference.IsSetup
+           || dto.QueryId <> UMX.untag reference.QueryId || RunExecutionPhase.fromIsSetup dto.IsSetup <> reference.Phase
            || dto.Kind <> SortopiaDataType.kindName reference.DataType || dto.Label <> SortopiaDataType.text reference.DataType then
             invalidOp $"Stored data identity does not match its reference: {path}"
         if isNull dto.QueryBytes || isNull dto.IdentityBytes || isNull dto.Payload || isNull dto.Checksum then
             invalidOp $"Incomplete stored data: {path}"
         if dto.RawLength < 0 || dto.RawLength > DataCodec.maxRawBytes then invalidOp "Invalid uncompressed data length."
-        if DataKey.hashId dto.QueryBytes <> reference.QueryId || DataKey.hashId dto.IdentityBytes <> reference.Id
+        if DataKey.hashQueryId dto.QueryBytes <> reference.QueryId || DataKey.hashId dto.IdentityBytes <> reference.Id
            || dto.IdentityBytes.Length < dto.QueryBytes.Length
            || not (dto.IdentityBytes.AsSpan().StartsWith(dto.QueryBytes.AsSpan())) then
             invalidOp $"Stored data key is corrupt: {path}"
@@ -94,13 +94,13 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
                 token.WaitHandle.WaitOne(25) |> ignore
         handle.Value
     let publish (key: dataKey) value (token: CancellationToken) =
-        if FunctionData.kind value <> SortopiaDataType.kindName key.Reference.DataType then
-            invalidOp $"Function returned '{FunctionData.kind value}' for '{key.Reference.DataType}'."
+        if SortopiaStorageData.kind value <> SortopiaDataType.kindName key.Reference.DataType then
+            invalidOp $"Function returned '{SortopiaStorageData.kind value}' for '{key.Reference.DataType}'."
         let payload, rawLength = DataCodec.encode value
         let reference = key.Reference
         let dto = {
             Version = 1; ProjectId = UMX.untag projectId; Id = UMX.untag key.Id; QueryId = UMX.untag key.QueryId
-            IsSetup = reference.IsSetup; Kind = SortopiaDataType.kindName reference.DataType; Label = SortopiaDataType.text reference.DataType
+            IsSetup = RunExecutionPhase.toIsSetup reference.Phase; Kind = SortopiaDataType.kindName reference.DataType; Label = SortopiaDataType.text reference.DataType
             QueryBytes = key.QueryBytes; IdentityBytes = key.IdentityBytes; Compression = "messagepack-lz4-array/1"
             RawLength = rawLength; Checksum = SHA256.HashData payload; Payload = payload }
         let bytes = MessagePackSetup.serialize dto
@@ -137,11 +137,11 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         let path = filePath reference
         let header = (DataEnvelope.readHeader path token).Envelope
         if header.ProjectId <> UMX.untag reference.ProjectId || header.Id <> UMX.untag reference.Id
-           || header.QueryId <> UMX.untag reference.QueryId || header.IsSetup <> reference.IsSetup
+           || header.QueryId <> UMX.untag reference.QueryId || RunExecutionPhase.fromIsSetup header.IsSetup <> reference.Phase
            || header.Kind <> SortopiaDataType.kindName reference.DataType || header.Label <> SortopiaDataType.text reference.DataType then
             invalidOp $"Stored query metadata does not match its reference: {path}"
         let query = DataKey.readQuery header.QueryBytes
-        if query.ProjectId <> reference.ProjectId || query.IsSetup <> reference.IsSetup || query.DataType <> reference.DataType then
+        if query.ProjectId <> reference.ProjectId || query.Phase <> reference.Phase || query.DataType <> reference.DataType then
             invalidOp $"Stored query metadata does not match its envelope: {path}"
         token.ThrowIfCancellationRequested()
         query.Parameters
@@ -150,7 +150,7 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         member _.TryLoad(key, token) = protect (fun () -> tryRead key token)
         member _.Load(reference, token) = protect (fun () -> read reference None None token)
         member _.FindResults(key, token) = protect (fun () ->
-            if key.Reference.IsSetup then invalidArg "key" "Source queries address results data."
+            if key.Reference.Phase <> runExecutionPhase.Results then invalidArg "key" "Source queries address results data."
             let folder = typeFolder key.Reference
             checkPath folder
             if not (Directory.Exists folder) then []
@@ -170,7 +170,7 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
         member _.GetOrCreate(key, factory, token) = protect (fun () ->
             match tryRead key token with
             | Some value -> value, true
-            | None when key.Reference.IsSetup ->
+            | None when key.Reference.Phase = runExecutionPhase.Setup ->
                 use writer = acquireWriter token
                 // Another process may have published while this writer waited.
                 match tryRead key token with

@@ -10,22 +10,20 @@ module CeBlockOps =
     let evalWithSorterTestsWithOptions
             (options: ParallelOptions)
             (sortableTs: sortableTests)
-            (prefix: ceBlock)
             (ceBlocks: ceBlock[])
             (collectNewSortableTests: bool<collectNewSortableTests>) : ceBlockEval[] =
         options.CancellationToken.ThrowIfCancellationRequested()
         if isNull ceBlocks then nullArg "ceBlocks"
         if Array.isEmpty ceBlocks then
-            CeBlock.validatePrefixWidth (SortableTests.getChannelCount sortableTs) prefix
             [||]
         else
             let scalar count collect inputs =
                 let evaluate = if %collectNewSortableTests then collect else count
-                CeBlock.validateBatchWidth (SortableTests.getChannelCount sortableTs) prefix ceBlocks
-                SimdBatch.mapNetworks options (fun _ network -> evaluate inputs prefix network) ceBlocks
+                CeBlock.validateBatchWidth (SortableTests.getChannelCount sortableTs) ceBlocks
+                SimdBatch.mapNetworks options (fun _ network -> evaluate inputs network) ceBlocks
             let batch count collect inputs =
                 let evaluate = if %collectNewSortableTests then collect else count
-                evaluate inputs prefix ceBlocks
+                evaluate inputs ceBlocks
             match sortableTs with
             | sortableTests.Ints inputs ->
                 scalar (CeBlockOpsInt.evalWithCancellation options.CancellationToken) (CeBlockOpsInt.evalAndCollectWithCancellation options.CancellationToken) inputs
@@ -40,12 +38,11 @@ module CeBlockOps =
             | sortableTests.Uint8v512 inputs ->
                 batch (CeBlockOpsUint8v512.evalWithOptions options) (CeBlockOpsUint8v512.evalAndCollectWithOptions options) inputs
 
-    let evalWithSorterTests tests prefix blocks collect =
-        evalWithSorterTestsWithOptions (ParallelOptions()) tests prefix blocks collect
+    let evalWithSorterTests tests blocks collect =
+        evalWithSorterTestsWithOptions (ParallelOptions()) tests blocks collect
 
     let evalWithSorterTest
             (sortableTs: sortableTests)
-            (prefix: ceBlock)
             (ceBlock: ceBlock)
             (collectNewSortableTests: bool<collectNewSortableTests>) : ceBlockEval =
-        evalWithSorterTests sortableTs prefix [|ceBlock|] collectNewSortableTests |> Array.head
+        evalWithSorterTests sortableTs [|ceBlock|] collectNewSortableTests |> Array.head

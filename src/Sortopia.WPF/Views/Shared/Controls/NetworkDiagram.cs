@@ -395,9 +395,8 @@ public sealed class NetworkDiagram : FrameworkElement
                 && point.Y / Zoom <= NetworkLayout.ChannelY(ce.High) + 5 && ce.Index < usage.CeUses.Count)
             {
                 var count = usage.CeUses[ce.Index];
-                var text = usage.IsFixedCe(ce.Index)
-                    ? $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: fixed prefix. Applied when preparing inputs; usage is not measured in suffix tests."
-                    : $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {count:N0} swaps / {usage.Tested:N0} inputs ({(double)count / usage.Tested:P2})";
+                var text = $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {count:N0} swaps / {usage.Tested:N0} inputs ({(double)count / usage.Tested:P2})"
+                    + (usage.IsFixedCe(ce.Index) ? " · fixed prefix" : "");
                 if (!Equals(ToolTip, text)) ToolTip = text;
                 return;
             }

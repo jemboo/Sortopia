@@ -41,16 +41,10 @@ type simpleSorterModelS =
             | Msuf6 model -> model.TwoOrbitUnfolder6s |> active |> Array.collect (fun entry -> Ce.fromPermSi entry.MakePerm_Si)
         ModelPrefix.truncate maxCeLength allCes
 
-    /// Limit the suffix CEs; use with inputs already presorted by Prefix.
-    member this.MakeSorterWithoutPrefix (maxCeLength: int<ceLength> option) =
-        let ces = this.MakeSuffix maxCeLength
-        ModelPrefix.materialize (SimpleSorterModel.getId this.model)
-            (SimpleSorterModel.getChannelCount this.model) this.Prefix false ces
-
-    member this.MakeSorterWithPrefix (maxCeLength: int<ceLength> option) : sorter =
+    member this.MakeSorter (maxCeLength: int<ceLength> option) : sorter =
         let suffix = this.MakeSuffix maxCeLength
         ModelPrefix.materialize (SimpleSorterModel.getId this.model)
-            (SimpleSorterModel.getChannelCount this.model) this.Prefix true suffix
+            (SimpleSorterModel.getChannelCount this.model) this.Prefix suffix
 
 module SimpleSorterModelS =
     let getPrefix (model: simpleSorterModelS) = model.Prefix
@@ -71,8 +65,5 @@ module SimpleSorterModelS =
         | Msce _ -> UMX.tag (2 * activeCount / int (getChannelCount model))
         | _ -> UMX.tag activeCount
 
-    let makeSorterWithoutPrefix (maxCeLength: int<ceLength> option) (model: simpleSorterModelS) : sorter =
-        model.MakeSorterWithoutPrefix maxCeLength
-
-    let makeSorterWithPrefix (maxCeLength: int<ceLength> option) (model: simpleSorterModelS) : sorter =
-        model.MakeSorterWithPrefix maxCeLength
+    let makeSorter (maxCeLength: int<ceLength> option) (model: simpleSorterModelS) : sorter =
+        model.MakeSorter maxCeLength

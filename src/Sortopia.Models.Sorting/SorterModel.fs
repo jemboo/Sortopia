@@ -52,18 +52,12 @@ module SorterModel =
         | Unknown -> failwith "Unknown sorterModel"
 
 
-    let makeSorterWithoutPrefix (model: sorterModel) (maxCeCount: int<ceLength> option)  : sorter =
+    /// Include the complete fixed prefix; the optional CE limit applies only to the active suffix.
+    let makeSorter (model: sorterModel) (maxCeCount: int<ceLength> option)  : sorter =
         match model with
-        | Simple sms -> sms |> SimpleSorterModel.makeSorterWithoutPrefix maxCeCount
-        | SimpleR sms -> sms |> SimpleSorterModelR.makeSorterWithoutPrefix maxCeCount
-        | SimpleS sms -> sms |> SimpleSorterModelS.makeSorterWithoutPrefix maxCeCount
-        | Unknown -> failwith "Unknown sorterModel"
-
-    let makeSorterWithPrefix (model: sorterModel) (maxCeCount: int<ceLength> option)  : sorter =
-        match model with
-        | Simple sms -> sms |> SimpleSorterModel.makeSorterWithPrefix maxCeCount
-        | SimpleR sms -> sms |> SimpleSorterModelR.makeSorterWithPrefix maxCeCount
-        | SimpleS sms -> sms |> SimpleSorterModelS.makeSorterWithPrefix maxCeCount
+        | Simple sms -> sms |> SimpleSorterModel.makeSorter maxCeCount
+        | SimpleR sms -> sms |> SimpleSorterModelR.makeSorter maxCeCount
+        | SimpleS sms -> sms |> SimpleSorterModelS.makeSorter maxCeCount
         | Unknown -> failwith "Unknown sorterModel"
 
     let asSimpleSorterModel (model: sorterModel) : simpleSorterModel =

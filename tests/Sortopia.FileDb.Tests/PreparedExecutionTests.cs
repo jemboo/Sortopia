@@ -222,7 +222,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
             Assert.IsType<parameterValue.UnfoldingWeightsValue>(call.Parameters.TryFind("UnfoldingWeights").Value.Value);
             var output = call.StoredOutputs.Single(output => output.Reference.DataType.IsSorterModelSet);
             var stored = database.Load(output.Reference, Token); Assert.True(stored.IsOk);
-            var models = Assert.IsType<functionData.SorterModelSet>(stored.ResultValue.Value).Item;
+            var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(stored.ResultValue.Value).Item;
             foreach (var model in models.SorterModels)
             {
                 Assert.Empty(Sortopia.Models.Sorting.SorterModel.getPrefix(model));
@@ -541,22 +541,22 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var parameters = RunParameterSets.create(value).Setup.Value[0];
         var host = new FileRunHost(world, Root, value, Token).ForSetup(parameters);
         var source = config.Outputs.Single(output => output.DataType.IsSortableTests);
-        var reference = host.SourceResults.Find(source.SourceProjectId, source.DataType, parameters);
+        var reference = host.Database.Find(source.SourceProjectId, source.DataType, parameters);
         var models = sortopiaDataType.NewSorterModelSet("");
         var modelSource = config.Outputs.Single(output => output.DataType.IsSorterModelSet);
-        var modelReference = host.SourceResults.Find(modelSource.SourceProjectId, modelSource.DataType, parameters);
-        var changed = new storedDataReference(reference.ProjectId, Guid.NewGuid(), reference.QueryId, reference.IsSetup, reference.DataType);
+        var modelReference = host.Database.Find(modelSource.SourceProjectId, modelSource.DataType, parameters);
+        var changed = new storedDataReference(reference.ProjectId, Guid.NewGuid(), reference.QueryId, reference.Phase, reference.DataType);
         var first = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
             config.DataTypes, definition.OutputDependencies, parameters, ListModule.OfArray(new[] { reference, modelReference }));
         var second = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
             config.DataTypes, definition.OutputDependencies, parameters, ListModule.OfArray(new[] { changed, modelReference }));
-        Assert.Equal(first[models].Key.Id, second[models].Key.Id);
-        Assert.Equal(first[source.DataType].Key.QueryId, second[source.DataType].Key.QueryId);
-        Assert.NotEqual(first[source.DataType].Key.Id, second[source.DataType].Key.Id);
-        var never = FuncConvert.FromFunc<Unit, functionData>(_ => throw new Exception("Factory must not run"));
-        Assert.Throws<ArgumentException>(() => host.SetupDb.SaveIfMissing(models, ListModule.Singleton(reference), never));
-        Assert.Throws<ArgumentException>(() => host.SetupDb.SaveIfMissing(source.DataType, ListModule.Empty<storedDataReference>(), never));
-        Assert.Empty(host.SetupDb.StoredOutputs);
+        Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, models)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, models)).Value.Key.Id);
+        Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.QueryId, second.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.QueryId);
+        Assert.NotEqual(first.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.Id);
+        var never = FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => throw new Exception("Factory must not run"));
+        Assert.Throws<ArgumentException>(() => host.Database.Save(host.Outputs.Output(models, ListModule.Singleton(reference)), never));
+        Assert.Throws<ArgumentException>(() => host.Database.Save(host.Outputs.Output(source.DataType, ListModule.Empty<storedDataReference>()), never));
+        Assert.Empty(host.Outputs.Stored);
     }
 
     [Fact]

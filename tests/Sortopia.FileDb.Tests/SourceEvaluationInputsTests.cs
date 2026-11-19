@@ -59,6 +59,113 @@ public sealed partial class PreparedExecutionTests
             Produce(modelsSource), Produce(testsSource));
     }
 
+    [Fact]
+    public void One_database_keeps_inputs_read_only_and_writes_only_the_current_phase()
+    {
+        var (world, _, _, consumer, _, _) = EvaluationCopyWorkspace(4);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var value = consumer.Runs[0];
+        var branch = ((run.BranchRun)value).Item;
+        var sets = RunParameterSets.create(value);
+        var factory = new FileRunHost(world, Root, value, cancellation.Token);
+        var setup = factory.ForSetup(sets.Setup.Value[0]);
+        var testsType = sortopiaDataType.NewSortableTests("");
+        var resultType = sortopiaDataType.NewSorterSetEval("");
+        Assert.Empty(setup.Outputs.Stored);
+        var source = setup.Database.Find(branch.SourceProjectIds[testsType], testsType, setup.Parameters);
+        var copied = setup.Database.Find(setup.Outputs.Output(testsType));
+        Assert.Equal(runExecutionPhase.Results, source.Phase);
+        Assert.Equal(runExecutionPhase.Setup, copied.Phase);
+        Assert.Throws<ArgumentException>(() => setup.Database.Find(testsType));
+        SetupFunctionCatalog.require(branch.SetupFunctionName).Execute.Invoke(setup).Invoke(branch.SourceProjectIds);
+        Assert.Throws<ArgumentException>(() => setup.Database.Find(testsType));
+        Assert.NotEqual(source, copied);
+        Assert.Equal(setup.Database.Load(source), setup.Database.Load(copied));
+        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var store = new SortopiaFileDb(folder, consumer.Id);
+        var originals = setup.Outputs.Stored.ToDictionary(output => store.GetPath(output.Reference), output => File.ReadAllBytes(store.GetPath(output.Reference)));
+        Assert.All(originals.Keys, path => Assert.StartsWith(Path.Combine(folder, "data", "setup") + Path.DirectorySeparatorChar, path));
+
+        // Extra setup outputs must not become readable unless the results function consumes them.
+        var unrelated = new storedDataReference(consumer.Id, Guid.NewGuid(), Guid.NewGuid(), runExecutionPhase.Setup, sortopiaDataType.NewSortableTests("unused"));
+        var results = factory.ForResults(sets.Results[0], ListModule.OfSeq(setup.Outputs.Stored.Append(new storedOutput(unrelated, false))));
+        Assert.All(setup.Outputs.Stored, output => Assert.Equal(output.Reference, results.Database.Find(output.Reference.DataType)));
+        Assert.Empty(results.Outputs.Stored);
+        Assert.Equal(copied, results.Database.Find(testsType));
+        Assert.Throws<ArgumentException>(() => results.Database.Load(unrelated));
+        Assert.Throws<ArgumentException>(() => results.Database.Find(unrelated.DataType));
+        Assert.Throws<ArgumentException>(() => results.Database.Load(source));
+        var input = results.Database.Find(testsType);
+        Assert.Throws<ArgumentException>(() => results.Database.Load(new storedDataReference(input.ProjectId, input.Id, input.QueryId, runExecutionPhase.Results, input.DataType)));
+        Assert.Throws<InvalidOperationException>(() => results.Database.Find(input.ProjectId, input.DataType, results.Parameters));
+        Assert.Throws<ArgumentException>(() => results.Database.Save(setup.Outputs.Output(testsType), setup.Database.Load(copied)));
+        Assert.Throws<ArgumentException>(() => results.Database.Save(setup.Outputs.Output(testsType),
+            FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => throw new Exception("An input must not be written."))));
+        ResultsFunctionCatalog.require(value.ResultsFunctionName).Execute.Invoke(results);
+        var saved = Assert.Single(results.Outputs.Stored);
+        Assert.Equal(saved.Reference, results.Database.Find(resultType));
+        Assert.Equal(input, results.Database.Find(testsType));
+        Assert.Equal(runExecutionPhase.Results, saved.Reference.Phase);
+        Assert.Equal(Path.Combine(folder, "data", "results", "SorterSetEval", saved.Reference.Id + ".msgpack"), store.GetPath(saved.Reference));
+        Assert.Throws<ArgumentException>(() => setup.Database.Load(saved.Reference));
+        Assert.Throws<ArgumentException>(() => setup.Database.Save(results.Outputs.Output(resultType), results.Database.Load(saved.Reference)));
+        foreach (var (path, bytes) in originals) Assert.Equal(bytes, File.ReadAllBytes(path));
+
+        var savedValue = results.Database.Load(saved.Reference);
+        var savedOutput = results.Outputs.Output(resultType);
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() => results.Database.Save(savedOutput, savedValue));
+        Assert.Throws<OperationCanceledException>(() => results.Database.Save(savedOutput,
+            FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => throw new Exception("Cancelled saves must not generate output."))));
+        Assert.Throws<OperationCanceledException>(() => results.Database.Find(testsType));
+        Assert.Throws<OperationCanceledException>(() => results.Database.Find(results.Outputs.Output(resultType)));
+        Assert.Throws<OperationCanceledException>(() => results.Database.Load(input));
+        Assert.Throws<OperationCanceledException>(() => results.Database.Load(saved.Reference));
+    }
+
+    [Fact]
+    public void Setup_database_resolves_source_queries_without_changing_its_planned_outputs()
+    {
+        var (world, _, tests, consumer, _, testsData) = EvaluationCopyWorkspace(4);
+        var parameters = RunParameterSets.create(consumer.Runs[0]).Setup.Value[0];
+        var host = new FileRunHost(world, Root, consumer.Runs[0], Token).ForSetup(parameters);
+        var database = host.Database;
+        var planned = host.Outputs.Planned;
+        var first = SourceReference(testsData, "4");
+        var second = SourceReference(testsData, "8");
+        Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(first));
+        Assert.Throws<ArgumentException>(() => database.Load(second));
+
+        var query = parameters.WithBinding(Bind("ChannelCount", "8"));
+        Assert.Equal(second, database.Find(tests.Id, second.DataType, query));
+        Assert.Throws<ArgumentException>(() => database.Find(second.DataType));
+        Assert.Equal(8, SortableTests.getChannelCount(Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(second)).Item));
+        Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(first));
+        Assert.Equal(planned, host.Outputs.Planned);
+        Assert.Empty(host.Outputs.Stored);
+        var output = host.Outputs.Output(second.DataType);
+        Assert.Equal(first, Assert.Single(output.Dependencies));
+        Assert.Throws<ArgumentException>(() => database.Save(host.Outputs.Output(second.DataType, ListModule.Singleton(second)),
+            FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => throw new Exception("Changed dependencies must not generate output."))));
+        Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
+    }
+
+    [Fact]
+    public void Cancelled_setup_database_rejects_source_lookup_and_cached_loads()
+    {
+        var (world, _, tests, consumer, _, testsData) = EvaluationCopyWorkspace(4);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var parameters = RunParameterSets.create(consumer.Runs[0]).Setup.Value[0];
+        var host = new FileRunHost(world, Root, consumer.Runs[0], cancellation.Token).ForSetup(parameters);
+        var database = host.Database;
+        var reference = SourceReference(testsData, "4");
+        Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(reference));
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() => database.Find(tests.Id, reference.DataType, parameters));
+        Assert.Throws<OperationCanceledException>(() => database.Load(reference));
+        Assert.Empty(host.Outputs.Stored);
+    }
+
     private static storedDataReference SourceReference(runExecutionReport report, string width) =>
         Assert.Single(report.Results.Single(row => row.Parameters.TryFindText("ChannelCount").Value == width).StoredOutputs).Reference;
 
@@ -82,7 +189,7 @@ public sealed partial class PreparedExecutionTests
             var testRecord = local.Load(tests.Reference, Token).ResultValue;
             Assert.Equal(sourceModels.Load(sourceModel, Token).ResultValue.Value, modelRecord.Value);
             Assert.Equal(sourceTests.Load(originalTests, Token).ResultValue.Value, testRecord.Value);
-            Assert.NotEmpty(Assert.IsType<functionData.SortableTests>(testRecord.Value).Item2);
+            Assert.True(SortableTests.getSortableCount(Assert.IsType<sortopiaStorageData.SortableTests>(testRecord.Value).Item) > 0);
         }
         Assert.Single(Directory.GetFiles(Path.Combine(folder, "data", "setup", "SorterModelSet"), "*.msgpack"));
         Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data", "setup", "SortableTests"), "*.msgpack").Length);
@@ -90,13 +197,13 @@ public sealed partial class PreparedExecutionTests
         var retry = Prepare(world, consumer); Completed(retry.Execution);
         Assert.Equal(prepared.WorkItemIds, retry.WorkItemIds); Assert.All(retry.Execution.Setup.SelectMany(row => row.StoredOutputs), output => Assert.True(output.Reused));
         var expectedTestIds = testsData.Results.SelectMany(row => row.StoredOutputs).Select(output =>
-            SortableTests.getId(Assert.IsType<functionData.SortableTests>(sourceTests.Load(output.Reference, Token).ResultValue.Value).Item1)).ToArray();
+            SortableTests.getId(Assert.IsType<sortopiaStorageData.SortableTests>(sourceTests.Load(output.Reference, Token).ResultValue.Value).Item)).ToArray();
         var portable = Isolate(folder);
         var report = RunParameterExecution.executeFolder(Path.Combine(portable, "runParameters"), null!, null!, Token);
         Completed(report); Assert.Equal(2, report.Results.Length);
         ISortopiaDb portableDb = new SortopiaFileDb(portable, consumer.Id);
         foreach (var output in report.Results.SelectMany(row => row.StoredOutputs))
-            Assert.Contains(Assert.IsType<functionData.SorterSetEval>(portableDb.Load(output.Reference, Token).ResultValue.Value).Item.SorterTestId, expectedTestIds);
+            Assert.Contains(Assert.IsType<sortopiaStorageData.SorterSetEval>(portableDb.Load(output.Reference, Token).ResultValue.Value).Item.SorterTestId, expectedTestIds);
     }
 
     [Fact]
@@ -118,7 +225,7 @@ public sealed partial class PreparedExecutionTests
         ISortopiaDb local = new SortopiaFileDb(folder, consumer.Id);
         foreach (var output in copied)
         {
-            Assert.False(output.Reused); Assert.True(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId);
+            Assert.False(output.Reused); Assert.Equal(runExecutionPhase.Setup, output.Reference.Phase); Assert.Equal(consumer.Id, output.Reference.ProjectId);
             var original = originals.Single(source => source.Reference.DataType.Equals(output.Reference.DataType));
             Assert.Equal(original.Value, local.Load(output.Reference, Token).ResultValue.Value);
             Assert.Equal(original.Bytes, File.ReadAllBytes(original.Path));
@@ -135,11 +242,11 @@ public sealed partial class PreparedExecutionTests
         Completed(report);
         var result = Assert.Single(Assert.Single(report.Results).StoredOutputs);
         ISortopiaDb portable = new SortopiaFileDb(portableFolder, consumer.Id);
-        var evaluation = Assert.IsType<functionData.SorterSetEval>(portable.Load(result.Reference, Token).ResultValue.Value).Item;
+        var evaluation = Assert.IsType<sortopiaStorageData.SorterSetEval>(portable.Load(result.Reference, Token).ResultValue.Value).Item;
         Assert.Equal(3, evaluation.SorterEvals.Length);
-        var originalTests = Assert.IsType<functionData.SortableTests>(originals.Single(source => source.Value.IsSortableTests).Value);
-        Assert.Equal(8, SortableTests.getChannelCount(originalTests.Item1));
-        Assert.Equal(SortableTests.getId(originalTests.Item1), evaluation.SorterTestId);
+        var originalTests = Assert.IsType<sortopiaStorageData.SortableTests>(originals.Single(source => source.Value.IsSortableTests).Value);
+        Assert.Equal(8, SortableTests.getChannelCount(originalTests.Item));
+        Assert.Equal(SortableTests.getId(originalTests.Item), evaluation.SorterTestId);
         var retry = RunParameterExecution.executeFolder(Path.Combine(portableFolder, "runParameters"), null!, null!, Token);
         Completed(retry); Assert.True(Assert.Single(Assert.Single(retry.Results).StoredOutputs).Reused);
     }
@@ -188,7 +295,7 @@ public sealed partial class PreparedExecutionTests
         var configuration = source.Snapshot.Results;
         var another = DataKey.create(source.Id, configuration.DatabaseName, false, configuration.FunctionName, configuration.FunctionVersion,
             original.DataType, ListModule.Singleton("ChannelCount"), selected.Parameters, ListModule.Singleton(data.Results[0].StoredOutputs[0].Reference));
-        Assert.True(store.GetOrCreate(another, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(payload)), Token).IsOk);
+        Assert.True(store.GetOrCreate(another, FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => FSharpResult<sortopiaStorageData, string>.NewOk(payload)), Token).IsOk);
         var prepared = Prepare(world, consumer);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
         Assert.Contains("ambiguous", prepared.Execution.Error);
@@ -212,7 +319,7 @@ public sealed partial class PreparedExecutionTests
         var configuration = source.Snapshot.Results;
         var key = DataKey.create(source.Id, configuration.DatabaseName, false, configuration.FunctionName, configuration.FunctionVersion,
             reference.DataType, ListModule.Singleton("ChannelCount"), selected.Parameters, ListModule.Empty<storedDataReference>());
-        Assert.True(((ISortopiaDb)store).GetOrCreate(key, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(wrongWidth)), Token).IsOk);
+        Assert.True(((ISortopiaDb)store).GetOrCreate(key, FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => FSharpResult<sortopiaStorageData, string>.NewOk(wrongWidth)), Token).IsOk);
         var prepared = Prepare(world, consumer);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
         Assert.Contains("channel", prepared.Execution.Error, StringComparison.OrdinalIgnoreCase);

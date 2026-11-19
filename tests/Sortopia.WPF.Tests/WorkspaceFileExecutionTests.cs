@@ -60,14 +60,14 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var testsType = sortopiaDataType.NewSortableTests("");
         var sourceKey = DataKey.create(source.Id, source.ResultsDatabaseName, false, source.ResultsFunctionName,
             definition.Version, testsType, source.ResultsQueryParameterKeys, sourceParameters, []);
-        // A source may carry a different prefix than its lookup library suggests.
-        var tests = functionData.NewSortableTests(sortableTests.NewBools(sortableBinaryTests.create(Guid.NewGuid(), 4,
-            [sortableBoolArray.create([false, true, false, true], 4)])), [ce.create(1, 2), ce.create(0, 1)]);
+        // A source stores the supplied tests independently of its construction recipe.
+        var tests = sortopiaStorageData.NewSortableTests(sortableTests.NewBools(sortableBinaryTests.create(Guid.NewGuid(), 4,
+            [sortableBoolArray.create([false, true, false, true], 4)])));
         ISortopiaDb sourceStore = new SortopiaFileDb(WorkspaceData.projectFolder(world, temporary.FullName, source.Id), source.Id);
-        Assert.True(sourceStore.GetOrCreate(sourceKey, FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ =>
-            FSharpResult<functionData, string>.NewOk(tests)), Token).IsOk);
+        Assert.True(sourceStore.GetOrCreate(sourceKey, FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ =>
+            FSharpResult<sortopiaStorageData, string>.NewOk(tests)), Token).IsOk);
         var value = consumer.Runs[0]; var parameters = RunParameterSets.create(value).Setup.Value[0];
-        Assert.Null(ModelGenerationStageLengths.tryForDefinition(SetupFunctionCatalog.require(value.SetupFunctionName.Value), parameters));
+        Assert.Null(FunctionDefinition.tryPreviewValue("SuffixStages", SetupFunctionCatalog.require(value.SetupFunctionName.Value), parameters));
         var generated = RunParameterExecution.generate(world, temporary.FullName, value, null!, Token);
         Completed(generated.Execution);
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, consumer.Id);
@@ -82,10 +82,21 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
 
     // A test-only host adapter for an independent setup definition, without adding it
     // to the application catalogs. Source lookup and all storage use the real file store.
-    private sealed class WorkspaceSources(workspace world, string root) : ISourceResults
+    private sealed class WorkspaceDatabase(workspace world, string root, FileRunDatabase storage) : IRunDatabase
     {
-        private readonly Dictionary<storedDataReference, functionData> loaded = [];
+        private readonly IRunDatabase outputs = storage;
+        private readonly Dictionary<storedDataReference, sortopiaStorageData> loaded = [];
         public List<(Guid ProjectId, sortopiaDataType DataType)> Reads { get; } = [];
+        public RunOutputs Outputs => storage.Outputs;
+        public storedDataReference Find(runDataOutput output) => outputs.Find(output);
+        public storedDataReference Find(sortopiaDataType dataType)
+        {
+            var references = Outputs.Planned.SelectMany(output => output.Dependencies)
+                .Concat(Outputs.Planned.Select(outputs.Find)).Where(reference => Equals(reference.DataType, dataType)).Distinct().ToArray();
+            return references.Length == 1 ? references[0] : throw new ArgumentException("Expected one matching input or output.");
+        }
+        public void Save(runDataOutput output, FSharpFunc<Unit, sortopiaStorageData> factory) => outputs.Save(output, factory);
+        public void Save(runDataOutput output, sortopiaStorageData value) => outputs.Save(output, value);
         public storedDataReference Find(Guid projectId, sortopiaDataType dataType, parameterSet parameters)
         {
             var entry = new setupDataTypeConfig(dataType, projectId, ListModule.Empty<string>());
@@ -94,7 +105,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
             Reads.Add((projectId, dataType));
             return data.Reference;
         }
-        public functionData Load(storedDataReference reference) => loaded[reference];
+        public sortopiaStorageData Load(storedDataReference reference) => loaded.TryGetValue(reference, out var value) ? value : outputs.Load(reference);
     }
 
     [Fact]
@@ -133,9 +144,9 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
                 {
                     foreach (var dataType in sourceTypes)
                     {
-                        var reference = host.SourceResults.Find(sources[dataType], dataType, host.Parameters);
-                        host.SetupDb.SaveIfMissing(dataType, ListModule.Singleton(reference), FuncConvert.FromFunc<Unit, functionData>(_ =>
-                        { copies++; return host.SourceResults.Load(reference); }));
+                        var reference = host.Database.Find(sources[dataType], dataType, host.Parameters);
+                        host.Database.Save(host.Outputs.Output(dataType, ListModule.Singleton(reference)), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ =>
+                        { copies++; return host.Database.Load(reference); }));
                     }
                     return null!;
                 })));
@@ -143,32 +154,33 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var outputFolder = Path.Combine(temporary.FullName, "Consumer");
         var plan = OutputPlan.create(consumerId, "Copied inputs", true, "copy-sources", "1", definition.DataTypes,
             definition.OutputDependencies, parameters, ListModule.OfSeq(publishedTests.Results.Concat(publishedModels.Results).SelectMany(call => call.StoredOutputs).Select(output => output.Reference)));
-        runHost Host(WorkspaceSources sources) => new(runExecutionPhase.Setup, parameters,
-            new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token),
-            null!, sources, Token, Environment.ProcessorCount, null, null);
-        var reader = new WorkspaceSources(world, temporary.FullName);
+        WorkspaceDatabase Database(workspace world) => new(world, temporary.FullName,
+            new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token));
+        runHost Host(WorkspaceDatabase database) => new(runExecutionPhase.Setup, parameters,
+            database, database.Outputs, Token, Environment.ProcessorCount, null, null);
+        var reader = Database(world);
         var setup = Host(reader);
         Assert.Contains("exactly the source projects", Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(projects.Remove(modelsType))).Message);
         Assert.Empty(reader.Reads);
         var swapped = MapModule.OfArray(new[] { Tuple.Create(testsType, modelsProject.Id), Tuple.Create(modelsType, testsProject.Id) });
         Assert.Contains("does not provide", Assert.Throws<InvalidOperationException>(() => definition.Execute.Invoke(setup).Invoke(swapped)).Message);
-        Assert.Empty(setup.SetupDb.StoredOutputs);
+        Assert.Empty(setup.Outputs.Stored);
 
         definition.Execute.Invoke(setup).Invoke(projects);
         Assert.Equal(new[] { (testsProject.Id, testsType), (modelsProject.Id, modelsType) }, reader.Reads);
         Assert.Equal(2, copies);
-        Assert.Equal(2, setup.SetupDb.StoredOutputs.Length);
-        Assert.All(setup.SetupDb.StoredOutputs, output => { Assert.Equal(consumerId, output.Reference.ProjectId); Assert.True(output.Reference.IsSetup); });
-        var sourceTests = (functionData.SortableTests)reader.Load(publishedTests.Results[0].StoredOutputs.Head.Reference);
-        var copiedTests = (functionData.SortableTests)setup.SetupDb.Load(testsType);
-        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(sourceTests.Item1), Sortopia.Sorting.Inputs.SortableTests.getId(copiedTests.Item1));
-        var sourceModels = (functionData.SorterModelSet)reader.Load(publishedModels.Results[0].StoredOutputs.Head.Reference);
-        var copiedModels = (functionData.SorterModelSet)setup.SetupDb.Load(modelsType);
+        Assert.Equal(2, setup.Outputs.Stored.Length);
+        Assert.All(setup.Outputs.Stored, output => { Assert.Equal(consumerId, output.Reference.ProjectId); Assert.Equal(runExecutionPhase.Setup, output.Reference.Phase); });
+        var sourceTests = (sortopiaStorageData.SortableTests)reader.Load(publishedTests.Results[0].StoredOutputs.Head.Reference);
+        var copiedTests = (sortopiaStorageData.SortableTests)setup.Database.Load(setup.Database.Find(setup.Outputs.Output(testsType)));
+        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(sourceTests.Item), Sortopia.Sorting.Inputs.SortableTests.getId(copiedTests.Item));
+        var sourceModels = (sortopiaStorageData.SorterModelSet)reader.Load(publishedModels.Results[0].StoredOutputs.Head.Reference);
+        var copiedModels = (sortopiaStorageData.SorterModelSet)setup.Database.Load(setup.Database.Find(setup.Outputs.Output(modelsType)));
         Assert.Equal(sourceModels.Item.SorterModels.Select(Sortopia.Models.Sorting.SorterModel.getId), copiedModels.Item.SorterModels.Select(Sortopia.Models.Sorting.SorterModel.getId));
-        var repeated = Host(new WorkspaceSources(WorkspaceFileStore.LoadDefinition(temporary.FullName), temporary.FullName));
+        var repeated = Host(Database(WorkspaceFileStore.LoadDefinition(temporary.FullName)));
         definition.Execute.Invoke(repeated).Invoke(projects);
         Assert.Equal(2, copies);
-        Assert.All(repeated.SetupDb.StoredOutputs, output => Assert.True(output.Reused));
+        Assert.All(repeated.Outputs.Stored, output => Assert.True(output.Reused));
         Assert.Equal(2, Directory.GetFiles(outputFolder, "*.msgpack", SearchOption.AllDirectories).Length);
     }
 
@@ -185,17 +197,19 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var testsType = sortopiaDataType.NewSortableTests("");
         var resultType = sortopiaDataType.NewSorterSetEval("");
         var empty = ListModule.Empty<storedDataReference>();
-        var never = FuncConvert.FromFunc<Unit, functionData>(_ => throw new InvalidOperationException("Factory must not run."));
+        var never = FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => throw new InvalidOperationException("Factory must not run."));
 
-        Assert.Contains("not allowed during setup", Assert.Throws<InvalidOperationException>(() => setup.ResultsDb.SaveIfMissing(testsType, empty, never)).Message);
-        Assert.Throws<ArgumentException>(() => setup.SourceResults.Find(Guid.NewGuid(), testsType, setup.Parameters));
-        Assert.Throws<ArgumentException>(() => setup.SourceResults.Find(source.Id, sortopiaDataType.NewSortableTests("other"), setup.Parameters));
+        Assert.Throws<ArgumentException>(() => setup.Database.Save(setup.Outputs.Output(resultType, empty), never));
+        Assert.Throws<ArgumentException>(() => ResultsFunctionCatalog.functions[value.ResultsFunctionName].Execute.Invoke(setup));
+        Assert.Throws<ArgumentException>(() => setup.Database.Find(Guid.NewGuid(), testsType, setup.Parameters));
+        Assert.Throws<ArgumentException>(() => setup.Database.Find(source.Id, sortopiaDataType.NewSortableTests("other"), setup.Parameters));
         var sourceReference = published.Results[0].StoredOutputs.Head.Reference;
         // Planning resolves the exact authorized sources before execution.
-        Assert.IsType<functionData.SortableTests>(setup.SourceResults.Load(sourceReference));
-        Assert.Throws<ArgumentException>(() => setup.SourceResults.Load(new storedDataReference(source.Id, Guid.NewGuid(), sourceReference.QueryId, false, testsType)));
-        Assert.Equal(sourceReference, setup.SourceResults.Find(source.Id, testsType, setup.Parameters));
-        var sourceTests = Assert.IsType<functionData.SortableTests>(setup.SourceResults.Load(sourceReference));
+        Assert.IsType<sortopiaStorageData.SortableTests>(setup.Database.Load(sourceReference));
+        Assert.Throws<ArgumentException>(() => setup.Database.Load(new storedDataReference(source.Id, Guid.NewGuid(), sourceReference.QueryId, runExecutionPhase.Results, testsType)));
+        Assert.Equal(sourceReference, setup.Database.Find(source.Id, testsType, setup.Parameters));
+        var sourceTests = Assert.IsType<sortopiaStorageData.SortableTests>(setup.Database.Load(sourceReference));
+        Assert.Empty(setup.Outputs.Stored);
 
         var definition = SetupFunctionCatalog.functions[branch.SetupFunctionName];
         var projects = MapModule.OfSeq(branch.SourceProjectIds.Where(pair => definition.SourceDataTypes.Contains(pair.Key))
@@ -203,24 +217,32 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
         var wrongProject = MapModule.OfArray(new[] { Tuple.Create(testsType, Guid.NewGuid()) });
         Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(wrongProject));
-        Assert.Empty(setup.SetupDb.StoredOutputs);
+        Assert.Empty(setup.Outputs.Stored);
         definition.Execute.Invoke(setup).Invoke(projects);
-        Assert.Equal(2, setup.SetupDb.StoredOutputs.Length);
-        Assert.All(setup.SetupDb.StoredOutputs, output => { Assert.True(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId); });
+        Assert.Equal(2, setup.Outputs.Stored.Length);
+        Assert.All(setup.Outputs.Stored, output => { Assert.Equal(runExecutionPhase.Setup, output.Reference.Phase); Assert.Equal(consumer.Id, output.Reference.ProjectId); });
+        Assert.Throws<ArgumentException>(() => setup.Database.Find(testsType));
+        Assert.NotEqual(sourceReference, setup.Database.Find(setup.Outputs.Output(testsType)));
 
         Assert.Throws<ArgumentException>(() => factory.ForResults(sets.Results[0], ListModule.Empty<storedOutput>()));
-        var results = factory.ForResults(sets.Results[0], setup.SetupDb.StoredOutputs);
-        var savedTests = Assert.IsType<functionData.SortableTests>(results.SetupDb.Load(testsType));
-        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(sourceTests.Item1), Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item1));
-        Assert.Contains("read-only", Assert.Throws<InvalidOperationException>(() => results.SetupDb.SaveIfMissing(testsType, empty, never)).Message);
-        Assert.Throws<ArgumentException>(() => results.SetupDb.Load(sortopiaDataType.NewSortableTests("other")));
-        Assert.Throws<InvalidOperationException>(() => results.SourceResults.Find(source.Id, testsType, setup.Parameters));
-        Assert.Throws<ArgumentException>(() => results.ResultsDb.SaveIfMissing(resultType, ListModule.Singleton(sourceReference), never));
+        var results = factory.ForResults(sets.Results[0], setup.Outputs.Stored);
+        Assert.Empty(results.Outputs.Stored);
+        Assert.Equal(setup.Database.Find(setup.Outputs.Output(testsType)), results.Database.Find(testsType));
+        var savedTests = Assert.IsType<sortopiaStorageData.SortableTests>(results.Database.Load(results.Database.Find(testsType)));
+        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(sourceTests.Item), Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item));
+        Assert.Throws<ArgumentException>(() => results.Database.Save(results.Outputs.Output(testsType, empty), never));
+        Assert.Throws<ArgumentException>(() => results.Database.Save(setup.Outputs.Output(testsType), savedTests));
+        Assert.Throws<ArgumentException>(() => results.Database.Find(sortopiaDataType.NewSortableTests("other")));
+        Assert.Throws<InvalidOperationException>(() => results.Database.Find(source.Id, testsType, setup.Parameters));
+        Assert.Throws<ArgumentException>(() => results.Database.Load(sourceReference));
+        Assert.Throws<ArgumentException>(() => results.Database.Save(results.Outputs.Output(resultType, ListModule.Singleton(sourceReference)), never));
         ResultsFunctionCatalog.functions[value.ResultsFunctionName].Execute.Invoke(results);
-        var output = Assert.Single(results.ResultsDb.StoredOutputs);
-        Assert.False(output.Reference.IsSetup); Assert.Equal(consumer.Id, output.Reference.ProjectId);
-        var evaluation = Assert.IsType<functionData.SorterSetEval>(results.ResultsDb.Load(resultType));
-        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item1), evaluation.Item.SorterTestId);
+        var output = Assert.Single(results.Outputs.Stored);
+        Assert.Equal(runExecutionPhase.Results, output.Reference.Phase); Assert.Equal(consumer.Id, output.Reference.ProjectId);
+        var evaluation = Assert.IsType<sortopiaStorageData.SorterSetEval>(results.Database.Load(results.Database.Find(resultType)));
+        Assert.Throws<ArgumentException>(() => setup.Database.Load(output.Reference));
+        Assert.Throws<ArgumentException>(() => setup.Database.Save(results.Outputs.Output(resultType), evaluation));
+        Assert.Equal(Sortopia.Sorting.Inputs.SortableTests.getId(savedTests.Item), evaluation.Item.SorterTestId);
         Assert.Equal(5, Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories)
             .Count(path => path.Contains(Path.DirectorySeparatorChar + "data" + Path.DirectorySeparatorChar)));
     }
@@ -233,7 +255,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var parameters = RunParameterSets.create(value).Results[0];
         Assert.Throws<InvalidOperationException>(() => factory.ForSetup(parameters));
         var results = factory.ForResults(parameters, ListModule.Empty<storedOutput>());
-        Assert.Throws<ArgumentException>(() => results.SetupDb.Load(sortopiaDataType.NewSortableTests("")));
+        Assert.Throws<InvalidOperationException>(() => results.Database.Load(results.Database.Find(sortopiaDataType.NewSortableTests(""))));
         Assert.Throws<ArgumentException>(() => SetupFunctions.standardTests.Execute.Invoke(results).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
         var unsaved = RunDto.toDomain(source, new runDto
         {
@@ -301,9 +323,9 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         var folder = WorkspaceData.projectFolder(world, temporary.FullName, source.Id);
         var store = new SortopiaFileDb(folder, source.Id);
         var output = CatalogTestHost.Invoke(false, ResultsFunctionNames.mergeSortableTests, RunParameterSets.create(source.Runs[0]).Results[0]).Head;
-        var factory = FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(output));
+        var factory = FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => FSharpResult<sortopiaStorageData, string>.NewOk(output));
         dataKey Key(bool withDependency) => DataKey.create(source.Id, source.ResultsDatabaseName, false, source.ResultsFunctionName, "1", entry.DataType,
-            source.ResultsQueryParameterKeys, parameters, withDependency ? ListModule.OfArray(new[] { new storedDataReference(source.Id, Guid.NewGuid(), Guid.NewGuid(), true, entry.DataType) }) : ListModule.Empty<storedDataReference>());
+            source.ResultsQueryParameterKeys, parameters, withDependency ? ListModule.OfArray(new[] { new storedDataReference(source.Id, Guid.NewGuid(), Guid.NewGuid(), runExecutionPhase.Setup, entry.DataType) }) : ListModule.Empty<storedDataReference>());
         var firstKey = Key(false); var secondKey = Key(true);
         Assert.True(((ISortopiaDb)store).GetOrCreate(firstKey, factory, Token).IsOk);
         Assert.True(((ISortopiaDb)store).GetOrCreate(secondKey, factory, Token).IsOk);

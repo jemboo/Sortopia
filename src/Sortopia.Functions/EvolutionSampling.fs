@@ -1,0 +1,94 @@
+namespace Sortopia.Functions
+
+open System
+open System.Threading
+open FSharp.UMX
+open Sortopia.Runs
+open Sortopia.Evaluation
+open Sortopia.Evaluation.Sgd
+
+type evolutionSamplingPlan = {
+    Snapshots: (int * runDataOutput) array
+    Summaries: (int array * runDataOutput) array
+}
+
+/// Sampling policy and output descriptions, independent of any storage backend.
+module EvolutionSampling =
+    let plan (parameters: parameterSet) (finalOutput: runDataOutput) reporting =
+        match reporting with
+        | None -> { Snapshots = [||]; Summaries = [||] }
+        | Some reporting ->
+            let final = FunctionParameters.required ParamKeys.generationCountKey parameters
+            SgdReporting.validateGenerationCount reporting final
+            let snapshots = SgdReporting.samples reporting.SnapshotSchedule final |> Seq.toArray
+            let summaries = SgdReporting.samples reporting.SummarySchedule final |> Seq.toArray
+            let output dataType bindings =
+                let query = bindings |> List.fold (fun (p: parameterSet) binding -> p.WithBinding binding) parameters
+                RunDataOutput.create dataType (query.ParamMap |> Map.toList |> List.map fst) query finalOutput.Dependencies
+            let snapshotOutputs = snapshots |> Array.map (fun generation ->
+                generation, if generation = final then finalOutput
+                            else output (sortopiaDataType.SorterPoolSet "snapshot") [ParameterBinding.create ParamKeys.generationCurrentKey generation])
+            let snapshotSet, summarySet = Set.ofArray snapshots, Set.ofArray summaries
+            let batches = ResizeArray<int array * runDataOutput>()
+            let pending = ResizeArray<int>()
+            for generation in Set.union snapshotSet summarySet do
+                if summarySet.Contains generation then pending.Add generation
+                if pending.Count > 0 && (snapshotSet.Contains generation || pending.Count >= 256) then
+                    let generations = pending.ToArray()
+                    let bindings = [
+                        ParameterBinding.create ParamKeys.generationFirstKey generations[0]
+                        ParameterBinding.create ParamKeys.generationCurrentKey generations[generations.Length - 1]
+                        ParameterBinding.fromText (UMX.tag "SummaryGenerations") parameterValueType.Text (String.Join(",", generations)) ]
+                    batches.Add(generations, output (sortopiaDataType.SorterPoolSummarySet "") bindings)
+                    pending.Clear()
+            { Snapshots = snapshotOutputs; Summaries = batches.ToArray() }
+
+    let checkSnapshot parameters generation (snapshot: sorterPoolSet) =
+        if snapshot.Generation <> generation || snapshot.Pools.Length <> FunctionParameters.required ParamKeys.sorterPoolCountKey parameters then
+            invalidArg "snapshot" "Snapshot does not match its generation and pool count."
+
+    let checkSummary parameters generations (summary: sorterPoolSummarySet) =
+        SorterPoolSummarySet.validate summary |> ignore
+        let count = FunctionParameters.required ParamKeys.sorterPoolCountKey parameters
+        let expected = [| for generation in generations do for pool in 0 .. count - 1 -> generation, pool |]
+        if (summary.Rows |> Array.map (fun row -> row.Generation, row.PoolIndex)) <> expected then
+            invalidOp "Pool summary samples are missing or duplicated."
+
+    /// Include domain validation in the same plan used for all result files.
+    let outputs parameters (plan: evolutionSamplingPlan) = [
+        for generation, output in plan.Snapshots do
+            yield output, (function sortopiaStorageData.SorterPoolSet snapshot -> checkSnapshot parameters generation snapshot
+                                    | _ -> invalidOp "Expected a sampled pool set.")
+        for generations, output in plan.Summaries do
+            yield output, (function sortopiaStorageData.SorterPoolSummarySet summary -> checkSummary parameters generations summary
+                                    | _ -> invalidOp "Expected a pool summary set.") ]
+
+/// Observes evolution and builds scheduled payloads; all persistence goes through the database.
+type EvolutionSampler(parameters: parameterSet, plan: evolutionSamplingPlan, database: IRunDatabase, token: CancellationToken) =
+    let final = FunctionParameters.required ParamKeys.generationCountKey parameters
+    let measure = FunctionParameters.required ParamKeys.sorterEvalMeasureKey parameters |> SorterEvalFunctions.fromCompactString
+    let snapshots = plan.Snapshots |> Map.ofArray
+    let summarySet = plan.Summaries |> Array.collect fst |> Set.ofArray
+    let batches = plan.Summaries |> Array.map (fun (generations, output) -> Array.last generations, (generations, output)) |> Map.ofArray
+    let pending = ResizeArray<sgdPoolStatistics>()
+    let mutable lastGeneration = -1
+
+    member _.Observe(snapshot: sorterPoolSet) =
+        token.ThrowIfCancellationRequested()
+        if snapshot.Generation <> lastGeneration + 1 || snapshot.Generation > final then invalidOp "Evolution observations must arrive in generation order."
+        lastGeneration <- snapshot.Generation
+        if summarySet.Contains snapshot.Generation then pending.AddRange(EvolutionReports.summarize measure snapshot)
+        match snapshots |> Map.tryFind snapshot.Generation with
+        | Some output -> database.Save(output, sortopiaStorageData.SorterPoolSet snapshot)
+        | None -> ()
+        match batches |> Map.tryFind snapshot.Generation with
+        | Some (_, output) ->
+            database.Save(output, sortopiaStorageData.SorterPoolSummarySet { TestsId = UMX.untag snapshot.TestsId; Rows = pending.ToArray() })
+            pending.Clear()
+        | None -> ()
+
+    member _.Complete(result: sorterPoolSet) =
+        if lastGeneration <> final || pending.Count <> 0 then invalidOp "Evolution reporting did not reach the final generation."
+        // The final snapshot is the ordinary result. Save verifies the returned
+        // population against that observation without publishing or counting it twice.
+        database.Save(snapshots[final], sortopiaStorageData.SorterPoolSet result)

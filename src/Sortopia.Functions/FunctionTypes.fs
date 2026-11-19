@@ -10,45 +10,80 @@ open FSharp.UMX
 open System.Threading
 
 [<Measure>] type sortopiaDataId
+[<Measure>] type sortopiaQueryId
+
+type runExecutionPhase = Setup = 0 | Results = 1
+
+module RunExecutionPhase =
+    /// Convert between the execution phase and the storage format's boolean flag.
+    let toIsSetup = function
+        | runExecutionPhase.Setup -> true
+        | runExecutionPhase.Results -> false
+        | phase -> invalidArg "phase" $"Unknown execution phase: {phase}."
+
+    let fromIsSetup isSetup = if isSetup then runExecutionPhase.Setup else runExecutionPhase.Results
 
 /// A portable reference; paths are resolved from the workspace's project IDs.
 type storedDataReference = {
     ProjectId: Guid<projectId>
     Id: Guid<sortopiaDataId>
-    QueryId: Guid<sortopiaDataId>
-    IsSetup: bool
+    QueryId: Guid<sortopiaQueryId>
+    Phase: runExecutionPhase
     DataType: sortopiaDataType
 }
 
 type storedOutput = { Reference: storedDataReference; Reused: bool }
 
 /// Typed database payloads. Catalog functions save these through their host.
-type functionData =
-    | SortableTests of sortableTests * ce array
+type sortopiaStorageData =
+    | SortableTests of sortableTests
     | SorterModelSet of sorterModelSet
     | SorterSetEval of sorterSetEval
     | SorterPoolSet of Sortopia.Evaluation.Sgd.sorterPoolSet
     | SorterPoolSummarySet of Sortopia.Evaluation.Sgd.sorterPoolSummarySet
 
-type runExecutionPhase = Setup = 0 | Results = 1
+/// One output within an invocation, including its exact query projection and inputs.
+type runDataOutput = {
+    DataType: sortopiaDataType
+    QueryParameters: parameterSet
+    Dependencies: storedDataReference list
+}
 
-/// An invocation-scoped database view. SaveIfMissing checks the output's stable
-/// key before calling its factory; reads address the exact saved setup batch.
+module RunDataOutput =
+    let create dataType (keys: string<paramKeyName> list) (parameters: parameterSet) dependencies =
+        let bindings = keys |> List.map (fun key ->
+            parameters.TryFind key |> Option.defaultWith (fun () -> invalidArg "parameters" $"Missing query parameter '{key}'."))
+        { DataType = dataType; QueryParameters = parameterSet.fromBindings bindings; Dependencies = List.sort dependencies }
+
+/// Invocation-scoped persistence for planned outputs and authorized inputs.
+/// Save reuses cached outputs and verifies any supplied values against them.
 type IRunDatabase =
-    abstract SaveIfMissing: sortopiaDataType * storedDataReference list * (unit -> functionData) -> unit
-    abstract Reference: sortopiaDataType -> storedDataReference
-    abstract Load: sortopiaDataType -> functionData
-    abstract StoredOutputs: storedOutput list
-
-/// Read-only access to the configured source projects' results databases.
-type ISourceResults =
+    /// Generate only on a cache miss; repeated saves reuse the same output.
+    abstract Save: runDataOutput * (unit -> sortopiaStorageData) -> unit
+    /// Validate an already computed value, including against any cached output.
+    abstract Save: runDataOutput * sortopiaStorageData -> unit
+    /// Resolve exactly one frozen input or planned output of this type; reject ambiguity.
+    abstract Find: sortopiaDataType -> storedDataReference
+    /// Resolve an exact output without generating or loading its payload.
+    abstract Find: runDataOutput -> storedDataReference
+    /// Resolve a configured source project's result during setup.
     abstract Find: Guid<projectId> * sortopiaDataType * parameterSet -> storedDataReference
-    abstract Load: storedDataReference -> functionData
+    abstract Load: storedDataReference -> sortopiaStorageData
 
-/// The host publishes sampled populations and summaries as immutable database results.
-type IEvolutionReporting =
-    abstract Observe: Sortopia.Evaluation.Sgd.sorterPoolSet -> unit
-    abstract Complete: unit -> unit
+/// Read-only invocation metadata. Successful writes are reported by the database
+/// implementation only after its plan, payload and replay checks have passed.
+type RunOutputs(planned: runDataOutput list, stored: unit -> storedOutput list) =
+    member _.Planned = planned
+    member _.Stored = stored ()
+    member _.Output(dataType: sortopiaDataType) =
+        match planned |> List.filter (fun output -> output.DataType = dataType) with
+        | [output] -> output
+        | _ -> invalidArg "dataType" $"Expected exactly one planned '{dataType}' output; address multiple outputs by descriptor."
+
+    member this.Output(dataType: sortopiaDataType, dependencies: storedDataReference list) =
+        let output = this.Output dataType
+        if List.sort dependencies <> output.Dependencies then invalidArg "dependencies" "The saved output's dependencies must exactly match its declared output plan."
+        output
 
 /// An execution-scoped cache for read-only preparation, never persisted or global.
 type RunPreparationCache() =
@@ -60,13 +95,12 @@ type RunPreparationCache() =
 type runHost = {
     Phase: runExecutionPhase
     Parameters: parameterSet
-    SetupDb: IRunDatabase
-    ResultsDb: IRunDatabase
-    SourceResults: ISourceResults
+    Database: IRunDatabase
+    Outputs: RunOutputs
     CancellationToken: CancellationToken
     /// Runtime CPU allowance for evaluation inside this invocation.
     EvaluationParallelism: int
-    EvolutionReporting: IEvolutionReporting option
+    Reporting: sgdReportingConfig option
     PreparationCache: RunPreparationCache option
 }
 
@@ -81,26 +115,38 @@ type IRunHostFactory =
     abstract ForSetup: parameterSet -> runHost
     abstract ForResults: parameterSet * storedOutput list -> runHost
 
-[<RequireQualifiedAccess>]
-type modelFamily = Simple | SimpleR | SimpleS
-
-[<RequireQualifiedAccess>]
-type modelPrefixMode = NoPrefix | CatalogPrefix
-
-/// Runtime catalog capabilities, independent of function names and stored identities.
-/// Copy/evaluation functions have no fixed model-generation metadata: their inputs supply it.
-type modelGenerationMetadata = {
-    Algorithm: simpleSorterModelType
-    Family: modelFamily
-    PrefixMode: modelPrefixMode
+/// Context for suggesting missing defaults without replacing existing values.
+type parameterDefaultContext = {
+    Current: parameterBinding list
+    Related: parameterBinding list
+    Missing: paramKeyDescriptor list
 }
+
+/// A calculated value supplied by a function for display alongside its inputs.
+type functionPreviewValue = {
+    Key: string
+    Label: string
+    Value: parameterValue
+    Hint: string
+}
+
+/// Optional behavior is represented by empty suggestions, guidance, or previews.
+/// These providers are read-only and do not participate in stored identities.
+type functionParameterSupport = {
+    Defaults: parameterDefaultContext -> parameterBinding list
+    Guidance: parameterBinding list -> parameterSpan list -> string
+    Preview: parameterSet -> functionPreviewValue list
+}
+
+module FunctionParameterSupport =
+    let empty = { Defaults = (fun _ -> []); Guidance = (fun _ _ -> ""); Preview = (fun _ -> []) }
 
 /// Required inputs are independent of the project's chosen query projections.
 type functionDefinition<'executor> = {
     Version: string
     /// Human-readable catalog guidance; does not affect execution or stored identities.
     Description: string
-    ModelGeneration: modelGenerationMetadata option
+    ParameterSupport: functionParameterSupport
     RequiredParameters: paramKeyDescriptor list
     /// Copy functions take their required keys from the selected source output projections.
     ParametersFromSources: bool
@@ -121,13 +167,13 @@ with
     member this.SortopiaDataTypes = this.DataTypes |> Map.toList |> List.map fst
     member this.SupportsEvolutionReporting = this.SortopiaDataTypes |> List.exists (fun value -> value.IsSorterPoolSet)
 
-module FunctionData =
+module SortopiaStorageData =
     let kind = function
-        | functionData.SortableTests _ -> "SortableTests"
-        | functionData.SorterModelSet _ -> "SorterModelSet"
-        | functionData.SorterSetEval _ -> "SorterSetEval"
-        | functionData.SorterPoolSet _ -> "SorterPoolSet"
-        | functionData.SorterPoolSummarySet _ -> "SorterPoolSummarySet"
+        | sortopiaStorageData.SortableTests _ -> "SortableTests"
+        | sortopiaStorageData.SorterModelSet _ -> "SorterModelSet"
+        | sortopiaStorageData.SorterSetEval _ -> "SorterSetEval"
+        | sortopiaStorageData.SorterPoolSet _ -> "SorterPoolSet"
+        | sortopiaStorageData.SorterPoolSummarySet _ -> "SorterPoolSummarySet"
 
 module FunctionParameters =
     let sourceRequirements (names: string<paramKeyName> list) =
@@ -197,17 +243,20 @@ module FunctionValidation =
         parameters.ParamMap |> Map.toList |> List.map snd |> validateDefaults definition
 
 module FunctionDefinition =
-    let generatesModels algorithm family prefixMode (definition: functionDefinition<'executor>) =
-        { definition with ModelGeneration = Some { Algorithm = algorithm; Family = family; PrefixMode = prefixMode } }
+    let withParameterSupport support (definition: functionDefinition<'executor>) =
+        { definition with ParameterSupport = support }
+
+    let tryPreviewValue key (definition: functionDefinition<'executor>) parameters =
+        definition.ParameterSupport.Preview parameters |> List.tryFind (fun value -> value.Key = key) |> Option.map _.Value
 
     let describe description (definition: functionDefinition<'executor>) =
         if System.String.IsNullOrWhiteSpace description then invalidArg "description" "A function description must not be blank."
         { definition with Description = description }
 
-    let private saved types (database: IRunDatabase) =
-        let expected = types |> Map.toList |> List.map fst |> List.sort
-        let actual = database.StoredOutputs |> List.map (fun output -> output.Reference.DataType) |> List.sort
-        if expected <> actual then invalidOp "The function must save exactly its declared data types through its host database."
+    let private saved (host: runHost) =
+        let expected = host.Outputs.Planned |> List.map host.Database.Find |> List.sort
+        let actual = host.Outputs.Stored |> List.map _.Reference |> List.sort
+        if expected <> actual then invalidOp "The function must save exactly its planned outputs through its host database."
     let private contract version (required: paramKeyDescriptor list) entries =
         if System.String.IsNullOrWhiteSpace version then invalidArg "version" "Function version must not be blank."
         let names = required |> List.map (fun key -> key.Name)
@@ -237,7 +286,7 @@ module FunctionDefinition =
     let private resultsWithValidation version required inputs dataTypes inputError (execute: resultsFunction) : functionDefinition<resultsFunction> =
         let types = contract version required dataTypes
         let dependencies, sources = dependencies types inputs
-        { Version = version; Description = ""; ModelGeneration = None; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; ParameterSupport = FunctionParameterSupport.empty; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = inputError; Prepare = ignore
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
@@ -245,7 +294,7 @@ module FunctionDefinition =
               FunctionParameters.validate required host.Parameters
               inputError (host.Parameters.ParamMap |> Map.toList |> List.map snd) [] |> FunctionValidation.require
               execute host
-              saved types host.ResultsDb }
+              saved host }
 
     let resultsWithInputs version required inputs dataTypes execute =
         resultsWithValidation version required inputs dataTypes (fun _ _ -> "") execute
@@ -263,7 +312,7 @@ module FunctionDefinition =
         let dependencies, sources = dependencies types sources
         for source in sources do
             if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
-        { Version = version; Description = ""; ModelGeneration = None; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; ParameterSupport = FunctionParameterSupport.empty; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
           InputError = (fun _ _ -> ""); Prepare = ignore
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
@@ -274,7 +323,7 @@ module FunctionDefinition =
                  || (projects |> Map.exists (fun _ id -> UMX.untag id = System.Guid.Empty)) then
                   invalidArg "sourceProjects" "Supply exactly the source projects required by this setup function."
               execute host projects
-              saved types host.SetupDb }
+              saved host }
 
     let setupWithSources version required dataTypes sources execute = setupWithParameterPolicy false version required dataTypes sources execute
 

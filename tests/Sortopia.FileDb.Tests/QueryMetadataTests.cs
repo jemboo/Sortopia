@@ -66,9 +66,9 @@ public sealed class QueryMetadataTests : IDisposable
         var key = Key(ParameterBinding.fromText("QueryValue", parameterValueType.Integer, "16"));
         var store = Write(key);
         var path = store.GetPath(key.Reference);
-        var wrongQuery = new storedDataReference(key.Reference.ProjectId, key.Id, Guid.NewGuid(), true, key.Reference.DataType);
+        var wrongQuery = new storedDataReference(key.Reference.ProjectId, key.Id, Guid.NewGuid(), runExecutionPhase.Setup, key.Reference.DataType);
         Assert.Contains("does not match its reference", Assert.Throws<InvalidOperationException>(() => store.ReadQueryParameters(wrongQuery, Token)).Message);
-        var wrongLabel = new storedDataReference(key.Reference.ProjectId, key.Id, key.QueryId, true, sortopiaDataType.NewSortableTests("other label"));
+        var wrongLabel = new storedDataReference(key.Reference.ProjectId, key.Id, key.QueryId, runExecutionPhase.Setup, sortopiaDataType.NewSortableTests("other label"));
         Assert.Throws<InvalidOperationException>(() => store.ReadQueryParameters(wrongLabel, Token));
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         Assert.Throws<OperationCanceledException>(() => store.ReadQueryParameters(key.Reference, cancelled.Token));

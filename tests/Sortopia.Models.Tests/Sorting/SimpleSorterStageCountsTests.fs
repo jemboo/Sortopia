@@ -125,7 +125,7 @@ let ``four channel recommendations are checked against every input on independen
             let id = Guid(index, 77s, 66s, [|9uy;8uy;7uy;6uy;5uy;4uy;3uy;2uy|]) |> UMX.tag<sorterModelId>
             let model = SimpleSorterModelGen.makeSorterModelFromId id generator
             let rows = [|0xAAAAUL; 0xCCCCUL; 0xF0F0UL; 0xFF00UL|]
-            for stage in (RandomNetwork.toStagesWithoutPrefix model).Stages do
+            for stage in (RandomNetwork.toStages model).Stages do
                 for ce in stage.Ces do
                     let lo, hi = int ce.LowChannel, int ce.HighChannel
                     let a, b = rows[lo], rows[hi]

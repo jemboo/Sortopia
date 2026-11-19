@@ -25,11 +25,11 @@ public sealed class FileDataStoreTests : IDisposable
         bool setup = true, string version = "1", storedDataReference[]? inputs = null) =>
         DataKey.create(projectId, "Data", setup, "function", version, type ?? sortopiaDataType.NewSortableTests("standard"),
             List(keys ?? ["ChannelCount"]), parameters ?? Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4)), List(inputs ?? []));
-    private static FSharpFunc<Unit, FSharpResult<functionData, string>> Factory(Func<functionData> make) =>
-        FuncConvert.FromFunc<Unit, FSharpResult<functionData, string>>(_ => FSharpResult<functionData, string>.NewOk(make()));
-    private static functionData Tests(int channels = 4) => CatalogTestHost.Invoke(true, SetupFunctionNames.standardTests,
+    private static FSharpFunc<Unit, FSharpResult<sortopiaStorageData, string>> Factory(Func<sortopiaStorageData> make) =>
+        FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => FSharpResult<sortopiaStorageData, string>.NewOk(make()));
+    private static sortopiaStorageData Tests(int channels = 4) => CatalogTestHost.Invoke(true, SetupFunctionNames.standardTests,
         Parameters(ParameterBinding.create(ParamKeys.channelCountKey, channels), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"))).Head;
-    private static functionData Models(int stages = 3) => CatalogTestHost.Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels,
+    private static sortopiaStorageData Models(int stages = 3) => CatalogTestHost.Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels,
         Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, Sortopia.Sorting.sorterSuccessFraction.pct50),
             ParameterBinding.create(ParamKeys.rngTypeKey, "SplitMix64"),
             ParameterBinding.create(ParamKeys.sorterCountKey, 2), ParameterBinding.create(ParamKeys.replKey, stages))).Head;
@@ -74,9 +74,9 @@ public sealed class FileDataStoreTests : IDisposable
         var second = Ok(((ISortopiaDb)Open()).GetOrCreate(key, Factory(() => { created++; throw new Exception("Must not generate"); }), Token));
         Assert.True(second.Item2); Assert.Equal(1, created);
         Assert.Equal(original, File.ReadAllBytes(file));
-        var tests = Assert.IsType<functionData.SortableTests>(second.Item1.Value);
-        Assert.Equal(65536, SortableTests.getSortableCount(tests.Item1));
-        Assert.Equal(SortableTests.getId(((functionData.SortableTests)first.Item1.Value).Item1), SortableTests.getId(tests.Item1));
+        var tests = Assert.IsType<sortopiaStorageData.SortableTests>(second.Item1.Value);
+        Assert.Equal(65536, SortableTests.getSortableCount(tests.Item));
+        Assert.Equal(SortableTests.getId(((sortopiaStorageData.SortableTests)first.Item1.Value).Item), SortableTests.getId(tests.Item));
         Assert.Single(Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories));
     }
 
@@ -110,18 +110,17 @@ public sealed class FileDataStoreTests : IDisposable
             ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V2"), ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)), models, tests).Head;
         foreach (var value in new[] { prefixed, models, evaluation })
         {
-            var key = Key(type: SortopiaDataType.create(FunctionData.kind(value), "roundtrip"));
+            var key = Key(type: SortopiaDataType.create(SortopiaStorageData.kind(value), "roundtrip"));
             Ok(((ISortopiaDb)Open()).GetOrCreate(key, Factory(() => value), Token));
             var restored = Ok(((ISortopiaDb)Open()).Load(key.Reference, Token)).Value;
-            Assert.Equal(FunctionData.kind(value), FunctionData.kind(restored));
-            if (value is functionData.SortableTests before)
+            Assert.Equal(SortopiaStorageData.kind(value), SortopiaStorageData.kind(restored));
+            if (value is sortopiaStorageData.SortableTests before)
             {
-                var after = Assert.IsType<functionData.SortableTests>(restored);
-                Assert.Equal(before.Item2.Select(Ce.toIndex), after.Item2.Select(Ce.toIndex));
-                Assert.Equal(SortableTests.getId(before.Item1), SortableTests.getId(after.Item1));
+                var after = Assert.IsType<sortopiaStorageData.SortableTests>(restored);
+                Assert.Equal(before.Item, after.Item);
             }
-            if (restored is functionData.SorterModelSet modelSet) Assert.Equal(2, modelSet.Item.Count);
-            if (restored is functionData.SorterSetEval evaluated) Assert.Equal(2, evaluated.Item.SorterEvals.Length);
+            if (restored is sortopiaStorageData.SorterModelSet modelSet) Assert.Equal(2, modelSet.Item.Count);
+            if (restored is sortopiaStorageData.SorterSetEval evaluated) Assert.Equal(2, evaluated.Item.SorterEvals.Length);
         }
     }
 
@@ -195,33 +194,37 @@ public sealed class FileDataStoreTests : IDisposable
                 setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardMssiSimpleEvaluationInputs, "1",
                 branch.ProjectConfiguration.Setup.DataTypes, SetupFunctionCatalog.require(branch.SetupFunctionName).OutputDependencies,
                 parameters, List<storedDataReference>());
-            IRunDatabase context = new FileRunDatabase(store, plan, Token);
-            context.SaveIfMissing(sortopiaDataType.NewSortableTests(""), List<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => { testCalls++; return Tests(); }));
-            context.SaveIfMissing(sortopiaDataType.NewSorterModelSet(""), List<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => { modelCalls++; return Models(stage); }));
-            Assert.Equal(2, context.StoredOutputs.Length);
+            var storage = new FileRunDatabase(store, plan, Token);
+            IRunDatabase context = storage;
+            context.Save(storage.Outputs.Output(sortopiaDataType.NewSortableTests(""), List<storedDataReference>()), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => { testCalls++; return Tests(); }));
+            context.Save(storage.Outputs.Output(sortopiaDataType.NewSorterModelSet(""), List<storedDataReference>()), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => { modelCalls++; return Models(stage); }));
+            Assert.Equal(2, storage.Outputs.Stored.Length);
         }
         Assert.Equal(1, testCalls); Assert.Equal(2, modelCalls);
         Assert.Equal(3, Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories).Length);
     }
 
     [Fact]
-    public void Host_database_rejects_undeclared_types_labels_wrong_payloads_and_duplicate_saves()
+    public void Host_database_rejects_undeclared_types_labels_and_wrong_payloads_and_reuses_duplicate_saves()
     {
         var type = sortopiaDataType.NewSortableTests("");
         var parameters = Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"));
         var outputs = MapModule.OfArray(new[] { Tuple.Create(type, List("ChannelCount", "SortableDataFormat")) });
         var plan = OutputPlan.create(projectId, "Setup", true, SetupFunctionNames.standardTests, "1", outputs,
             SetupFunctionCatalog.require(SetupFunctionNames.standardTests).OutputDependencies, parameters, List<storedDataReference>());
-        IRunDatabase database = new FileRunDatabase(Open(), plan, Token);
-        var make = FuncConvert.FromFunc<Unit, functionData>(_ => Tests());
-        Assert.Throws<ArgumentException>(() => database.SaveIfMissing(sortopiaDataType.NewSortableTests("other"), List<storedDataReference>(), make));
-        Assert.Throws<ArgumentException>(() => database.SaveIfMissing(sortopiaDataType.NewSorterModelSet(""), List<storedDataReference>(), make));
-        Assert.Contains("payload", Assert.Throws<InvalidOperationException>(() => database.SaveIfMissing(type, List<storedDataReference>(),
-            FuncConvert.FromFunc<Unit, functionData>(_ => Models()))).Message);
-        Assert.Empty(database.StoredOutputs);
-        database.SaveIfMissing(type, List<storedDataReference>(), make);
-        Assert.Throws<InvalidOperationException>(() => database.SaveIfMissing(type, List<storedDataReference>(), make));
-        Assert.Single(database.StoredOutputs);
+        var storage = new FileRunDatabase(Open(), plan, Token);
+        IRunDatabase database = storage;
+        var make = FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => Tests());
+        Assert.Throws<ArgumentException>(() => database.Save(storage.Outputs.Output(sortopiaDataType.NewSortableTests("other"), List<storedDataReference>()), make));
+        Assert.Throws<ArgumentException>(() => database.Save(storage.Outputs.Output(sortopiaDataType.NewSorterModelSet(""), List<storedDataReference>()), make));
+        Assert.Contains("payload", Assert.Throws<InvalidOperationException>(() => database.Save(storage.Outputs.Output(type, List<storedDataReference>()),
+            FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => Models()))).Message);
+        Assert.Empty(storage.Outputs.Stored);
+        database.Save(storage.Outputs.Output(type, List<storedDataReference>()), make);
+        database.Save(storage.Outputs.Output(type, List<storedDataReference>()), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ =>
+            throw new Exception("Repeated saves must reuse the cached output.")));
+        Assert.Single(storage.Outputs.Stored);
+        Assert.False(storage.Outputs.Stored.Head.Reused);
         Assert.Single(Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories));
     }
 

@@ -17,7 +17,7 @@ module internal EvaluationValidation =
         let mutable previous = -1
         for value in values do
             if %value.CeIndex <= previous then invalidArg "ceUseArray" "Original CE indices must be nonnegative, unique and increasing."
-            if value.UseCount < -1 then invalidArg "ceUseArray" "Only -1 (prefix) or nonnegative usage is valid."
+            if value.UseCount < 0 then invalidArg "ceUseArray" "Usage counts must be nonnegative."
             if int value.Ce.HighChannel >= width then invalidArg "ceUseArray" "CE endpoint exceeds network width."
             previous <- %value.CeIndex
 
@@ -612,10 +612,7 @@ module SorterEval =
             match Map.tryFind index merged with
             | Some (left: ceUse) ->
                 if left.Ce <> right.Ce then invalidArg "second" "CEs at the same original index must match."
-                let count =
-                    if left.UseCount = -1 && right.UseCount = -1 then -1
-                    elif left.UseCount < 0 || right.UseCount < 0 then invalidArg "second" "Prefix usage must agree."
-                    else Checked.(+) left.UseCount right.UseCount
+                let count = Checked.(+) left.UseCount right.UseCount
                 Map.add index (ceUse.create index count left.Ce) merged
             | None -> Map.add index right merged) firstByIndex
         |> Map.toArray

@@ -25,7 +25,6 @@ public sealed class ModelFamilySetupTests
         Assert.False(SetupFunctionCatalog.functions.ContainsKey(oldName));
         Assert.Throws<ArgumentException>(() => SetupFunctionCatalog.require(oldName));
         var definition = SetupFunctionCatalog.require(name);
-        FunctionMetadataTests.AssertModelMetadata(definition.ModelGeneration?.Value, algorithm, family, false);
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: hierarchyKind.Branch).Editor!;
         editor.SetupFunctionName = name; editor.AddRequiredSetupDefaultsCommand.Execute(null);
         var keys = definition.RequiredParameters.Select(key => key.Name).ToArray();
@@ -72,7 +71,7 @@ public sealed class ModelFamilySetupTests
         editor.SetupParameterDefaults.Single(row => row.Key == "AMax").Value.Text = "2";
         editor.SetupParameterDefaults.Single(row => row.Key == "AInitial").Value.Text = initial.ToString();
         var parameters = parameterSet.fromBindings(editor.ToProjectSettings().setupParameterDefaults.Select(ParameterBindingDto.toDomain));
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(true, editor.SetupFunctionName, parameters))).Item;
+        var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(true, editor.SetupFunctionName, parameters))).Item;
         Assert.All(models.SorterModels, model => Assert.All(Assert.IsType<sorterModel.SimpleR>(model).Item.Activators,
             actual => Assert.Equal(initial, actual)));
     }

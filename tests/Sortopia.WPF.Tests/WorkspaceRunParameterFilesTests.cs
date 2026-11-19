@@ -163,8 +163,8 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
             foreach (var key in project.Editor!.ResultsQueryOutputs.Concat(project.Editor.SetupQueryOutputs).SelectMany(output => output.Keys)) key.Selected = true;
             var resultsPreview = run.Editor!.ResultsParameterSetsPreview;
             var setupPreview = run.Editor.SetupParameterSetsPreview;
-            Assert.Equal(mode != "setup", resultsPreview.HasSuffixStages);
-            Assert.Equal(branch, setupPreview.HasSuffixStages);
+            Assert.Equal(mode != "setup", resultsPreview.HasPreviews);
+            Assert.Equal(branch, setupPreview.HasPreviews);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); page.Selected = run;
             await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
             var files = page.SelectedExecution!.Files;
@@ -184,14 +184,14 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
                 if (branch)
                 {
                     Assert.Contains($"Setup: {item.SetupSuffixStages.Value:N0}", row.SuffixStages);
-                    Assert.Equal(setupPreview.Rows.Single(preview => preview.Number == item.SetupSetNumber.Value).SuffixStages, item.SetupSuffixStages.Value);
+                    Assert.Equal(FunctionParameterSupportTests.SuffixStages(setupPreview.Rows.Single(preview => preview.Number == item.SetupSetNumber.Value)), item.SetupSuffixStages.Value);
                 }
                 else Assert.Null(item.SetupSuffixStages);
                 if (mode != "setup")
                 {
-                    var expected = ModelGenerationStageLengths.tryForDefinition(ResultsFunctionCatalog.require(item.Results.FunctionName), item.Parameters).Value;
+                    var expected = Assert.IsType<parameterValue.IntegerValue>(FunctionDefinition.tryPreviewValue("SuffixStages", ResultsFunctionCatalog.require(item.Results.FunctionName), item.Parameters).Value).Item;
                     Assert.Equal(expected, item.ResultsSuffixStages.Value);
-                    Assert.Equal(resultsPreview.Rows.Single(preview => preview.Number == item.SetNumber).SuffixStages, item.ResultsSuffixStages.Value);
+                    Assert.Equal(FunctionParameterSupportTests.SuffixStages(resultsPreview.Rows.Single(preview => preview.Number == item.SetNumber)), item.ResultsSuffixStages.Value);
                     Assert.Contains($"Results: {expected:N0}", row.SuffixStages);
                 }
                 else Assert.Null(item.ResultsSuffixStages);

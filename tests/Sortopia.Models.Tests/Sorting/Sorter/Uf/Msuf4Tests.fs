@@ -105,62 +105,62 @@ type Msuf4Tests() =
     [<InlineData("Ortho", 0, 1, 2, 3)>]
     [<InlineData("Para", 0, 2, 1, 3)>]
     [<InlineData("SelfRefl", 0, 3, 1, 2)>]
-    let ``makeSorterWithoutPrefix produces correct Sorter for order 4`` (seedTypeStr: string) (low1: int) (hi1: int) (low2: int) (hi2: int) =
+    let ``makeSorter produces correct Sorter for order 4`` (seedTypeStr: string) (low1: int) (hi1: int) (low2: int) (hi2: int) =
         let seedType = toTwoOrbitPairType seedTypeStr
         let id = Guid.NewGuid() |> UMX.tag<sorterModelId>
         let width = 4<channelCount>
         let tou = createRandomTestTwoOrbitUf4 4 seedType None
         let msuf4 = msuf4.create id width [||] [| tou |]
-        let sorter = msuf4.MakeSorterWithoutPrefix None
+        let sorter = msuf4.MakeSorter None
         Assert.Equal(width, sorter.ChannelCount)
         let expectedCes = [| ce.create low1 hi1; ce.create low2 hi2 |]
         Assert.Equal<ce>(expectedCes, sorter.Ces)
 
     [<Fact>]
-    let ``makeSorterWithoutPrefix handles order 8 correctly with Ortho seed and Para unfolding`` () =
+    let ``makeSorter handles order 8 correctly with Ortho seed and Para unfolding`` () =
         let id = Guid.NewGuid() |> UMX.tag<sorterModelId>
         let width = 8<channelCount>
         let seedType = twoOrbitPairType.Ortho
         let tou = Samples.makeTestTwoOrbitUf4 seedType twoOrbitPairType.Para 8
         let msuf4 = msuf4.create id width [||] [| tou |]
-        let sorter = msuf4.MakeSorterWithoutPrefix None
+        let sorter = msuf4.MakeSorter None
         let expectedCes = [| ce.create 0 6; ce.create 1 7; ce.create 2 4; ce.create 3 5 |]
         Assert.Equal<ce>(expectedCes, sorter.Ces)
         Assert.Equal(width, sorter.ChannelCount)
 
     [<Fact>]
-    let ``makeSorterWithoutPrefix handles order 8 correctly with Ortho seed and Ortho unfolding`` () =
+    let ``makeSorter handles order 8 correctly with Ortho seed and Ortho unfolding`` () =
         let id = Guid.NewGuid() |> UMX.tag<sorterModelId>
         let width = 8<channelCount>
         let seedType = twoOrbitPairType.Ortho
         let tou = Samples.makeTestTwoOrbitUf4 seedType twoOrbitPairType.Ortho 8
         let msuf4 = msuf4.create id width [||] [| tou |]
-        let sorter = msuf4.MakeSorterWithoutPrefix None
+        let sorter = msuf4.MakeSorter None
         let expectedCes = [| ce.create 0 1; ce.create 2 3; ce.create 4 5; ce.create 6 7 |]
         Assert.Equal<ce>(expectedCes, sorter.Ces)
         Assert.Equal(width, sorter.ChannelCount)
 
     [<Fact>]
-    let ``makeSorterWithoutPrefix handles order 8 correctly with Ortho seed and SelfRefl unfolding`` () =
+    let ``makeSorter handles order 8 correctly with Ortho seed and SelfRefl unfolding`` () =
         let id = Guid.NewGuid() |> UMX.tag<sorterModelId>
         let width = 8<channelCount>
         let seedType = twoOrbitPairType.Ortho
         let tou = Samples.makeTestTwoOrbitUf4 seedType twoOrbitPairType.SelfRefl 8
         let msuf4 = msuf4.create id width [||] [| tou |]
-        let sorter = msuf4.MakeSorterWithoutPrefix None
+        let sorter = msuf4.MakeSorter None
         let expectedCes = [| ce.create 0 7; ce.create 1 6; ce.create 2 5; ce.create 3 4 |]
         Assert.Equal<ce>(expectedCes, sorter.Ces)
         Assert.Equal(width, sorter.ChannelCount)
 
     [<Fact>]
-    let ``makeSorterWithoutPrefix handles order 16 correctly with Ortho seed and Para unfolding`` () =
+    let ``makeSorter handles order 16 correctly with Ortho seed and Para unfolding`` () =
         let id = Guid.NewGuid() |> UMX.tag<sorterModelId>
         let order = 16
         let width = 16<channelCount>
         let seedType = twoOrbitPairType.Ortho
         let tou = Samples.makeTestTwoOrbitUf4 seedType twoOrbitPairType.Para order
         let msuf4 = msuf4.create id width [||] [| tou |]
-        let sorter = msuf4.MakeSorterWithoutPrefix None
+        let sorter = msuf4.MakeSorter None
         let expectedCes = [| ce.create 0 9; ce.create 1 8; ce.create 2 11; ce.create 3 10
                              ce.create 4 13; ce.create 5 12; ce.create 6 15; ce.create 7 14 |]
         Assert.Equal<ce>(expectedCes, sorter.Ces)

@@ -68,7 +68,7 @@ module CeBlockOpsUint8v512 =
         h
 
     let private evaluateNetworks (options: ParallelOptions) collect
-                                 (blocks: sortBlockUint8v512[]) prefix networks =
+                                 (blocks: sortBlockUint8v512[]) networks =
         let sources = blocks |> Array.map _.Vectors
         SimdBatch.mapNetworks options (fun _ network ->
             let data = SimdBatch.comparatorChannels network
@@ -99,12 +99,11 @@ module CeBlockOpsUint8v512 =
                         let lane = BitOperations.TrailingZeroCount bits
                         values.Add(Array.init block.Length (fun channel -> int (work[channel].GetElement(lane)))) |> ignore
                         bits <- bits &&& (bits - 1UL)
-            SimdBatch.finishNetwork prefix network usage unsorted 256<symbolSetSize> failures) networks
+            SimdBatch.finishNetwork network usage unsorted 256<symbolSetSize> failures) networks
 
     let private countFailuresByBlocks
         (options: ParallelOptions)
         (simdSortableBlocks: sortBlockUint8v512[])
-        (prefix: ceBlock)
         (ceBlocks: ceBlock array)
         : ceBlockEval [] =
 
@@ -165,22 +164,21 @@ module CeBlockOpsUint8v512 =
         ) |> ignore
 
         Array.init numNetworks (fun i ->
-            ceBlockEval.create prefix ceBlocks.[i] globalUsage.[i] (globalUnsorted.[i] |> UMX.tag) None
+            ceBlockEval.create ceBlocks.[i] globalUsage.[i] (globalUnsorted.[i] |> UMX.tag) None
         )
 
-    let private countFailures options (blocks: sortBlockUint8v512[]) prefix (networks: ceBlock[]) =
+    let private countFailures options (blocks: sortBlockUint8v512[]) (networks: ceBlock[]) =
         if SimdBatch.preferNetworks options networks.Length blocks.Length then
-            evaluateNetworks options false blocks prefix networks
-        else countFailuresByBlocks options blocks prefix networks
+            evaluateNetworks options false blocks networks
+        else countFailuresByBlocks options blocks networks
 
-    let evalSimdSortBlocks (simdSortableBlocks: sortBlockUint8v512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
-        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        countFailures (ParallelOptions()) inputs prefix ceBlocks
+    let evalSimdSortBlocks (simdSortableBlocks: sortBlockUint8v512 seq) (ceBlocks: ceBlock[]) =
+        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v512) -> block.Length) ceBlocks simdSortableBlocks
+        countFailures (ParallelOptions()) inputs ceBlocks
 
     let private collectFailuresByBlocks
             (options: ParallelOptions)
             (simdSortableBlocks: sortBlockUint8v512[])
-            (prefix: ceBlock)
             (ceBlocks: ceBlock array)
             : ceBlockEval [] =
 
@@ -263,37 +261,36 @@ module CeBlockOpsUint8v512 =
                 else None
 
             ceBlockEval.create
-                prefix
                 ceBlocks.[i]
                 globalUsage.[i]
                 (uniqueUnsortedCount |> UMX.tag<sortableCount>)
                 failTest
         )
 
-    let private collectFailures options (blocks: sortBlockUint8v512[]) prefix (networks: ceBlock[]) =
+    let private collectFailures options (blocks: sortBlockUint8v512[]) (networks: ceBlock[]) =
         if SimdBatch.preferNetworks options networks.Length blocks.Length then
-            evaluateNetworks options true blocks prefix networks
-        else collectFailuresByBlocks options blocks prefix networks
+            evaluateNetworks options true blocks networks
+        else collectFailuresByBlocks options blocks networks
 
-    let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockUint8v512 seq) (prefix: ceBlock) (ceBlocks: ceBlock[]) =
-        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v512) -> block.Length) prefix ceBlocks simdSortableBlocks
-        collectFailures (ParallelOptions()) inputs prefix ceBlocks
+    let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockUint8v512 seq) (ceBlocks: ceBlock[]) =
+        let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockUint8v512) -> block.Length) ceBlocks simdSortableBlocks
+        collectFailures (ParallelOptions()) inputs ceBlocks
 
-    let eval (test: sortableUint8v512Tests) (prefix: ceBlock) (ceBlocks: ceBlock []) =
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        countFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
+    let eval (test: sortableUint8v512Tests) (ceBlocks: ceBlock []) =
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        countFailures (ParallelOptions()) test.SimdSortBlocks ceBlocks
 
-    let evalAndCollectNewSortableTests (test: sortableUint8v512Tests) (prefix: ceBlock) (ceBlocks: ceBlock []) =
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures (ParallelOptions()) test.SimdSortBlocks prefix ceBlocks
+    let evalAndCollectNewSortableTests (test: sortableUint8v512Tests) (ceBlocks: ceBlock []) =
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        collectFailures (ParallelOptions()) test.SimdSortBlocks ceBlocks
 
     /// Runtime limits apply to this invocation only; inputs remain unchanged.
-    let evalWithOptions (options: ParallelOptions) (test: sortableUint8v512Tests) prefix ceBlocks =
+    let evalWithOptions (options: ParallelOptions) (test: sortableUint8v512Tests) ceBlocks =
         options.CancellationToken.ThrowIfCancellationRequested()
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        countFailures options test.SimdSortBlocks prefix ceBlocks
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        countFailures options test.SimdSortBlocks ceBlocks
 
-    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableUint8v512Tests) prefix ceBlocks =
+    let evalAndCollectWithOptions (options: ParallelOptions) (test: sortableUint8v512Tests) ceBlocks =
         options.CancellationToken.ThrowIfCancellationRequested()
-        CeBlock.validateBatchWidth test.ChannelCount prefix ceBlocks
-        collectFailures options test.SimdSortBlocks prefix ceBlocks
+        CeBlock.validateBatchWidth test.ChannelCount ceBlocks
+        collectFailures options test.SimdSortBlocks ceBlocks

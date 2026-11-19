@@ -30,7 +30,7 @@ public sealed class FunctionCatalogTests
     }
 
     private static parameterSet Parameters(params parameterBinding[] bindings) => parameterSet.fromBindings(bindings);
-    private static FSharpList<functionData> Invoke(bool setup, string name, parameterSet parameters, params functionData[] inputs)
+    private static FSharpList<sortopiaStorageData> Invoke(bool setup, string name, parameterSet parameters, params sortopiaStorageData[] inputs)
         => CatalogTestHost.Invoke(setup, name, parameters, inputs);
     private static parameterSet ModelParameters(int repl = 0) => Parameters(
         ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, Sortopia.Sorting.sorterSuccessFraction.pct50),
@@ -60,35 +60,33 @@ public sealed class FunctionCatalogTests
     [Fact]
     public void Named_setup_functions_generate_tests_and_repeatable_models_for_the_results_evaluator()
     {
-        var tests = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(true, SetupFunctionNames.standardTests,
+        var tests = Assert.IsType<sortopiaStorageData.SortableTests>(Assert.Single(Invoke(true, SetupFunctionNames.standardTests,
             Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")))));
-        Assert.Equal(16, SortableTests.getSortableCount(tests.Item1));
-        Assert.Empty(tests.Item2);
-        var models = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters())));
-        var repeated = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters())));
+        Assert.Equal(16, SortableTests.getSortableCount(tests.Item));
+        var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters())));
+        var repeated = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters())));
         Assert.Equal(3, models.Item.Count);
         Assert.Equal(models.Item.SorterModels.Select(SorterModel.getId), repeated.Item.SorterModels.Select(SorterModel.getId));
-        var next = Assert.IsType<functionData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters(1))));
+        var next = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(Invoke(true, SetupFunctionNames.uniformMssiSimpleSorterModels, ModelParameters(1))));
         Assert.Empty(models.Item.SorterModels.Select(SorterModel.getId).Intersect(next.Item.SorterModels.Select(SorterModel.getId)));
-        var evaluation = Assert.IsType<functionData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval,
+        var evaluation = Assert.IsType<sortopiaStorageData.SorterSetEval>(Assert.Single(Invoke(false, ResultsFunctionNames.sorterEval,
             Parameters(ParameterBinding.create(ParamKeys.sorterEvalTypeKey, "V1"),
                 ParameterBinding.create(ParamKeys.collectSortableTestsKey, false)), tests, models)));
         Assert.Equal(3, evaluation.Item.SorterEvals.Length);
-        Assert.Equal(SortableTests.getId(tests.Item1), evaluation.Item.SorterTestId);
+        Assert.Equal(SortableTests.getId(tests.Item), evaluation.Item.SorterTestId);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Standalone_results_generation_keeps_the_generating_prefix(bool merge)
+    public void Standalone_results_generation_saves_filtered_tests(bool merge)
     {
         var library = merge ? ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2))
             : ParameterBinding.create(ParamKeys.prefixLibIdKey, PrefixLib.ids().First(value => value.ChannelCount == 8 && value.StageLength == 1));
-        var value = Assert.IsType<functionData.SortableTests>(Assert.Single(Invoke(false, merge ? ResultsFunctionNames.mergeSortableTests : ResultsFunctionNames.prefixSortableTests,
+        var value = Assert.IsType<sortopiaStorageData.SortableTests>(Assert.Single(Invoke(false, merge ? ResultsFunctionNames.mergeSortableTests : ResultsFunctionNames.prefixSortableTests,
             Parameters(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"), library))));
-        Assert.Equal(merge ? 4 : 8, SortableTests.getChannelCount(value.Item1));
-        Assert.Equal(merge ? 9 : 81, SortableTests.getSortableCount(value.Item1));
-        Assert.Equal(merge ? 2 : 4, value.Item2.Length);
+        Assert.Equal(merge ? 4 : 8, SortableTests.getChannelCount(value.Item));
+        Assert.Equal(merge ? 9 : 81, SortableTests.getSortableCount(value.Item));
     }
 
     [Fact]

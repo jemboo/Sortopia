@@ -66,12 +66,12 @@ public sealed class SimpleGenerationSettingsTests
         };
         var snapshot = settings.Snapshot();
         Assert.Equal(SimpleSorterModelGen.getId(expected), SimpleSorterModelGen.getId(snapshot.ConfiguredGenerator!));
-        var model = snapshot.CreateModel(); var full = SimpleSorterModel.makeSorterWithPrefix(null!, model);
+        var model = snapshot.CreateModel(); var full = SimpleSorterModel.makeSorter(null!, model);
         Assert.Equal(settings.Prefix.Selected.Comparators, SimpleSorterModel.getPrefix(model));
         options.RandomSource = source == "LCG" ? "SplitMix64" : "LCG";
         options.ExcludeSelf = true;
         foreach (var row in options.Distributions) foreach (var value in row.Weights) value.Value = 1;
-        Assert.Equal(full, SimpleSorterModel.makeSorterWithPrefix(null!, snapshot.CreateModel()));
+        Assert.Equal(full, SimpleSorterModel.makeSorter(null!, snapshot.CreateModel()));
         Assert.NotEqual(SimpleSorterModelGen.getId(expected), SimpleSorterModelGen.getId(settings.Snapshot().ConfiguredGenerator!));
     }
 

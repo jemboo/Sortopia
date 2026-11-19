@@ -14,7 +14,8 @@ public sealed record WorkspaceParameterSetColumn(string Key, string TypeLabel, s
 
 public sealed record WorkspaceParameterSetRow(int Number, parameterSet ParameterSet)
 {
-    public int? SuffixStages { get; init; }
+    public functionPreviewValue[] Previews { get; init; } = [];
+    public string[] PreviewValues => Previews.Select(value => ParameterValue.format(value.Value)).ToArray();
     // Formatting belongs to this display boundary; the underlying set keeps its typed bindings.
     public string[] Values => ParameterSet.ParamMap.Values.Select(binding => binding.FormattedValue).ToArray();
 }
@@ -25,15 +26,16 @@ public sealed record WorkspaceParameterSetsPreview(
     public const int MaximumRows = 50;
     public static WorkspaceParameterSetsPreview Empty { get; } = new([], [], BigInteger.Zero, "");
     public bool HasRows => Rows.Length > 0;
-    public bool HasSuffixStages => Rows.Any(row => row.SuffixStages is not null);
-    public string SuffixStagesHint => "Suggested suffix stages are calculated for each combination using its channel count, prefix depth, model type, and success fraction. For source tests, previews use the selected library prefix; generation uses the actual stored prefix. Fixed prefix stages are additional; success rates are provisional.";
+    public functionPreviewValue[] PreviewColumns => Rows.FirstOrDefault()?.Previews ?? [];
+    public bool HasPreviews => PreviewColumns.Length > 0;
+    public string PreviewHint => string.Join(" ", PreviewColumns.Select(value => value.Hint).Where(hint => hint.Length > 0).Distinct());
     public string Summary => Error.Length > 0 ? "Preview unavailable until the parameter errors are corrected."
         : !HasRows ? ""
         : Columns.Length == 0 ? "1 empty parameter set (no defaults or spans)."
         : TotalCount > Rows.Length ? $"Showing the first {Rows.Length} of {TotalCount.ToString("N0", CultureInfo.InvariantCulture)} parameter sets."
         : $"{Rows.Length} parameter set(s). Showing all combinations.";
 
-    internal static WorkspaceParameterSetsPreview Create(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans, string error, modelGenerationMetadata? model = null)
+    internal static WorkspaceParameterSetsPreview Create(parameterBindingDto[] defaults, IEnumerable<WorkspaceParameterSpan> spans, string error, functionParameterSupport? support = null)
     {
         var inputs = spans.ToArray();
         var count = inputs.Aggregate(BigInteger.One, (product, span) => product * span.Values.Count);
@@ -48,7 +50,7 @@ public sealed record WorkspaceParameterSetsPreview(
                 ParameterValue.label(binding.ValueType), varied.Contains(binding.KeyName) ? "run span" : "default")).ToArray();
             return new(columns, sets.Select((set, index) => new WorkspaceParameterSetRow(index + 1, set)
             {
-                SuffixStages = model is null ? null : ModelGenerationStageLengths.forMetadata(model, set)
+                Previews = support?.Preview.Invoke(set).ToArray() ?? []
             }).ToArray(), count, "");
         }
         catch (ArgumentException exception) { return new([], [], count, exception.Message); }

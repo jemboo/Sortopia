@@ -49,7 +49,7 @@ module MigrationTests =
         let network = block 6 [| ce.create 0 1; ce.create 2 5; ce.create 1 3 |]
         for inputs in formats values 6 do
             let evaluate options =
-                CeBlockOps.evalWithSorterTestsWithOptions options inputs ceBlock.Empty [|network; network|] (UMX.tag collect)
+                CeBlockOps.evalWithSorterTestsWithOptions options inputs [|network; network|] (UMX.tag collect)
             let serial = evaluate (Threading.Tasks.ParallelOptions(MaxDegreeOfParallelism = 1))
             let concurrent = evaluate (Threading.Tasks.ParallelOptions(MaxDegreeOfParallelism = 2))
             for a, b in Array.zip serial concurrent do
@@ -85,7 +85,7 @@ module MigrationTests =
                     expectedUsage[i] <- expectedUsage[i] + 1)
             if output <> Array.sort output then failures.Add(Array.toList output)
         for inputs in formats values 6 do
-            let counted = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty network (UMX.tag false)
+            let counted = CeBlockOps.evalWithSorterTest inputs network (UMX.tag false)
             counted.UseCountArray |> should equal expectedUsage
             int counted.UnsortedCount |> should equal failures.Count
             match inputs with
@@ -94,10 +94,10 @@ module MigrationTests =
                 countsOnly.UseCountArray |> should equal expectedUsage
                 int countsOnly.UnsortedCount |> should equal failures.Count
             | _ -> ()
-            let collected = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty network (UMX.tag true)
+            let collected = CeBlockOps.evalWithSorterTest inputs network (UMX.tag true)
             collected.UseCountArray |> should equal expectedUsage
             int collected.UnsortedCount |> should equal (failures |> Set.ofSeq |> Set.count)
-            let batch = CeBlockOps.evalWithSorterTests inputs ceBlock.Empty [| network; network |] (UMX.tag false)
+            let batch = CeBlockOps.evalWithSorterTests inputs [| network; network |] (UMX.tag false)
             for result in batch do
                 result.UseCountArray |> should equal expectedUsage
                 result.UnsortedCount |> should equal counted.UnsortedCount
@@ -124,12 +124,12 @@ module MigrationTests =
         let c = sortBlockBitv512.createFromVectors bits 3
         let empty = block 2 [||]
         let results = [|
-            CeBlockOpsUint8v256.evalSimdSortBlocks [a] ceBlock.Empty [|network; empty|]
-            CeBlockOpsUint8v512.evalSimdSortBlocks [b] ceBlock.Empty [|network; empty|]
-            CeBlockOpsBitv512.evalSimdSortBlocks [c] ceBlock.Empty [|network; empty|]
-            CeBlockOpsUint8v256.evalAndCollectUniqueFailures [a] ceBlock.Empty [|network; empty|]
-            CeBlockOpsUint8v512.evalAndCollectUniqueFailures [b] ceBlock.Empty [|network; empty|]
-            CeBlockOpsBitv512.evalAndCollectUniqueFailures [c] ceBlock.Empty [|network; empty|] |]
+            CeBlockOpsUint8v256.evalSimdSortBlocks [a] [|network; empty|]
+            CeBlockOpsUint8v512.evalSimdSortBlocks [b] [|network; empty|]
+            CeBlockOpsBitv512.evalSimdSortBlocks [c] [|network; empty|]
+            CeBlockOpsUint8v256.evalAndCollectUniqueFailures [a] [|network; empty|]
+            CeBlockOpsUint8v512.evalAndCollectUniqueFailures [b] [|network; empty|]
+            CeBlockOpsBitv512.evalAndCollectUniqueFailures [c] [|network; empty|] |]
         results |> Array.iteri (fun i result ->
             result[0].UseCountArray |> should equal [|3|]
             int result[0].UnsortedCount |> should equal 0
@@ -142,7 +142,7 @@ module MigrationTests =
         ces[0] <- ce.create 1 2
         network.getCe 0 |> should equal (ce.create 0 1)
         let counts = ceUseCounts.CreateFromArray [|2|]
-        let evaluation = ceBlockEval.create ceBlock.Empty network counts 0<sortableCount> None
+        let evaluation = ceBlockEval.create network counts 0<sortableCount> None
         counts.Increment 0<ceIndex>
         evaluation.UseCountArray |> should equal [|2|]
         let used = evaluation.UsedCes
@@ -154,33 +154,34 @@ module MigrationTests =
         (SorterEval.getCeUseArray v2).[0].UseCount |> should equal 2
 
     [<Theory>]
-    [<InlineData(0, 1)>]
+    [<InlineData(0, 0)>]
     [<InlineData(2, 3)>]
-    let ``prefix contributes original CE offsets to all result versions`` suffixCount expected =
-        let prefix = block 3 [|ce.create 0 1; ce.create 1 2|]
-        let network = block 3 [|ce.create 0 2; ce.create 0 1|]
-        let evaluation = ceBlockEval.create prefix network (ceUseCounts.CreateFromArray [|0;suffixCount|]) 0<sortableCount> None
+    let ``used CEs retain their original network indices in all result versions`` lastCount expected =
+        let network = block 3 [|ce.create 0 1; ce.create 1 2; ce.create 0 2; ce.create 0 1|]
+        let residual = (formats [|[|0;1;0|]|] 3)[0]
+        let evaluation = ceBlockEval.create network (ceUseCounts.CreateFromArray [|2;0;0;lastCount|]) 1<sortableCount> (Some residual)
         int evaluation.LastUsedIndex |> should equal expected
         let id = UMX.tag<sorterId> (Guid.NewGuid())
-        SorterEval.getLastCeIndex (SorterEval.createV1 id evaluation) |> int |> should equal expected
-        SorterEval.getLastCeIndex (SorterEval.createV2 id evaluation) |> int |> should equal expected
+        for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
+            SorterEval.getLastCeIndex (SorterEval.create version id evaluation) |> int |> should equal expected
+        evaluation.extractCeUseArray |> Array.map (fun usage -> int usage.CeIndex)
+        |> should equal (if lastCount = 0 then [|0|] else [|0;3|])
 
     [<Fact>]
     let ``empty evaluations consistently use minus one last index`` () =
         let network = block 3 [||]
-        let evaluation = ceBlockEval.create ceBlock.Empty network (ceUseCounts.Create 0<ceLength>) 0<sortableCount> None
+        let evaluation = ceBlockEval.create network (ceUseCounts.Create 0<ceLength>) 0<sortableCount> None
         let id = UMX.tag<sorterId> (Guid.NewGuid())
         int evaluation.LastUsedIndex |> should equal -1
         SorterEval.getLastCeIndex (SorterEval.createV2 id evaluation) |> int |> should equal -1
 
     [<Fact>]
-    let ``merging preserves prefix sentinel and sums exact counts`` () =
-        let prefix = block 3 [|ce.create 0 1|]
-        let network = block 3 [|ce.create 1 2|]
+    let ``merging sums exact counts at original network indices`` () =
+        let network = block 3 [|ce.create 0 1; ce.create 1 2|]
         let id = UMX.tag<sorterId> (Guid.NewGuid())
-        let make count = ceBlockEval.create prefix network (ceUseCounts.CreateFromArray [|count|]) 0<sortableCount> None |> SorterEval.createV2 id
+        let make count = ceBlockEval.create network (ceUseCounts.CreateFromArray [|2;count|]) 0<sortableCount> None |> SorterEval.createV2 id
         let merged = SorterEval.merge (make 90000) (make 80000)
-        SorterEval.getCeUseArray merged |> Array.map (fun c -> c.UseCount) |> should equal [|-1;170000|]
+        SorterEval.getCeUseArray merged |> Array.map (fun c -> c.UseCount) |> should equal [|4;170000|]
         let other = SorterEval.withSortableTestsSubsetId (UMX.tag "Other") (make 90000)
         SorterEval.getSequenceHash other |> should equal (SorterEval.getSequenceHash (make 90000))
 
@@ -195,11 +196,11 @@ module MigrationTests =
         Assert.Throws<ArgumentException>(fun () -> block 2 [|ce.create 0 2|] |> ignore) |> ignore
         Assert.Throws<ArgumentException>(fun () -> ceUseCounts.CreateFromArray [|-1|] |> ignore) |> ignore
         let network = block 3 [|ce.create 0 1|]
-        Assert.Throws<ArgumentException>(fun () -> ceBlockEval.create ceBlock.Empty network (ceUseCounts.Create 0<ceLength>) 0<sortableCount> None |> ignore) |> ignore
+        Assert.Throws<ArgumentException>(fun () -> ceBlockEval.create network (ceUseCounts.Create 0<ceLength>) 0<sortableCount> None |> ignore) |> ignore
         for inputs in formats [|[|1;0|]|] 2 do
-            Assert.Throws<ArgumentException>(fun () -> CeBlockOps.evalWithSorterTest inputs ceBlock.Empty network (UMX.tag false) |> ignore) |> ignore
+            Assert.Throws<ArgumentException>(fun () -> CeBlockOps.evalWithSorterTest inputs network (UMX.tag false) |> ignore) |> ignore
         let ints = sortableIntTests.create (UMX.tag (Guid.NewGuid())) 2<channelCount> [||]
-        Assert.Throws<ArgumentException>(fun () -> CeBlockOpsInt.eval ints ceBlock.Empty network |> ignore) |> ignore
+        Assert.Throws<ArgumentException>(fun () -> CeBlockOpsInt.eval ints network |> ignore) |> ignore
 
     let private roundTrip<'T> (dto: 'T) = MessagePackSetup.serialize dto |> MessagePackSetup.deserialize<'T>
 
@@ -210,12 +211,11 @@ module MigrationTests =
         let valid, wrong = block 2 [||], block 3 [||]
         for inputs in formats [||] 2 do
             let evaluate = CeBlockOps.evalWithSorterTests inputs
-            let run prefix networks = evaluate prefix networks (UMX.tag collect)
-            Assert.Empty(run ceBlock.Empty [||])
-            let result = Assert.Single(run valid [| valid |])
+            let run networks = evaluate networks (UMX.tag collect)
+            Assert.Empty(run [||])
+            let result = Assert.Single(run [| valid |])
             int result.UnsortedCount |> should equal 0
-            Assert.Throws<ArgumentException>(fun () -> run ceBlock.Empty [| valid; wrong |] |> ignore) |> ignore
-            Assert.Throws<ArgumentException>(fun () -> run wrong [||] |> ignore) |> ignore
+            Assert.Throws<ArgumentException>(fun () -> run [| valid; wrong |] |> ignore) |> ignore
 
     [<Theory>]
     [<InlineData(false)>]
@@ -224,7 +224,7 @@ module MigrationTests =
         let wrong = block 3 [||]
         for inputs in formats [||] 2 do
             let check evaluate =
-                Assert.Throws<ArgumentException>(fun () -> evaluate ceBlock.Empty [| wrong |] |> ignore) |> ignore
+                Assert.Throws<ArgumentException>(fun () -> evaluate [| wrong |] |> ignore) |> ignore
             match inputs with
             | sortableTests.Bitv512 t ->
                 check (if collect then CeBlockOpsBitv512.evalAndCollectNewSortableTests t else CeBlockOpsBitv512.eval t)
@@ -252,7 +252,7 @@ module MigrationTests =
         let network = sorter.create (UMX.tag (Guid.NewGuid())) 1<channelCount> [||]
         let inputs = (formats [| [|1|]; [|0|] |] 1)[0]
         for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
-            let result = SorterSetEval.makeSorterEvals [|network|] ceBlock.Empty inputs version (UMX.tag true) |> Array.exactlyOne
+            let result = SorterSetEval.makeSorterEvals [|network|] inputs version (UMX.tag true) |> Array.exactlyOne
             let actualVersion =
                 match result with
                 | sorterEval.V1 _ -> sorterEvalType.V1
@@ -268,7 +268,7 @@ module MigrationTests =
     [<Fact>]
     let ``length cutoff excludes a required comparator just beyond the cutoff`` () =
         let inputs = (formats [| [|1;0|] |] 2)[0]
-        let result = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty (block 2 [|ce.create 0 0; ce.create 0 1|]) (UMX.tag true)
+        let result = CeBlockOps.evalWithSorterTest inputs (block 2 [|ce.create 0 0; ce.create 0 1|]) (UMX.tag true)
         for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
             let evaluation = SorterEval.create version (UMX.tag (Guid.NewGuid())) result
             SorterEval.getIsShortEnough 1<ceLength> evaluation |> should equal false
@@ -277,14 +277,14 @@ module MigrationTests =
     [<Fact>]
     let ``sequence fingerprint has a stable versioned golden value`` () =
         let network = block 3 [|ce.create 0 1|]
-        let result = ceBlockEval.create ceBlock.Empty network (ceUseCounts.CreateFromArray [|1|]) 0<sortableCount> None
+        let result = ceBlockEval.create network (ceUseCounts.CreateFromArray [|1|]) 0<sortableCount> None
         let evaluation = SorterEval.createV2 (UMX.tag (Guid.NewGuid())) result
         SorterEval.getSequenceHash evaluation |> int |> should equal 992925443
 
     [<Fact>]
     let ``unknown failure count cannot deserialize as a successful sort`` () =
         let network = block 3 [||]
-        let result = ceBlockEval.create ceBlock.Empty network (ceUseCounts.Create 0<ceLength>) 0<sortableCount> None
+        let result = ceBlockEval.create network (ceUseCounts.Create 0<ceLength>) 0<sortableCount> None
         let evaluation = SorterEval.createV1 (UMX.tag (Guid.NewGuid())) result
         match SorterEvalDto.fromDomain evaluation with
         | sorterEvalDto.V1 dto ->
@@ -303,8 +303,8 @@ module MigrationTests =
     [<Theory>]
     [<InlineData(65536, 16777217)>]
     [<InlineData(1000000, 2147483647)>]
-    [<InlineData(0, -1)>]
-    let ``CE DTO preserves large indices counts and prefix sentinel exactly`` (index: int) count =
+    [<InlineData(0, 0)>]
+    let ``CE DTO preserves large indices and exact counts`` (index: int) count =
         let original = ceUse.create (UMX.tag index) count (ce.create 0 1)
         let restored = original |> CeDataDto.fromDomain |> roundTrip |> CeDataDto.toDomain
         restored |> should equal original
@@ -314,8 +314,9 @@ module MigrationTests =
         let bad = { CeIndex = -1; UseCount = 1; CeInt = Ce.toIndex (ce.create 0 1) }
         Assert.Throws<ArgumentException>(fun () -> CeDataDto.toDomain bad |> ignore) |> ignore
         Assert.Throws<ArgumentException>(fun () -> CeDataDto.toDomain {bad with CeIndex=0; UseCount= -2} |> ignore) |> ignore
+        Assert.Throws<ArgumentException>(fun () -> CeDataDto.toDomain {bad with CeIndex=0; UseCount= -1} |> ignore) |> ignore
         let network = block 3 [|ce.create 0 1|]
-        let evaluation = ceBlockEval.create ceBlock.Empty network (ceUseCounts.CreateFromArray [|2|]) 0<sortableCount> None
+        let evaluation = ceBlockEval.create network (ceUseCounts.CreateFromArray [|2|]) 0<sortableCount> None
         let dto = CeBlockEvalDto.fromDomain evaluation
         Assert.Throws<ArgumentException>(fun () -> CeBlockEvalDto.toDomain {dto with CeUseCounts=[||]} |> ignore) |> ignore
         Assert.Throws<ArgumentException>(fun () -> CeBlockEvalDto.toDomain {dto with UnsortedCount= -1} |> ignore) |> ignore
@@ -324,7 +325,7 @@ module MigrationTests =
     let ``evaluation block result versions and set serialize with explicit options`` () =
         let inputs = (formats [|[|0;1;0|]|] 3)[0]
         let network = block 3 [|ce.create 0 1|]
-        let result = CeBlockOps.evalWithSorterTest inputs ceBlock.Empty network (UMX.tag true)
+        let result = CeBlockOps.evalWithSorterTest inputs network (UMX.tag true)
         let restored = result |> CeBlockEvalDto.fromDomain |> roundTrip |> CeBlockEvalDto.toDomain
         restored.UseCountArray |> should equal result.UseCountArray
         restored.UnsortedCount |> should equal result.UnsortedCount

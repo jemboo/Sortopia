@@ -6,7 +6,7 @@ open Sortopia.Runs
 open Sortopia.Functions
 
 /// The same exact key is used for completion checks and publication.
-type plannedOutput = { Key: dataKey; Dependencies: storedDataReference list }
+type plannedOutput = { Key: dataKey; Validate: sortopiaStorageData -> unit }
 
 type outputState = Pending = 0 | Partial = 1 | Complete = 2 | Invalid = 3
 
@@ -18,6 +18,12 @@ type outputInspection = {
 }
 
 module OutputPlan =
+    let bind projectId databaseName isSetup functionName version (outputs: (runDataOutput * (sortopiaStorageData -> unit)) list) =
+        outputs |> List.map (fun (output, validate) ->
+            let keys = output.QueryParameters.ParamMap |> Map.toList |> List.map fst
+            output, { Key = DataKey.create projectId databaseName isSetup functionName version output.DataType keys output.QueryParameters output.Dependencies
+                      Validate = validate }) |> Map.ofList
+
     /// File integrity only; used to display availability without materializing
     /// every saved model and snapshot. Execution retains the full inspect path.
     let inspectIntegrity (store: SortopiaFileDb) (keys: dataKey array) (token: CancellationToken) =
@@ -43,22 +49,28 @@ module OutputPlan =
         if expected <> (inputs |> List.map _.DataType |> List.sort) then
             invalidArg "inputs" "Supply exactly one reference for each declared input type."
         let references = inputs |> List.map (fun reference -> reference.DataType, reference) |> Map.ofList
-        outputs |> Map.map (fun dataType keys ->
+        outputs |> Map.toList |> List.map (fun (dataType, keys) ->
             let inputs = dependencies[dataType] |> List.map (fun input -> references[input]) |> List.sort
-            { Key = DataKey.create projectId databaseName isSetup functionName version dataType keys parameters inputs
-              Dependencies = inputs })
+            RunDataOutput.create dataType keys parameters inputs, ignore)
+        |> bind projectId databaseName isSetup functionName version
 
     /// Existence alone is insufficient: TryLoad validates identity, schema,
     /// checksum and payload. Invalid data is never treated as a cache miss.
-    let inspect (store: ISortopiaDb) (plan: Map<sortopiaDataType, plannedOutput>) (token: CancellationToken) =
+    let inspect (store: ISortopiaDb) (plan: Map<runDataOutput, plannedOutput>) (token: CancellationToken) =
         let available = ResizeArray<storedOutput>()
         let errors = ResizeArray<string>()
-        for KeyValue(dataType, output) in plan do
+        for KeyValue(descriptor, output) in plan do
             token.ThrowIfCancellationRequested()
             match store.TryLoad(output.Key, token) with
-            | Ok (Some value) -> available.Add { Reference = value.Reference; Reused = true }
+            | Ok (Some value) ->
+                try
+                    output.Validate value.Value
+                    available.Add { Reference = value.Reference; Reused = true }
+                with
+                | :? OperationCanceledException -> reraise ()
+                | error -> errors.Add $"{descriptor.DataType}: {error.Message}"
             | Ok None -> ()
-            | Error message -> errors.Add $"{dataType}: {message}"
+            | Error message -> errors.Add $"{descriptor.DataType}: {message}"
         token.ThrowIfCancellationRequested()
         { State = if errors.Count > 0 then outputState.Invalid
                   elif available.Count = plan.Count then outputState.Complete

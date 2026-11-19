@@ -88,15 +88,16 @@ public sealed class ConfigurationCleanupTests : IDisposable
         var store = WorkspaceData.openProject(world, temporary.FullName, parent.Id);
         var plan = OutputPlan.create(parent.Id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
             config.DataTypes, ResultsFunctionCatalog.require(config.FunctionName).OutputDependencies, parameters, ListModule.Empty<storedDataReference>());
-        var writer = (IRunDatabase)new FileRunDatabase(store, plan, Token);
-        writer.SaveIfMissing(dataType, ListModule.Empty<storedDataReference>(), FuncConvert.FromFunc<Unit, functionData>(_ => payload));
+        var storage = new FileRunDatabase(store, plan, Token);
+        var writer = (IRunDatabase)storage;
+        writer.Save(storage.Outputs.Output(dataType, ListModule.Empty<storedDataReference>()), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => payload));
         var source = WorkspaceData.loadSource(world, temporary.FullName,
             new setupDataTypeConfig(dataType, parent.Id, ListModule.Empty<string>()), parameters, Token);
-        Assert.Equal(writer.StoredOutputs.Head.Reference, source.Reference);
+        Assert.Equal(storage.Outputs.Stored.Head.Reference, source.Reference);
         var currentKey = DataKey.create(parent.Id, config.DatabaseName, false, config.FunctionName,
             ResultsFunctionCatalog.require(config.FunctionName).Version, dataType, config.DataTypes[dataType], parameters, ListModule.Empty<storedDataReference>());
         Assert.NotEqual(currentKey.Id, source.Reference.Id);
-        Assert.IsType<functionData.SortableTests>(source.Value);
+        Assert.IsType<sortopiaStorageData.SortableTests>(source.Value);
     }
 
     [Fact]

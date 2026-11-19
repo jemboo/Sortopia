@@ -18,7 +18,7 @@ internal sealed record SearchCandidate(simpleSorterModel Model, NetworkDefinitio
     public NetworkDefinition Network { get; } = Network;
     internal NetworkDefinition RawNetwork { get; init; } = Network;
     internal NetworkCheckResult RawUsage { get; init; } = Usage;
-    internal int? RequestedSamples { get; init; } = Usage.Exhaustive ? null : Usage.Tested;
+    internal int? RequestedSamples => Usage.Exhaustive ? null : Usage.Tested;
     internal SorterFingerprint Fingerprint { get; } = SorterFingerprint.FromPacked(Network.Sequence);
     internal bool IsDuplicate { get; init; }
     internal SorterScore Score => new(Usage.Failed, Network.StageCount, Network.ComparatorCount);
@@ -29,35 +29,34 @@ internal sealed record SearchCandidate(simpleSorterModel Model, NetworkDefinitio
 internal static class NetworkSearch
 {
     public static SearchCandidate Prepare(string label, simpleSorterModel model, int? samples, CancellationToken token,
-        PreparedNetworkCheck? inputs = null)
+        NetworkCheck? inputs = null)
     {
         token.ThrowIfCancellationRequested();
         var prefix = SimpleSorterModel.getPrefix(model);
-        var suffix = SimpleSorterModel.makeSorterWithoutPrefix(null, model);
-        var full = SimpleSorterModel.makeSorterWithPrefix(null, model);
-        inputs ??= new PreparedNetworkCheck(full.ChannelCount, samples, prefix, useSimd: false, token);
-        if (!inputs.Matches(full.ChannelCount, samples, prefix))
-            throw new ArgumentException("Prepared inputs must have the same width, coverage, and prefix as the model.", nameof(inputs));
-        var checkedSequence = inputs.EvaluateSuffix(suffix, token);
+        var full = SimpleSorterModel.makeSorter(null, model);
+        inputs ??= new NetworkCheck(full.ChannelCount, samples, useSimd: false, token);
+        if (!inputs.Matches(full.ChannelCount, samples))
+            throw new ArgumentException("Prepared inputs must have the same width and requested sample coverage as the model.", nameof(inputs));
+        var checkedSequence = inputs.Evaluate(full, token, includeCounterexample: false);
         var raw = NetworkDefinition.FromSorter(label, full, prefix.Length);
-        var check = NetworkTransforms.PreserveUsage(full.Ces, raw, checkedSequence, removeUnused: false)!;
+        var check = NetworkTransforms.PreserveUsage(full.Ces, raw, checkedSequence, removeUnused: false, prefix.Length)!;
         token.ThrowIfCancellationRequested();
         var used = NetworkTransforms.RemoveUnusedCes(raw, check);
         token.ThrowIfCancellationRequested();
         var compact = NetworkTransforms.Compact(used);
         token.ThrowIfCancellationRequested();
         var usage = NetworkTransforms.PreserveUsage(raw, compact, check, removeUnused: true)!;
-        return new(model, compact, usage) { RawNetwork = raw, RawUsage = check, RequestedSamples = samples };
+        return new(model, compact, usage) { RawNetwork = raw, RawUsage = check };
     }
 
     public static async Task<SearchCandidate> NextGenerationAsync(SearchCandidate parent, simpleSorterModelMutator mutator,
         int generation, int children, CancellationToken token, Func<SorterScore, int, Task>? childEvaluated = null,
-        PreparedNetworkCheck? inputs = null, Func<SearchCandidate, int, Task>? candidateEvaluated = null,
+        NetworkCheck? inputs = null, Func<SearchCandidate, int, Task>? candidateEvaluated = null,
         SgdDuplicateTracker? duplicates = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(children);
         var samples = parent.RequestedSamples;
-        inputs ??= new PreparedNetworkCheck(parent.Network.Width, samples, SimpleSorterModel.getPrefix(parent.Model), useSimd: false, token);
+        inputs ??= new NetworkCheck(parent.Network.Width, samples, useSimd: false, token);
         var best = parent;
         for (var child = 0; child < children; child++)
         {

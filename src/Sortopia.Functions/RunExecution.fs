@@ -85,9 +85,8 @@ module RunExecution =
                 notify ()
                 let host: runHost = makeHost ()
                 functionValue host
-                let database = if phase = runExecutionPhase.Setup then host.SetupDb else host.ResultsDb
                 destination.Add { Phase = phase; FunctionName = name; SetupSetNumber = setupNumber
-                                  SetNumber = setNumber; Parameters = parameters; StoredOutputs = database.StoredOutputs }
+                                  SetNumber = setNumber; Parameters = parameters; StoredOutputs = host.Outputs.Stored }
                 notify ()
                 cancellation.ThrowIfCancellationRequested()
             match setupFunction, sets.Setup with

@@ -36,8 +36,8 @@ module internal WorkspaceRemoval =
     // Query keys are explicit spans. Incomplete surviving drafts conservatively
     // protect their output type; deleting another run must not discard their data.
     let private retainedQueries (project: ProjectDocument) (token: CancellationToken) =
-        let queries = Collections.Generic.HashSet<Guid<sortopiaDataId>>()
-        let unknown = Collections.Generic.HashSet<bool * sortopiaDataType>()
+        let queries = Collections.Generic.HashSet<Guid<sortopiaQueryId>>()
+        let unknown = Collections.Generic.HashSet<runExecutionPhase * sortopiaDataType>()
         let settings = project.Definition.configuration
         if not project.Definition.isSealed then fun _ _ -> true
         else
@@ -57,7 +57,7 @@ module internal WorkspaceRemoval =
                         queries.Add key.QueryId |> ignore
                 with
                 | :? OperationCanceledException -> reraise ()
-                | :? ArgumentException | :? InvalidOperationException | :? FormatException | :? OverflowException -> unknown.Add(setup, dataType) |> ignore
+                | :? ArgumentException | :? InvalidOperationException | :? FormatException | :? OverflowException -> unknown.Add(RunExecutionPhase.fromIsSetup setup, dataType) |> ignore
             let perRun = project.Runs |> Array.map (fun r ->
                 queries.Clear(); unknown.Clear()
                 for output in settings.resultsDataTypes do
@@ -67,8 +67,8 @@ module internal WorkspaceRemoval =
                 Set.ofSeq queries, Set.ofSeq unknown)
             fun (reference: storedDataReference) (dependencies: storedDataReference list) ->
                 perRun |> Array.exists (fun (queries, unknown) ->
-                    let matches (value: storedDataReference) = Set.contains value.QueryId queries || Set.contains (value.IsSetup, value.DataType) unknown
-                    matches reference && (reference.IsSetup || dependencies |> List.forall (fun input -> input.ProjectId = reference.ProjectId && input.IsSetup && matches input)))
+                    let matches (value: storedDataReference) = Set.contains value.QueryId queries || Set.contains (value.Phase, value.DataType) unknown
+                    matches reference && (reference.Phase = runExecutionPhase.Setup || dependencies |> List.forall (fun input -> input.ProjectId = reference.ProjectId && input.Phase = runExecutionPhase.Setup && matches input)))
 
     let runFiles folder (project: ProjectDocument) removed token =
         let parameters = Path.Combine(folder, "runParameters")
@@ -81,7 +81,7 @@ module internal WorkspaceRemoval =
         // Unconsumed setup outputs are not recorded in SetupInputs, but still belong
         // to surviving prepared runs. Draft runs alone do not retain any generated data.
         RunDataCleanup.plan folder (UMX.tag project.Definition.id) removed
-            (fun reference dependencies -> not prepared.IsEmpty && reference.IsSetup && keepSetup reference dependencies) token
+            (fun reference dependencies -> not prepared.IsEmpty && reference.Phase = runExecutionPhase.Setup && keepSetup reference dependencies) token
 
     let plan root (previous: WorkspaceDocument) (next: WorkspaceDocument) (moves: WorkspaceFolderMove array) token =
         let oldEntities = entities root previous

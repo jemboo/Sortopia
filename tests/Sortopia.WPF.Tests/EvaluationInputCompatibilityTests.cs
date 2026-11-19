@@ -12,27 +12,27 @@ namespace Sortopia.WPF.Tests;
 
 public sealed class EvaluationInputCompatibilityTests
 {
-    private static functionData.SortableTests Tests(bool prefixed)
+    private static sortopiaStorageData.SortableTests Tests(bool prefixed)
     {
         var parameters = prefixed ? parameterSet.fromBindings([
             ParameterBinding.create(ParamKeys.mergeLibIdKey, MergeLibId.availableForChannelCount(4).First(value => value.MergeDimension == 2)),
             ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")])
             : parameterSet.fromBindings([ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools")]);
-        return Assert.IsType<functionData.SortableTests>(Assert.Single(CatalogTestHost.Invoke(false,
+        return Assert.IsType<sortopiaStorageData.SortableTests>(Assert.Single(CatalogTestHost.Invoke(false,
             prefixed ? ResultsFunctionNames.mergeSortableTests : ResultsFunctionNames.standardSortableTests, parameters)));
     }
 
-    private static functionData Models(ce[] prefix)
+    private static sortopiaStorageData Models(ce[] prefix)
     {
-        var generated = Assert.IsType<functionData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false,
+        var generated = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false,
             ResultsFunctionNames.uniformMssiSimpleSorterModels,
             parameterSet.fromBindings(RunExecutionTests.UniformModelDefaults().Select(ParameterBindingDto.toDomain))))).Item;
         var models = generated.SorterModels.Cast<sorterModel.Simple>()
             .Select(model => sorterModel.NewSimple(SimpleSorterModel.withPrefix(prefix, model.Item))).ToArray();
-        return functionData.NewSorterModelSet(sorterModelSet.create(Guid.NewGuid(), models, generated.RawCeLength));
+        return sortopiaStorageData.NewSorterModelSet(sorterModelSet.create(Guid.NewGuid(), models, generated.RawCeLength));
     }
 
-    private static FSharpList<functionData> Invoke(string phase, functionData models, functionData tests)
+    private static FSharpList<sortopiaStorageData> Invoke(string phase, sortopiaStorageData models, sortopiaStorageData tests)
     {
         var setup = phase == "copy";
         var name = setup ? SetupFunctionNames.evaluationSource : phase == "evaluate" ? ResultsFunctionNames.sorterEval : ResultsFunctionNames.mutantEval;
@@ -44,36 +44,27 @@ public sealed class EvaluationInputCompatibilityTests
 
     public static IEnumerable<object[]> CompatibleInputs =>
         from phase in new[] { "copy", "evaluate", "mutants" }
-        from modelPrefix in new[] { false, true }
+        from modelPrefix in new[] { "empty", "matching", "different" }
         from testsPrefix in new[] { false, true }
         select new object[] { phase, modelPrefix, testsPrefix };
 
     [Theory]
     [MemberData(nameof(CompatibleInputs))]
-    public void Matching_prefixes_and_either_empty_prefix_remain_compatible(string phase, bool modelPrefix, bool testsPrefix)
+    public void Model_prefix_is_independent_of_test_construction(string phase, string modelPrefix, bool testsPrefix)
     {
         var tests = Tests(testsPrefix);
-        var models = Models(modelPrefix ? Tests(true).Item2 : []);
+        var models = Models(modelPrefix switch {
+            "matching" => [ce.create(0, 1), ce.create(2, 3)],
+            "different" => [ce.create(0, 3), ce.create(1, 2)],
+            _ => []
+        });
         var outputs = Invoke(phase, models, tests);
         if (phase == "copy")
         {
             Assert.Same(models, outputs.Single(value => value.IsSorterModelSet));
             Assert.Same(tests, outputs.Single(value => value.IsSortableTests));
         }
-        else Assert.Equal(3, Assert.IsType<functionData.SorterSetEval>(Assert.Single(outputs)).Item.SorterEvals.Length);
+        else Assert.Equal(3, Assert.IsType<sortopiaStorageData.SorterSetEval>(Assert.Single(outputs)).Item.SorterEvals.Length);
     }
 
-    [Theory]
-    [InlineData("copy")]
-    [InlineData("evaluate")]
-    [InlineData("mutants")]
-    public void Different_nonempty_prefixes_keep_the_existing_errors(string phase)
-    {
-        var tests = Tests(true);
-        var models = Models(tests.Item2.Reverse().ToArray());
-        var error = Assert.Throws<ArgumentException>(() => Invoke(phase, models, tests));
-        Assert.Equal("inputs", error.ParamName);
-        Assert.StartsWith(phase == "copy" ? "The source sorter model prefix must match the source SortableTests prefix."
-            : "The model prefix must match the source SortableTests prefix. Regenerate models using the associated tests.", error.Message);
-    }
 }
