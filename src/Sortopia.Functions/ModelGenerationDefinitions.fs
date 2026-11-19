@@ -11,14 +11,14 @@ module internal ModelGenerationDefinitions =
     type private specification = {
         ParameterSupport: functionParameterSupport
         RequiredParameters: paramKeyDescriptor list
-        Outputs: (sortopiaDataType * string<paramKeyName> list) list
+        Outputs: functionOutputDefinition list
         Description: runExecutionPhase -> string
         Save: runHost -> unit
     }
 
     let private create includeTests source (algorithm: simpleModelAlgorithm) constructor =
         let modelKeys = ModelGenerators.keys source algorithm constructor
-        let modelOutput = modelsType, InputGenerators.queryKeys modelKeys
+        let modelOutput = { DataType = modelsType; ParameterKeys = InputGenerators.queryKeys modelKeys; Dependencies = [] }
         let description = algorithm.Description source constructor
         let support = algorithm.ParameterSupport includeTests source constructor.Guidance
         let modelCombinationError defaults spans =
@@ -41,7 +41,7 @@ module internal ModelGenerationDefinitions =
               if includeTests then InputGenerators.standardKeys @ modelKeys |> List.distinctBy (fun key -> key.Name)
               else modelKeys
           Outputs =
-              if includeTests then [testsType, InputGenerators.queryKeys InputGenerators.standardKeys; modelOutput]
+              if includeTests then [{ DataType = testsType; ParameterKeys = InputGenerators.queryKeys InputGenerators.standardKeys; Dependencies = [] }; modelOutput]
               else [modelOutput]
           Description = fun phase ->
               match includeTests, phase with
@@ -61,13 +61,13 @@ module internal ModelGenerationDefinitions =
 
     let private setup includeTests algorithm constructor =
         let spec = create includeTests modelPrefixMode.NoPrefix algorithm constructor
-        FunctionDefinition.setup algorithm.Version (setupParameterRequirements.Declared spec.RequiredParameters) spec.Outputs [] spec.ParameterSupport
+        FunctionDefinition.setup algorithm.Version (setupParameterRequirements.Declared spec.RequiredParameters) spec.Outputs spec.ParameterSupport
             (fun host _ -> spec.Save host)
         |> describe runExecutionPhase.Setup spec
 
     let private results includeTests source algorithm constructor =
         let spec = create includeTests source algorithm constructor
-        FunctionDefinition.results algorithm.Version spec.RequiredParameters spec.Outputs [] spec.ParameterSupport
+        FunctionDefinition.results algorithm.Version spec.RequiredParameters spec.Outputs spec.ParameterSupport
             spec.Save
         |> describe runExecutionPhase.Results spec
 

@@ -29,16 +29,16 @@ public sealed class FunctionBuilderTests
             FuncConvert.FromFunc<FSharpList<parameterBinding>, FSharpFunc<FSharpList<parameterSpan>, string>>(_ =>
                 FuncConvert.FromFunc<FSharpList<parameterSpan>, string>(_ => { validations++; return ""; })));
         FSharpList<paramKeyDescriptor> required = [ParamKey.describe(ParamKeys.channelCountKey)];
-        FSharpList<Tuple<sortopiaDataType, FSharpList<string>>> outputs = [Tuple.Create(Models, ListModule.Singleton("ChannelCount"))];
+        FSharpList<functionOutputDefinition> outputs = [new(Models, ["ChannelCount"], [])];
         Action<runHost> execute;
         if (setup)
         {
-            var definition = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(required), outputs, [], support, Setup);
+            var definition = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(required), outputs, support, Setup);
             execute = host => definition.Execute.Invoke(host).Invoke(MapModule.Empty<sortopiaDataType, Guid>());
         }
         else
         {
-            var definition = FunctionDefinition.results("1", required, outputs, [], support, Results);
+            var definition = FunctionDefinition.results("1", required, outputs, support, Results);
             execute = host => definition.Execute.Invoke(host);
         }
         var phase = setup ? runExecutionPhase.Setup : runExecutionPhase.Results;
@@ -62,8 +62,7 @@ public sealed class FunctionBuilderTests
         var requirements = fromSources ? setupParameterRequirements.FromSources
             : setupParameterRequirements.NewDeclared([ParamKey.describe(ParamKeys.replKey)]);
         var definition = FunctionDefinition.setup("2", requirements,
-            [Tuple.Create(Models, ListModule.Empty<string>()), Tuple.Create(Tests, ListModule.Empty<string>())],
-            [Tuple.Create(Models, ListModule.Singleton(Models)), Tuple.Create(Tests, ListModule.Singleton(Tests))],
+            [new(Models, [], [Models]), new(Tests, [], [Tests])],
             FunctionParameterSupport.empty, Setup);
         Assert.Equal(fromSources, definition.ParametersFromSources);
         Assert.Equal(fromSources ? 0 : 1, definition.RequiredParameters.Count());
@@ -80,23 +79,23 @@ public sealed class FunctionBuilderTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Empty_dependencies_mean_independent_outputs_but_partial_tables_are_rejected(bool setup)
+    public void Empty_dependencies_mean_independent_outputs_and_require_no_sources(bool setup)
     {
-        FSharpList<Tuple<sortopiaDataType, FSharpList<string>>> outputs =
-            [Tuple.Create(Models, ListModule.Empty<string>()), Tuple.Create(Tests, ListModule.Empty<string>())];
+        FSharpList<functionOutputDefinition> outputs = [new(Models, [], []), new(Tests, [], [])];
         FSharpMap<sortopiaDataType, FSharpList<sortopiaDataType>> dependencies;
-        FSharpList<Tuple<sortopiaDataType, FSharpList<sortopiaDataType>>> partial = [Tuple.Create(Models, ListModule.Empty<sortopiaDataType>())];
         if (setup)
         {
             var required = setupParameterRequirements.NewDeclared([]);
-            dependencies = FunctionDefinition.setup("1", required, outputs, [], FunctionParameterSupport.empty, Setup).OutputDependencies;
-            Assert.Throws<ArgumentException>(() => FunctionDefinition.setup("1", required, outputs, partial, FunctionParameterSupport.empty, Setup));
-            Assert.Throws<ArgumentException>(() => FunctionDefinition.setup("1", setupParameterRequirements.FromSources, outputs, [], FunctionParameterSupport.empty, Setup));
+            var definition = FunctionDefinition.setup("1", required, outputs, FunctionParameterSupport.empty, Setup);
+            dependencies = definition.OutputDependencies;
+            Assert.Empty(definition.SourceDataTypes);
+            Assert.Throws<ArgumentException>(() => FunctionDefinition.setup("1", setupParameterRequirements.FromSources, outputs, FunctionParameterSupport.empty, Setup));
         }
         else
         {
-            dependencies = FunctionDefinition.results("1", [], outputs, [], FunctionParameterSupport.empty, Results).OutputDependencies;
-            Assert.Throws<ArgumentException>(() => FunctionDefinition.results("1", [], outputs, partial, FunctionParameterSupport.empty, Results));
+            var definition = FunctionDefinition.results("1", [], outputs, FunctionParameterSupport.empty, Results);
+            dependencies = definition.OutputDependencies;
+            Assert.Empty(definition.SourceDataTypes);
         }
         Assert.Equal(new[] { Models, Tests }.Order(), dependencies.Keys.Order());
         Assert.All(dependencies.Values, values => Assert.Empty(values));

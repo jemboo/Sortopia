@@ -67,7 +67,7 @@ public sealed class FunctionValidationRulesTests
         var empty = FunctionParameterSupport.empty;
         var rule = new parameterEditorRule([], "Batch width must be odd.", FuncConvert.FromFunc<string, bool>(text => int.Parse(text) % 2 == 1));
         var required = ListModule.Singleton(new paramKeyDescriptor("BatchWidth", parameterValueType.Integer));
-        var outputs = ListModule.Singleton(Tuple.Create(sortopiaDataType.NewSorterModelSet(""), ListModule.Singleton("BatchWidth")));
+        FSharpList<functionOutputDefinition> outputs = [new(sortopiaDataType.NewSorterModelSet(""), ["BatchWidth"], [])];
         var combinations = 0;
         var cross = FuncConvert.FromFunc<FSharpList<parameterBinding>, FSharpFunc<FSharpList<parameterSpan>, string>>(_ =>
             FuncConvert.FromFunc<FSharpList<parameterSpan>, string>(_ => { combinations++; return "Combination rejected."; }));
@@ -89,13 +89,13 @@ public sealed class FunctionValidationRulesTests
         }
         if (setup)
         {
-            var definition = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(required), outputs, [], support,
+            var definition = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(required), outputs, support,
                 FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(_ => throw new InvalidOperationException("Execution must not start.")));
             Check(definition, host => definition.Execute.Invoke(host).Invoke(MapModule.Empty<sortopiaDataType, Guid>()));
         }
         else
         {
-            var definition = FunctionDefinition.results("1", required, outputs, [], support,
+            var definition = FunctionDefinition.results("1", required, outputs, support,
                 FuncConvert.FromFunc<runHost, Unit>(_ => throw new InvalidOperationException("Execution must not start.")));
             Check(definition, host => definition.Execute.Invoke(host));
         }

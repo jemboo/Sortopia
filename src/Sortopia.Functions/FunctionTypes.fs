@@ -183,6 +183,18 @@ type setupParameterRequirements =
     | Declared of paramKeyDescriptor list
     | FromSources
 
+/// One saved output's contributing parameters and exact input types.
+type functionOutputDefinition = {
+    DataType: sortopiaDataType
+    /// Catalog contributions, not the project's chosen query-key projection.
+    ParameterKeys: string<paramKeyName> list
+    Dependencies: sortopiaDataType list
+}
+
+module internal FunctionOutputs =
+    let sources (outputs: functionOutputDefinition list) =
+        outputs |> List.collect _.Dependencies |> List.distinct |> List.sort
+
 /// Required inputs are independent of the project's chosen query projections.
 type functionDefinition<'executor> = {
     Version: string
@@ -192,12 +204,7 @@ type functionDefinition<'executor> = {
     RequiredParameters: paramKeyDescriptor list
     /// Copy functions take their required keys from the selected source output projections.
     ParametersFromSources: bool
-    /// Catalog metadata: parameters contributing to each output, not fixed query keys.
-    DataTypes: Map<sortopiaDataType, string<paramKeyName> list>
-    /// Setup: outputs read from source projects. Results: inputs consumed from setup.
-    SourceDataTypes: sortopiaDataType list
-    /// Exact input types contributing to each output's stable identity.
-    OutputDependencies: Map<sortopiaDataType, sortopiaDataType list>
+    Outputs: functionOutputDefinition list
     /// Composed from ParameterSupport's field rules and the function's combination checks.
     /// Missing keys are allowed here so module/project defaults can be checked too.
     InputError: parameterBinding list -> parameterSpan list -> string
@@ -206,7 +213,11 @@ type functionDefinition<'executor> = {
     Execute: 'executor
 }
 with
-    member this.SortopiaDataTypes = this.DataTypes |> Map.toList |> List.map fst
+    member this.DataTypes = this.Outputs |> List.map (fun output -> output.DataType, output.ParameterKeys) |> Map.ofList
+    member this.OutputDependencies = this.Outputs |> List.map (fun output -> output.DataType, output.Dependencies) |> Map.ofList
+    /// Setup: source-project outputs. Results: inputs consumed from setup.
+    member this.SourceDataTypes = FunctionOutputs.sources this.Outputs
+    member this.SortopiaDataTypes = this.Outputs |> List.map _.DataType |> List.sort
     member this.SupportsEvolutionReporting = this.SortopiaDataTypes |> List.exists (fun value -> value.IsSorterPoolSet)
 
 module SortopiaStorageData =
@@ -296,40 +307,32 @@ module FunctionDefinition =
         let expected = host.Outputs.Planned |> List.map host.Database.Find |> List.sort
         let actual = host.Outputs.Stored |> List.map _.Reference |> List.sort
         if expected <> actual then invalidOp "The function must save exactly its planned outputs through its host database."
-    let private contract version (required: paramKeyDescriptor list) entries =
+    let private contract version (required: paramKeyDescriptor list) (outputs: functionOutputDefinition list) =
         if System.String.IsNullOrWhiteSpace version then invalidArg "version" "Function version must not be blank."
         let names = required |> List.map (fun key -> key.Name)
         if names.Length <> (Set.ofList names).Count then invalidArg "requiredParameters" "Declare each required parameter exactly once."
         for key in required do
             if System.String.IsNullOrWhiteSpace (UMX.untag key.Name) then invalidArg "requiredParameters" "Required parameter keys must not be blank."
-        let types = entries |> Map.ofList
-        if types.IsEmpty || types.Count <> List.length entries then invalidArg "dataTypes" "Declare each saved data type exactly once."
-        let kinds = types |> Map.toList |> List.map (fst >> SortopiaDataType.kindName)
+        let types = outputs |> List.map _.DataType
+        if types.IsEmpty || (List.distinct types).Length <> types.Length then invalidArg "outputs" "Declare each saved data type exactly once."
+        let kinds = types |> List.map SortopiaDataType.kindName
         if (Set.ofList kinds).Count <> kinds.Length then invalidArg "dataTypes" "Current executors support one output of each data kind."
-        for dataType, keys in entries do
-            SortopiaDataType.validate dataType
+        for output in outputs do
+            SortopiaDataType.validate output.DataType
+            let keys = output.ParameterKeys
             if (List.distinct keys).Length <> keys.Length then invalidArg "dataTypes" "Each output's contributing parameter keys must be unique."
             for key in keys do
                 if not (List.contains key names) then invalidArg "dataTypes" $"Output parameter '{key}' is not a declared required parameter."
-        types
+            if (List.distinct output.Dependencies).Length <> output.Dependencies.Length then
+                invalidArg "dependencies" "Each output's dependencies must be unique."
+            output.Dependencies |> List.iter SortopiaDataType.validate
+        outputs
 
-    let private dependencies types entries =
-        // An empty table declares no inputs. A nonempty table must cover every output.
-        let entries = if List.isEmpty entries then types |> Map.toList |> List.map (fun (dataType, _) -> dataType, []) else entries
-        let dependencies = Map.ofList entries
-        if dependencies.Count <> List.length entries || (dependencies |> Map.toList |> List.map fst) <> (types |> Map.toList |> List.map fst) then
-            invalidArg "dependencies" "Declare dependencies for every output exactly once, including outputs without inputs."
-        for _, inputs in entries do
-            if (List.distinct inputs).Length <> inputs.Length then invalidArg "dependencies" "Each output's dependencies must be unique."
-            inputs |> List.iter SortopiaDataType.validate
-        dependencies, (entries |> List.collect snd |> List.distinct |> List.sort)
-
-    /// Build a results function with shared field and combination validation. Empty inputs mean no dependencies.
-    let results version required dataTypes inputs support (execute: resultsFunction) : functionDefinition<resultsFunction> =
-        let types = contract version required dataTypes
-        let dependencies, sources = dependencies types inputs
+    /// Build a results function with one declaration per output and shared validation.
+    let results version required outputs support (execute: resultsFunction) : functionDefinition<resultsFunction> =
+        let outputs = contract version required outputs
         let inputError = FunctionParameterSupport.inputError support
-        { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = false; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = false; Outputs = outputs
           InputError = inputError; Prepare = ignore
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
@@ -340,18 +343,18 @@ module FunctionDefinition =
               saved host }
 
     /// Build a setup function with declared or source-derived requirements and shared validation.
-    let setup version parameterRequirements dataTypes inputs support (execute: setupFunction) : functionDefinition<setupFunction> =
+    let setup version parameterRequirements outputs support (execute: setupFunction) : functionDefinition<setupFunction> =
         let required, fromSources =
             match parameterRequirements with
             | setupParameterRequirements.Declared required -> required, false
             | setupParameterRequirements.FromSources -> [], true
-        let types = contract version required dataTypes
-        let dependencies, sources = dependencies types inputs
+        let outputs = contract version required outputs
+        let sources = FunctionOutputs.sources outputs
         for source in sources do
-            if not (Map.containsKey source types) then invalidArg "sources" "Each source must match a declared output type."
+            if not (outputs |> List.exists (fun output -> output.DataType = source)) then invalidArg "sources" "Each source must match a declared output type."
         if fromSources && sources.IsEmpty then invalidArg "sources" "Source-derived parameters require source inputs."
         let inputError = FunctionParameterSupport.inputError support
-        { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = fromSources; DataTypes = types; SourceDataTypes = sources; OutputDependencies = dependencies
+        { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = fromSources; Outputs = outputs
           InputError = inputError; Prepare = ignore
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."

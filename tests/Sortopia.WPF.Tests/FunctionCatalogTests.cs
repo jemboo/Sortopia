@@ -44,15 +44,15 @@ public sealed class FunctionCatalogTests
         var factory = new CatalogTestHost(value, TestContext.Current.CancellationToken);
         var sets = RunParameterSets.create(value);
         var resultsDefinition = ResultsFunctionCatalog.functions[value.ResultsFunctionName];
-        var noResults = FunctionDefinition.results("1", resultsDefinition.RequiredParameters, ListModule.OfSeq(resultsDefinition.DataTypes.Select(pair => Tuple.Create(pair.Key, pair.Value))),
-            [], resultsDefinition.ParameterSupport,
+        var noResults = FunctionDefinition.results("1", resultsDefinition.RequiredParameters, resultsDefinition.Outputs,
+            resultsDefinition.ParameterSupport,
             FuncConvert.FromFunc<runHost, Unit>(_ => null!));
         var results = factory.ForResults(sets.Results[0], ListModule.Empty<storedOutput>());
         Assert.Contains("save exactly", Assert.Throws<InvalidOperationException>(() => noResults.Execute.Invoke(results)).Message);
 
         var setupDefinition = SetupFunctionCatalog.functions[value.SetupFunctionName.Value];
-        var noSetup = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(setupDefinition.RequiredParameters), ListModule.OfSeq(setupDefinition.DataTypes.Select(pair => Tuple.Create(pair.Key, pair.Value))),
-            [], setupDefinition.ParameterSupport,
+        var noSetup = FunctionDefinition.setup("1", setupParameterRequirements.NewDeclared(setupDefinition.RequiredParameters), setupDefinition.Outputs,
+            setupDefinition.ParameterSupport,
             FuncConvert.FromFunc<runHost, FSharpFunc<FSharpMap<sortopiaDataType, Guid>, Unit>>(_ =>
                 FuncConvert.FromFunc<FSharpMap<sortopiaDataType, Guid>, Unit>(_ => null!)));
         var setup = factory.ForSetup(sets.Setup.Value[0]);
