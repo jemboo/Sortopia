@@ -40,18 +40,19 @@ module OutputPlan =
                   elif available.Count = 0 then outputState.Pending else outputState.Partial
           Available = List.ofSeq available; ExpectedCount = keys.Length; Error = String.Join(Environment.NewLine, errors) }
 
+    /// Project query projections are explicit, independent of catalog parameter contributions.
     let create projectId databaseName isSetup functionName version
-               (outputs: Map<sortopiaDataType, _>) (dependencies: Map<sortopiaDataType, sortopiaDataType list>)
+               (outputs: functionOutputDefinition list) (queryProjections: Map<sortopiaDataType, _>)
                parameters (inputs: storedDataReference list) =
-        if (outputs |> Map.toList |> List.map fst) <> (dependencies |> Map.toList |> List.map fst) then
-            invalidArg "dependencies" "Output dependencies must match the declared output types exactly."
-        let expected = dependencies |> Map.toList |> List.collect snd |> List.distinct |> List.sort
+        if (outputs |> List.map _.DataType |> List.sort) <> (queryProjections |> Map.toList |> List.map fst) then
+            invalidArg "queryProjections" "Query projections must match the declared output types exactly."
+        let expected = outputs |> List.collect _.Dependencies |> List.distinct |> List.sort
         if expected <> (inputs |> List.map _.DataType |> List.sort) then
             invalidArg "inputs" "Supply exactly one reference for each declared input type."
         let references = inputs |> List.map (fun reference -> reference.DataType, reference) |> Map.ofList
-        outputs |> Map.toList |> List.map (fun (dataType, keys) ->
-            let inputs = dependencies[dataType] |> List.map (fun input -> references[input]) |> List.sort
-            RunDataOutput.create dataType keys parameters inputs, ignore)
+        outputs |> List.map (fun output ->
+            let inputs = output.Dependencies |> List.map (fun input -> references[input])
+            RunDataOutput.create output.DataType queryProjections[output.DataType] parameters inputs, ignore)
         |> bind projectId databaseName isSetup functionName version
 
     /// Existence alone is insufficient: TryLoad validates identity, schema,

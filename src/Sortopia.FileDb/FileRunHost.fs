@@ -87,7 +87,7 @@ module FileResultsHost =
         if inputs |> List.exists (fun reference -> reference.ProjectId <> projectId || reference.Phase <> runExecutionPhase.Setup) then
             invalidArg "inputs" "Results inputs must be project-local setup references."
         OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
-                          config.DataTypes definition.OutputDependencies parameters inputs
+                          definition.Outputs config.DataTypes parameters inputs
 
     let planWithReporting projectId (config: resultsConfig) parameters inputs reporting =
         let ordinary = plan projectId config parameters inputs
@@ -150,8 +150,8 @@ type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: Cancellation
             let sources = entries |> List.map (fun entry -> findSource (entry.SourceProjectId, entry.DataType, parameters))
             let inputs = sources |> List.map _.Reference
             let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
-                                        branch.ProjectConfiguration.Setup.FunctionVersion branch.ProjectConfiguration.Setup.DataTypes
-                                        definition.OutputDependencies parameters inputs
+                                        branch.ProjectConfiguration.Setup.FunctionVersion definition.Outputs
+                                        branch.ProjectConfiguration.Setup.DataTypes parameters inputs
             let reads = sources |> List.map (fun data -> data.Reference, fun () -> data.Value) |> Map.ofList
             let database = FileRunDatabase(store, plan, token, reads, findSource)
             { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; Reporting = None; PreparationCache = None

@@ -10,14 +10,16 @@ public sealed record NetworkCheckResult(int Tested, bool Exhaustive, int[]? Coun
     int Failed, IReadOnlyList<int> CeUses)
 {
     public IReadOnlyList<bool> FixedCes { get; init; } = Array.Empty<bool>();
-    public bool IsFixedCe(int index) => FixedCes.Count == CeUses.Count && FixedCes[index];
+    public bool IsFixedCe(int index) => CeUses[index] == -1 || FixedCes.Count == CeUses.Count && FixedCes[index];
     public string Coverage => Exhaustive ? "Exhaustive" : "Sampled";
     public string Description => Failed > 0
         ? $"Failed: {Failed:N0} of {Tested:N0} {(Exhaustive ? "all" : "sampled")} binary inputs were unsorted."
             + (Counterexample is null ? "" : " The first failing input is loaded below.")
         : Exhaustive ? $"Verified: sorted all {Tested:N0} binary inputs (0–1 rule)."
         : $"Passed {Tested:N0} sampled binary inputs. This is not a proof that the network sorts every input.";
-    public string UsageSummary => $"CE usage: {CeUses.Count(n => n > 0):N0} of {CeUses.Count:N0} CEs swapped values across {Tested:N0} inputs. Hover over a CE for its count and percentage.";
+    public string UsageSummary => $"CE usage: {CeUses.Count(n => n > 0):N0} of {CeUses.Count(n => n >= 0):N0} evaluated CEs swapped values across {Tested:N0} inputs."
+        + (CeUses.Any(n => n == -1) ? $" {CeUses.Count(n => n == -1):N0} prefix CEs were already applied during input filtering." : "")
+        + " Hover over a CE for its count and percentage.";
 }
 
 /// <summary>Prepares reusable binary inputs and evaluates complete sorters, optionally retaining the first failing input.</summary>

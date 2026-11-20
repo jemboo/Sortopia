@@ -30,7 +30,9 @@ public sealed class FunctionOutputDefinitionTests
         var database = setup ? "Setup" : "Results";
         var oldKeys = MapModule.OfSeq(new[] { Tuple.Create(Models, ListModule.Singleton("Repl")), Tuple.Create(Tests, ListModule.Singleton("ChannelCount")) });
         var oldDependencies = MapModule.OfSeq(new[] { Tuple.Create(Models, ListModule.Singleton(Models)), Tuple.Create(Tests, ListModule.Empty<sortopiaDataType>()) });
-        var expected = OutputPlan.create(project, database, setup, "identity.test", "7", oldKeys, oldDependencies, parameters, [source]);
+        var expected = oldKeys.ToDictionary(entry => entry.Key, entry =>
+            DataKey.create(project, database, setup, "identity.test", "7", entry.Key, entry.Value, parameters,
+                ListModule.OfSeq(oldDependencies[entry.Key].Select(_ => source))));
 
         void Check<T>(functionDefinition<T> definition)
         {
@@ -40,15 +42,15 @@ public sealed class FunctionOutputDefinitionTests
             Assert.Equal(new[] { Models }, definition.SourceDataTypes);
             Assert.Equal(oldKeys.Keys, definition.SortopiaDataTypes);
             var actual = OutputPlan.create(project, database, setup, "identity.test", definition.Version,
-                definition.DataTypes, definition.OutputDependencies, parameters, [source]);
-            foreach (var entry in expected)
+                definition.Outputs, definition.DataTypes, parameters, [source]);
+            foreach (var entry in actual)
             {
-                Assert.Equal(entry.Value.Key.Reference, actual[entry.Key].Key.Reference);
-                Assert.Equal(entry.Value.Key.QueryBytes, actual[entry.Key].Key.QueryBytes);
-                Assert.Equal(entry.Value.Key.IdentityBytes, actual[entry.Key].Key.IdentityBytes);
+                Assert.Equal(expected[entry.Key.DataType].Reference, entry.Value.Key.Reference);
+                Assert.Equal(expected[entry.Key.DataType].QueryBytes, entry.Value.Key.QueryBytes);
+                Assert.Equal(expected[entry.Key.DataType].IdentityBytes, entry.Value.Key.IdentityBytes);
             }
             var changed = OutputPlan.create(project, database, setup, "identity.test", definition.Version,
-                definition.DataTypes, definition.OutputDependencies,
+                definition.Outputs, definition.DataTypes,
                 parameters.WithBinding(ParameterBinding.create(ParamKeys.replKey, 4)),
                 [new(source.ProjectId, Guid.NewGuid(), source.QueryId, source.Phase, Models)]);
             dataKey Key(FSharpMap<runDataOutput, plannedOutput> plan, sortopiaDataType type) => plan.Single(entry => Equals(entry.Key.DataType, type)).Value.Key;

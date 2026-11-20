@@ -547,9 +547,9 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var modelReference = host.Database.Find(modelSource.SourceProjectId, modelSource.DataType, parameters);
         var changed = new storedDataReference(reference.ProjectId, Guid.NewGuid(), reference.QueryId, reference.Phase, reference.DataType);
         var first = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, definition.OutputDependencies, parameters, ListModule.OfArray(new[] { reference, modelReference }));
+            definition.Outputs, config.DataTypes, parameters, ListModule.OfArray(new[] { reference, modelReference }));
         var second = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, definition.OutputDependencies, parameters, ListModule.OfArray(new[] { changed, modelReference }));
+            definition.Outputs, config.DataTypes, parameters, ListModule.OfArray(new[] { changed, modelReference }));
         Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, models)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, models)).Value.Key.Id);
         Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.QueryId, second.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.QueryId);
         Assert.NotEqual(first.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.Id);

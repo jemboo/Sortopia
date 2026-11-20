@@ -12,6 +12,9 @@ open Sortopia.Sorting.Networks
 open Sortopia.Sorting.Inputs
 open Sortopia.Evaluation
 open Sortopia.Evaluation.Serialization
+open Sortopia.Models.Sorting
+open Sortopia.Models.Sorting.Simple
+open Sortopia.Models.Sorting.Simple.Ce
 
 module MigrationTests =
     [<Fact>]
@@ -309,17 +312,69 @@ module MigrationTests =
         let restored = original |> CeDataDto.fromDomain |> roundTrip |> CeDataDto.toDomain
         restored |> should equal original
 
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``prepared model inputs never execute a multistage prefix twice`` (collect: bool) =
+        // Filtering [1;0;0;1] by (1,2),(0,1) gives [0;1;0;1]. Applying
+        // those two stages again would sort it and hide the suffix's failure.
+        let prefix = [|ce.create 1 2; ce.create 0 1|]
+        let model = msce.create (UMX.tag (Guid.NewGuid())) 4<channelCount> prefix [|Ce.toIndex (ce.create 2 3)|]
+                    |> simpleSorterModel.Msce |> sorterModel.Simple
+        let options = Threading.Tasks.ParallelOptions()
+        for tests in formats [|[|0;1;0;1|]|] 4 do
+            for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
+                let evaluation = SorterSetEval.makeSorterModelEvalsWithOptions options [|model|] None tests version (UMX.tag collect) |> Array.exactlyOne
+                Assert.Equal(1, int (SorterEval.getUnsortedCount evaluation))
+                Assert.Equal(2, int (SorterEval.getCeLength evaluation))
+                Assert.Equal(2, int (SorterEval.getStageLength evaluation))
+                Assert.Equal(1, int (SorterEval.getLastCeIndex evaluation))
+                if version <> sorterEvalType.V1 then
+                    Assert.Equal<int>([|-1;-1|], SorterEval.getCeUseArray evaluation |> Array.map _.UseCount)
+                match evaluation with
+                | sorterEval.V3 value -> Assert.Equal(1, int (SortableTests.getSortableCount value.SortableTests))
+                | _ -> ()
+                let dto = SorterEvalDto.fromDomain evaluation
+                Assert.Equal(dto, dto |> roundTrip |> SorterEvalDto.toDomain |> SorterEvalDto.fromDomain)
+            let repeated = SorterSetEval.makeSorterEvals [|SorterModel.makeSorter model None|] tests sorterEvalType.V2 (UMX.tag collect) |> Array.exactlyOne
+            Assert.Equal(0, int (SorterEval.getUnsortedCount repeated))
+
+    [<Fact>]
+    let ``merging retains prefix markers and sums only measured suffix usage`` () =
+        let prefix = [|ce.create 0 1; ce.create 2 3|]
+        let model = msce.create (UMX.tag (Guid.NewGuid())) 4<channelCount> prefix [|Ce.toIndex (ce.create 1 2)|]
+                    |> simpleSorterModel.Msce |> sorterModel.Simple
+        let id = UMX.tag<sorterId> (Guid.NewGuid())
+        let make count = ceBlockEval.create (block 4 [|ce.create 1 2|]) (ceUseCounts.CreateFromArray [|count|]) 0<sortableCount> None
+                         |> SorterEval.createV2 id
+        let first = make 2 |> SorterEval.withModelPrefix model
+        let second = make 3 |> SorterEval.withModelPrefix model
+        let merged = SorterEval.merge first second
+        Assert.Equal<int>([|-1;-1;5|], SorterEval.getCeUseArray merged |> Array.map _.UseCount)
+        Assert.Equal<int>([|0;1;2|], SorterEval.getCeUseArray merged |> Array.map (fun value -> int value.CeIndex))
+        Assert.Equal(SorterEval.getSequenceHash first, SorterEval.getSequenceHash merged)
+        Assert.Throws<ArgumentException>(fun () -> SorterEval.merge first (make 3) |> ignore) |> ignore
+        Assert.Throws<ArgumentException>(fun () -> CeUse.merge (ceUse.create 0<ceIndex> -1 prefix[0]) (ceUse.create 0<ceIndex> 1 prefix[0]) |> ignore) |> ignore
+
     [<Fact>]
     let ``malformed DTOs cannot bypass domain validation`` () =
         let bad = { CeIndex = -1; UseCount = 1; CeInt = Ce.toIndex (ce.create 0 1) }
         Assert.Throws<ArgumentException>(fun () -> CeDataDto.toDomain bad |> ignore) |> ignore
         Assert.Throws<ArgumentException>(fun () -> CeDataDto.toDomain {bad with CeIndex=0; UseCount= -2} |> ignore) |> ignore
-        Assert.Throws<ArgumentException>(fun () -> CeDataDto.toDomain {bad with CeIndex=0; UseCount= -1} |> ignore) |> ignore
+        let marker = CeDataDto.toDomain {bad with CeIndex=0; UseCount= -1}
+        Assert.True(marker.IsPrefix)
+        Assert.Equal(marker, marker |> CeDataDto.fromDomain |> roundTrip |> CeDataDto.toDomain)
         let network = block 3 [|ce.create 0 1|]
         let evaluation = ceBlockEval.create network (ceUseCounts.CreateFromArray [|2|]) 0<sortableCount> None
         let dto = CeBlockEvalDto.fromDomain evaluation
         Assert.Throws<ArgumentException>(fun () -> CeBlockEvalDto.toDomain {dto with CeUseCounts=[||]} |> ignore) |> ignore
         Assert.Throws<ArgumentException>(fun () -> CeBlockEvalDto.toDomain {dto with UnsortedCount= -1} |> ignore) |> ignore
+        let result = SorterEval.createV2 (UMX.tag (Guid.NewGuid())) evaluation |> SorterEvalDto.fromDomain
+        match result with
+        | sorterEvalDto.V2 value ->
+            let invalid = { value with CeUseArray = [|{bad with CeIndex=1; UseCount= -1}|] } |> sorterEvalDto.V2
+            Assert.Throws<ArgumentException>(fun () -> SorterEvalDto.toDomain invalid |> ignore) |> ignore
+        | _ -> failwith "Expected V2."
 
     [<Fact>]
     let ``evaluation block result versions and set serialize with explicit options`` () =

@@ -19,5 +19,4 @@ module CeDataDto =
     let toDomain (dto: ceDataDto) : ceUse =
         if obj.ReferenceEquals(dto, null) then nullArg "dto"
         if dto.CeIndex < 0 then invalidArg "dto" "CE indices must be nonnegative."
-        if dto.UseCount < 0 then invalidArg "dto" "Usage counts must be nonnegative."
         ceUse.create (UMX.tag<ceIndex> dto.CeIndex) dto.UseCount (Ce.fromIndex dto.CeInt)

@@ -174,8 +174,10 @@ module StandardSgdTests =
         for m in result.Pools[0].Members do
             Assert.Equal(3, m.MutationIndex)
             Assert.True(SorterEval.getIsSorted m.Evaluation)
-            // The two prefix CEs make no swaps on these already-filtered inputs.
-            Assert.Equal(3, int (SorterEval.getCeLength m.Evaluation))
+            // Fixed prefix CEs count but are not evaluated against the filtered inputs.
+            Assert.Equal(5, int (SorterEval.getCeLength m.Evaluation))
+            Assert.Equal(3, int (SorterEval.getStageLength m.Evaluation))
+            Assert.All(SorterEval.getCeUseArray m.Evaluation |> Array.take prefix.Length, fun usage -> Assert.Equal(-1, usage.UseCount))
             Assert.Equal<ce>(prefix, SorterModel.getPrefix m.Model)
 
     [<Fact>]
@@ -259,7 +261,7 @@ module StandardSgdTests =
     [<Theory>]
     [<InlineData(false)>]
     [<InlineData(true)>]
-    let ``SGD evaluates each model prefix independently of filtered tests`` best =
+    let ``SGD skips each model prefix without coupling filtered tests to model metadata`` best =
         let filter = [|ce.create 1 2; ce.create 0 1|]
         let tests = inputs filter
         let modelPrefixes = [|filter; [|ce.create 0 1|]; [||]|]
@@ -278,10 +280,44 @@ module StandardSgdTests =
         for snapshot in snapshots do
             for memberValue in snapshot.Pools[0].Members do
                 let sorter = SorterModel.makeSorter memberValue.Model None
-                let expected = SorterSetEval.makeSorterEvals [|sorter|] tests sorterEvalType.V2 (UMX.tag false) |> Array.exactlyOne
+                let prefixLength = (SorterModel.getPrefix memberValue.Model).Length
+                let suffix = Sortopia.Sorting.Networks.sorter.create sorter.SorterId sorter.ChannelCount (sorter.Ces |> Array.skip prefixLength)
+                let expected = SorterSetEval.makeSorterEvals [|suffix|] tests sorterEvalType.V2 (UMX.tag false) |> Array.exactlyOne
                 Assert.Equal(SorterEval.getUnsortedCount expected, SorterEval.getUnsortedCount memberValue.Evaluation)
-                Assert.Equal<ceUse>(SorterEval.getCeUseArray expected, SorterEval.getCeUseArray memberValue.Evaluation)
-                Assert.All(SorterEval.getCeUseArray memberValue.Evaluation, fun useCount -> Assert.True(useCount.UseCount > 0))
+                let retained = SorterEval.withModelPrefix memberValue.Model expected
+                Assert.Equal<ceUse>(SorterEval.getCeUseArray retained, SorterEval.getCeUseArray memberValue.Evaluation)
+                Assert.All(SorterEval.getCeUseArray memberValue.Evaluation |> Array.take prefixLength,
+                    fun usage -> Assert.Equal(-1, usage.UseCount))
+                Assert.All(SorterEval.getCeUseArray memberValue.Evaluation |> Array.skip prefixLength,
+                    fun useCount -> Assert.True(useCount.UseCount > 0))
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``model evaluation marks the skipped prefix and preserves suffix usage indices and pruning`` simd =
+        let binary = match inputs prefix with sortableTests.Bools value -> value | _ -> failwith "Expected Bools."
+        let tests =
+            if simd then SortableBitv512Tests.fromBoolArrays binary.Id binary.ChannelCount binary.SortableBinaryArrays |> sortableTests.Bitv512
+            else sortableTests.Bools binary
+        let source = models prefix (Array.append suffix [|ce.create 0 1|])
+        let model = source.SorterModels[0]
+        let options = ParallelOptions(MaxDegreeOfParallelism = 2)
+        for version in [sorterEvalType.V1; sorterEvalType.V2; sorterEvalType.V3] do
+            let evaluation = SorterSetEval.makeSorterModelEvalsWithOptions options [|model|] (Some 4<ceLength>) tests version (UMX.tag true) |> Array.exactlyOne
+            Assert.Equal(0, int (SorterEval.getUnsortedCount evaluation))
+            Assert.Equal(5, int (SorterEval.getCeLength evaluation))
+            Assert.Equal(3, int (SorterEval.getStageLength evaluation))
+            Assert.Equal(4, int (SorterEval.getLastCeIndex evaluation))
+            if version <> sorterEvalType.V1 then
+                let usage = SorterEval.getCeUseArray evaluation
+                Assert.Equal<int>([|0;1;2;3;4|], usage |> Array.map (fun value -> int value.CeIndex))
+                Assert.All(usage |> Array.take 2, fun value -> Assert.Equal(-1, value.UseCount))
+                Assert.All(usage |> Array.skip 2, fun value -> Assert.True(value.UseCount > 0))
+                Assert.Throws<ArgumentException>(fun () -> SorterEval.withModelPrefix model evaluation |> ignore) |> ignore
+        // A suffix limit never truncates the fixed prefix, even with no active suffix.
+        let prefixOnly = SorterSetEval.makeSorterModelEvalsWithOptions options [|model|] (Some 0<ceLength>) tests sorterEvalType.V2 (UMX.tag false) |> Array.exactlyOne
+        Assert.Equal(2, int (SorterEval.getCeLength prefixOnly))
+        Assert.Equal(1, int (SorterEval.getStageLength prefixOnly))
 
     [<Fact>]
     let ``cancelled evolution never publishes a final population`` () =

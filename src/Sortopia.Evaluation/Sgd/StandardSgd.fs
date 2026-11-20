@@ -105,8 +105,7 @@ module StandardSgd =
     let private evaluate (options: ParallelOptions) tests rawCeLength (models: sorterModel array) =
         options.CancellationToken.ThrowIfCancellationRequested()
         let padded = min (float Int32.MaxValue) (float rawCeLength * 1.1) |> int |> UMX.tag<ceLength> |> Some
-        let sorters = models |> EvaluationParallel.map options (fun model -> SorterModel.makeSorter model padded)
-        SorterSetEval.makeSorterEvalsWithOptions options sorters tests sorterEvalType.V2 (UMX.tag false)
+        SorterSetEval.makeSorterModelEvalsWithOptions options models padded tests sorterEvalType.V2 (UMX.tag false)
 
     let private initialConfiguration settings =
         identity [box (InitialPoolSelection.toString settings.InitialPoolSelection); box settings.PoolCount; box settings.SortersPerPool

@@ -39,6 +39,7 @@ public sealed class NetworkDiagram : FrameworkElement
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnDisplayChanged));
     public NetworkCheckResult? Usage { get => (NetworkCheckResult?)GetValue(UsageProperty); set => SetValue(UsageProperty, value); }
     private static readonly Pen[] UsagePens = UsagePalette.Bands.Select(band => FrozenPen(band.Fill, 4)).ToArray();
+    private static readonly Pen PrefixPen = FrozenPen(UsagePalette.Prefix.Fill, 4);
     internal static int UsageLevel(int uses, int tested) => UsagePalette.Level(uses, tested);
     public static readonly DependencyProperty DisplayModeProperty = DependencyProperty.Register(nameof(DisplayMode), typeof(int), typeof(NetworkDiagram),
         new FrameworkPropertyMetadata(0, OnDisplayChanged), value => value is int mode && mode >= 0 && mode <= 3);
@@ -256,8 +257,8 @@ public sealed class NetworkDiagram : FrameworkElement
                     ComparatorState.Compared => IdlePen,
                     _ => FuturePen
                 };
-            if (Usage is { Tested: > 0 } usage && usage.CeUses.Count == network.ComparatorCount && !usage.IsFixedCe(ce.Index))
-                pen = UsagePens[UsageLevel(usage.CeUses[ce.Index], usage.Tested)];
+            if (Usage is { } usage && usage.CeUses.Count == network.ComparatorCount)
+                pen = usage.IsFixedCe(ce.Index) ? PrefixPen : usage.Tested > 0 ? UsagePens[UsageLevel(usage.CeUses[ce.Index], usage.Tested)] : pen;
             var low = new Point(ce.X, NetworkLayout.ChannelY(ce.Low));
             var high = new Point(ce.X, NetworkLayout.ChannelY(ce.High));
             dc.DrawLine(pen, low, high);
@@ -309,8 +310,9 @@ public sealed class NetworkDiagram : FrameworkElement
             var will = next.TryGetValue(index, out var to);
             var ce = to ?? from!;
             var x = Interpolate(from?.X ?? ce.X, to?.X ?? ce.X, t);
-            var pen = Usage is { Tested: > 0 } usage && usage.CeUses.Count == StaticNetwork!.ComparatorCount && !usage.IsFixedCe(index)
-                ? UsagePens[UsageLevel(usage.CeUses[index], usage.Tested)] : FuturePen;
+            var pen = Usage is { } usage && usage.CeUses.Count == StaticNetwork!.ComparatorCount
+                ? usage.IsFixedCe(index) ? PrefixPen : usage.Tested > 0 ? UsagePens[UsageLevel(usage.CeUses[index], usage.Tested)] : FuturePen
+                : FuturePen;
             dc.PushOpacity(was ? will ? 1 : 1 - t : t);
             var low = new Point(x, NetworkLayout.ChannelY(ce.Low));
             var high = new Point(x, NetworkLayout.ChannelY(ce.High));
@@ -366,7 +368,7 @@ public sealed class NetworkDiagram : FrameworkElement
         }
         foreach (var move in transition.Moves)
         {
-            var pen = Usage is not null && transition.Tested > 0 ? UsagePens[UsageLevel(move.Uses, transition.Tested)] : FuturePen;
+            var pen = move.IsFixed ? PrefixPen : Usage is not null && transition.Tested > 0 ? UsagePens[UsageLevel(move.Uses, transition.Tested)] : FuturePen;
             var x = move.X(t);
             dc.PushOpacity(move.Opacity(t));
             var low = new Point(x, NetworkLayout.ChannelY(move.Low));
@@ -387,7 +389,7 @@ public sealed class NetworkDiagram : FrameworkElement
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (Compaction is not null || Usage is not { Tested: > 0 } usage || layout is null) { ToolTip = null; return; }
+        if (Compaction is not null || Usage is not { } usage || layout is null) { ToolTip = null; return; }
         var point = e.GetPosition(this);
         foreach (var ce in layout.Comparators)
         {
@@ -395,8 +397,10 @@ public sealed class NetworkDiagram : FrameworkElement
                 && point.Y / Zoom <= NetworkLayout.ChannelY(ce.High) + 5 && ce.Index < usage.CeUses.Count)
             {
                 var count = usage.CeUses[ce.Index];
-                var text = $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {count:N0} swaps / {usage.Tested:N0} inputs ({(double)count / usage.Tested:P2})"
-                    + (usage.IsFixedCe(ce.Index) ? " · fixed prefix" : "");
+                var detail = count == -1 ? "fixed prefix · already applied during input filtering; not evaluated"
+                    : $"{count:N0} swaps / {usage.Tested:N0} inputs ({(usage.Tested > 0 ? (double)count / usage.Tested : 0):P2})"
+                        + (usage.IsFixedCe(ce.Index) ? " · fixed prefix" : "");
+                var text = $"CE {ce.Index + 1}, channels {ce.Low}–{ce.High}: {detail}";
                 if (!Equals(ToolTip, text)) ToolTip = text;
                 return;
             }

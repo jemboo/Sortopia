@@ -152,8 +152,8 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
                 })));
         var consumerId = Guid.NewGuid();
         var outputFolder = Path.Combine(temporary.FullName, "Consumer");
-        var plan = OutputPlan.create(consumerId, "Copied inputs", true, "copy-sources", "1", definition.DataTypes,
-            definition.OutputDependencies, parameters, ListModule.OfSeq(publishedTests.Results.Concat(publishedModels.Results).SelectMany(call => call.StoredOutputs).Select(output => output.Reference)));
+        var plan = OutputPlan.create(consumerId, "Copied inputs", true, "copy-sources", "1", definition.Outputs,
+            definition.DataTypes, parameters, ListModule.OfSeq(publishedTests.Results.Concat(publishedModels.Results).SelectMany(call => call.StoredOutputs).Select(output => output.Reference)));
         WorkspaceDatabase Database(workspace world) => new(world, temporary.FullName,
             new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token));
         runHost Host(WorkspaceDatabase database) => new(runExecutionPhase.Setup, parameters,

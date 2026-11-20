@@ -5,6 +5,7 @@ open FSharp.UMX
 open Sortopia.Sorting
 open Sortopia.Sorting.Inputs
 open Sortopia.Sorting.Networks
+open Sortopia.Models.Sorting
 
 
 type sorterSetEval =
@@ -67,6 +68,17 @@ module SorterSetEval =
                             ceBlockEval
                 )
 
+
+    /// Evaluate only the suffix against prepared inputs. Retain the already-applied
+    /// model prefix with -1 usage markers; the CE limit applies to suffixes only.
+    let makeSorterModelEvalsWithOptions options (models: sorterModel array) maxCeCount tests evalType collect =
+        let sorters = models |> EvaluationParallel.map options (fun model ->
+            let complete = SorterModel.makeSorter model maxCeCount
+            sorter.create complete.SorterId complete.ChannelCount (complete.Ces |> Array.skip (SorterModel.getPrefix model).Length))
+        let detailedType = if evalType = sorterEvalType.V1 then sorterEvalType.V2 else evalType
+        let evaluations = makeSorterEvalsWithOptions options sorters tests detailedType collect
+        Array.map2 (fun model evaluation ->
+            SorterEval.withModelPrefix model evaluation |> SorterEval.downgradeTo evalType) models evaluations
 
     let makeSorterSetEvalWithOptions
             (options: ParallelOptions)

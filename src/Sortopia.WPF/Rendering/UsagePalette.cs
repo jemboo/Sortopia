@@ -9,6 +9,16 @@ public sealed record UsageBand(double UpperPercent, string Label, Brush Fill, Br
 public static class UsagePalette
 {
     public static IReadOnlyList<UsageBand> Bands { get; } = CreateBands();
+    public static UsageBand Prefix { get; } = CreatePrefix();
+    public static IReadOnlyList<UsageBand> LegendBands { get; } = Array.AsReadOnly(Bands.Append(Prefix).ToArray());
+
+    private static UsageBand CreatePrefix()
+    {
+        var fill = new SolidColorBrush(Color.FromRgb(240, 141, 214));
+        fill.Freeze();
+        return new(-1, "Prefix", fill, Brushes.Black,
+            "Fixed model prefix. A usage count of -1 means it was already applied during input filtering and skipped in evaluation.");
+    }
 
     private static IReadOnlyList<UsageBand> CreateBands()
     {

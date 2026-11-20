@@ -5,6 +5,7 @@ namespace Sortopia.WPF.Rendering;
 public sealed record CompactionMove(int Low, int High, double FromX, double ToX,
     bool WasVisible, bool IsVisible, int Uses)
 {
+    public bool IsFixed { get; init; }
     public double X(double progress) => FromX + (ToX - FromX) * progress;
     public double Opacity(double progress) => WasVisible ? IsVisible ? 1 : 1 - progress : progress;
 }
@@ -27,12 +28,14 @@ public sealed class CompactionTransition
         {
             var found = newPositions.TryGetValue(key, out var newCe);
             moves.Add(new(oldCe.Low, oldCe.High, oldCe.X, newCe?.X ?? After.CutoffX - 20,
-                true, found, found ? afterUsage?.CeUses[newCe!.Index] ?? 0 : beforeUsage?.CeUses[oldCe.Index] ?? 0));
+                true, found, found ? afterUsage?.CeUses[newCe!.Index] ?? 0 : beforeUsage?.CeUses[oldCe.Index] ?? 0)
+            { IsFixed = found ? afterUsage?.IsFixedCe(newCe!.Index) ?? false : beforeUsage?.IsFixedCe(oldCe.Index) ?? false });
         }
         foreach (var (key, newCe) in newPositions)
             if (!oldPositions.ContainsKey(key))
                 moves.Add(new(newCe.Low, newCe.High, Before.CutoffX - 20, newCe.X,
-                    false, true, afterUsage?.CeUses[newCe.Index] ?? 0));
+                    false, true, afterUsage?.CeUses[newCe.Index] ?? 0)
+                { IsFixed = afterUsage?.IsFixedCe(newCe.Index) ?? false });
         Moves = moves.AsReadOnly();
     }
 

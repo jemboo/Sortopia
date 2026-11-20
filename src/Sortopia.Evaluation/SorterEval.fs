@@ -6,6 +6,7 @@ open Sortopia.Reporting
 open Sortopia.Sorting
 open Sortopia.Sorting.Inputs
 open Sortopia.Sorting.Networks
+open Sortopia.Models.Sorting
 
 module internal EvaluationValidation =
     let summary width unsorted stages crossings reflective =
@@ -15,9 +16,12 @@ module internal EvaluationValidation =
     let usage width (values: ceUse[]) =
         if isNull values then nullArg "ceUseArray"
         let mutable previous = -1
+        let mutable prefixLength = 0
         for value in values do
             if %value.CeIndex <= previous then invalidArg "ceUseArray" "Original CE indices must be nonnegative, unique and increasing."
-            if value.UseCount < 0 then invalidArg "ceUseArray" "Usage counts must be nonnegative."
+            if value.IsPrefix then
+                if int value.CeIndex <> prefixLength then invalidArg "ceUseArray" "Prefix markers must occupy consecutive positions starting at zero."
+                prefixLength <- prefixLength + 1
             if int value.Ce.HighChannel >= width then invalidArg "ceUseArray" "CE endpoint exceeds network width."
             previous <- %value.CeIndex
 
@@ -598,6 +602,8 @@ module SorterEval =
         | sorterEvalType.V3 -> createV3 sorterId ceBlockEval
 
     let private mergeCeUseArrays (first: ceUse[]) (second: ceUse[]) : ceUse[] =
+        if Array.filter (fun (value: ceUse) -> value.IsPrefix) first <> Array.filter (fun value -> value.IsPrefix) second then
+            invalidArg "second" "Evaluations must have the same already-applied prefix."
         let toMap parameterName (values: ceUse[]) =
             values
             |> Array.fold (fun result value ->
@@ -611,9 +617,7 @@ module SorterEval =
         |> Map.fold (fun merged index right ->
             match Map.tryFind index merged with
             | Some (left: ceUse) ->
-                if left.Ce <> right.Ce then invalidArg "second" "CEs at the same original index must match."
-                let count = Checked.(+) left.UseCount right.UseCount
-                Map.add index (ceUse.create index count left.Ce) merged
+                Map.add index (CeUse.merge left right) merged
             | None -> Map.add index right merged) firstByIndex
         |> Map.toArray
         |> Array.map snd
@@ -635,6 +639,31 @@ module SorterEval =
         reflectionSymmetric,
         stageCrossingsCount,
         stageSequence.GetReflectiveCount()
+
+    /// Attach a model's already-applied prefix to a suffix-only evaluation.
+    /// Prefix counts are -1; measured suffix indices are offset into the complete sorter.
+    /// Apply before downgrading to V1, which no longer carries individual CE usage.
+    let withModelPrefix (model: sorterModel) (evaluation: sorterEval) =
+        let prefix = SorterModel.getPrefix model
+        if SorterModel.getChannelCount model <> getChannelCount evaluation then
+            invalidArg "model" "Model and evaluation widths must match."
+        if prefix.Length = 0 then evaluation else
+        let usage = getCeUseArray evaluation
+        if usage |> Array.exists (fun value -> value.IsPrefix) then
+            invalidArg "evaluation" "Expected a suffix-only evaluation without prefix markers."
+        let fixedUsage = prefix |> Array.mapi (fun index ce -> ceUse.create (UMX.tag index) -1 ce)
+        let suffixUsage = usage |> Array.map (fun value ->
+            ceUse.create (UMX.tag (Checked.(+) prefix.Length (int value.CeIndex))) value.UseCount value.Ce)
+        let retained = Array.append fixedUsage suffixUsage
+        let hash, stages, symmetric, crossings, reflective = calculateMetrics (getChannelCount evaluation) retained
+        match evaluation with
+        | V2 value ->
+            sorterEvalV2.create value.SorterId value.SortableTestsSubsetId value.ChannelCount value.UnsortedCount
+                hash stages retained symmetric crossings reflective |> V2
+        | V3 value ->
+            sorterEvalV3.create value.SorterId value.SortableTestsSubsetId value.ChannelCount value.UnsortedCount
+                hash stages retained value.SortableTests symmetric crossings reflective |> V3
+        | V1 _ -> invalidArg "evaluation" "Retain the model prefix before downgrading an evaluation to V1."
 
     let private validateMergeInputs (first: sorterEval) (second: sorterEval) =
         match first, second with

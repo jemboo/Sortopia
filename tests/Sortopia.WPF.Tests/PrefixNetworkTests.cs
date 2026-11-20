@@ -14,6 +14,35 @@ namespace Sortopia.WPF.Tests;
 public sealed class PrefixNetworkTests
 {
     [Fact]
+    public void SkippedPrefixMarkersSurvivePruningCompactionAndDisplayFiltering()
+    {
+        ce[] ces = [ce.create(1, 2), ce.create(0, 1), ce.create(2, 3), ce.create(1, 2)];
+        var network = NetworkDefinition.FromSorter("Prepared", sorter.create(Guid.NewGuid(), 4, ces));
+        var usage = new NetworkCheckResult(100, false, null, 0, new[] { -1, -1, 0, 7 });
+        Assert.True(usage.IsFixedCe(0));
+        Assert.True(usage.IsFixedCe(1));
+        Assert.False(usage.IsFixedCe(2));
+        Assert.Contains("1 of 2 evaluated CEs", usage.UsageSummary);
+        Assert.Contains("2 prefix CEs were already applied", usage.UsageSummary);
+        var pruned = NetworkTransforms.RemoveUnusedCes(network, usage);
+        var remaining = NetworkTransforms.PreserveUsage(network, pruned, usage, true)!;
+        Assert.Equal(new[] { -1, -1, 7 }, remaining.CeUses);
+        var compacted = NetworkTransforms.Compact(pruned);
+        var mapped = NetworkTransforms.PreserveUsage(pruned, compacted, remaining, false)!;
+        Assert.Equal(2, mapped.CeUses.Count(count => count == -1));
+        foreach (var mode in new[] { 1, 2, 3 })
+        {
+            var layout = new NetworkLayout(network, usage, mode);
+            Assert.Contains(layout.Comparators, ce => ce.Index == 0);
+            Assert.Contains(layout.Comparators, ce => ce.Index == 1);
+        }
+        var transition = new CompactionTransition(NetworkTrace.Create(pruned, [0, 1, 0, 1]),
+            NetworkTrace.Create(compacted, [0, 1, 0, 1]), remaining, mapped);
+        Assert.All(transition.Moves.Where(move => move.Uses == -1), move => Assert.True(move.IsFixed));
+        Assert.Equal(2, transition.Moves.Count(move => move.IsFixed));
+    }
+
+    [Fact]
     public void SearchRetainsUnusedPrefixComparatorsAndScoresTheCompleteCompactedNetwork()
     {
         ce[] prefix = [ce.create(0, 1), ce.create(0, 1)];

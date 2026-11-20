@@ -255,7 +255,7 @@ public sealed class RandomNetworksPageViewModel : NetworkPlaybackViewModel
         set { if (SetProperty(ref showCeUsage, value)) OnPropertyChanged(nameof(DisplayedUsage)); }
     }
     public NetworkCheckResult? DisplayedUsage => ShowCeUsage ? Usage : null;
-    public IReadOnlyList<Sortopia.WPF.Rendering.UsageBand> UsageBands => Sortopia.WPF.Rendering.UsagePalette.Bands;
+    public IReadOnlyList<Sortopia.WPF.Rendering.UsageBand> UsageBands => Sortopia.WPF.Rendering.UsagePalette.LegendBands;
     public string UsageSummary => Usage?.UsageSummary ?? "Run a test to measure CE usage. Usage counts actual swaps, not comparisons.";
     public string[] Methods => Generator.Methods;
     public RelayCommand NewSeedCommand { get; }

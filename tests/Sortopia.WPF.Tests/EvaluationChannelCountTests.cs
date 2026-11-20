@@ -31,7 +31,7 @@ public sealed class EvaluationChannelCountTests
     public void Evaluation_derives_the_channel_count_from_the_tests(int channels, string evaluator, bool collect)
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.sorterEval);
-        Assert.Equal("4", definition.Version);
+        Assert.Equal("6", definition.Version);
         Assert.Equal(new[] { "SorterEvalType", "CollectSortableTests" }, definition.RequiredParameters.Select(key => key.Name));
         Assert.DoesNotContain("ChannelCount", definition.DataTypes.Values.SelectMany(keys => keys));
         var models = Models(channels);

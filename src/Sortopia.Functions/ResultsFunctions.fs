@@ -52,9 +52,6 @@ module ResultsFunctions =
         let inputs = [host.Database.Find modelsType; host.Database.Find testsType]
         host.Database.Save(host.Outputs.Output(evalType, inputs), make)
 
-    let private evaluationSorters (models: sorterModelSet) =
-        SorterModelSet.makeSorterSet (Guid.NewGuid() |> UMX.tag) None models
-
     let private evaluate : resultsFunction = fun host ->
         saveEvaluation host (fun () ->
             let parameters = host.Parameters
@@ -64,20 +61,20 @@ module ResultsFunctions =
             let evalType = required ParamKeys.sorterEvalTypeKey parameters |> SorterEvalType.fromString
             let collect = required ParamKeys.collectSortableTestsKey parameters |> UMX.tag<collectNewSortableTests>
             EvaluationInputs.validateEvaluationWidths channels models.SorterModels
-            let sorters = evaluationSorters models
-            let evaluated = SorterSetEval.makeSorterSetEvalWithOptions (evaluationOptions host) (Guid.NewGuid() |> UMX.tag) sorters tests evalType collect
+            let evaluations = SorterSetEval.makeSorterModelEvalsWithOptions (evaluationOptions host) models.SorterModels None tests evalType collect
+            let evaluated = sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations
             sortopiaStorageData.SorterSetEval evaluated)
 
     let evaluateSorters =
         let required = [ParamKey.describe ParamKeys.sorterEvalTypeKey; ParamKey.describe ParamKeys.collectSortableTestsKey]
-        FunctionDefinition.results "4" required
+        FunctionDefinition.results "6" required
             [{ DataType = evalType; ParameterKeys = InputGenerators.queryKeys required; Dependencies = [modelsType; testsType] }] ParameterDefaults.support evaluate
-        |> FunctionDefinition.describe "Evaluate the sorter models including each model's prefix against the tests already saved in the setup database. Derive the channel count from SortableTests and require every sorter model to have that same channel count. Save the evaluations in the results database; optionally collect new sortable tests within the evaluations."
+        |> FunctionDefinition.describe "Evaluate each model's suffix against prepared setup tests. Treat the model prefix as already applied, retaining it in metrics with -1 CE usage markers. Derive the channel count from SortableTests and require every model to agree. Save the evaluations in results; optionally collect residual sortable tests."
 
     // GeneSort SorterMutateExecution._evaluateMutants: evaluate prepared models
     // in chunks, without collecting additional tests or mutating the setup data.
     let evaluateMutants =
-        FunctionDefinition.results "3" [ParamKey.describe ParamKeys.sorterEvalTypeKey]
+        FunctionDefinition.results "5" [ParamKey.describe ParamKeys.sorterEvalTypeKey]
             [{ DataType = evalType; ParameterKeys = [ParamKeys.sorterEvalTypeKey.Name]; Dependencies = [modelsType; testsType] }] ParameterDefaults.support
             (fun host -> saveEvaluation host (fun () ->
                 let parameters = host.Parameters
@@ -88,8 +85,6 @@ module ResultsFunctions =
                 let evaluations = models.SorterModels |> Array.chunkBySize 1000 |> Array.collect (fun chunk ->
                     host.CancellationToken.ThrowIfCancellationRequested()
                     EvaluationInputs.validateEvaluationWidths channels chunk
-                    let group = sorterModelSet.create (Guid.NewGuid() |> UMX.tag) chunk models.RawCeLength
-                    let sorters = evaluationSorters group
-                    SorterSetEval.makeSorterEvalsWithOptions (evaluationOptions host) sorters.Sorters tests evalType (UMX.tag false))
+                    SorterSetEval.makeSorterModelEvalsWithOptions (evaluationOptions host) chunk None tests evalType (UMX.tag false))
                 sorterSetEval.create (Guid.NewGuid() |> UMX.tag) (Guid.NewGuid() |> UMX.tag) (SortableTests.getId tests) evaluations |> sortopiaStorageData.SorterSetEval))
-        |> FunctionDefinition.describe "Evaluate the prepared sorter models against setup tests in batches of 1,000, saving evaluations in the results database. Does not generate mutations or collect new sortable tests."
+        |> FunctionDefinition.describe "Evaluate model suffixes against prepared setup tests in batches of 1,000, retaining already-applied prefixes with -1 CE usage markers. Save evaluations in results without generating mutations or collecting new tests."

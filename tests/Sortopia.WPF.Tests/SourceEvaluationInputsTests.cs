@@ -124,8 +124,8 @@ public sealed class SourceEvaluationInputsTests
         var changed = new storedDataReference(models.ProjectId, Guid.NewGuid(), models.QueryId, runExecutionPhase.Results, ModelsType);
         var project = Guid.NewGuid();
         var parameters = parameterSet.fromBindings([]);
-        var first = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [models, tests]);
-        var second = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.DataTypes, definition.OutputDependencies, parameters, [changed, tests]);
+        var first = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.Outputs, definition.DataTypes, parameters, [models, tests]);
+        var second = OutputPlan.create(project, "Setup", true, SetupFunctionNames.evaluationSource, definition.Version, definition.Outputs, definition.DataTypes, parameters, [changed, tests]);
         Assert.NotEqual(first.Single(pair => Equals(pair.Key.DataType, ModelsType)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, ModelsType)).Value.Key.Id);
         Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, TestsType)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, TestsType)).Value.Key.Id);
     }

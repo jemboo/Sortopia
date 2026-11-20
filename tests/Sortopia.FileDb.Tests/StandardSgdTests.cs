@@ -122,7 +122,7 @@ public sealed partial class PreparedExecutionTests
         var parameters = Path.Combine(folder, "runParameters");
         var items = RunParameterFiles.listWorkItems(parameters, Token);
         Assert.Equal(4, items.Length);
-        Assert.All(items, item => Assert.Equal("4", item.Results.FunctionVersion));
+        Assert.All(items, item => Assert.Equal("6", item.Results.FunctionVersion));
         var executed = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(executed);
         var references = executed.Results.SelectMany(result => result.StoredOutputs).Select(output => output.Reference).ToArray();
         Assert.Equal(references.Length, references.Distinct().Count());

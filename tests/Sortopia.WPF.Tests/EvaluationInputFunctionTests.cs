@@ -124,13 +124,13 @@ public sealed class EvaluationInputFunctionTests
     [InlineData(true, "matching")]
     [InlineData(true, "different")]
     [InlineData(true, "empty")]
-    public void Evaluation_executes_the_model_prefix_on_independently_filtered_tests(bool mutants, string prefixKind)
+    public void Evaluation_skips_the_model_prefix_on_prepared_tests(bool mutants, string prefixKind)
     {
         var parameters = Parameters(Module("setup", "msuf4", "SimpleS"), true)
             .WithBinding(ParameterBinding.create(ParamKeys.activationProbabilityKey, 0.0))
             .WithBinding(ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Ints"));
         // Filtering [1,0,0,1,...] through (1,2),(0,1) produced this input.
-        // It carries no prefix metadata; only the chosen model defines what runs next.
+        // It carries no prefix metadata; the model prefix is assumed already applied.
         var source = sortopiaStorageData.NewSortableTests(sortableTests.NewInts(sortableIntTests.create(Guid.NewGuid(), 8,
             [sortableIntArray.create([0, 1, 0, 1, 1, 1, 1, 1], 8, 2)])));
         ce[] prefix = prefixKind switch {
@@ -153,9 +153,11 @@ public sealed class EvaluationInputFunctionTests
         var result = Assert.Single(CatalogTestHost.Invoke(false, name, evaluationParameters, outputs.ToArray()).OfType<sortopiaStorageData.SorterSetEval>());
         Assert.All(result.Item.SorterEvals, evaluation => {
             var uses = SorterEval.getCeUseArray(evaluation);
-            Assert.Equal(prefixKind == "matching" ? new[] { ce.create(1, 2) } : [], uses.Select(value => value.Ce));
-            Assert.All(uses, value => Assert.Equal(1, value.UseCount));
-            Assert.Equal(prefixKind == "matching" ? 0 : 1, SorterEval.getUnsortedCount(evaluation));
+            Assert.Equal(prefix, uses.Select(value => value.Ce));
+            Assert.All(uses, value => Assert.Equal(-1, value.UseCount));
+            Assert.Equal(prefix.Length, SorterEval.getCeLength(evaluation));
+            Assert.Equal(prefix.Length, SorterEval.getStageLength(evaluation));
+            Assert.Equal(1, SorterEval.getUnsortedCount(evaluation));
         });
     }
 

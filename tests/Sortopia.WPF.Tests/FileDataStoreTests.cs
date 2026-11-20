@@ -192,7 +192,7 @@ public sealed class FileDataStoreTests : IDisposable
             var parameters = BranchRun.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.replKey, stage));
             var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
                 setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardMssiSimpleEvaluationInputs, "1",
-                branch.ProjectConfiguration.Setup.DataTypes, SetupFunctionCatalog.require(branch.SetupFunctionName).OutputDependencies,
+                SetupFunctionCatalog.require(branch.SetupFunctionName).Outputs, branch.ProjectConfiguration.Setup.DataTypes,
                 parameters, List<storedDataReference>());
             var storage = new FileRunDatabase(store, plan, Token);
             IRunDatabase context = storage;
@@ -210,8 +210,8 @@ public sealed class FileDataStoreTests : IDisposable
         var type = sortopiaDataType.NewSortableTests("");
         var parameters = Parameters(ParameterBinding.create(ParamKeys.channelCountKey, 4), ParameterBinding.create(ParamKeys.sortableDataFormatKey, "Bools"));
         var outputs = MapModule.OfArray(new[] { Tuple.Create(type, List("ChannelCount", "SortableDataFormat")) });
-        var plan = OutputPlan.create(projectId, "Setup", true, SetupFunctionNames.standardTests, "1", outputs,
-            SetupFunctionCatalog.require(SetupFunctionNames.standardTests).OutputDependencies, parameters, List<storedDataReference>());
+        var plan = OutputPlan.create(projectId, "Setup", true, SetupFunctionNames.standardTests, "1",
+            SetupFunctionCatalog.require(SetupFunctionNames.standardTests).Outputs, outputs, parameters, List<storedDataReference>());
         var storage = new FileRunDatabase(Open(), plan, Token);
         IRunDatabase database = storage;
         var make = FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => Tests());

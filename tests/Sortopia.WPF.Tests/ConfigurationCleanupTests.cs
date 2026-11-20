@@ -87,7 +87,7 @@ public sealed class ConfigurationCleanupTests : IDisposable
         var payload = CatalogTestHost.Invoke(false, config.FunctionName, parameters).Head;
         var store = WorkspaceData.openProject(world, temporary.FullName, parent.Id);
         var plan = OutputPlan.create(parent.Id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
-            config.DataTypes, ResultsFunctionCatalog.require(config.FunctionName).OutputDependencies, parameters, ListModule.Empty<storedDataReference>());
+            ResultsFunctionCatalog.require(config.FunctionName).Outputs, config.DataTypes, parameters, ListModule.Empty<storedDataReference>());
         var storage = new FileRunDatabase(store, plan, Token);
         var writer = (IRunDatabase)storage;
         writer.Save(storage.Outputs.Output(dataType, ListModule.Empty<storedDataReference>()), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => payload));

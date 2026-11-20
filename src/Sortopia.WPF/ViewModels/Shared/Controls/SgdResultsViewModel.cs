@@ -130,7 +130,7 @@ public abstract class SgdResultsViewModel : ViewModelBase
             ClearGraphCommand.RaiseCanExecuteChanged();
         }
     }
-    public IReadOnlyList<UsageBand> UsageBands => UsagePalette.Bands;
+    public IReadOnlyList<UsageBand> UsageBands => UsagePalette.LegendBands;
     public SorterAnnotation BestAnnotation { get; } = new("Best", Brushes.LimeGreen);
     public SorterAnnotation CurrentAnnotation { get; } = new("Current", Brushes.HotPink);
     public SorterAnnotation SelectedAnnotation { get; } = new("Selected", Brushes.White);
