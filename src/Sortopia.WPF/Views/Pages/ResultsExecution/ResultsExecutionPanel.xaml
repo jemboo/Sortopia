@@ -5,6 +5,11 @@
  <UserControl.Resources><ResourceDictionary>
   <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
   <BooleanToVisibilityConverter x:Key="ErrorVisibility" />
+  <DataTemplate x:Key="ExecutionCheck">
+   <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanChangeSelection}"
+             HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.Name="{Binding FileName, StringFormat=Execute {0}}"
+             ToolTip="Check to include this file. Once started, its checkbox is locked until the batch finishes." />
+  </DataTemplate>
  </ResourceDictionary></UserControl.Resources>
  <Grid>
   <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
@@ -22,12 +27,12 @@
    </WrapPanel>
   </StackPanel>
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
-   <Button x:Name="ExecuteSelectedButton" Content="Execute selected" Command="{Binding ExecuteCommand}" Margin="0,0,8,6" />
+   <Button x:Name="ExecuteSelectedButton" Content="Execute checked" Command="{Binding ExecuteCommand}" Margin="0,0,8,6" />
    <Button x:Name="ExportReportsButton" Content="Export CSV reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
-           ToolTip="Combine selected completed evaluations or SGD pools into Summary.csv and Details.csv. Details includes each network's V1 statistics, results parameters, and inherited setup query values. Exports replace the CSV files in this project's data/results/reports folder." />
-   <Button Content="Select all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
-   <Button Content="Select pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
-   <Button Content="Clear selection" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />
+           ToolTip="Combine checked completed evaluations or SGD pools into Summary.csv and Details.csv. Details includes each network's V1 statistics, results parameters, and inherited setup query values. Exports replace the CSV files in this project's data/results/reports folder." />
+   <Button Content="Check all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
+   <Button Content="Check pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
+   <Button Content="Uncheck all" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />
    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,6" />
    <Button x:Name="ValidateFullyButton" Content="Fully validate" Command="{Binding ValidateFullyCommand}" Margin="0,0,8,6"
            ToolTip="Decode and validate model and report contents. Unchanged files reuse earlier full checks in this folder session." />
@@ -44,17 +49,17 @@
    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
    <TextBlock Text="Refresh checks file identities and checksums. Fully validate also checks model and report contents; execution and export always do this."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="Select rows with Ctrl/Shift, or use Select all. Complete outputs are reused. Each selected file must have distinct outputs. Failed jobs do not stop other selected jobs."
+   <TextBlock Text="Check files to execute. While running, you can check or uncheck files that have not started. Started files stay checked until the batch finishes. Complete outputs are reused; failed jobs do not stop other checked jobs."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="Click a Setup column header to sort by that inherited query value. Select a row and expand Inherited setup query values to inspect or copy its setup combination. Failed rows also have Error details."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="To report a whole sweep, choose its run filter, Select all, then Export CSV reports. The selected combinations replace the CSV files directly in the project's reports folder. Summary and Details describe final results; EvolutionSummary and Snapshots describe the sampled pool statistics and networks."
+   <TextBlock Text="To report a whole sweep, choose its run filter, Check all, then Export CSV reports. The checked combinations replace the CSV files directly in the project's reports folder. Summary and Details describe final results; EvolutionSummary and Snapshots describe the sampled pool statistics and networks."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
   </StackPanel>
   <DataGrid x:Name="RunParametersGrid" Grid.Row="3" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True"
-            shared:SetupQueryColumns.InsertIndex="3" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
-            IsEnabled="{Binding CanChooseRun}" CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Extended" SelectionUnit="FullRow"
-            SelectionChanged="SelectionChanged" HeadersVisibility="All" FrozenColumnCount="3" MinHeight="140"
+            shared:SetupQueryColumns.InsertIndex="6" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
+            CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Extended" SelectionUnit="FullRow"
+            HeadersVisibility="All" FrozenColumnCount="6" MinHeight="140"
             AreRowDetailsFrozen="True" RowDetailsVisibilityMode="VisibleWhenSelected"
             EnableRowVirtualization="True" EnableColumnVirtualization="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
             AutomationProperties.Name="Run parameter files and output status">
@@ -79,7 +84,7 @@
    </DataTemplate></DataGrid.RowDetailsTemplate>
   </DataGrid>
   <StackPanel Grid.Row="4">
-   <Expander Header="Command line for selected files" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,10,0,0"><StackPanel>
+   <Expander Header="Command line for checked files" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,10,0,0"><StackPanel>
     <TextBlock Text="On another machine, use paths inside the copied project's runParameters folder." TextWrapping="Wrap" Margin="0,6" />
     <TextBox Text="{Binding CommandLine, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="100" VerticalScrollBarVisibility="Auto" />
    </StackPanel></Expander>

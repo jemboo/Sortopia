@@ -6,6 +6,8 @@ open FSharp.UMX
 open Sortopia.Workspaces
 open Sortopia.Workspaces.Serialization
 open Sortopia.Core.Serialization
+open Sortopia.FileDb
+open Sortopia.Runs
 open WorkspaceFileSystem
 
 module internal WorkspaceProjectState =
@@ -55,6 +57,23 @@ module internal WorkspaceProjectState =
                 | _ -> ()
             locked
         previous.Modules |> Array.iter (fun m -> visit "" m |> ignore)
+
+    let validateLockedRuns root (previous: WorkspaceDocument) (next: WorkspaceDocument) token =
+        let nextRuns = projects "" next.Modules |> Seq.collect (fun (p, _) -> p.Runs) |> Seq.map (fun r -> r.id, r) |> Map.ofSeq
+        for project, folder in projects "" previous.Modules do
+            let changed = project.Runs |> Array.choose (fun before ->
+                match Map.tryFind before.id nextRuns with
+                | Some after when before.sgd <> after.sgd -> Some (before, after)
+                | _ -> None)
+            let parameters = Path.Combine(root, folder, "runParameters")
+            if changed.Length > 0 && Directory.Exists parameters then
+                let generated = RunParameterFiles.listWorkItems parameters token |> Array.map (fun item -> UMX.untag item.RunId) |> Set.ofArray
+                for before, after in changed do
+                    if Set.contains before.id generated then
+                        match before.sgd, after.sgd with
+                        | Some old, Some value -> SgdRun.validateExtension old value
+                        | None, None -> ()
+                        | _ -> invalidOp "SGD snapshot controls cannot be replaced after runParameters are created."
 
     let resumeReason root value id =
         let selected, folder = find id value

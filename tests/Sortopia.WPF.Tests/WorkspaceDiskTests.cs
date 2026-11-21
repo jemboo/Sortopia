@@ -110,6 +110,10 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Equal("Missing folder", project.DiskStatus);
         Assert.Equal("Missing definition", run.DiskStatus);
         Assert.True(run.HasDiskWarning);
+        Assert.True(module.NeedsAttention);
+        Assert.True(project.NeedsAttention);
+        Assert.True(run.NeedsAttention);
+        Assert.True(page.Roots.Single().HasDescendantIssues);
         Assert.Contains(run.GetFolderPath(Root), run.DiskStatusDetail);
         Assert.Equal("3 saved components are missing from disk.", page.MissingComponentsMessage);
         Assert.False(page.HasUnsavedChanges);
@@ -118,6 +122,8 @@ public sealed class WorkspaceDiskTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.False(page.HasMissingComponents);
+        Assert.All(page.Roots.Single().DescendantsAndSelf(), node =>
+            Assert.Equal(node.DescendantsAndSelf().Any(descendant => descendant.HasValidationIssues), node.NeedsAttention));
         Assert.True(File.Exists(run.GetFolderPath(Root)));
         Assert.True(Directory.Exists(moved));
     }

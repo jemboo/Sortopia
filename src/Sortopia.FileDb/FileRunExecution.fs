@@ -8,7 +8,7 @@ module FileRunExecution =
     /// Progress and errors belong to the caller; published data is authoritative.
     let execute (workspace: workspace) workspaceRoot (value: Sortopia.Runs.run) progress cancellation =
         try
-            if value.Reporting.IsSome then
+            if value.Reporting.IsSome || value.Sgd.IsSome then
                 let prepared = RunParameterExecution.generate workspace workspaceRoot value progress cancellation
                 if prepared.Execution.Status <> runExecutionStatus.Completed then prepared.Execution else
                 let folder = WorkspaceData.projectFolder workspace workspaceRoot value.ParentProjectId

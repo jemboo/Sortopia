@@ -26,7 +26,7 @@ public sealed partial class PreparedExecutionTests
         Bind("OrthoRate", "4.001", parameterValueType.Floating), Bind("ParaRate", "1.15", parameterValueType.Floating),
         Bind("SelfSymRate", "1.75", parameterValueType.Floating) ];
 
-    private (workspace World, project Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null)
+    private (workspace World, project Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null)
     {
         var prefix = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1));
         var prefixBinding = Bind("PrefixLibId", prefix, parameterValueType.PrefixLibId);
@@ -36,7 +36,7 @@ public sealed partial class PreparedExecutionTests
         parameterBinding[] generatorParameters = [prefixBinding, Bind("SorterCount", "4"), Bind("SorterSuccessFraction", "50%", parameterValueType.SorterSuccessFraction),
             Bind("Repl", "0"), Bind("RngType", "LCG", parameterValueType.Text)];
         if (!wrongFamily) generatorParameters = [..generatorParameters,
-            Bind("OrthoRate", "1", parameterValueType.Floating), Bind("ParaRate", "1", parameterValueType.Floating), Bind("SelfSymRate", "1", parameterValueType.Floating)];
+            Bind("OrthoGenRate", "1", parameterValueType.Floating), Bind("ParaGenRate", "1", parameterValueType.Floating), Bind("SelfSymGenRate", "1", parameterValueType.Floating)];
         var models = Project("SorterModelSets", projectConfiguration.NewRootProjectConfig(new("Source models",
             new resultsConfig("Models", sourceName, ResultsFunctionCatalog.require(sourceName).Version,
                 ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("PrefixLibId"))), ListModule.OfArray(generatorParameters)))));
@@ -48,15 +48,16 @@ public sealed partial class PreparedExecutionTests
             ListModule.OfArray(new[] {
                 new setupDataTypeConfig(modelsType, models.Id, ListModule.Singleton("PrefixLibId")),
                 new setupDataTypeConfig(testsType, tests.Id, ListModule.Singleton("PrefixLibId")) }), ListModule.Singleton(prefixBinding));
-        var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.standardMsuf4SimpleSgd);
-        var queryKeys = new[] { "GenerationCount" }.Concat(resultsSpans?.Select(span => span.keyName) ?? []).Distinct();
+        var definition = ResultsFunctionCatalog.requireVersion(ResultsFunctionNames.standardMsuf4SimpleSgd, sgd is null ? "6" : "7");
+        var queryKeys = (sgd is null ? new[] { "GenerationCount" } : []).Concat(resultsSpans?.Select(span => span.keyName) ?? []).Distinct();
         var outputs = definition.SortopiaDataTypes.Select(type => new resultsDataTypeConfig(type, ListModule.OfSeq(queryKeys)));
         var consumer = Project("SorterSgd", projectConfiguration.NewBranchProjectConfig(new("Standard SGD",
-            new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, definition.Version, ListModule.OfSeq(outputs), ListModule.OfArray(SgdParameters)), setup)), resultsSpans);
-        if (reporting is not null)
+            new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, definition.Version, ListModule.OfSeq(outputs), ListModule.OfSeq(SgdParameters.Where(p => sgd is null || p.KeyName != "GenerationCount"))), setup)), resultsSpans);
+        if (reporting is not null || sgd is not null)
         {
             var inputs = RunDto.fromDomain(consumer.Runs[0]);
-            inputs.reporting = Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(reporting);
+            inputs.reporting = reporting is null ? null : Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(reporting);
+            inputs.sgd = sgd is null ? null : Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(sgd);
             consumer = project.withRuns(consumer, [RunDto.toDomain(consumer, inputs)]);
         }
         workspaceModule Module(project p) => workspaceModule.createInherited(Guid.NewGuid(), p.ProjectName,
@@ -192,7 +193,7 @@ public sealed partial class PreparedExecutionTests
     public void Standard_SGD_validates_parameter_values_before_planning_outputs(string key, string text)
     {
         var defaults = SgdParameters.Select(value => value.KeyName == key ? Bind(key, text, value.ValueType) : value);
-        var error = ResultsFunctionCatalog.require(ResultsFunctionNames.standardMsuf4SimpleSgd).InputError.Invoke(ListModule.OfSeq(defaults)).Invoke(ListModule.Empty<parameterSpan>());
+        var error = SgdFunctions.legacyStandardMsuf4Simple.InputError.Invoke(ListModule.OfSeq(defaults)).Invoke(ListModule.Empty<parameterSpan>());
         Assert.False(string.IsNullOrWhiteSpace(error));
     }
 }

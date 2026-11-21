@@ -159,26 +159,22 @@ module StandardSgd =
         { Configuration = initialConfiguration settings; SourceId = %models.Id; TestsId = %(SortableTests.getId tests)
           RawCeLength = int models.RawCeLength; Seeds = seeds }
 
-    let runObservedPrepared (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (initial: preparedSgdPopulation) tests =
+    let private evolve (observe: sorterPoolSet -> unit) (options: ParallelOptions) settings mutator (snapshot: sorterPoolSet) tests =
         validateSettings settings
         options.CancellationToken.ThrowIfCancellationRequested()
-        if initial.Configuration <> initialConfiguration settings || initial.TestsId <> %(SortableTests.getId tests) then
-            invalidArg "initial" "Prepared starting pools do not match the selection settings or tests."
+        SorterPoolSet.validate snapshot |> ignore
+        if snapshot.Generation > settings.Generations || snapshot.TestsId <> SortableTests.getId tests
+           || snapshot.Pools.Length <> settings.PoolCount
+           || snapshot.Pools |> Array.exists (fun pool -> pool.Members.Length > settings.SortersPerPool
+                                                         || pool.Members |> Array.exists (fun memberValue -> memberValue.MutationMod <> settings.MutationMod)) then
+            invalidArg "snapshot" "The checkpoint does not match this run's target, tests or pool settings."
         let evaluationTests = preparedTests tests
-        let mutable pools = initial.Seeds |> Array.mapi (fun poolIndex seeds ->
-            let poolId =
-                match settings.InitialPoolSelection with
-                | initialPoolSelection.Random -> identity [box "Sortopia.StandardSgd/pool/v2"; box initial.SourceId; box settings.InitialPoolSeed; box poolIndex]
-                | initialPoolSelection.Best -> identity [box "Sortopia.StandardSgd/best-pool/v1"; box initial.SourceId; box initial.TestsId; box initial.Configuration; box poolIndex]
-            let members = seeds |> Array.map (fun (model, evaluation) -> {
-                Id = identity [box poolId; box (SorterModel.getId model)]
-                Model = model; MutationIndex = 0; MutationMod = settings.MutationMod; Birthday = 0; ParentId = None; Evaluation = evaluation })
-            { Id = poolId; RawCeLength = initial.RawCeLength; Members = members })
+        let mutable pools = snapshot.Pools
         let report generation =
             options.CancellationToken.ThrowIfCancellationRequested()
             observe { Generation = generation; TestsId = SortableTests.getId tests; Pools = pools }
-        report 0
-        for generation in 0 .. settings.Generations - 1 do
+        report snapshot.Generation
+        for generation in snapshot.Generation .. settings.Generations - 1 do
             options.CancellationToken.ThrowIfCancellationRequested()
             let adjust = generation % settings.AdjustCeLengthFrequency = 0
             pools <- pools |> Array.map (fun pool ->
@@ -208,6 +204,26 @@ module StandardSgd =
         options.CancellationToken.ThrowIfCancellationRequested()
         { Generation = settings.Generations; TestsId = SortableTests.getId tests; Pools = pools }
         |> SorterPoolSet.validate
+
+    /// Continue from a complete population checkpoint without selecting or evaluating new seeds.
+    let resumeObserved observe options settings mutator snapshot tests =
+        evolve observe options settings mutator snapshot tests
+
+    let runObservedPrepared observe (options: ParallelOptions) settings mutator (initial: preparedSgdPopulation) tests =
+        validateSettings settings
+        options.CancellationToken.ThrowIfCancellationRequested()
+        if initial.Configuration <> initialConfiguration settings || initial.TestsId <> %(SortableTests.getId tests) then
+            invalidArg "initial" "Prepared starting pools do not match the selection settings or tests."
+        let pools = initial.Seeds |> Array.mapi (fun poolIndex seeds ->
+            let poolId =
+                match settings.InitialPoolSelection with
+                | initialPoolSelection.Random -> identity [box "Sortopia.StandardSgd/pool/v2"; box initial.SourceId; box settings.InitialPoolSeed; box poolIndex]
+                | initialPoolSelection.Best -> identity [box "Sortopia.StandardSgd/best-pool/v1"; box initial.SourceId; box initial.TestsId; box initial.Configuration; box poolIndex]
+            let members = seeds |> Array.map (fun (model, evaluation) -> {
+                Id = identity [box poolId; box (SorterModel.getId model)]
+                Model = model; MutationIndex = 0; MutationMod = settings.MutationMod; Birthday = 0; ParentId = None; Evaluation = evaluation })
+            { Id = poolId; RawCeLength = initial.RawCeLength; Members = members })
+        evolve observe options settings mutator { Generation = 0; TestsId = SortableTests.getId tests; Pools = pools } tests
 
     let runObserved observe options settings mutator models tests =
         let initial = prepareInitialPopulation options settings models tests

@@ -38,7 +38,7 @@ public sealed class SourceProjectPickerTests
         var models = Source("smallCC", "SorterModelSet", "ChannelCount", "SorterModelSets / Standard / Msce");
         var model = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Msce", () => [matching, prefix, models]);
         model.SetupFunctionName = SetupFunctionNames.evaluationSource; model.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        model.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in model.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         var view = new WorkspaceConfigurationEditor { DataContext = model, ActiveItemKey = "setupOutputs" };
         var window = new Window { Content = view, Width = 620, Height = 900, Left = -20000, Top = -20000,
             ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };

@@ -13,7 +13,7 @@ type rootDefaultOverrides = {
     ResultsQueries: resultsDataTypeConfig list option
 }
 
-/// None inherits. Parameter defaults merge by key; other lists and descriptions replace inherited values.
+/// None inherits. Parameter defaults merge by key; source choices merge by exact data type.
 type branchDefaultOverrides = {
     Description: string option
     ResultsDatabaseName: string<resultsDatabaseName> option
@@ -84,6 +84,11 @@ module Defaults =
     let sources (entries: setupDataTypeConfig list) : setupSourceConfig list =
         entries |> List.filter (fun entry -> UMX.untag entry.SourceProjectId <> System.Guid.Empty)
         |> List.map (fun entry -> { DataType = entry.DataType; SourceProjectId = entry.SourceProjectId })
+
+    /// An explicit empty ID overrides that source with an unassigned value; omitted types inherit.
+    let mergeSources (inherited: setupSourceConfig list) (local: setupSourceConfig list) =
+        let replaced = local |> List.map _.DataType |> Set.ofList
+        (inherited |> List.filter (fun entry -> not (Set.contains entry.DataType replaced))) @ local
 
     // Database names start on each project; the remaining defaults may come from modules.
     let root : rootProjectConfig = {
@@ -157,7 +162,8 @@ module Defaults =
         ResultsQueries = Some value.ResultsDataTypes
         ResultsParameterDefaults = Some value.ResultsParameterDefaults
         SetupDatabaseName = Some value.SetupDatabaseName
-        SetupSources = Some (sources value.SetupDataTypes)
+        SetupSources = Some (value.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource value.SetupFunctionName entry.DataType)
+                             |> List.map (fun entry -> { DataType = entry.DataType; SourceProjectId = entry.SourceProjectId }))
         ExcludedSetupDefaults = []
         SetupQueries = Some (value.SetupDataTypes |> List.map (fun output -> { DataType = output.DataType; QueryParameterKeys = output.QueryParameterKeys }))
         SetupParameterDefaults = Some value.SetupParameterDefaults }
@@ -174,7 +180,7 @@ module Defaults =
             FunctionName = parent.SetupFunctionName
             FunctionVersion = setupVersion parent.SetupFunctionName
             Outputs =
-                let outputs = setupOutputs parent.SetupFunctionName (local.SetupSources |> Option.defaultValue (sources parent.SetupDataTypes))
+                let outputs = setupOutputs parent.SetupFunctionName (mergeSources (sources parent.SetupDataTypes) (local.SetupSources |> Option.defaultValue []))
                 let selected = queries (outputs |> List.map (fun output -> { DataType = output.DataType; QueryParameterKeys = [] })) local.SetupQueries
                 outputs |> List.map (fun output -> { output with QueryParameterKeys = (selected |> List.find (fun entry -> entry.DataType = output.DataType)).QueryParameterKeys })
             ParameterDefaults = mergeParameterDefaults parent.SetupParameterDefaults (local.SetupParameterDefaults |> Option.defaultValue []) |> excludeDefaults local.ExcludedSetupDefaults } }

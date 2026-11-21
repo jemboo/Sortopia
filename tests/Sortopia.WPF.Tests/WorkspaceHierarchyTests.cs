@@ -88,7 +88,7 @@ public sealed class WorkspaceHierarchyTests : IDisposable
         sourceModule.Editor!.LoadProject(sourceSettings);
         var source = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Setup source", family: container.Family);
         sourceModule.Children.Add(source);
-        owner.Editor!.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in owner.Editor!.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         foreach (var entry in owner.Editor.SetupDataTypes) entry.SourceProjectId = source.Id;
         return source;
     }

@@ -105,7 +105,7 @@ public sealed class FunctionParameterSupportTests
     {
         var expected = new Dictionary<string, string> {
             ["AMax"] = "1", ["AInitial"] = "0", ["ActivationProbability"] = "0.5", ["ExcludeSelfCe"] = "True",
-            ["OrthoRate"] = "1", ["ParaRate"] = "1", ["SelfSymRate"] = "1", ["StageWeights"] = "1,1,1",
+            ["OrthoGenRate"] = "1", ["ParaGenRate"] = "1", ["SelfSymGenRate"] = "1", ["StageWeights"] = "1,1,1",
             ["Seed4Weights"] = "1,1,1", ["Seed6Weights"] = "1,1,1,1,1,1,1", ["UnfoldingWeights"] = "1,1,1;1,1,1",
             ["SorterSuccessFraction"] = "99%", ["SorterCount"] = "100", ["StageLength"] = "1", ["RngType"] = "SplitMix64", ["Repl"] = "0"
         };

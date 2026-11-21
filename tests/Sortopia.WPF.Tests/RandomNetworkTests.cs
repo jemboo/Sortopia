@@ -2364,6 +2364,8 @@ public sealed class RandomNetworkTests
             var setup = (Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector)setupEditor.FindName("FunctionNameInput");
             void Choose(Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor editor, string name)
             {
+                vm.SelectConfigurationItem(editor == setupEditor ? "setupFunction" : "resultsFunction");
+                Layout();
                 ((CheckBox)editor.FindName("OverrideToggle")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
                 Layout();
                 var picker = (Sortopia.WPF.Views.Pages.Workspace.FunctionNameSelector)editor.FindName("FunctionNameInput");
@@ -2379,7 +2381,13 @@ public sealed class RandomNetworkTests
             Assert.Equal(Sortopia.Functions.ResultsFunctionCatalog.functions.Keys, results.Choices);
             Assert.Equal(Visibility.Visible, ((Expander)fields.FindName("FunctionsSection")).Visibility);
             Assert.Equal(Visibility.Visible, ((FrameworkElement)fields.FindName("SetupFunctionItem")).Visibility);
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)fields.FindName("ResultsFunctionItem")).Visibility);
+            Assert.Equal("Setup function", ((Expander)fields.FindName("FunctionsSection")).Header);
+            vm.SelectConfigurationItem("resultsFunction"); Layout();
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)fields.FindName("SetupFunctionItem")).Visibility);
             Assert.Equal(Visibility.Visible, ((FrameworkElement)fields.FindName("ResultsFunctionItem")).Visibility);
+            Assert.Equal("Results function", ((Expander)fields.FindName("FunctionsSection")).Header);
+            vm.SelectConfigurationItem("setupFunction"); Layout();
             Assert.Equal(Visibility.Collapsed, ((Expander)fields.FindName("ResultsDefaultsSection")).Visibility);
             Assert.DoesNotContain(vm.InspectorItems, item => item.Key is "resultsDefaults" or "setupOutputs");
             void Snapshot(string name)
@@ -2443,7 +2451,7 @@ public sealed class RandomNetworkTests
             {
                 Layout(width);
                 var viewport = (ScrollViewer)page.FindName("EntityInspectorViewport");
-                viewport.ScrollToVerticalOffset(viewport.VerticalOffset + resultsEditor.TranslatePoint(new Point(0, 0), viewport).Y - 30);
+                viewport.ScrollToVerticalOffset(viewport.VerticalOffset + setupEditor.TranslatePoint(new Point(0, 0), viewport).Y - 30);
                 Layout(width);
                 Assert.Equal(0, viewport.ScrollableWidth);
                 var image = new System.Windows.Media.Imaging.RenderTargetBitmap(width, 1000, 96, 96, PixelFormats.Pbgra32);
@@ -2837,14 +2845,13 @@ public sealed class RandomNetworkTests
             promptEncoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(promptImage));
             using (var stream = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, "workspace-unsaved-prompt.png"))) promptEncoder.Save(stream);
             prompt.Close();
-            var newPanel = (StackPanel)page.FindName("WorkspaceNamePanel");
+            var newPanel = (StackPanel)page.FindName("WorkspaceActionsPanel");
             var newName = (TextBox)page.FindName("WorkspaceNameInput");
             var save = (Button)page.FindName("SaveWorkspaceButton");
             var discard = (Button)page.FindName("DiscardChangesButton");
             Assert.False(discard.IsEnabled);
-            var fileStatus = (TextBlock)page.FindName("WorkspaceFileStatus");
+            Assert.Null(page.FindName("WorkspaceFileStatus"));
             Assert.Equal(Visibility.Visible, newPanel.Visibility);
-            Assert.Contains("No workspace file", fileStatus.Text);
             newName.SetCurrentValue(TextBox.TextProperty, "");
             Assert.False(save.IsEnabled);
             newName.SetCurrentValue(TextBox.TextProperty, "Research");
@@ -2858,7 +2865,6 @@ public sealed class RandomNetworkTests
             Assert.Equal(Visibility.Visible, newPanel.Visibility);
             Assert.False(save.IsEnabled);
             Assert.False(discard.IsEnabled);
-            Assert.Contains("Saved workspace file", fileStatus.Text);
             RenderWorkspaceState("saved");
             var entityName = (TextBox)page.FindName("EntityNameInput");
             Assert.Null(page.FindName("EntityFolderNameInput"));
@@ -2871,13 +2877,13 @@ public sealed class RandomNetworkTests
             newName.SetCurrentValue(TextBox.TextProperty, "Updated research");
             Assert.Equal("Updated research", vm.WorkspaceName);
             Assert.True(save.IsEnabled);
-            Assert.Contains("Unsaved changes", fileStatus.Text);
+            Assert.True(vm.HasUnsavedChanges);
             RenderWorkspaceState("renamed");
             CompleteRun(vm.SaveWorkspaceAsync);
             LayoutWorkspace();
             Assert.Empty(vm.Error);
             Assert.False(save.IsEnabled);
-            Assert.DoesNotContain("Unsaved changes", fileStatus.Text);
+            Assert.False(vm.HasUnsavedChanges);
             Assert.Equal(originalPath, fullPath.Text);
             Assert.Equal("Updated research", WorkspaceFileStore.LoadDefinition(temporary.FullName).WorkspaceName);
             vm.AddModuleCommand.Execute(null);
@@ -2996,7 +3002,7 @@ public sealed class RandomNetworkTests
                 Assert.Equal(0, ((ScrollViewer)page.FindName("EntityInspectorViewport")).ScrollableWidth);
             }
             Assert.Null(FindWorkspaceField(fields, "AddSetupDataTypeButton"));
-            Assert.False(branchModule.Editor.SetupDataTypesOverride.CanEditValue);
+            Assert.All(branchModule.Editor.SetupDataTypes, row => Assert.False(row.SourceOverride!.CanEditValue));
             foreach (var setup in new[] { false, true })
             {
                 var rows = setup ? branchModule.Editor.SetupParameterDefaults : branchModule.Editor.ResultsParameterDefaults;
@@ -3049,6 +3055,9 @@ public sealed class RandomNetworkTests
             var invalidProject = vm.Selected!;
             invalidProject.Editor!.Sections.SetupSettings = false;
             vm.Selected = branchModule;
+            LayoutWorkspace();
+            Assert.Equal(Visibility.Collapsed, ((Border)page.FindName("SaveValidationSummary")).Visibility);
+            vm.Selected = invalidProject;
             LayoutWorkspace();
             var issueList = (ItemsControl)page.FindName("SaveIssuesList");
             var issueRow = (ContentPresenter)issueList.ItemContainerGenerator.ContainerFromIndex(0);
@@ -3114,7 +3123,7 @@ public sealed class RandomNetworkTests
             WorkspaceRunExecutionTests.SupplyQuerySpans(vm);
             foreach (var output in setupSource.Editor!.ResultsQueryOutputs.ToArray())
                 foreach (var key in output.Keys) key.Selected = true;
-            branchProject.Editor.SetupDataTypesOverride.IsOverridden = true;
+            foreach (var sourceRow in branchProject.Editor.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
             LayoutWorkspace();
             var setupEntries = (ItemsControl)FindWorkspaceField(fields, "SetupDataTypesList");
             var sourceEntry = branchProject.Editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
@@ -3153,8 +3162,9 @@ public sealed class RandomNetworkTests
             vm.AddRunCommand.Execute(null);
             var branchRun = vm.Selected!; branchRun.Name = "Evolve candidate";
             LayoutWorkspace();
-            Assert.Equal("Inherited functions", vm.ActiveItemTitle);
+            Assert.Equal("Setup function", vm.ActiveItemTitle);
             Assert.False(branchRun.Editor!.SetupFunctionOverride.CanOverride);
+            vm.SelectConfigurationItem("resultsFunction"); LayoutWorkspace();
             Assert.True(executeInput.IsReadOnly);
             Assert.Equal(Visibility.Visible, executeInput.Visibility);
             Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, executeInput.Text);

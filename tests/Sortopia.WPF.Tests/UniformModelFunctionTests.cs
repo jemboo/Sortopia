@@ -60,7 +60,7 @@ public sealed class UniformModelFunctionTests
         Assert.Equal(model == "msce", results.RequiredParameters.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", results.RequiredParameters.Any(key => key.Name == "StageWeights"));
         Assert.DoesNotContain(results.RequiredParameters, key => key.Name == "Seed4Weights");
-        foreach (var rate in new[] { "OrthoRate", "ParaRate", "SelfSymRate" }) Assert.Equal(model == "msuf4", results.RequiredParameters.Any(key => key.Name == rate));
+        foreach (var rate in new[] { "OrthoGenRate", "ParaGenRate", "SelfSymGenRate" }) Assert.Equal(model == "msuf4", results.RequiredParameters.Any(key => key.Name == rate));
         Assert.Equal(model == "msuf6", results.RequiredParameters.Any(key => key.Name == "Seed6Weights"));
         Assert.Equal(model == "msuf6", results.RequiredParameters.Any(key => key.Name == "UnfoldingWeights"));
         Assert.Equal(model == "msuf6" ? 12 : 8, values.TryFind(ParamKeys.channelCountKey).Value);
@@ -167,7 +167,7 @@ public sealed class UniformModelFunctionTests
             foreach (var row in editor.ResultsParameterDefaults.Concat(editor.SetupParameterDefaults).Where(row => row.Key == "SorterCount")) row.Value.Text = "2";
             page.AddProjectCommand.Execute(null); var projectId = page.Selected!.Id;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
-            WorkspaceParameterSetsPreviewTests.AddSpan(run, branch ? "OrthoRate" : "UnfoldingWeights", false, branch ? ["0", "1"] : ["1,0,0", "0,1,0"]);
+            WorkspaceParameterSetsPreviewTests.AddSpan(run, branch ? "OrthoGenRate" : "UnfoldingWeights", false, branch ? ["0", "1"] : ["1,0,0", "0,1,0"]);
             Assert.All(run.Editor!.ResultsParameters.Single().Values, value => Assert.Equal(!branch, value.IsWeights));
             run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;
             if (branch) {
@@ -189,7 +189,7 @@ public sealed class UniformModelFunctionTests
             Assert.True(report.Status == runExecutionStatus.Completed, report.Error); Assert.NotEmpty(report.Results);
             ISortopiaDb db = new SortopiaFileDb(copy, projectId);
             foreach (var call in report.Results) {
-                Assert.NotNull(call.Parameters.TryFind(branch ? "OrthoRate" : "UnfoldingWeights"));
+                Assert.NotNull(call.Parameters.TryFind(branch ? "OrthoGenRate" : "UnfoldingWeights"));
                 var stored = db.Load(Assert.Single(call.StoredOutputs).Reference, TestContext.Current.CancellationToken); Assert.True(stored.IsOk);
                 var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(stored.ResultValue.Value).Item;
                 Assert.All(models.SorterModels, model => Assert.Empty(SorterModel.getPrefix(model)));

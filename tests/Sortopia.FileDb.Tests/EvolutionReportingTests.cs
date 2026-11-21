@@ -88,7 +88,7 @@ public sealed partial class PreparedExecutionTests
         var reporting = new sgdReportingConfig("Constant(3)", "Constant(1)");
         var configured = new runParameters(original.Id, original.ProjectId, original.RunId, original.Results, original.Parameters,
             original.SetupInputs, original.SetNumber, original.SetupSetNumber, original.SetupSuffixStages, original.ResultsSuffixStages,
-            FSharpOption<sgdReportingConfig>.Some(reporting));
+            FSharpOption<sgdReportingConfig>.Some(reporting), null);
         var id = RunParameterFiles.saveWorkItem(folder, configured, Token);
         Assert.NotEqual(original.Id, id);
         var path = Path.Combine(parameters, id + ".msgpack");
@@ -132,7 +132,7 @@ public sealed partial class PreparedExecutionTests
         var store = new SortopiaFileDb(folder, item.ProjectId);
         var keys = RunOutputFiles.keys(item);
         var equivalent = new runParameters(Guid.NewGuid(), item.ProjectId, Guid.NewGuid(), item.Results, item.Parameters,
-            item.SetupInputs, 42, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting);
+            item.SetupInputs, 42, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, item.Sgd);
         Assert.Equal(keys.Select(key => key.Id), RunOutputFiles.keys(equivalent).Select(key => key.Id));
         Assert.Equal(outputState.Complete, RunOutputFiles.inspect(folder, equivalent, Token).State);
         RunParameterFiles.saveWorkItem(folder, equivalent, Token);
@@ -140,12 +140,12 @@ public sealed partial class PreparedExecutionTests
         var removedPaths = RunDataCleanup.plan(folder, item.ProjectId, SetModule.Singleton(item.RunId), neverKeep, Token);
         Assert.All(keys, key => Assert.DoesNotContain(store.GetPath(key.Reference), removedPaths));
         var denser = new runParameters(item.Id, item.ProjectId, item.RunId, item.Results, item.Parameters, item.SetupInputs,
-            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, FSharpOption<sgdReportingConfig>.Some(new("Constant(1)", "Constant(1)")));
+            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, FSharpOption<sgdReportingConfig>.Some(new("Constant(1)", "Constant(1)")), null);
         Assert.All(RunOutputFiles.samples(item).Snapshots, snapshot =>
             Assert.Contains(RunOutputFiles.samples(denser).Snapshots, other => other.Item1 == snapshot.Item1 && other.Item2.Id == snapshot.Item2.Id));
         var different = new runParameters(item.Id, item.ProjectId, item.RunId, item.Results,
             item.Parameters.WithBinding(ParameterBinding.create(ParamKeys.orthoRateKey, 99.0)), item.SetupInputs,
-            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting);
+            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, item.Sgd);
         // Intermediate samples include all parameters; the final result retains
         // the project's saved query projection (GenerationCount in this fixture).
         var finalKey = RunOutputFiles.samples(item).Snapshots.Last().Item2;
@@ -221,7 +221,7 @@ public sealed partial class PreparedExecutionTests
 
         // A surviving invocation without reporting still owns the shared final file.
         var plain = new runParameters(Guid.NewGuid(), item.ProjectId, Guid.NewGuid(), item.Results, item.Parameters,
-            item.SetupInputs, item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, null!);
+            item.SetupInputs, item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, null!, null);
         RunParameterFiles.saveWorkItem(folder, plain, Token);
         var neverKeep = FuncConvert.FromFunc<storedDataReference, FSharpList<storedDataReference>, bool>((_, _) => false);
         var removed = RunDataCleanup.plan(folder, item.ProjectId, SetModule.Singleton(item.RunId), neverKeep, Token);

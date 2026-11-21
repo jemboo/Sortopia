@@ -6,7 +6,7 @@ namespace Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 public sealed class ResultsExecutionProgress(int total) : ViewModelBase
 {
     private readonly Dictionary<Guid, workItemExecutionState> states = [];
-    public int Total { get; } = total;
+    public int Total { get; private set; } = total;
     public int Running { get; private set; }
     public int Finished { get; private set; }
     public int Failed { get; private set; }
@@ -17,6 +17,14 @@ public sealed class ResultsExecutionProgress(int total) : ViewModelBase
     public string Summary => $"Batch: {Finished:N0} of {Total:N0} finished ({Percent:0}%) · {Running:N0} running · {NotStarted:N0} not started"
         + (Failed > 0 ? $" · {Failed:N0} failed" : "")
         + (Cancelled > 0 ? $" · {Cancelled:N0} cancelled" : "");
+
+    internal void SetTotal(int value)
+    {
+        value = Math.Max(value, states.Count);
+        if (Total == value) return;
+        Total = value;
+        foreach (var property in new[] { nameof(Total), nameof(NotStarted), nameof(HasWork), nameof(Percent), nameof(Summary) }) OnPropertyChanged(property);
+    }
 
     internal void Record(Guid id, workItemExecutionState state)
     {

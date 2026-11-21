@@ -102,7 +102,11 @@ type runHost = {
     /// Runtime CPU allowance for evaluation inside this invocation.
     EvaluationParallelism: int
     Reporting: sgdReportingConfig option
+    Sgd: sgdRunConfig option
+    ResumeSnapshot: Sortopia.Evaluation.Sgd.sorterPoolSet option
     PreparationCache: RunPreparationCache option
+    /// Transient completed-generation notifications; never part of saved data.
+    GenerationProgress: (int -> unit) option
 }
 
 type sourceProjects = Map<sortopiaDataType, Guid<projectId>>

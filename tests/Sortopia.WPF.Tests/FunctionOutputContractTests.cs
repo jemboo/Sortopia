@@ -85,7 +85,7 @@ public sealed class FunctionOutputContractTests : IDisposable
             Assert.All(node.Editor.InheritedSetupDataTypes, row => { Assert.True(row.GeneratesData); Assert.Empty(row.Error); });
             Assert.Empty(node.Editor.FunctionCompatibilityError);
             Assert.Same(module.Editor, node.Editor.OutputTypesOverride.InheritedSource);
-            Assert.Same(module.Editor, node.Editor.SetupDataTypesOverride.InheritedSource);
+            Assert.True(node.Editor.SetupGeneratesAllOutputs);
         }
         var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "1", "2");
         Assert.DoesNotContain("SortableDataFormat", span.KeyChoices);

@@ -12,6 +12,9 @@ public sealed partial class WorkspacePageViewModel
         if (savedDocument is null) return;
         var dirty = HasUnsavedChanges;
         var locked = WorkspaceFileStore.ProjectsWithRunParameters(WorkspaceFolder, savedDocument).ToHashSet();
+        var lockedRuns = WorkspaceFileStore.RunsWithRunParameters(WorkspaceFolder, savedDocument).ToHashSet();
+        static IEnumerable<runDto> Runs(ModuleDocument module) => module.Projects.SelectMany(p => p.Runs).Concat(module.Modules.SelectMany(Runs));
+        var runControls = savedDocument.Modules.SelectMany(Runs).ToDictionary(r => r.id, r => r.sgd?.Value);
         projectsWithGeneratedFiles.UnionWith(locked);
         var updated = WorkspaceFileStore.ReleaseUnusedProjects(WorkspaceFolder, savedDocument, CancellationToken.None, projectsWithGeneratedFiles.ToArray());
         if (!ReferenceEquals(updated, savedDocument))
@@ -26,6 +29,7 @@ public sealed partial class WorkspacePageViewModel
         }
         bool Visit(WorkspaceTreeNode node)
         {
+            if (node.IsRun) node.Editor?.SetSnapshotControlsLock(lockedRuns.Contains(node.Id) ? runControls.GetValueOrDefault(node.Id) : null);
             // A pending import has not reached its final location yet.
             bool importedFiles = node.IsProject && node.SavedFolderPath is null && node.ImportSourcePath is { } source
                 && Directory.Exists(Path.Combine(source, "runParameters")) && Directory.EnumerateFileSystemEntries(Path.Combine(source, "runParameters")).Any();

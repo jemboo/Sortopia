@@ -167,6 +167,7 @@ type rootRunConfig = {
     DescriptionOverride: string option
     ResultsParameterSpans: parameterSpan list
     Reporting: sgdReportingConfig option
+    Sgd: sgdRunConfig option
 }
 
 type rootRun =
@@ -196,6 +197,7 @@ module RootRun =
         RunConfiguration.identity config.Id parent.ProjectName config.RunName
         if config.DescriptionOverride |> Option.exists isNull then nullArg "description"
         config.Reporting |> Option.iter (SgdReporting.validate >> ignore)
+        config.Sgd |> Option.iter (SgdRun.validate >> ignore)
         RunConfiguration.spans "resultsParameterSpans" settings.ResultsQueryParameterKeys settings.ResultsParameterDefaults config.ResultsParameterSpans
         { projectName = parent.ProjectName; projectConfiguration = settings; config = config }
     let withNames projectName runName (value: rootRun) =
@@ -212,6 +214,7 @@ type branchRunConfig = {
     ResultsParameterSpans: parameterSpan list
     SetupParameterSpans: parameterSpan list
     Reporting: sgdReportingConfig option
+    Sgd: sgdRunConfig option
 }
 
 type branchRun =
@@ -250,6 +253,7 @@ module BranchRun =
         RunConfiguration.identity config.Id parent.ProjectName config.RunName
         if config.DescriptionOverride |> Option.exists isNull then nullArg "description"
         config.Reporting |> Option.iter (SgdReporting.validate >> ignore)
+        config.Sgd |> Option.iter (SgdRun.validate >> ignore)
         RunConfiguration.spans "resultsParameterSpans" settings.ResultsQueryParameterKeys settings.ResultsParameterDefaults config.ResultsParameterSpans
         RunConfiguration.spans "setupParameterSpans" (settings.SetupDataTypes |> List.collect (fun entry -> entry.QueryParameterKeys)) settings.SetupParameterDefaults config.SetupParameterSpans
         { projectName = parent.ProjectName; projectConfiguration = settings; config = config; sources = Map.empty }
@@ -276,6 +280,7 @@ type run =
     | RootRun of rootRun
     | BranchRun of branchRun
     member this.Reporting = match this with RootRun r -> r.Configuration.Reporting | BranchRun r -> r.Configuration.Reporting
+    member this.Sgd = match this with RootRun r -> r.Configuration.Sgd | BranchRun r -> r.Configuration.Sgd
     member this.ParentProjectId = match this with RootRun r -> r.ParentProjectId | BranchRun r -> r.ParentProjectId
     member this.HasSetup = match this with RootRun _ -> false | BranchRun _ -> true
     member this.ProjectName = match this with RootRun r -> r.ProjectName | BranchRun r -> r.ProjectName

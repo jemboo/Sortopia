@@ -43,6 +43,49 @@ public sealed partial class PreparedExecutionTests
     }
 
     [Fact]
+    public void Queued_execution_validates_newly_added_files_and_keeps_parallel_jobs_bounded()
+    {
+        var paths = ParallelFiles();
+        var queue = new ConcurrentQueue<string>(paths);
+        using var barrier = new Barrier(2);
+        var active = 0; var peak = 0;
+        var events = new ConcurrentQueue<workItemExecutionProgress>();
+        var progress = new ItemProgress(update =>
+        {
+            events.Enqueue(update);
+            if (update.State == workItemExecutionState.Running)
+            {
+                var count = Interlocked.Increment(ref active);
+                Interlocked.Exchange(ref peak, Math.Max(peak, count));
+                Assert.True(barrier.SignalAndWait(TimeSpan.FromSeconds(15)), "Queued jobs must run concurrently.");
+            }
+            else Interlocked.Decrement(ref active);
+        });
+        var result = RunParameterExecution.executeQueuedFilesWithOptions([paths[0]],
+            () => queue.TryDequeue(out var path) ? path : null!, new(2), null!, progress, Token);
+        Completed(result); Assert.Equal(2, peak); Assert.Equal(0, active);
+        Assert.Equal(paths.Length, result.Results.Length);
+        Assert.All(events.GroupBy(row => row.Id), group => Assert.Equal(
+            new[] { workItemExecutionState.Running, workItemExecutionState.Complete }, group.Select(row => row.State)));
+    }
+
+    [Fact]
+    public void Newly_checked_missing_file_fails_without_stopping_other_queued_files()
+    {
+        var paths = ParallelFiles();
+        var missingId = Guid.NewGuid();
+        var missing = Path.Combine(Path.GetDirectoryName(paths[0])!, missingId + ".msgpack");
+        var queue = new Queue<string>([paths[0], missing, paths[1]]);
+        var events = new List<workItemExecutionProgress>();
+        var result = RunParameterExecution.executeQueuedFilesWithOptions([paths[0]],
+            () => queue.TryDequeue(out var path) ? path : null!, new(1), null!, new ItemProgress(events.Add), Token);
+        Assert.Equal(runExecutionStatus.Failed, result.Status);
+        Assert.Equal(2, result.Results.Length); Assert.Contains(missing, result.Error);
+        Assert.Single(events, row => row.Id == missingId && row.State == workItemExecutionState.Failed);
+        Assert.Equal(2, events.Count(row => row.State == workItemExecutionState.Complete));
+    }
+
+    [Fact]
     public async Task Independent_results_factories_do_not_hold_the_setup_writer_lock()
     {
         var paths = ParallelFiles();
@@ -110,8 +153,10 @@ public sealed partial class PreparedExecutionTests
         Completed(RunParameterExecution.executeFilesWithOptions(paths, new(2), null!, null!, Token));
     }
 
-    [Fact]
-    public void Duplicate_output_owners_are_rejected_before_any_job_starts()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Duplicate_output_owners_are_rejected_before_conflicting_work_starts(bool queued)
     {
         var paths = ParallelFiles();
         var item = RunParameterFiles.loadFile(paths[0]);
@@ -128,12 +173,26 @@ public sealed partial class PreparedExecutionTests
         File.WriteAllBytes(Path.Combine(folder, "runParameters", id + ".msgpack"), MessagePack.MessagePackSerializer.Serialize(
             new runParametersEnvelopeDto(1, "runParameters", hash, payload), options, Token));
         var events = new List<workItemExecutionProgress>();
-        var result = RunParameterExecution.executeFilesWithOptions([paths[0], Path.Combine(folder, "runParameters", id + ".msgpack")], new(2), null!, new ItemProgress(events.Add), Token);
-        Assert.Equal(runExecutionStatus.Failed, result.Status); Assert.Empty(result.Results);
+        var selected = new[] { paths[0], Path.Combine(folder, "runParameters", id + ".msgpack") };
+        var queue = new Queue<string>(selected);
+        var result = queued
+            ? RunParameterExecution.executeQueuedFilesWithOptions([paths[0]], () => queue.TryDequeue(out var path) ? path : null!, new(1), null!, new ItemProgress(events.Add), Token)
+            : RunParameterExecution.executeFilesWithOptions(selected, new(2), null!, new ItemProgress(events.Add), Token);
+        Assert.Equal(runExecutionStatus.Failed, result.Status);
         Assert.Contains(item.Id + ".msgpack", result.Error); Assert.Contains(id + ".msgpack", result.Error);
         Assert.Contains("same results output", result.Error);
-        Assert.Equal(2, events.Count); Assert.All(events, row => Assert.Equal(workItemExecutionState.Failed, row.State));
-        Assert.Empty(DataFiles(folder, "results"));
+        if (queued)
+        {
+            Assert.Single(result.Results);
+            Assert.Equal(new[] { workItemExecutionState.Running, workItemExecutionState.Complete }, events.Where(row => row.Id == item.Id).Select(row => row.State));
+            Assert.Single(events, row => row.Id == id && row.State == workItemExecutionState.Failed);
+        }
+        else
+        {
+            Assert.Empty(result.Results);
+            Assert.Equal(2, events.Count); Assert.All(events, row => Assert.Equal(workItemExecutionState.Failed, row.State));
+            Assert.Empty(DataFiles(folder, "results"));
+        }
     }
 
     [Theory]

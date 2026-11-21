@@ -44,6 +44,7 @@ public sealed partial class WorkspacePageViewModel
         if (IsBusy || Selected is not { IsRun: true, Parent: { } parent } node) return;
         await SelectedExecution!.Files.RefreshAsync(RunParametersFolder, parent.Id, node.Id);
         RefreshDiskStatus();
+        await RefreshExecutionProgressAsync();
     }
     public Task RemoveRunParameterFilesAsync() => !RemoveRunParameterFilesCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
     {

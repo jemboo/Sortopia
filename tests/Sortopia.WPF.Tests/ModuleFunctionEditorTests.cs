@@ -23,8 +23,8 @@ public sealed class ModuleFunctionEditorTests
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
             var editor = page.Selected!.Editor!;
             Assert.Equal(branch ? "setupFunction" : "resultsFunction", page.ActiveItemKey);
-            Assert.Equal("Functions", page.InspectorItems[0].Group);
-            Assert.Equal("Choose functions", page.ActiveItemTitle);
+            Assert.Equal(branch ? "Setup" : "Functions", page.InspectorItems[0].Group);
+            Assert.Equal(branch ? "Setup function" : "Results function", page.ActiveItemTitle);
             Assert.DoesNotContain(page.InspectorItems, item => item.Key is "resultsDefaults" or "setupDefaults" or "resultsTypes" or "setupOutputs");
             if (branch)
             {
@@ -112,7 +112,7 @@ public sealed class ModuleFunctionEditorTests
         var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [compatible, wrongLabel, wrongKeys]);
         editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
         editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        editor.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in editor.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         var output = editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
         // Copy functions accept any registered source query key, but reject unknown keys.
         wrongKeys.Settings.resultsDataTypes[0].queryParameterKeys = ["UnknownSourceKey"];

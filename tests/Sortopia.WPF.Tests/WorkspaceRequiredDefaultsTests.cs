@@ -126,7 +126,7 @@ public sealed class WorkspaceRequiredDefaultsTests
         var tests = SourceEvaluationInputsTests.Source("SortableTests", "SortableDataFormat");
         var parent = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Parent", () => [models, tests]);
         parent.SetupFunctionName = SetupFunctionNames.evaluationSource;
-        parent.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in parent.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         parent.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
         parent.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         WorkspaceParameterInheritanceTests.AddDefault(parent, "ChannelCount", "24", true);
@@ -156,7 +156,7 @@ public sealed class WorkspaceRequiredDefaultsTests
         var models = SourceEvaluationInputsTests.Source("SorterModelSet", "ChannelCount");
         var tests = SourceEvaluationInputsTests.Source("SortableTests", prefix ? "PrefixLibId" : "MergeLibId");
         var parent = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Parent", () => [models, tests]);
-        parent.SetupFunctionName = SetupFunctionNames.evaluationSource; parent.SetupDataTypesOverride.IsOverridden = true;
+        parent.SetupFunctionName = SetupFunctionNames.evaluationSource; foreach (var sourceRow in parent.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         parent.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
         parent.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         WorkspaceParameterInheritanceTests.AddDefault(parent, "ChannelCount", "16", true);
@@ -184,7 +184,7 @@ public sealed class WorkspaceRequiredDefaultsTests
         var tests = SourceEvaluationInputsTests.Source("SortableTests", "PrefixLibId");
         var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [models, tests]);
         editor.ResultsFunctionName = ResultsFunctionNames.sorterEval; editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
-        editor.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in editor.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         editor.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
         editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         var library = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 16 && id.StageLength == 1));

@@ -23,3 +23,9 @@ module ResultsFunctionCatalog =
     let outputs name =
         (require name).DataTypes |> Map.toList |> List.map (fun (dataType, keys) ->
             { DataType = dataType; QueryParameterKeys = keys } : resultsDataTypeConfig)
+
+    let requireVersion name version =
+        let current = require name
+        if name = ResultsFunctionNames.standardMsuf4SimpleSgd && version = "6" then SgdFunctions.legacyStandardMsuf4Simple
+        elif current.Version = version then current
+        else invalidOp $"Results function '{name}' requires version {version}; installed version is {current.Version}."

@@ -65,9 +65,16 @@ module FunctionConfiguration =
                     if binding.KeyName = ParamKeys.generationCountKey.Name then yield binding.FormattedValue
                 for span in value.ResultsParameterSpans do
                     if span.KeyName = ParamKeys.generationCountKey.Name then yield! span.Values }
-            SgdReporting.validateGenerationCounts reporting counts)
+            if value.Sgd.IsNone then SgdReporting.validateGenerationCounts reporting counts)
+        value.Sgd |> Option.iter (fun controls ->
+            SgdRun.validate controls |> ignore
+            if not results.SupportsEvolutionReporting then invalidArg "sgd" "Only SGD runs support snapshot controls.")
         let config = match value with run.RootRun r -> r.ProjectConfiguration.Results | run.BranchRun r -> r.ProjectConfiguration.Results
-        if executable then version (string config.FunctionName) config.FunctionVersion results.Version
+        if executable && not (config.FunctionName = ResultsFunctionNames.standardMsuf4SimpleSgd && config.FunctionVersion = "6") then
+            version (string config.FunctionName) config.FunctionVersion results.Version
+        let results = if executable then ResultsFunctionCatalog.requireVersion config.FunctionName config.FunctionVersion else results
+        if executable && results.SupportsEvolutionReporting && results.Version = "7" && value.Sgd.IsNone then
+            invalidArg "sgd" "Set SnapshotInterval and SnapshotCount on the SGD run."
         if config.FunctionVersion = results.Version then
             FunctionValidation.validateInputs results value.ResultsQueryParameterKeys value.ResultsParameterDefaults value.ResultsParameterSpans
         match value with

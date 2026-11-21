@@ -127,6 +127,69 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
         page.Cancel();
     }
 
+    [Fact]
+    public async Task Tree_execution_fill_counts_saved_files_across_runs_and_refreshes_changed_results()
+    {
+        var page = await GenerateAsync(false);
+        var firstId = page.Selected!.Id;
+        var firstPaths = page.SelectedExecution!.Files.Rows.Select(row => row.Path).ToArray();
+        page.Selected = page.Selected.Parent;
+        page.AddRunCommand.Execute(null); var secondId = page.Selected!.Id;
+        WorkspaceRunExecutionTests.SupplyQuerySpans(page);
+        page.Selected.Editor!.ResultsParameters.Single(row => row.Key == "SortableDataFormat").Values[0].Text = "BitVector512";
+        await page.SaveWorkspaceAsync();
+        var root = page.Roots[0];
+        var first = root.DescendantsAndSelf().Single(node => node.Id == firstId);
+        var second = root.DescendantsAndSelf().Single(node => node.Id == secondId);
+        page.Selected = second;
+        await page.GenerateRunParametersAsync(); Assert.Empty(page.Error);
+        var secondPath = Assert.Single(page.SelectedExecution!.Files.Rows).Path;
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, root.RunParameterFileCount);
+        Assert.Equal(2, first.RunParameterFileCount); Assert.Equal(1, second.RunParameterFileCount);
+        Assert.Equal(WorkspaceExecutionFill.Empty, root.ExecutionFill);
+        Assert.Equal(runExecutionStatus.Completed, RunParameterExecution.executeFile(secondPath, null!, TestContext.Current.CancellationToken).Status);
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(WorkspaceExecutionFill.Full, second.ExecutionFill);
+        Assert.Equal(WorkspaceExecutionFill.Empty, first.ExecutionFill);
+        Assert.Equal(WorkspaceExecutionFill.Half, root.ExecutionFill);
+        Assert.Equal(1, root.CompletedRunParameterFileCount); // One of three files, not one of two runs.
+        Assert.Contains("1 of 3", root.ExecutionSummary);
+        foreach (var path in firstPaths)
+            Assert.Equal(runExecutionStatus.Completed, RunParameterExecution.executeFile(path, null!, TestContext.Current.CancellationToken).Status);
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.All(root.DescendantsAndSelf(), node => Assert.Equal(WorkspaceExecutionFill.Full, node.ExecutionFill));
+
+        var reopened = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
+        await reopened.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, reopened.Roots[0].CompletedRunParameterFileCount);
+        Assert.Equal(WorkspaceExecutionFill.Full, reopened.Roots[0].ExecutionFill);
+
+        var item = RunParameterFiles.loadFile(firstPaths[0]);
+        var store = new SortopiaFileDb(Path.GetDirectoryName(Path.GetDirectoryName(firstPaths[0]))!, item.ProjectId);
+        File.Delete(store.GetPath(Assert.Single(RunOutputFiles.keys(item)).Reference));
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, root.CompletedRunParameterFileCount);
+        Assert.Equal(WorkspaceExecutionFill.Half, first.ExecutionFill);
+        Assert.Equal(WorkspaceExecutionFill.Half, root.ExecutionFill);
+
+        File.WriteAllBytes(firstPaths[1], [1, 2, 3]);
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, root.RunParameterFileCount); Assert.Equal(1, root.CompletedRunParameterFileCount);
+        Assert.Equal(2, first.RunParameterFileCount);
+        Assert.Equal(WorkspaceExecutionFill.Empty, first.ExecutionFill);
+        Assert.Contains("could not be checked", root.ExecutionSummary);
+        var unknown = Path.Combine(Path.GetDirectoryName(secondPath)!, Guid.NewGuid() + ".msgpack");
+        File.WriteAllBytes(unknown, [1, 2, 3]);
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(4, root.RunParameterFileCount);
+        Assert.Equal(WorkspaceExecutionFill.Full, second.ExecutionFill);
+        foreach (var path in firstPaths.Append(secondPath).Append(unknown)) File.Delete(path);
+        await page.RefreshExecutionProgressAsync(TestContext.Current.CancellationToken);
+        Assert.All(root.DescendantsAndSelf(), node => { Assert.Equal(0, node.RunParameterFileCount); Assert.Equal(WorkspaceExecutionFill.Empty, node.ExecutionFill); });
+        page.Cancel(); reopened.Cancel();
+    }
+
     public void Dispose() => temporary.Delete(recursive: true);
 
     [Theory]

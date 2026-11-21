@@ -57,12 +57,12 @@ public sealed class EvaluationInputFunctionTests
         var sourceTypes = setup ? SetupFunctionCatalog.require(name).SourceDataTypes : ResultsFunctionCatalog.require(name).SourceDataTypes;
         Assert.False(SetupFunctionCatalog.functions.ContainsKey(group));
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey(group));
-        Assert.Equal((model == "msuf4" ? 6 : 2).ToString(), setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
+        Assert.Equal((model == "msuf4" ? 7 : 2).ToString(), setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version);
         Assert.DoesNotContain(required, key => key.Name == "SimpleSorterModelType");
         Assert.Equal(model == "msce", required.Any(key => key.Name == "ExcludeSelfCe"));
         Assert.Equal(model == "msrs", required.Any(key => key.Name == "StageWeights"));
         Assert.DoesNotContain(required, key => key.Name == "Seed4Weights");
-        foreach (var rate in new[] { "OrthoRate", "ParaRate", "SelfSymRate" }) Assert.Equal(model == "msuf4", required.Any(key => key.Name == rate));
+        foreach (var rate in new[] { "OrthoGenRate", "ParaGenRate", "SelfSymGenRate" }) Assert.Equal(model == "msuf4", required.Any(key => key.Name == rate));
         Assert.Equal(model == "msuf6", required.Any(key => key.Name == "Seed6Weights"));
         Assert.Equal(model == "msuf6", required.Any(key => key.Name == "UnfoldingWeights"));
         var testsType = sortopiaDataType.NewSortableTests(""); var modelsType = sortopiaDataType.NewSorterModelSet("");

@@ -23,7 +23,7 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(source.Children[0], false);
             foreach (var key in source.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys)) key.Selected = true;
             module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationSource;
-            project.Editor!.SetupDataTypesOverride.IsOverridden = true;
+            foreach (var sourceRow in project.Editor!.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
             foreach (var row in project.Editor.SetupDataTypes) row.SourceProjectId = source.Id;
             foreach (var binding in sourceSettings.resultsParameterDefaults)
                 if (!project.Editor.SetupParameterDefaults.Any(row => row.Key == binding.keyName))

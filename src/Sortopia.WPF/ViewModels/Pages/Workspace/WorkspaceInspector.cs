@@ -34,19 +34,36 @@ public sealed partial class WorkspacePageViewModel
     public RelayCommand SelectConfigurationItemCommand { get; private set; } = null!;
     public RelayCommand SelectInspectorSourceCommand { get; private set; } = null!;
     public RelayCommand EditProjectQueryProjectionsCommand { get; private set; } = null!;
+    public RelayCommand OpenFunctionParameterCommand { get; private set; } = null!;
     public string ActiveItemKey => activeItemKey;
     public string ActiveItemTitle => InspectorItems.FirstOrDefault(item => item.Key == activeItemKey) is { } item
-        ? item.Group == "Functions" ? Selected?.Editor?.FunctionsTitle ?? "Functions"
-            : item.Group is "Results" or "Setup" && !item.Title.StartsWith(item.Group, StringComparison.OrdinalIgnoreCase) ? $"{item.Group} · {item.Title}" : item.Title
+        ? item.Group is "Results" or "Setup" && !item.Title.StartsWith(item.Group, StringComparison.OrdinalIgnoreCase) ? $"{item.Group} · {item.Title}" : item.Title
         : "Configuration item";
     public bool ShowNameEditor => activeItemKey == "name";
     public bool ShowLocationEditor => activeItemKey == "location";
     public bool ShowExecutionEditor => activeItemKey == "execution" && Selected?.IsRun == true;
     public bool ShowConfigurationItemEditor => Selected?.HasConfiguration == true && !ShowNameEditor && !ShowLocationEditor && !ShowExecutionEditor;
-    public bool ShowParentDefaultsAction => ShowConfigurationItemEditor && Selected?.HasParentDefaults == true;
+    public bool ShowParentDefaultsAction => ShowConfigurationItemEditor && activeItemKey != "evolutionReporting" && Selected?.HasParentDefaults == true;
     public bool HasSelectedEntity => Selected is not null;
     private void InitializeInspector()
     {
+        OpenFunctionParameterCommand = new RelayCommand(value =>
+        {
+            if (value is not WorkspaceFunctionParameter { CanNavigate: true } parameter) return;
+            var node = Roots.SelectMany(root => root.DescendantsAndSelf())
+                .FirstOrDefault(node => ReferenceEquals(node.Editor, parameter.TargetEditor));
+            if (node is null) return;
+            if (parameter.IsSourceInput)
+            {
+                if (CanModifyWorkspace && node.Editor!.IsEditable)
+                    node.Editor.PrepareSetupSource(parameter.SourceKind!, parameter.SourceText);
+            }
+            else if (parameter.Supply == WorkspaceParameterSupply.None
+                && (!CanModifyWorkspace || !node.Editor!.PrepareMissingFunctionParameter(parameter.Name, parameter.IsSetup))) return;
+            for (var parent = node.Parent; parent is not null; parent = parent.Parent) parent.IsExpanded = true;
+            Selected = node;
+            SelectConfigurationItem(parameter.ItemKey);
+        }, () => CanEdit);
         EditProjectQueryProjectionsCommand = new RelayCommand(value =>
         {
             if (value is not string key || key is not ("resultsTypes" or "setupOutputs")) return;
@@ -79,12 +96,13 @@ public sealed partial class WorkspacePageViewModel
     private IEnumerable<WorkspaceItemSnapshot> InspectorSnapshots()
     {
         if (Selected is not { } node) yield break;
-        if (node.Editor is { } module)
-            foreach (var item in module.InspectorSnapshots().Where(item => item.Group == "Functions")) yield return item;
+        var configuration = node.Editor?.InspectorSnapshots().ToArray() ?? [];
+        string[] firstGroups = node.IsBranch ? ["Setup", "Results", "Reporting"] : ["Functions", "Reporting"];
+        foreach (var group in firstGroups)
+            foreach (var item in configuration.Where(item => item.Group == group)) yield return item;
         yield return new("name", "Identity", "Name", node.NameInput, "Local", node.NameError);
         yield return new("location", "Identity", "Location", SelectedFolderPath, node.DiskStatus.Length > 0 ? node.DiskStatus : "Saved", node.NameError);
-        if (node.Editor is { } editor)
-            foreach (var item in editor.InspectorSnapshots().Where(item => item.Group != "Functions")) yield return item;
+        foreach (var item in configuration.Where(item => !firstGroups.Contains(item.Group))) yield return item;
         if (node.IsRun)
             yield return new("execution", "Files", "Run parameter files", SelectedExecution!.Files.HasLoaded ? SelectedExecution.Files.Summary : RunParameterPreviewSummary,
                 SelectedExecution.IsRunning ? "Generating" : SelectedExecution.Files.HasFiles ? "Saved files" : "Preview and generation", SelectedExecution.Files.Error);
@@ -113,7 +131,8 @@ public sealed partial class WorkspacePageViewModel
             "Name" => "name", "Location" => "location", "Description" => "description",
             "Results settings" => "resultsFunction", "Setup settings" => "setupFunction",
             "Results parameter defaults" => "resultsDefaults", "Setup parameter defaults" => "setupDefaults",
-            "Results parameter spans" => "resultsSpans", "Setup parameter spans" => "setupSpans", _ => "name"
+            "Results parameter spans" => "resultsSpans", "Setup parameter spans" => "setupSpans",
+            "Evolution reporting" => "evolutionReporting", _ => "name"
         };
         SelectConfigurationItem(InspectorItems.Any(item => item.Key == key) ? key : DefaultInspectorItem);
     }

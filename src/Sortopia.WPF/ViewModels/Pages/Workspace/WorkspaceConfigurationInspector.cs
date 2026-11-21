@@ -4,6 +4,7 @@ namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed partial class WorkspaceConfigurationViewModel
 {
+    internal bool HasParameterDefaults(bool setup) => (setup ? EffectiveSetupDefaults : EffectiveOutputDefaults).Length > 0;
     internal IEnumerable<WorkspaceItemSnapshot> InspectorSnapshots()
     {
         static string State(WorkspaceOverrideState state) => state.IsReadOnly ? "Locked · generated parameters"
@@ -25,12 +26,23 @@ public sealed partial class WorkspaceConfigurationViewModel
         }
         static string Types(IEnumerable<sortopiaDataTypeDto> values) => Summary(values.Select(value => value.value.Length == 0 ? value.kind : $"{value.kind}: {value.value}"));
         static string Spans(IEnumerable<WorkspaceParameterSpan> values) => Summary(values.Select(span => $"{span.Key}: {string.Join(", ", span.Values.Select(value => value.Text))}"));
-        if (IsBranch) yield return Field("setupFunction", "Functions", SetupFunctionOverride) with { Error = SetupFunctionError };
-        yield return Field("resultsFunction", "Functions", ResultsFunctionOverride) with { Error = ResultsFunctionError };
+        if (IsBranch) yield return Field("setupFunction", "Setup", SetupFunctionOverride) with { Error = SetupFunctionError };
+        yield return Field("resultsFunction", IsBranch ? "Results" : "Functions", ResultsFunctionOverride) with { Error = ResultsFunctionError };
         yield return Field("description", "General", DescriptionOverride);
         if (!IsModule) yield return Field("resultsDatabase", "Results", ResultsDatabaseOverride);
         if (!IsModule && IsBranch) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
-        if (!ShowFunctionConfiguration) yield break;
+        if (ShowReportingConfiguration)
+            yield return new("evolutionReporting", "Reporting", "Evolution reporting",
+                UsesSnapshotControls ? $"SnapshotInterval: {SnapshotInterval}; SnapshotCount: {SnapshotCount}; {SnapshotTargetText} Pool summaries: {SummaryReporting.Schedule}"
+                    : ReportingEnabled ? $"Full snapshots: {SnapshotReporting.Schedule}; Pool summaries: {SummaryReporting.Schedule}" : "Disabled",
+                UsesSnapshotControls && !CanEditSnapshotInterval ? "Interval locked · count may increase" : IsReadOnly ? "Locked · generated parameters" : "Run settings", ReportingError);
+        if (!ShowFunctionConfiguration)
+        {
+            // Defaults can be defined above the module that chooses the function.
+            if (HasParameterDefaults(false)) yield return Defaults(false);
+            if (IsBranch && HasParameterDefaults(true)) yield return Defaults(true);
+            yield break;
+        }
         if (HasResultsContract)
         {
             yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
@@ -40,12 +52,17 @@ public sealed partial class WorkspaceConfigurationViewModel
             if (IsRun)
                 yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
         }
-        if (!IsBranch || !HasSetupContract) yield break;
+        else if (HasParameterDefaults(false)) yield return Defaults(false);
+        if (!IsBranch || !HasSetupContract)
+        {
+            if (IsBranch && HasParameterDefaults(true)) yield return Defaults(true);
+            yield break;
+        }
 
 
-        yield return List("setupOutputs", "Setup", SetupDataTypesOverride,
-            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")), FirstError(SetupDataTypesError, SetupQueryKeysError))
-            with { Source = IsRun ? Parent : SetupDataTypesOverride.InheritedSource };
+        yield return new("setupOutputs", "Setup", "Setup outputs and source projects",
+            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")),
+            SetupSourcesStatus, FirstError(SetupDataTypesError, SetupQueryKeysError), IsRun ? Parent : null);
         yield return Defaults(true);
         if (IsRun)
         {

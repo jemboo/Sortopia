@@ -33,8 +33,8 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         {
             page.Selected = node;
             Assert.Equal(branch ? "setupFunction" : "resultsFunction", page.ActiveItemKey);
-            Assert.Equal("Functions", page.InspectorItems[0].Group);
-            Assert.Equal("Inherited functions", page.ActiveItemTitle);
+            Assert.Equal(branch ? "Setup" : "Functions", page.InspectorItems[0].Group);
+            Assert.Equal(branch ? "Setup function" : "Results function", page.ActiveItemTitle);
             Assert.False(node.Editor!.ResultsFunctionOverride.CanOverride);
             Assert.False(node.Editor.ResultsFunctionOverride.ShowCatalogPicker);
             Assert.Contains("parent module", node.Editor.FunctionsStatus);

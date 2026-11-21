@@ -37,7 +37,11 @@ public sealed partial class PreparedExecutionTests : IDisposable
         setup = Spans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
         settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
-        var parent = project.create(Guid.NewGuid(), name, SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        var config = SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings);
+        // Legacy SGD fixtures model an already sealed version-6 project.
+        var parent = settings.resultsFunctionName == ResultsFunctionNames.standardMsuf4SimpleSgd && settings.resultsFunctionVersion == "6"
+            ? project.restore(Guid.NewGuid(), name, config, configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item)), true, [])
+            : project.create(Guid.NewGuid(), name, config, []);
         var run = RunDto.toDomain(parent, new runDto
         {
             schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = parent.IsBranchProject ? "branch" : "root",

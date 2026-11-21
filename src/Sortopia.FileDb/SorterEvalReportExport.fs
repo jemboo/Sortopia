@@ -71,7 +71,7 @@ module SorterEvalReportExport =
         yield! SorterEvalReports.detailColumns |]
 
     let private writeEvolution sources columns temporary token =
-        let reporting = sources |> Array.filter (fun source -> source.Item.Reporting.IsSome) |> Array.distinctBy (fun source -> source.Folder, source.Item.Id)
+        let reporting = sources |> Array.filter (fun source -> source.Item.Reporting.IsSome || source.Item.Sgd.IsSome) |> Array.distinctBy (fun source -> source.Folder, source.Item.Id)
         let mutable summaryRows, snapshotRows = 0L, 0L
         if reporting.Length > 0 then
             use summaryStream = File.Create(Path.Combine(temporary, "EvolutionSummary.csv"))
@@ -120,7 +120,9 @@ module SorterEvalReportExport =
                 let store = SortopiaFileDb(folder, item.ProjectId)
                 let allOutputs = RunOutputFiles.plan item
                 let database = FileRunDatabase(store, allOutputs, token) :> IRunDatabase
-                let plan = allOutputs |> Map.filter (fun output _ -> Map.containsKey output.DataType item.Results.DataTypes)
+                let plan = allOutputs |> Map.filter (fun output _ ->
+                    Map.containsKey output.DataType item.Results.DataTypes
+                    && (item.Sgd.IsNone || output.QueryParameters.TryFind ParamKeys.generationCurrentKey = Some (SgdRun.target item.Sgd.Value)))
                 let setupValues = [
                     for reference in item.SetupInputs |> List.sort do
                         let prefix = inputName reference.DataType

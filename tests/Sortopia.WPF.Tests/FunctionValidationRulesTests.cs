@@ -12,14 +12,14 @@ public sealed class FunctionValidationRulesTests
     [Theory]
     [InlineData("sorter-model-set.uniform.mssi.simple-r", "AMax", "-1")]
     [InlineData("sorter-model-set.uniform.mssi.simple-s", "ActivationProbability", "1.1")]
-    [InlineData("sorter-model-set.uniform.msuf4.simple", "OrthoRate", "-1")]
+    [InlineData("sorter-model-set.uniform.msuf4.simple", "OrthoGenRate", "-1")]
     [InlineData("sorter-model-set.uniform.msuf4.simple", "ChannelCount", "6")]
     [InlineData("sorter-model-set.uniform.msuf6.simple", "ChannelCount", "8")]
     [InlineData("sorter-model-set.uniform.mssi.simple", "SorterCount", "2147483647")]
     [InlineData("sorter-model-set.uniform.mssi.simple", "Repl", "-1")]
     [InlineData("sorter-model-set.uniform.mssi.simple", "RngType", "unknown")]
     [InlineData("sorter-model-set.uniform.msuf6.simple", "Seed6Weights", "0,0,0,0,0,0,0")]
-    [InlineData("sorter-model-set.uniform.msuf4.simple", "OrthoRate", "NaN")]
+    [InlineData("sorter-model-set.uniform.msuf4.simple", "OrthoGenRate", "NaN")]
     public void Generation_fields_defaults_and_spans_share_validation(string function, string key, string invalid)
     {
         Check(SetupFunctionCatalog.require(function));
@@ -40,7 +40,6 @@ public sealed class FunctionValidationRulesTests
     [Theory]
     [InlineData("InitialPoolSeed", "-1")]
     [InlineData("InitialPoolSelection", "unknown")]
-    [InlineData("GenerationCount", "-1")]
     [InlineData("SorterPoolCount", "0")]
     [InlineData("SelectedSorterCountPerPool", "-1")]
     [InlineData("SortedFraction", "0")]
@@ -81,7 +80,7 @@ public sealed class FunctionValidationRulesTests
             Assert.Equal(error, definition.InputError.Invoke([]).Invoke([ParameterSpan.fromTexts("BatchWidth", parameterValueType.Integer, ["1", "2"])]));
             Assert.Equal(0, combinations);
             var host = new runHost(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameterSet.fromBindings([binding]),
-                null!, null!, CancellationToken.None, 1, null, null);
+                null!, null!, CancellationToken.None, 1, null, null, null, null, null);
             Assert.Contains(error, Assert.Throws<ArgumentException>(() => execute(host)).Message);
             Assert.Equal(0, combinations);
             Assert.Equal("Combination rejected.", definition.InputError.Invoke([ParameterBinding.fromText("BatchWidth", parameterValueType.Integer, "3")]).Invoke([]));
@@ -107,8 +106,8 @@ public sealed class FunctionValidationRulesTests
         var copy = SetupFunctions.evaluationSource;
         var validFields = ListModule.OfArray(new[] {
             ParameterBinding.create(ParamKeys.aMaxKey, 1), ParameterBinding.create(ParamKeys.aInitialKey, 2),
-            ParameterBinding.create(ParamKeys.orthoRateKey, 0.0), ParameterBinding.create(ParamKeys.paraRateKey, 0.0),
-            ParameterBinding.create(ParamKeys.selfSymRateKey, 0.0), ParameterBinding.create(ParamKeys.channelCountKey, 6),
+            ParameterBinding.create(ParamKeys.orthoGenRateKey, 0.0), ParameterBinding.create(ParamKeys.paraGenRateKey, 0.0),
+            ParameterBinding.create(ParamKeys.selfSymGenRateKey, 0.0), ParameterBinding.create(ParamKeys.channelCountKey, 6),
             ParameterBinding.fromText("UnfoldingWeights", parameterValueType.UnfoldingWeights, "1,1,1;1,1,1") });
         Assert.Empty(copy.InputError.Invoke(validFields).Invoke([]));
         Assert.Empty(copy.InputError.Invoke([]).Invoke(ListModule.OfSeq(validFields.Select(binding =>
@@ -119,7 +118,7 @@ public sealed class FunctionValidationRulesTests
         var fieldError = FunctionParameterSupport.valueError(copy.ParameterSupport, bad.KeyName, bad.ValueType, bad.FormattedValue);
         Assert.NotEmpty(fieldError);
         Assert.Equal(fieldError, copy.InputError.Invoke([bad]).Invoke([]));
-        var host = new runHost(runExecutionPhase.Setup, parameterSet.fromBindings([bad]), null!, null!, CancellationToken.None, 1, null, null);
+        var host = new runHost(runExecutionPhase.Setup, parameterSet.fromBindings([bad]), null!, null!, CancellationToken.None, 1, null, null, null, null, null);
         Assert.Contains(fieldError, Assert.Throws<ArgumentException>(() => copy.Execute.Invoke(host)
             .Invoke(MapModule.OfSeq(copy.SourceDataTypes.Select(type => Tuple.Create(type, Guid.NewGuid()))))).Message);
     }

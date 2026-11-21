@@ -19,6 +19,7 @@ public sealed record WorkspaceSaveIssue(WorkspaceTreeNode Node, string Section, 
 public sealed partial class WorkspacePageViewModel
 {
     public RelayCommand ReviewSaveIssueCommand { get; private set; } = null!;
+    public RelayCommand ReviewNodeErrorsCommand { get; private set; } = null!;
     public IReadOnlyList<WorkspaceSaveIssue> SaveIssues
     {
         get
@@ -36,9 +37,12 @@ public sealed partial class WorkspacePageViewModel
         if (node.DraftSourceError is { Length: > 0 } sourceError) yield return new(node, "Setup settings", sourceError);
     }
     public bool HasSaveIssues => SaveIssues.Count > 0;
+    public IReadOnlyList<WorkspaceSaveIssue> SelectedSaveIssues =>
+        SaveIssues.Where(issue => ReferenceEquals(issue.Node, Selected)).ToArray();
+    public bool HasSelectedSaveIssues => SelectedSaveIssues.Count > 0;
+    public string SelectedSaveIssueSummary =>
+        $"{SelectedSaveIssues.Count} configuration {(SelectedSaveIssues.Count == 1 ? "issue" : "issues")}";
     private bool HasStructuralErrors => Roots.SelectMany(root => root.DescendantsAndSelf()).Any(node => node.NameError.Length > 0);
-    public string SaveIssueSummary => HasStructuralErrors ? "Fix the name or location errors before saving. Select an item below to review it."
-        : $"{SaveIssues.Count} configuration {(SaveIssues.Count == 1 ? "issue" : "issues")} · {(HasUnsavedChanges ? "You can save this draft and finish later." : "Draft saved. Runs with valid settings and sources can still generate parameters.")} Select an item below to review it.";
     public string SaveHint
     {
         get
@@ -57,6 +61,15 @@ public sealed partial class WorkspacePageViewModel
     }
     private void InitializeSaveValidation()
     {
+        ReviewNodeErrorsCommand = new RelayCommand(value =>
+        {
+            if (value is not WorkspaceTreeNode node) return;
+            var target = node.DescendantsAndSelf().Skip(1).FirstOrDefault(child => child.HasOwnIssues) ?? node;
+            for (var parent = target.Parent; parent is not null; parent = parent.Parent) parent.IsExpanded = true;
+            Selected = target;
+            if (SelectedSaveIssues.FirstOrDefault() is { } issue) ReviewSaveIssueCommand.Execute(issue);
+            else if (target.HasDiskWarning) SelectConfigurationItem("location");
+        }, () => CanEdit);
         ReviewSaveIssueCommand = new RelayCommand(value =>
         {
             if (value is not WorkspaceSaveIssue issue) return;
@@ -76,8 +89,13 @@ public sealed partial class WorkspacePageViewModel
     }
     private void NotifySaveValidation()
     {
+        var invalidNodes = SaveIssues.Select(issue => issue.Node).ToHashSet();
+        foreach (var node in Roots.SelectMany(root => root.DescendantsAndSelf()))
+            node.HasValidationIssues = invalidNodes.Contains(node);
         OnPropertyChanged(nameof(SaveIssues)); OnPropertyChanged(nameof(HasSaveIssues));
-        OnPropertyChanged(nameof(SaveIssueSummary)); OnPropertyChanged(nameof(SaveHint));
+        OnPropertyChanged(nameof(SelectedSaveIssues)); OnPropertyChanged(nameof(HasSelectedSaveIssues));
+        OnPropertyChanged(nameof(SelectedSaveIssueSummary)); OnPropertyChanged(nameof(SaveHint));
         ReviewSaveIssueCommand?.RaiseCanExecuteChanged();
+        ReviewNodeErrorsCommand?.RaiseCanExecuteChanged();
     }
 }

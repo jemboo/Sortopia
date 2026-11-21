@@ -12,21 +12,78 @@
                 <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="WorkspaceBoolVisibility" />
+            <Style x:Key="ToolbarActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+            </Style>
+            <Geometry x:Key="WorkspaceIcon">M3,3 H10 V10 H3 Z M14,3 H21 V10 H14 Z M3,14 H10 V21 H3 Z M14,14 H21 V21 H14 Z</Geometry>
+            <Geometry x:Key="RootModuleIcon">M12,2 L22,7 L12,12 L2,7 Z M2,7 V17 L12,22 L22,17 V7 M12,12 V22</Geometry>
+            <Geometry x:Key="RootModuleFill">M12,2 L22,7 V17 L12,22 L2,17 V7 Z</Geometry>
+            <Geometry x:Key="BranchModuleIcon">M9,2 H15 V8 H9 Z M2,16 H8 V22 H2 Z M16,16 H22 V22 H16 Z M12,8 V12 M5,16 V12 H19 V16</Geometry>
+            <Geometry x:Key="BranchModuleFill">M9,2 H15 V8 H9 Z M2,16 H8 V22 H2 Z M16,16 H22 V22 H16 Z</Geometry>
+            <Geometry x:Key="ProjectIcon">M2,4 H9 L12,8 H22 V20 H2 Z M2,8 H12</Geometry>
+            <Geometry x:Key="RunIcon">M7,3 L21,12 L7,21 Z</Geometry>
             <HierarchicalDataTemplate DataType="{x:Type vm:WorkspaceTreeNode}" ItemsSource="{Binding Children}">
                 <Border Padding="3" CornerRadius="3" ToolTip="{Binding DiskStatusDetail}" AutomationProperties.ItemStatus="{Binding DiskStatus}">
                     <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.Primary}" /></DataTrigger><DataTrigger Binding="{Binding IsCut}" Value="True"><Setter Property="Opacity" Value="0.5" /></DataTrigger></Style.Triggers></Style></Border.Style>
                     <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding KindLabel}" FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center">
-                        <TextBlock.Style><Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{StaticResource Workspace.Accent}" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsBranch}" Value="True"><Setter Property="Foreground" Value="#D8B4FE" /></DataTrigger>
-                                <DataTrigger Binding="{Binding IsWorkspace}" Value="True"><Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" /></DataTrigger>
-                                <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Foreground" Value="White" /></DataTrigger>
-                            </Style.Triggers>
-                        </Style></TextBlock.Style>
-                    </TextBlock>
-                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource Workspace.TextPrimary}" />
+                    <Button x:Name="NodeIconButton" Width="24" Height="24" Margin="0,0,7,0" VerticalAlignment="Center"
+                            ToolTip="{Binding IconDescription}" AutomationProperties.Name="{Binding IconDescription}"
+                            Focusable="{Binding NeedsAttention}" Click="OnReviewNodeErrors"
+                            Command="{Binding DataContext.ReviewNodeErrorsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}" CommandParameter="{Binding}">
+                        <Button.Style><Style TargetType="Button">
+                            <Setter Property="MinHeight" Value="0" /><Setter Property="Padding" Value="0" /><Setter Property="Cursor" Value="Arrow" />
+                            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                                <Border x:Name="IconSurface" Background="Transparent" CornerRadius="3"><ContentPresenter /></Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="IconSurface" Property="Background" Value="{StaticResource Workspace.SurfaceHover}" /></Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="IconSurface" Property="Background" Value="{StaticResource Workspace.SurfaceHover}" /></Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate></Setter.Value></Setter>
+                            <Style.Triggers><DataTrigger Binding="{Binding NeedsAttention}" Value="True"><Setter Property="Cursor" Value="Hand" /></DataTrigger></Style.Triggers>
+                        </Style></Button.Style>
+                    <Grid x:Name="NodeIcon" Width="24" Height="24">
+                        <Path x:Name="NodeIconFill" Fill="{Binding Stroke, ElementName=NodeIconShape}" Opacity="0.55" IsHitTestVisible="False">
+                            <Path.Style><Style TargetType="Path">
+                                <Setter Property="Data" Value="{StaticResource RootModuleFill}" />
+                                <Setter Property="Clip"><Setter.Value><RectangleGeometry Rect="0,0,24,24" /></Setter.Value></Setter>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Workspace}"><Setter Property="Data" Value="{StaticResource WorkspaceIcon}" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Project}"><Setter Property="Data" Value="{StaticResource ProjectIcon}" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Run}"><Setter Property="Data" Value="{StaticResource RunIcon}" /></DataTrigger>
+                                    <MultiDataTrigger><MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Module}" />
+                                        <Condition Binding="{Binding IsBranch}" Value="True" />
+                                    </MultiDataTrigger.Conditions><Setter Property="Data" Value="{StaticResource BranchModuleFill}" /></MultiDataTrigger>
+                                    <DataTrigger Binding="{Binding ExecutionFill}" Value="{x:Static vm:WorkspaceExecutionFill.Empty}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding ExecutionFill}" Value="{x:Static vm:WorkspaceExecutionFill.Half}">
+                                        <Setter Property="Clip"><Setter.Value><RectangleGeometry Rect="0,12,24,12" /></Setter.Value></Setter>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style></Path.Style>
+                        </Path>
+                        <Path x:Name="NodeIconShape" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              AutomationProperties.Name="{Binding IconDescription}">
+                            <Path.Style><Style TargetType="Path">
+                                <Setter Property="Data" Value="{StaticResource RootModuleIcon}" />
+                                <Setter Property="Stroke" Value="{StaticResource Workspace.Accent}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Workspace}"><Setter Property="Data" Value="{StaticResource WorkspaceIcon}" /><Setter Property="Stroke" Value="{StaticResource Workspace.TextSecondary}" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Project}"><Setter Property="Data" Value="{StaticResource ProjectIcon}" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Run}"><Setter Property="Data" Value="{StaticResource RunIcon}" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding IsBranch}" Value="True"><Setter Property="Stroke" Value="#D8B4FE" /></DataTrigger>
+                                    <MultiDataTrigger><MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Kind}" Value="{x:Static vm:WorkspaceEntityKind.Module}" />
+                                        <Condition Binding="{Binding IsBranch}" Value="True" />
+                                    </MultiDataTrigger.Conditions><Setter Property="Data" Value="{StaticResource BranchModuleIcon}" /></MultiDataTrigger>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Stroke" Value="White" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding NeedsAttention}" Value="True"><Setter Property="Stroke" Value="{StaticResource Workspace.Warning}" /></DataTrigger>
+                                </Style.Triggers>
+                            </Style></Path.Style>
+                        </Path>
+                    </Grid>
+                    </Button>
+                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource Workspace.TextPrimary}" VerticalAlignment="Center" />
                     <TextBlock Text="Cut" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center" Foreground="{StaticResource Workspace.TextSecondary}"
                                Visibility="{Binding IsCut, Converter={StaticResource WorkspaceBoolVisibility}}" />
                     <TextBlock Text="{Binding DiskStatus}" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center">
@@ -56,84 +113,44 @@
             <RowDefinition Height="*" MinHeight="120" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <DockPanel Margin="0,0,0,10">
-            <Button DockPanel.Dock="Right" Content="← _Back to Sortopia" Command="{Binding ReturnHomeCommand}"
-                    Style="{StaticResource PageReturnButtonStyle}" Margin="16,0,0,0" AutomationProperties.Name="Back to Sortopia" />
-            <Button DockPanel.Dock="Right" Content="Inspect _files" Command="{Binding InspectFilesCommand}" Margin="12,0,0,0"
-                    ToolTip="Inspect saved files; keep current editor changes" AutomationProperties.Name="Inspect workspace files" />
-            <TextBlock Text="Workspace" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
-        </DockPanel>
-        <StackPanel Grid.Row="1" Margin="0,0,0,10">
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <Grid x:Name="WorkspaceToolbar" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <TextBox x:Name="WorkspaceFolderPath" Text="{Binding WorkspaceFolder, Mode=OneWay}" IsReadOnly="True"
-                         MinHeight="32" VerticalContentAlignment="Center" ToolTip="{Binding WorkspaceFolder}" AutomationProperties.Name="Workspace folder" />
+                         MinWidth="160" MinHeight="32" VerticalContentAlignment="Center" ToolTip="{Binding WorkspaceFolder}" AutomationProperties.Name="Workspace folder" />
                 <Button Grid.Column="1" Content="_Browse…" Command="{Binding BrowseWorkspaceFolderCommand}"
-                        MinHeight="32" MinWidth="90" Margin="8,0,0,0" AutomationProperties.Name="Browse for Workspace folder" />
-            </Grid>
-            <TextBlock x:Name="WorkspaceFileStatus" Text="{Binding WorkspaceFileStatus}" Margin="0,8,0,0"
-                       TextWrapping="Wrap" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
-            <TextBlock x:Name="MissingComponentsNotice" Text="{Binding MissingComponentsMessage}" Margin="0,4,0,0"
-                       TextWrapping="Wrap" Foreground="{StaticResource Workspace.Warning}" AutomationProperties.LiveSetting="Polite"
-                       Visibility="{Binding HasMissingComponents, Converter={StaticResource WorkspaceBoolVisibility}}" />
-            <StackPanel x:Name="WorkspaceNamePanel" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}"
-                        Margin="0,8,0,0" IsEnabled="{Binding CanEdit}">
-                <DockPanel>
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                        <Button x:Name="SaveWorkspaceButton" Content="Save workspace" Command="{Binding SaveWorkspaceCommand}" Style="{StaticResource PrimaryAction}" Margin="8,0,0,0" ToolTip="{Binding SaveHint}" ToolTipService.ShowOnDisabled="True" />
-                        <Button x:Name="DiscardChangesButton" Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0" />
-                    </StackPanel>
-                    <TextBlock Text="{Binding WorkspaceName}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                </DockPanel>
-                <TextBox Text="{Binding WorkspaceNameError, Mode=OneWay}" Style="{StaticResource SelectableError}" />
-                <TextBox x:Name="PendingRemovalNotice" Text="{Binding PendingRemovalMessage, Mode=OneWay}"
-                         Style="{StaticResource SelectableError}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
-                <Border x:Name="SaveValidationSummary" Visibility="{Binding HasSaveIssues, Converter={StaticResource WorkspaceBoolVisibility}}"
-                        BorderBrush="{StaticResource Workspace.Warning}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,8,0,0">
-                    <StackPanel>
-                        <TextBox Text="{Binding SaveIssueSummary, Mode=OneWay}" Style="{StaticResource SelectableError}" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
-                        <ScrollViewer MaxHeight="130" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl x:Name="SaveIssuesList" ItemsSource="{Binding SaveIssues}">
-                                <ItemsControl.ItemTemplate><DataTemplate>
-                                    <StackPanel Margin="0,8,0,2">
-                                        <TextBlock TextWrapping="Wrap"><Hyperlink x:Name="SaveIssueLink" Click="OnReviewSaveIssue" Command="{Binding DataContext.ReviewSaveIssueCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
-                                            CommandParameter="{Binding}" Foreground="{StaticResource Workspace.Accent}"><Run Text="{Binding Location, Mode=OneWay}" /></Hyperlink></TextBlock>
-                                        <TextBox x:Name="SaveIssueMessage" Text="{Binding Message, Mode=OneWay}" Style="{StaticResource SelectableMessage}" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                </DataTemplate></ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </StackPanel>
-                </Border>
+                        MinHeight="32" MinWidth="74" Margin="6,0,0,0" AutomationProperties.Name="Browse for Workspace folder" />
+            <StackPanel x:Name="WorkspaceActionsPanel" Grid.Column="2" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}"
+                        Orientation="Horizontal" Margin="6,0,0,0" IsEnabled="{Binding CanEdit}">
+                <Button x:Name="SaveWorkspaceButton" Content="Save workspace" Command="{Binding SaveWorkspaceCommand}" Style="{StaticResource PrimaryAction}" Margin="0" ToolTip="{Binding SaveHint}" ToolTipService.ShowOnDisabled="True" />
+                <Button x:Name="DiscardChangesButton" Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="6,0,0,0" />
             </StackPanel>
-        </StackPanel>
+                <Button x:Name="BackToSortopiaButton" Grid.Column="3" Content="_Back" Command="{Binding ReturnHomeCommand}"
+                        Style="{StaticResource PageReturnButtonStyle}" Margin="6,0,0,0" MinHeight="32" MinWidth="64" AutomationProperties.Name="Back" />
+        </Grid>
+        <TextBox x:Name="PendingRemovalNotice" Grid.Row="1" Text="{Binding PendingRemovalMessage, Mode=OneWay}"
+                 Style="{StaticResource SelectableError}" Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite" />
         <Grid x:Name="WorkspacePanes" Grid.Row="2" MinWidth="566" IsEnabled="{Binding CanEdit}" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="2*" MinWidth="130" /><ColumnDefinition Width="8" /><ColumnDefinition Width="2.5*" MinWidth="180" /><ColumnDefinition Width="8" /><ColumnDefinition Width="4*" MinWidth="240" /></Grid.ColumnDefinitions>
-                <WrapPanel Grid.ColumnSpan="5" Margin="0,0,0,8">
-                  <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <Button x:Name="NewRootModuleButton" Content="New root module" Command="{Binding AddModuleCommand}" Margin="0,0,4,4" Visibility="{Binding ShowRootModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains root projects and runs without setup." />
-                    <Button x:Name="NewBranchModuleButton" Content="New branch module" Command="{Binding AddBranchModuleCommand}" Margin="0,0,4,4" Visibility="{Binding ShowBranchModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains branch projects and runs with setup and execution." />
-                    <Button x:Name="NewProjectButton" Content="{Binding AddProjectLabel}" Visibility="{Binding ShowProjectAction, Converter={StaticResource WorkspaceBoolVisibility}}" Command="{Binding AddProjectCommand}" Margin="0,0,4,4" />
-                    <Button x:Name="NewRunButton" Content="{Binding AddRunLabel}" Visibility="{Binding ShowRunAction, Converter={StaticResource WorkspaceBoolVisibility}}" Command="{Binding AddRunCommand}" Margin="0,0,4,4" />
-                  </StackPanel>
-                  <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <Button x:Name="AddExistingModuleButton" Content="Add module…" Command="{Binding AddExistingModuleCommand}" Margin="0,0,4,4"
+                <shared:JustifiedWrapPanel x:Name="WorkspaceNodeToolbar" Grid.ColumnSpan="5" Margin="0,0,0,8">
+                    <shared:JustifiedWrapPanel.Resources><Style TargetType="Button" BasedOn="{StaticResource ToolbarActionButton}" /></shared:JustifiedWrapPanel.Resources>
+                    <Button x:Name="NewRootModuleButton" Content="New root module" Command="{Binding AddModuleCommand}" Visibility="{Binding ShowRootModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains root projects and runs without setup." />
+                    <Button x:Name="NewBranchModuleButton" Content="New branch module" Command="{Binding AddBranchModuleCommand}" Visibility="{Binding ShowBranchModuleAction, Converter={StaticResource WorkspaceBoolVisibility}}" ToolTip="Contains branch projects and runs with setup and execution." />
+                    <Button x:Name="NewProjectButton" Content="{Binding AddProjectLabel}" Visibility="{Binding ShowProjectAction, Converter={StaticResource WorkspaceBoolVisibility}}" Command="{Binding AddProjectCommand}" />
+                    <Button x:Name="NewRunButton" Content="{Binding AddRunLabel}" Visibility="{Binding ShowRunAction, Converter={StaticResource WorkspaceBoolVisibility}}" Command="{Binding AddRunCommand}" />
+                    <Button x:Name="AddExistingModuleButton" Content="Add module…" Command="{Binding AddExistingModuleCommand}"
                             ToolTip="Choose a module folder anywhere on disk. Saving copies it and all contents into the selected parent's modules container." />
-                    <Button x:Name="AddExistingProjectButton" Content="Add project…" Command="{Binding AddExistingProjectCommand}" Margin="0,0,4,4"
+                    <Button x:Name="AddExistingProjectButton" Content="Add project…" Command="{Binding AddExistingProjectCommand}"
                             ToolTip="Choose a project folder anywhere on disk. Saving copies it and all contents into the selected parent's projects container." />
-                  </StackPanel>
-                  <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <Button x:Name="CutEntityButton" Content="Cut" Command="{Binding CutCommand}" Margin="0,0,4,4" ToolTip="Cut the selected entity (Ctrl+X in the tree). Files move when saved." />
-                    <Button x:Name="PasteEntityButton" Content="Paste" Command="{Binding PasteCommand}" Margin="0,0,4,4" ToolTip="{Binding PasteHint}" ToolTipService.ShowOnDisabled="True" />
-                    <Button Content="Cancel cut" Command="{Binding CancelCutCommand}" Margin="0,0,4,4"
+                    <Button x:Name="CutEntityButton" Content="Cut" Command="{Binding CutCommand}" ToolTip="Cut the selected entity (Ctrl+X in the tree). Files move when saved." />
+                    <Button x:Name="PasteEntityButton" Content="Paste" Command="{Binding PasteCommand}" ToolTip="{Binding PasteHint}" ToolTipService.ShowOnDisabled="True" />
+                    <Button Content="Cancel cut" Command="{Binding CancelCutCommand}"
                             Visibility="{Binding HasCutItem, Converter={StaticResource WorkspaceBoolVisibility}}" />
-                  </StackPanel>
-                    <Button Content="Remove" Command="{Binding RemoveCommand}" Margin="0,0,0,4"
+                    <Button Content="Remove" Command="{Binding RemoveCommand}"
                             ToolTip="{Binding RemoveHint}" ToolTipService.ShowOnDisabled="True" />
-                    <Button x:Name="ResetGeneratedFilesButton" Content="Reset…" Command="{Binding ResetGeneratedFilesCommand}" Margin="8,0,0,4"
+                    <Button x:Name="ResetGeneratedFilesButton" Content="Reset…" Command="{Binding ResetGeneratedFilesCommand}"
                             AutomationProperties.Name="Reset generated files" ToolTip="{Binding ResetGeneratedFilesHint}" ToolTipService.ShowOnDisabled="True" />
-                </WrapPanel>
+                </shared:JustifiedWrapPanel>
                 <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Margin="0,0,0,8">
                     <TextBlock x:Name="SelectionHint" Text="{Binding SelectionHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" />
                     <Border x:Name="MoveFunctionConflictNotice" Margin="0,6,0,0" Padding="8" BorderThickness="1" CornerRadius="5"
@@ -193,7 +210,7 @@
                     <TreeView.ItemContainerStyle>
                         <Style TargetType="TreeViewItem">
                             <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
-                            <Setter Property="IsExpanded" Value="True" />
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                         </Style>
                     </TreeView.ItemContainerStyle>
@@ -216,6 +233,25 @@
                         <TextBlock Text="Select a setting to open its editor." FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                     <ScrollViewer x:Name="ConfigurationSummaryViewport" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                        <TextBlock x:Name="MissingComponentsNotice" Text="{Binding Selected.DiskStatusDetail}" Margin="0,0,0,8"
+                                   TextWrapping="Wrap" Foreground="{StaticResource Workspace.Warning}" AutomationProperties.LiveSetting="Polite"
+                                   Visibility="{Binding Selected.HasDiskWarning, Converter={StaticResource WorkspaceBoolVisibility}}" />
+                        <Border x:Name="SaveValidationSummary" Visibility="{Binding HasSelectedSaveIssues, Converter={StaticResource WorkspaceBoolVisibility}}"
+                                BorderBrush="{StaticResource Workspace.Warning}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBox Text="{Binding SelectedSaveIssueSummary, Mode=OneWay}" Style="{StaticResource SelectableError}" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
+                                <ItemsControl x:Name="SaveIssuesList" ItemsSource="{Binding SelectedSaveIssues}">
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <StackPanel Margin="0,8,0,2">
+                                            <TextBlock TextWrapping="Wrap"><Hyperlink x:Name="SaveIssueLink" Click="OnReviewSaveIssue" Command="{Binding DataContext.ReviewSaveIssueCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                                                CommandParameter="{Binding}" Foreground="{StaticResource Workspace.Accent}" ToolTip="{Binding Location}"><Run Text="{Binding Section, Mode=OneWay}" /></Hyperlink></TextBlock>
+                                            <TextBox x:Name="SaveIssueMessage" Text="{Binding Message, Mode=OneWay}" Style="{StaticResource SelectableMessage}" Margin="0,3,0,0" />
+                                        </StackPanel>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
                         <ItemsControl x:Name="ConfigurationItems" ItemsSource="{Binding InspectorItems}">
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <StackPanel>
@@ -235,6 +271,7 @@
                                 </StackPanel>
                             </DataTemplate></ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
             </Border>

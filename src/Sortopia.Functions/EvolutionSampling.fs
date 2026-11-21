@@ -14,19 +14,25 @@ type evolutionSamplingPlan = {
 
 /// Sampling policy and output descriptions, independent of any storage backend.
 module EvolutionSampling =
-    let plan (parameters: parameterSet) (finalOutput: runDataOutput) reporting =
+    let target parameters sgd = sgd |> Option.map SgdRun.target |> Option.defaultWith (fun () -> FunctionParameters.required ParamKeys.generationCountKey parameters)
+
+    let planForRun (parameters: parameterSet) (finalOutput: runDataOutput) reporting sgd =
+        let reporting = sgd |> Option.map (fun controls ->
+            { SnapshotSchedule = $"Constant({controls.SnapshotInterval})"
+              SummarySchedule = reporting |> Option.map _.SummarySchedule |> Option.defaultValue "Constant(1)" }) |> Option.orElse reporting
         match reporting with
         | None -> { Snapshots = [||]; Summaries = [||] }
         | Some reporting ->
-            let final = FunctionParameters.required ParamKeys.generationCountKey parameters
-            SgdReporting.validateGenerationCount reporting final
+            let final = target parameters sgd
+            if sgd.IsNone then SgdReporting.validateGenerationCount reporting final
             let snapshots = SgdReporting.samples reporting.SnapshotSchedule final |> Seq.toArray
             let summaries = SgdReporting.samples reporting.SummarySchedule final |> Seq.toArray
             let output dataType bindings =
                 let query = bindings |> List.fold (fun (p: parameterSet) binding -> p.WithBinding binding) parameters
                 RunDataOutput.create dataType (query.ParamMap |> Map.toList |> List.map fst) query finalOutput.Dependencies
             let snapshotOutputs = snapshots |> Array.map (fun generation ->
-                generation, if generation = final then finalOutput
+                generation, if sgd.IsSome then output (sortopiaDataType.SorterPoolSet "") [ParameterBinding.create ParamKeys.generationCurrentKey generation]
+                            elif generation = final then finalOutput
                             else output (sortopiaDataType.SorterPoolSet "snapshot") [ParameterBinding.create ParamKeys.generationCurrentKey generation])
             let snapshotSet, summarySet = Set.ofArray snapshots, Set.ofArray summaries
             let batches = ResizeArray<int array * runDataOutput>()
@@ -42,6 +48,8 @@ module EvolutionSampling =
                     batches.Add(generations, output (sortopiaDataType.SorterPoolSummarySet "") bindings)
                     pending.Clear()
             { Snapshots = snapshotOutputs; Summaries = batches.ToArray() }
+
+    let plan parameters finalOutput reporting = planForRun parameters finalOutput reporting None
 
     let checkSnapshot parameters generation (snapshot: sorterPoolSet) =
         if snapshot.Generation <> generation || snapshot.Pools.Length <> FunctionParameters.required ParamKeys.sorterPoolCountKey parameters then
@@ -64,27 +72,35 @@ module EvolutionSampling =
                                     | _ -> invalidOp "Expected a pool summary set.") ]
 
 /// Observes evolution and builds scheduled payloads; all persistence goes through the database.
-type EvolutionSampler(parameters: parameterSet, plan: evolutionSamplingPlan, database: IRunDatabase, token: CancellationToken) =
-    let final = FunctionParameters.required ParamKeys.generationCountKey parameters
+type EvolutionSampler(parameters: parameterSet, plan: evolutionSamplingPlan, database: IRunDatabase, token: CancellationToken, ?resumeGeneration: int) =
+    let final = plan.Snapshots |> Array.map fst |> Array.max
     let measure = FunctionParameters.required ParamKeys.sorterEvalMeasureKey parameters |> SorterEvalFunctions.fromCompactString
     let snapshots = plan.Snapshots |> Map.ofArray
     let summarySet = plan.Summaries |> Array.collect fst |> Set.ofArray
     let batches = plan.Summaries |> Array.map (fun (generations, output) -> Array.last generations, (generations, output)) |> Map.ofArray
     let pending = ResizeArray<sgdPoolStatistics>()
-    let mutable lastGeneration = -1
+    let start = defaultArg resumeGeneration -1
+    let mutable lastGeneration = if start < 0 then -1 else start - 1
+    do
+        if start >= 0 then
+            let reuse output = database.Save(output, fun () -> invalidOp "A checkpoint output disappeared during continuation.")
+            for generation, output in plan.Snapshots do if generation <= start then reuse output
+            for generations, output in plan.Summaries do if Array.last generations <= start then reuse output
 
     member _.Observe(snapshot: sorterPoolSet) =
         token.ThrowIfCancellationRequested()
         if snapshot.Generation <> lastGeneration + 1 || snapshot.Generation > final then invalidOp "Evolution observations must arrive in generation order."
         lastGeneration <- snapshot.Generation
-        if summarySet.Contains snapshot.Generation then pending.AddRange(EvolutionReports.summarize measure snapshot)
+        if snapshot.Generation > start then
+            if summarySet.Contains snapshot.Generation then pending.AddRange(EvolutionReports.summarize measure snapshot)
+            // Publish statistics before the checkpoint that makes this interval resumable.
+            match batches |> Map.tryFind snapshot.Generation with
+            | Some (_, output) ->
+                database.Save(output, sortopiaStorageData.SorterPoolSummarySet { TestsId = UMX.untag snapshot.TestsId; Rows = pending.ToArray() })
+                pending.Clear()
+            | None -> ()
         match snapshots |> Map.tryFind snapshot.Generation with
         | Some output -> database.Save(output, sortopiaStorageData.SorterPoolSet snapshot)
-        | None -> ()
-        match batches |> Map.tryFind snapshot.Generation with
-        | Some (_, output) ->
-            database.Save(output, sortopiaStorageData.SorterPoolSummarySet { TestsId = UMX.untag snapshot.TestsId; Rows = pending.ToArray() })
-            pending.Clear()
         | None -> ()
 
     member _.Complete(result: sorterPoolSet) =

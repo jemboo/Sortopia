@@ -51,6 +51,7 @@ type WorkspaceFileStore private () =
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
         WorkspaceFileStore.ValidateSealedProjects(savedDefinition, WorkspaceDocument.toDomain plan.Definition)
         WorkspaceProjectState.validateLockedModules (normalizeRoot rootFolder) (WorkspaceDocument.fromDomain savedDefinition) plan.Definition
+        WorkspaceProjectState.validateLockedRuns (normalizeRoot rootFolder) (WorkspaceDocument.fromDomain savedDefinition) plan.Definition token
         let plan = WorkspaceSavePlan.withRemovals (WorkspaceDocument.fromDomain savedDefinition) plan token
         let result = WorkspaceCommit.commit plan token |> WorkspaceFileStore.RuntimeResult
         WorkspaceDisk.rememberSavedFiles (normalizeRoot rootFolder) result.Definition
@@ -88,6 +89,7 @@ type WorkspaceFileStore private () =
                 raise (IOException("The saved workspace changed since it was loaded. Reopen the workspace before saving again."))
         WorkspaceFileStore.ValidateDocuments(Some previous, plan.Definition, resumeProject)
         WorkspaceProjectState.validateLockedModules (normalizeRoot rootFolder) previous plan.Definition
+        WorkspaceProjectState.validateLockedRuns (normalizeRoot rootFolder) previous plan.Definition token
         let plan = WorkspaceSavePlan.withRemovals previous plan token
         let removals = removedFiles |> Array.map (fun path ->
             WorkspaceFolderMove.CheckPath(plan.RootFolder, path)
@@ -118,6 +120,18 @@ type WorkspaceFileStore private () =
         WorkspaceProjectState.projects "" (WorkspaceDisk.documentBaseline savedDefinition).Modules
         |> Seq.choose (fun (p, folder) -> if WorkspaceProjectState.hasRunParameters root folder then Some p.Definition.id else None)
         |> Seq.toArray
+
+    static member RunsWithRunParameters(rootFolder: string, savedDefinition: WorkspaceDocument) =
+        let root = normalizeRoot rootFolder
+        WorkspaceProjectState.projects "" (WorkspaceDisk.documentBaseline savedDefinition).Modules
+        |> Seq.collect (fun (project, folder) ->
+            let path = Path.Combine(root, folder, "runParameters")
+            WorkspaceFolderMove.CheckPath(root, path)
+            if not (Directory.Exists path) then [||] else
+            try RunParameterFiles.listWorkItems path CancellationToken.None |> Array.map (fun item -> UMX.untag item.RunId)
+            // An unreadable invocation must not accidentally unlock a frozen interval.
+            with _ -> project.Runs |> Array.map _.id)
+        |> Seq.distinct |> Seq.toArray
 
     /// Release snapshots after the last parameter file was removed, clearing the invalid data cache.
     static member ReleaseUnusedProjects(rootFolder: string, savedDefinition: WorkspaceDocument, token: CancellationToken,

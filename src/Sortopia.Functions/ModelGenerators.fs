@@ -137,34 +137,34 @@ module internal ModelGenerators =
               |> SmmMsrsRandGen }
         let modelType = simpleSorterModelType.Msuf4
         let rateRules =
-            [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey]
+            [ParamKeys.orthoGenRateKey; ParamKeys.paraGenRateKey; ParamKeys.selfSymGenRateKey]
             |> List.map (fun key ->
                 ParameterRules.create key []
-                    "Finite nonnegative relative rate. OrthoRate, ParaRate, and SelfSymRate are normalized together for the seed and every unfolding level; at least one must be positive."
+                    "Finite nonnegative relative rate. OrthoGenRate, ParaGenRate, and SelfSymGenRate are normalized together for the seed and every unfolding level; at least one must be positive."
                     (fun value -> Double.IsFinite value && value >= 0.))
             |> Map.ofList
         { Name = "msuf4"
-          Parameters = [ParamKey.describe ParamKeys.orthoRateKey; ParamKey.describe ParamKeys.paraRateKey; ParamKey.describe ParamKeys.selfSymRateKey]
-          // v6 uses 5x the original suffix capacity; v5 cached models use 3x.
-          Version = "6"
+          Parameters = [ParamKey.describe ParamKeys.orthoGenRateKey; ParamKey.describe ParamKeys.paraGenRateKey; ParamKey.describe ParamKeys.selfSymGenRateKey]
+          // v7 separates generation weights from mutation weights; v6 suffix capacity is retained.
+          Version = "7"
           Description = description "4-channel seed unfolding (MSUF4)"
-              " OrthoRate, ParaRate, and SelfSymRate are normalized together and used for the seed and every unfolding level. The channel count determines the number of levels."
+              " OrthoGenRate, ParaGenRate, and SelfSymGenRate are normalized together and used for the seed and every unfolding level. The channel count determines the number of levels."
           CombinationError = ModelGenerationSupport.combinationError modelType (fun _ _ defaults spans ->
               let values key = inputValues key defaults spans
-              let rateKeys = [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey]
+              let rateKeys = [ParamKeys.orthoGenRateKey; ParamKeys.paraGenRateKey; ParamKeys.selfSymGenRateKey]
               // A Cartesian product contains an all-zero choice exactly when each input contains zero.
               if rateKeys |> List.forall (fun key -> values key |> List.contains 0.) then
-                  invalidArg "rates" "At least one of OrthoRate, ParaRate, and SelfSymRate must be positive for every parameter combination.")
+                  invalidArg "rates" "At least one of OrthoGenRate, ParaGenRate, and SelfSymGenRate must be positive for every parameter combination.")
           ParameterSupport = fun includeTests source constructorGuidance ->
               ModelGenerationSupport.create modelType 8
-                  (fun _ -> [ParameterBinding.create ParamKeys.orthoRateKey 1.; ParameterBinding.create ParamKeys.paraRateKey 1.; ParameterBinding.create ParamKeys.selfSymRateKey 1.])
-                  "OrthoRate, ParaRate, and SelfSymRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
+                  (fun _ -> [ParameterBinding.create ParamKeys.orthoGenRateKey 1.; ParameterBinding.create ParamKeys.paraGenRateKey 1.; ParameterBinding.create ParamKeys.selfSymGenRateKey 1.])
+                  "OrthoGenRate, ParaGenRate, and SelfSymGenRate are normalized together and reused for the seed and every unfolding level. At least one rate must be positive. The channel count determines the unfolding levels: 4 channels need zero, 8 need one, 16 need two, and so on."
                   includeTests source constructorGuidance
               |> ParameterRules.withRules rateRules
           SuffixStages = ModelGenerationSupport.suffixStages modelType
           Create = fun rng width prefix stages parameters ->
-              let rates = OpsGenerationProbabilities.fromWeights (required ParamKeys.orthoRateKey parameters)
-                              (required ParamKeys.paraRateKey parameters) (required ParamKeys.selfSymRateKey parameters)
+              let rates = OpsGenerationProbabilities.fromWeights (required ParamKeys.orthoGenRateKey parameters)
+                              (required ParamKeys.paraGenRateKey parameters) (required ParamKeys.selfSymGenRateKey parameters)
               let levels = Msuf4RandGen.unfoldingWidths (int width) |> List.map (fun _ -> rates)
               Msuf4RandGen.create rng width prefix stages rates levels |> SmmMsuf4RandGen }
         let modelType = simpleSorterModelType.Msuf6

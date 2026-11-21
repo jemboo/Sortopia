@@ -18,7 +18,6 @@ module SgdFunctions =
     let private poolType = sortopiaDataType.SorterPoolSet ""
 
     let private keys = [
-        ParamKey.describe ParamKeys.generationCountKey
         ParamKey.describe ParamKeys.sorterPoolCountKey
         ParamKey.describe ParamKeys.sorterCountPerPoolKey
         ParamKey.describe ParamKeys.initialPoolSeedKey
@@ -51,12 +50,14 @@ module SgdFunctions =
             ""
         with error -> error.Message
 
-    let private settings p = {
+    let private settings (host: runHost) =
+      let p = host.Parameters
+      {
         PoolCount = required ParamKeys.sorterPoolCountKey p; SortersPerPool = required ParamKeys.sorterCountPerPoolKey p
         InitialPoolSeed = required ParamKeys.initialPoolSeedKey p
         InitialPoolSelection = required ParamKeys.initialPoolSelectionKey p |> InitialPoolSelection.fromString
         RetainedParentsPerPool = required ParamKeys.selectedSorterCountPerPoolKey p; ChildrenPerParent = required ParamKeys.sorterChildCountKey p
-        Generations = required ParamKeys.generationCountKey p; MutationMod = required ParamKeys.mutationModKey p
+        Generations = EvolutionSampling.target p host.Sgd; MutationMod = required ParamKeys.mutationModKey p
         AdjustCeLengthFrequency = required ParamKeys.adjustCeLengthFrequencyKey p; SortedFraction = required ParamKeys.sortedFractionKey p
         PrioritizeNewMutants = required ParamKeys.prioritizeNewMutantsKey p; DistinctSorterHashes = required ParamKeys.distinctSorterHashesKey p
         SelectionMeasure = required ParamKeys.sorterEvalMeasureKey p |> SorterEvalFunctions.fromCompactString }
@@ -84,33 +85,50 @@ module SgdFunctions =
         | _ -> prepare ()
 
     let private prepare (host: runHost) =
-        let configuration = settings host.Parameters
-        if configuration.InitialPoolSelection = initialPoolSelection.Best then
+        let configuration = settings host
+        if host.ResumeSnapshot.IsNone && configuration.InitialPoolSelection = initialPoolSelection.Best then
             let tests = loadTests host
             initialPopulation host configuration tests |> ignore
 
     let private execute (host: runHost) =
         let inputs = [host.Database.Find modelsType; host.Database.Find testsType]
-        let evolve observe =
+        let evolve observe snapshotGenerations =
             let tests = loadTests host
             let channels = SortableTests.getChannelCount tests
             let p = host.Parameters
-            let configuration = settings p
-            let initial = initialPopulation host configuration tests
+            let configuration = settings host
             let mutator = SimpleSorterModelMutator.getMsuf4ModelMutator channels
                               (required ParamKeys.rngTypeKey p |> RngType.fromString |> RngFactory.create) (UMX.tag true)
                               (required ParamKeys.seedModificationRateKey p |> UMX.tag) (required ParamKeys.modificationRateKey p |> UMX.tag)
                               (required ParamKeys.orthoRateKey p |> UMX.tag) (required ParamKeys.paraRateKey p |> UMX.tag) (required ParamKeys.selfSymRateKey p |> UMX.tag)
                               (required ParamKeys.mutatorVariantKey p |> MutatorVariant.fromString)
                           |> sorterModelMutator.Simple
-            StandardSgd.runObservedPrepared observe (ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)) configuration mutator initial tests
-        match host.Reporting with
-        | None -> host.Database.Save(host.Outputs.Output(poolType, inputs), fun () -> evolve ignore |> sortopiaStorageData.SorterPoolSet)
-        | Some _ ->
+            let mutable lastProgress = Diagnostics.Stopwatch.GetTimestamp()
+            let observed (snapshot: sorterPoolSet) =
+                observe snapshot
+                match host.GenerationProgress with
+                | None -> ()
+                | Some report ->
+                    let now = Diagnostics.Stopwatch.GetTimestamp()
+                    let due =
+                        match snapshotGenerations with
+                        | Some generations -> Set.contains snapshot.Generation generations
+                        | None -> Diagnostics.Stopwatch.GetElapsedTime(lastProgress, now).TotalMilliseconds >= 250.
+                    if snapshot.Generation = 0 || snapshot.Generation = configuration.Generations || due then
+                        lastProgress <- now
+                        report snapshot.Generation
+            let options = ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)
+            match host.ResumeSnapshot with
+            | Some snapshot -> StandardSgd.resumeObserved observed options configuration mutator snapshot tests
+            | None -> StandardSgd.runObservedPrepared observed options configuration mutator (initialPopulation host configuration tests) tests
+        match host.Reporting, host.Sgd with
+        | None, None -> host.Database.Save(host.Outputs.Output(poolType, inputs), fun () -> evolve ignore None |> sortopiaStorageData.SorterPoolSet)
+        | _ ->
             // Incomplete sample plans need observations even when the final result exists.
-            let plan = EvolutionSampling.plan host.Parameters (host.Outputs.Output poolType) host.Reporting
-            let sampler = EvolutionSampler(host.Parameters, plan, host.Database, host.CancellationToken)
-            evolve sampler.Observe |> sampler.Complete
+            let basis = host.Outputs.Planned |> List.find (fun output -> output.DataType = poolType)
+            let plan = EvolutionSampling.planForRun host.Parameters basis host.Reporting host.Sgd
+            let sampler = EvolutionSampler(host.Parameters, plan, host.Database, host.CancellationToken, ?resumeGeneration = (host.ResumeSnapshot |> Option.map _.Generation))
+            evolve sampler.Observe (Some (plan.Snapshots |> Array.map fst |> Set.ofArray)) |> sampler.Complete
 
     let private defaults context =
         ParameterDefaults.common context @ [
@@ -133,7 +151,7 @@ module SgdFunctions =
             ParameterBinding.create ParamKeys.selfSymRateKey 1. ]
         |> ParameterDefaults.select context
 
-    let standardMsuf4Simple =
+    let private definition version keys =
         let editorRules = Map.ofList [
             for key in [ParamKeys.sorterPoolCountKey; ParamKeys.sorterCountPerPoolKey; ParamKeys.sorterChildCountKey; ParamKeys.adjustCeLengthFrequencyKey] do
                 ParameterRules.minimum key 1
@@ -151,14 +169,18 @@ module SgdFunctions =
                 (fun value -> InitialPoolSelection.fromString value |> ignore; true)
             for key in [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey] do
                 ParameterRules.create key []
-                    "Finite nonnegative relative mutation weight. OrthoRate, ParaRate, and SelfSymRate are normalized together; at least one must be positive."
+                    "Finite nonnegative relative mutation weight. OrthoRate, ParaRate, and SelfSymRate are normalized together to choose the destination mode; at least one must be positive. SeedModificationRate and ModificationRate control the attempt probability. Selecting the current mode leaves it unchanged."
                     (fun value -> Double.IsFinite value && value >= 0.)
             ]
         let support =
             { ParameterDefaults.support with
                 Defaults = defaults; EditorRules = ParameterRules.combine [ParameterRules.common; editorRules]
                 CombinationError = combinationError }
-        FunctionDefinition.results "6" keys
+        FunctionDefinition.results version keys
             [{ DataType = poolType; ParameterKeys = keys |> List.map _.Name; Dependencies = [modelsType; testsType] }] support execute
         |> fun definition -> { definition with Prepare = prepare }
-        |> FunctionDefinition.describe "Run GeneSort's fixed-pool Standard SGD on copied Simple MSUF4 models and sortable tests. InitialPoolSelection chooses Random (uniform sampling without replacement using InitialPoolSeed) or Best (evaluate the entire source and retain the best models using SorterEvalMeasure and DistinctSorterHashes). Best ignores InitialPoolSeed and breaks score ties by model ID. Source ranking is shared across mutation combinations within an execution batch. Multiple pools use disjoint models. Mutate every member, evaluate on the full test set, adjust CE limits, and select survivors with duplicate/recovery handling. Save final pools containing their models and evaluations. CSV reports read these pools directly. Optional run reporting records full population snapshots and lightweight pool statistics on independent schedules. Channel count comes from the tests. Evaluate only model suffixes against prepared tests; fixed prefixes are assumed already applied and retained in metrics with -1 CE usage markers. GenerationCount counts evolution steps after the initial evaluation. Cancellation restarts unfinished evolution and verifies previously saved reporting samples during replay."
+        |> FunctionDefinition.describe "Run GeneSort's fixed-pool Standard SGD on copied Simple MSUF4 models and sortable tests. InitialPoolSelection chooses Random (uniform sampling without replacement using InitialPoolSeed) or Best (rank the source using SorterEvalMeasure and DistinctSorterHashes; ties use model ID). Best ignores InitialPoolSeed. Source ranking is shared across mutation combinations. Pools use disjoint initial models. Mutate, evaluate, adjust CE limits, and select survivors. Channel count comes from the tests. Fixed prefixes are retained in metrics with -1 CE usage markers. SnapshotInterval and SnapshotCount are run properties: the target is their product, with generation zero saved separately. SnapshotInterval is fixed after parameter generation; increase SnapshotCount to continue from the latest complete checkpoint. Pool summaries use an independent schedule."
+
+    let standardMsuf4Simple = definition "7" keys
+    // Existing parameter files retain their original contract and storage identities.
+    let legacyStandardMsuf4Simple = definition "6" (ParamKey.describe ParamKeys.generationCountKey :: keys)

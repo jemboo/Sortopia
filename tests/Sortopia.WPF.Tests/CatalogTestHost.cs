@@ -84,7 +84,7 @@ internal sealed class CatalogTestHost(run? value = null, CancellationToken token
         var contract = setup ? SetupFunctionCatalog.functions[name].DataTypes : ResultsFunctionCatalog.functions[name].DataTypes;
         var target = new Database(this, setup, name, parameters, contract, inputs);
         return new(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameters,
-            target, target.Outputs, token, Environment.ProcessorCount, null, null);
+            target, target.Outputs, token, Environment.ProcessorCount, null, null, null, null, null);
     }
     public runHost ForSetup(parameterSet parameters) => Context(true, Run.SetupFunctionName.Value, parameters, []);
     public runHost ForResults(parameterSet parameters, FSharpList<storedOutput> outputs) => Context(false, Run.ResultsFunctionName, parameters, outputs);

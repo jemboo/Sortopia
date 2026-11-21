@@ -73,7 +73,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         AddExistingModuleCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Module), () => CanAddExisting(WorkspaceEntityKind.Module));
         AddExistingProjectCommand = new RelayCommand(async () => await AddExistingAsync(WorkspaceEntityKind.Project), () => CanAddExisting(WorkspaceEntityKind.Project));
         RemoveCommand = new RelayCommand(Remove, () => CanModifyWorkspace && Selected?.Parent is not null && !RemovalWouldBlockSave);
-        CutCommand = new RelayCommand(Cut, () => CanModifyWorkspace && !HasEditErrors && Selected?.Parent is not null);
+        CutCommand = new RelayCommand(Cut, () => CanModifyWorkspace && !HasStructuralErrors && Selected?.Parent is not null);
         PasteCommand = new RelayCommand(async () => await PasteAsync(), () => CanPaste);
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
@@ -324,7 +324,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         {
             if (WorkspaceDefinitionFiles.Find(WorkspaceFolder, "workspace") is null) return;
             AcceptSavedDocument(WorkspaceFileStore.LoadDocument(WorkspaceFolder));
-            Status = HasSaveIssues ? "Loaded the saved draft. Configuration issues are shown below; you can finish it later." : "Loaded the saved workspace definition.";
+            Status = HasSaveIssues ? "Loaded the saved draft. Select a tree node to review its configuration issues." : "Loaded the saved workspace definition.";
         }
         catch (Exception exception)
         {
@@ -436,7 +436,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
             ? $"Removed run '{removed.Name}' from the draft. Save workspace to delete its definition, generated parameter files, and data unused by remaining runs. Discard changes cancels removal."
             : $"Removed '{removed.Name}' from the draft. Save workspace to delete its folder and all contents. Discard changes cancels removal.";
     }
-    private bool CanPaste => CanModifyWorkspace && !HasEditErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
+    // Incomplete configurations can be moved and saved as drafts, just like other edits.
+    private bool CanPaste => CanModifyWorkspace && !HasStructuralErrors && cutNode is not null && Selected?.CanContain(cutNode) == true
         && !cutNode.DescendantsAndSelf().Contains(Selected) && !HasMoveFunctionConflicts;
     private void Cut()
     {
@@ -576,6 +577,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanModifyWorkspace)); OnPropertyChanged(nameof(HasPendingRemoval));
         OnPropertyChanged(nameof(PendingRemovalMessage)); OnPropertyChanged(nameof(RemoveHint));
         EditProjectQueryProjectionsCommand.RaiseCanExecuteChanged();
+        OpenFunctionParameterCommand.RaiseCanExecuteChanged();
         foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, ResumeProjectEditingCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
             RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();

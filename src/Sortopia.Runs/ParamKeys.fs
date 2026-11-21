@@ -105,7 +105,9 @@ module ParamKeys =
     let mutationRateKey = ParamKey.floating "MutationRate"
     let mutatorParamsKey = ParamKey.text "MutatorParams"
     let mutatorVariantKey = ParamKey.text "MutatorVariantKey"
+    let orthoGenRateKey = ParamKey.floating "OrthoGenRate"
     let orthoRateKey = ParamKey.floating "OrthoRate"
+    let paraGenRateKey = ParamKey.floating "ParaGenRate"
     let paraRateKey = ParamKey.floating "ParaRate"
     let partitionCountKey = ParamKey.integer "PartitionCount"
     let prefixLibIdKey = ParamKey.prefixLibraryId "PrefixLibId"
@@ -120,6 +122,7 @@ module ParamKeys =
     let seedSossKey = ParamKey.unsigned64 "SeedSoss"
     let selectedSorterCountPerPoolKey = ParamKey.integer "SelectedSorterCountPerPool"
     let selectedSorterPoolCountKey = ParamKey.integer "SelectedSorterPoolCount"
+    let selfSymGenRateKey = ParamKey.floating "SelfSymGenRate"
     let selfSymRateKey = ParamKey.floating "SelfSymRate"
     let setupParametersIdKey = ParamKey.guid "SetupParametersId"
     let setupSorterModelSetIdKey = ParamKey.guid "SetupSorterModelSetId"
@@ -197,7 +200,9 @@ module ParamKeys =
         ParamKey.describe mutationRateKey
         ParamKey.describe mutatorParamsKey
         ParamKey.describe mutatorVariantKey
+        ParamKey.describe orthoGenRateKey
         ParamKey.describe orthoRateKey
+        ParamKey.describe paraGenRateKey
         ParamKey.describe paraRateKey
         ParamKey.describe partitionCountKey
         ParamKey.describe prefixLibIdKey
@@ -212,6 +217,7 @@ module ParamKeys =
         ParamKey.describe seedSossKey
         ParamKey.describe selectedSorterCountPerPoolKey
         ParamKey.describe selectedSorterPoolCountKey
+        ParamKey.describe selfSymGenRateKey
         ParamKey.describe selfSymRateKey
         ParamKey.describe setupParametersIdKey
         ParamKey.describe setupSorterModelSetIdKey

@@ -68,13 +68,26 @@ public sealed class SourceEvaluationInputsTests
         var tests = Source("SortableTests", "PrefixLibId", "SortableDataFormat");
         var editor = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Evaluation", () => [models, tests]);
         editor.SetupFunctionName = SetupFunctionNames.evaluationSource; editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
-        editor.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in editor.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         Assert.All(editor.SetupDataTypes, row => Assert.True(row.RequiresSource));
         Assert.Empty(editor.SetupParameterDefaults);
+        Assert.Empty(editor.SetupFunctionParameters);
+        Assert.Contains("choose projects", editor.SetupFunctionParametersHint);
+        Assert.Equal(new[] { "SortableTests", "SorterModelSet" }, editor.SetupFunctionInputs.Select(row => row.Name).Order());
+        Assert.All(editor.SetupFunctionInputs, row =>
+        {
+            Assert.True(row.IsSourceInput); Assert.True(row.CanNavigate);
+            Assert.Equal(WorkspaceParameterSupply.None, row.Supply);
+            Assert.Equal("setupOutputs", row.ItemKey); Assert.Same(editor, row.TargetEditor);
+        });
         editor.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
         editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         editor.AddRequiredSetupDefaultsCommand.Execute(null);
         Assert.Equal(new[] { "ChannelCount", "PrefixLibId", "Repl", "SortableDataFormat" }, editor.LocalSetupParameterDefaults.Select(row => row.Key).Order());
+        Assert.Equal(new[] { "ChannelCount", "PrefixLibId", "Repl", "SortableDataFormat" }, editor.SetupFunctionParameters.Select(row => row.Name).Order());
+        Assert.All(editor.SetupFunctionParameters, row => Assert.Equal(WorkspaceParameterSupply.Default, row.Supply));
+        Assert.Equal(6, editor.SetupFunctionInputs.Length);
+        Assert.All(editor.SetupFunctionInputs.Where(row => row.IsSourceInput), row => Assert.Equal(WorkspaceParameterSupply.Default, row.Supply));
         Assert.DoesNotContain(editor.LocalSetupParameterDefaults, row => row.Key is "SorterSuccessFraction" or "SorterCount" or "ActivationProbability");
         Assert.Empty(editor.SetupDataTypesError); Assert.Empty(editor.SetupParameterDefaultsError);
         Assert.Contains("Copy both", editor.SetupInputGuidance);
@@ -92,7 +105,7 @@ public sealed class SourceEvaluationInputsTests
         Assert.Equal(2, module.ToProjectSettings().setupParameterDefaults.Length);
         Assert.Empty(module.SetupParameterDefaultsError);
         var project = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Project, true, () => module, () => "Evaluation", () => [models, tests]);
-        project.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in project.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         project.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
         project.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         Assert.Equal(new[] { "ChannelCount", "Repl" }, project.InheritedSetupDefaults.Select(value => value.Key).Order());

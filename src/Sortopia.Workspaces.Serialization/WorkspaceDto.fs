@@ -8,7 +8,8 @@ open Sortopia.Workspaces
 open Sortopia.Core.Serialization
 
 module WorkspaceDtoSchema =
-    let version = 15
+    let version = 16
+    let supportsVersion value = value = version || value = 15
 
 [<CLIMutable>]
 type parameterSpanDto = { keyName: string; values: string array; valueType: Nullable<int> }
@@ -79,6 +80,7 @@ type runDto = {
     resultsParameterSpans: parameterSpanDto array
     setupParameterSpans: parameterSpanDto array
     reporting: sgdReportingConfig option
+    sgd: sgdRunConfig option
 }
 [<CLIMutable>]
 type projectDto = { schemaVersion: int; isSealed: bool; id: Guid; projectKind: string; projectName: string; configuration: projectSettingsDto; inheritedDefaults: projectSettingsDto; localOverrides: projectOverridesDto; runs: runDto array }
@@ -97,7 +99,7 @@ module SortopiaDataTypeDto =
 
 module private Contract =
     let version value =
-        if value <> WorkspaceDtoSchema.version then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
+        if not (WorkspaceDtoSchema.supportsVersion value) then invalidArg "schemaVersion" $"Unsupported workspace format version: {value}. Create a new workspace in the current format."
     let kind value =
         match value with
         | "root" -> hierarchyKind.Root
@@ -129,6 +131,20 @@ module SetupSourceConfigDto =
     let toDomain (value: setupSourceConfigDto) : setupSourceConfig =
         { DataType = SortopiaDataTypeDto.toDomain value.dataType; SourceProjectId = UMX.tag value.sourceProjectId }
 
+    // Older overrides replaced the entire source list. Preserve omitted entries as explicit blanks.
+    let preserveLegacySelection (name: string) (outputs: setupDataTypeConfigDto array) (values: setupSourceConfigDto array) =
+        if isNull values then null else
+        let types =
+            match SetupFunctionCatalog.functions |> Map.tryFind (UMX.tag name) with
+            | Some definition -> definition.SourceDataTypes |> Seq.map SortopiaDataTypeDto.fromDomain |> Seq.toArray
+            | None -> (if isNull outputs then [||] else outputs) |> Array.map _.dataType
+        let declared = types |> Array.collect (fun dataType ->
+            match values |> Array.filter (fun entry -> entry.dataType = dataType) with
+            | [||] -> [| { dataType = dataType; sourceProjectId = Guid.Empty } |]
+            | assigned -> assigned)
+        let resolved = Array.append declared (values |> Array.filter (fun entry -> not (Array.contains entry.dataType types)))
+        if resolved.Length = 0 then null else resolved
+
 module RunDto =
     let fromDomain (value: run) : runDto =
         let description, setupSpans =
@@ -139,6 +155,7 @@ module RunDto =
           parentProjectId = UMX.untag value.ParentProjectId; runName = UMX.untag value.RunName; id = UMX.untag value.Id
           descriptionOverride = description |> Option.toObj
           reporting = value.Reporting
+          sgd = value.Sgd
           resultsParameterSpans = value.ResultsParameterSpans |> List.map Contract.spanFrom |> List.toArray
           setupParameterSpans = setupSpans |> List.map Contract.spanFrom |> List.toArray }
     let readId (value: runDto) =
@@ -162,9 +179,9 @@ module RunDto =
             | project.RootProject p, "root" ->
                 if not setupSpans.IsEmpty then
                     invalidArg "runKind" "A root run cannot have setup settings."
-                RootRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans; Reporting = reporting } |> run.RootRun
+                RootRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans; Reporting = reporting; Sgd = value.sgd } |> run.RootRun
             | project.BranchProject p, "branch" ->
-                BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans; Reporting = reporting
+                BranchRun.create p { Id = id; RunName = UMX.tag value.runName; ParentProjectId = UMX.tag value.parentProjectId; DescriptionOverride = description; ResultsParameterSpans = outputSpans; Reporting = reporting; Sgd = value.sgd
                                      SetupParameterSpans = setupSpans } |> run.BranchRun
             | _ -> invalidArg "runKind" "A project can only contain runs of its own type."
         FunctionConfiguration.validateSavedRunInputs result
@@ -351,7 +368,11 @@ module ProjectDto =
             | BranchProjectConfig config ->
                 FunctionConfiguration.validateResults config.Results
                 FunctionConfiguration.validateSetup true config.Setup
-        let local = OverridesDto.toDomain kind value.localOverrides
+        let overrides =
+            if value.schemaVersion = 15 && kind = hierarchyKind.Branch then
+                { value.localOverrides with setupSources = SetupSourceConfigDto.preserveLegacySelection value.configuration.setupFunctionName value.configuration.setupDataTypes value.localOverrides.setupSources }
+            else value.localOverrides
+        let local = OverridesDto.toDomain kind overrides
         let configuration =
             if value.isSealed then snapshot
             else inherited |> Option.defaultWith (fun () ->
@@ -371,7 +392,11 @@ module ModuleDto =
         Contract.version value.schemaVersion
         let kind = Contract.kind value.moduleKind
         let parent = inherited |> Option.defaultWith (fun () -> ModuleSettingsDto.toDomain kind (if isNull (box value.inheritedDefaults) then value.configuration else value.inheritedDefaults))
-        let local = ModuleOverridesDto.toDomain kind value.localOverrides
+        let overrides =
+            if value.schemaVersion = 15 && kind = hierarchyKind.Branch then
+                { value.localOverrides with setupSources = SetupSourceConfigDto.preserveLegacySelection value.configuration.setupFunctionName value.configuration.setupDataTypes value.localOverrides.setupSources }
+            else value.localOverrides
+        let local = ModuleOverridesDto.toDomain kind overrides
         let effective = ModuleDefaults.resolve parent local
         workspaceModule.createInherited (UMX.tag value.id) (UMX.tag value.moduleName) parent local
             (Contract.array "modules" value.modules |> Array.map (read (depth + 1) (Some effective)))

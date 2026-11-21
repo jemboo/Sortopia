@@ -231,6 +231,52 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Equal(before, Snapshot(Root));
     }
 
+    [Theory]
+    [InlineData("A")]
+    [InlineData("B")]
+    [InlineData("Unrelated")]
+    public async Task Configuration_issues_do_not_block_moving_and_saving_a_module_with_all_its_contents(string issueParent)
+    {
+        var page = Open();
+        if (issueParent == "Unrelated")
+        {
+            page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null);
+            page.Selected!.Name = issueParent;
+        }
+        page.Selected = Find(page, issueParent); page.AddProjectCommand.Execute(null);
+        page.Selected!.Name = "Incomplete";
+        page.Selected.Editor!.ResultsDatabaseName = " ";
+        Assert.True(page.HasEditErrors);
+        Assert.Contains(page.SaveIssues, issue => issue.Node.Name == "Incomplete");
+
+        var node = Find(page, "A");
+        var ids = node.DescendantsAndSelf().Select(child => child.Id).Order().ToArray();
+        var source = node.GetFolderPath(Root);
+        Data(Path.Combine(source, "P"));
+        var before = Snapshot(Root);
+        page.Selected = node;
+        Assert.True(page.CutCommand.CanExecute(null)); page.CutCommand.Execute(null);
+        page.Selected = Find(page, "B");
+        Assert.True(page.PasteCommand.CanExecute(null)); await page.PasteAsync();
+        Assert.Empty(page.OperationError);
+        Assert.Equal("B", node.Parent!.Name);
+        Assert.Equal(before, Snapshot(Root));
+        Assert.True(page.SaveWorkspaceCommand.CanExecute(null)); await page.SaveWorkspaceAsync();
+        Assert.Empty(page.OperationError);
+        Assert.False(page.HasUnsavedChanges);
+        Assert.False(Directory.Exists(source));
+        Assert.Equal("Keep these results", File.ReadAllText(Path.Combine(Root, "B", "A", "P", "output", "result.txt")));
+        Assert.True(Directory.Exists(Path.Combine(Root, "B", "A", "P", "output", "empty")));
+
+        var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
+        var reopened = new WorkspacePageViewModel(() => { }, _ => null, settings);
+        var moved = Find(reopened, "A");
+        Assert.Equal("B", moved.Parent!.Name);
+        Assert.Equal(ids, moved.DescendantsAndSelf().Select(child => child.Id).Order());
+        Assert.Contains(reopened.SaveIssues, issue => issue.Node.Name == "Incomplete");
+        Assert.Equal(issueParent, Find(reopened, "Incomplete").Parent!.Name);
+    }
+
     [Fact]
     public async Task Invalid_parents_cycles_and_duplicate_names_or_folders_cannot_change_the_tree()
     {

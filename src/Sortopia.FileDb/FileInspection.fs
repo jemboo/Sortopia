@@ -81,7 +81,10 @@ module FileInspection =
                     let binding = RunParameterCodec.readBinding item
                     {| Key = item.Key; Type = string binding.ValueType; Value = binding.FormattedValue |})
                 { Kind = "Run parameters"; Description = "One immutable results invocation: typed parameter values, fixed outputs, and project-local setup inputs. Envelope checksum and work item ID verified."
-                  Json = json {| SchemaVersion = (if item.Reporting.IsSome then 3 else dto.Version); Reporting = item.Reporting |> Option.defaultValue Unchecked.defaultof<_>; Id = id; ProjectId = dto.ProjectId; RunId = dto.RunId
+                  Json = json {| SchemaVersion = (if item.Sgd.IsSome then 4 elif item.Reporting.IsSome then 3 else dto.Version)
+                                 SnapshotInterval = item.Sgd |> Option.map _.SnapshotInterval |> Option.toNullable
+                                 SnapshotCountSource = if item.Sgd.IsSome then $"runs/{dto.RunId}.msgpack" else ""
+                                 Reporting = item.Reporting |> Option.defaultValue Unchecked.defaultof<_>; Id = id; ProjectId = dto.ProjectId; RunId = dto.RunId
                                  FunctionName = dto.FunctionName; FunctionVersion = dto.FunctionVersion; DatabaseName = dto.DatabaseName
                                  SetNumber = dto.SetNumber; SetupSetNumber = Option.toNullable dto.SetupSetNumber
                                  SetupSuffixStages = Option.toNullable dto.SetupSuffixStages; ResultsSuffixStages = Option.toNullable dto.ResultsSuffixStages

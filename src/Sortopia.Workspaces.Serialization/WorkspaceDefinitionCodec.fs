@@ -38,11 +38,12 @@ type projectDefinitionDto = {
 /// Versioned, shallow entity files. Child references are authoritative and ordered.
 /// File resolution and hierarchy assembly belong to Workspaces.Persistence.
 module WorkspaceDefinitionCodec =
-    let schemaVersion = 18
+    let schemaVersion = 19
+    let supportsVersion value = value = schemaVersion || value = 18
     let private kindName = function hierarchyKind.Root -> "root" | hierarchyKind.Branch -> "branch" | _ -> invalidArg "kind" "Unknown entity family."
     let kind = function "root" -> hierarchyKind.Root | "branch" -> hierarchyKind.Branch | _ -> invalidArg "kind" "Kind must be root or branch."
     let private validate version id name folder =
-        if version <> schemaVersion then invalidArg "schemaVersion" $"Unsupported entity definition version: {version}. Create a new workspace in the current format."
+        if not (supportsVersion version) then invalidArg "schemaVersion" $"Unsupported entity definition version: {version}. Create a new workspace in the current format."
         EntityId.validate id
         EntityName.validate name |> ignore
         FolderName.validate folder |> ignore
@@ -87,7 +88,7 @@ module WorkspaceDefinitionCodec =
         required "workspace definition" value
         validate value.schemaVersion value.id value.workspaceName value.folderName
         references "modules" value.modules
-        value
+        { value with schemaVersion = schemaVersion }
     let decodeModule bytes =
         let value = MessagePackSetup.deserialize<moduleDefinitionDto> bytes
         required "module definition" value
@@ -99,7 +100,12 @@ module WorkspaceDefinitionCodec =
         references "modules" value.modules
         references "projects" value.projects
         FolderName.unique "module and project children" (Seq.append (value.modules |> Seq.map _.name) (value.projects |> Seq.map _.name))
-        value
+        let local =
+            if value.schemaVersion = 18 && value.moduleKind = "branch" then
+                let name = if String.IsNullOrWhiteSpace value.localOverrides.setupFunctionName then value.inheritedDefaults.setupFunctionName else value.localOverrides.setupFunctionName
+                { value.localOverrides with setupSources = SetupSourceConfigDto.preserveLegacySelection name value.inheritedDefaults.setupDataTypes value.localOverrides.setupSources }
+            else value.localOverrides
+        { value with schemaVersion = schemaVersion; localOverrides = local }
     let decodeProject bytes =
         let value = MessagePackSetup.deserialize<projectDefinitionDto> bytes
         required "project definition" value
@@ -113,7 +119,12 @@ module WorkspaceDefinitionCodec =
             required "inherited defaults" value.inheritedDefaults
             required "local overrides" value.localOverrides
             origin value.inheritedFrom
-        value
+        let local =
+            if value.schemaVersion = 18 && value.projectKind = "branch" && not (isNull (box value.localOverrides)) then
+                let settings = if value.isSealed then value.configuration else value.inheritedDefaults
+                { value.localOverrides with setupSources = SetupSourceConfigDto.preserveLegacySelection settings.setupFunctionName settings.setupDataTypes value.localOverrides.setupSources }
+            else value.localOverrides
+        { value with schemaVersion = schemaVersion; localOverrides = local }
 
     let moduleHeader parent (value: moduleDefinitionDto) =
         let kind = kind value.moduleKind

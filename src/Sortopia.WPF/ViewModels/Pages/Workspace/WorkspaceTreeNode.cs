@@ -19,11 +19,14 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     private sealed record SavedChild(WorkspaceTreeNode Node, string Name);
     private SavedChild[] savedChildren = [];
     private bool isSelected;
+    private bool isExpanded = true;
     private string? savedFolderPath;
     private string diskStatus = "Not saved";
     private string diskStatusDetail = "This component has not been saved yet.";
     private bool isMissingOnDisk;
     private bool hasDiskWarning;
+    private bool hasValidationIssues;
+    private bool hasDescendantIssues;
     private bool isCut;
     private bool moveWithContents;
     public bool IsCut { get => isCut; internal set => SetProperty(ref isCut, value); }
@@ -71,6 +74,8 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         {
             if (args.OldItems is not null) foreach (WorkspaceTreeNode child in args.OldItems) { child.Parent = null; child.RefreshInheritedSubtree(); child.Changed -= ChildChanged; child.ValidationChanged -= ChildValidationChanged; }
             if (args.NewItems is not null) foreach (WorkspaceTreeNode child in args.NewItems) { child.Parent = this; child.RefreshInheritedSubtree(); child.Changed += ChildChanged; child.ValidationChanged += ChildValidationChanged; }
+            RefreshDescendantIssues();
+            RefreshExecutionCounts();
             Editor?.RefreshFunctionDefinitions();
             Changed?.Invoke();
             ValidationChanged?.Invoke();
@@ -177,6 +182,32 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     public string DiskStatusDetail => diskStatusDetail;
     public bool IsMissingOnDisk => isMissingOnDisk;
     public bool HasDiskWarning => hasDiskWarning;
+    public bool HasValidationIssues
+    {
+        get => hasValidationIssues;
+        internal set
+        {
+            if (SetProperty(ref hasValidationIssues, value)) NotifyAttentionChanged();
+        }
+    }
+    public bool HasOwnIssues => HasValidationIssues || HasDiskWarning;
+    public bool HasDescendantIssues => hasDescendantIssues;
+    public bool NeedsAttention => HasOwnIssues || HasDescendantIssues;
+    public string IconDescription => $"{KindLabel} · {ExecutionSummary}" + (HasDescendantIssues
+        ? " · A descendant needs attention. Click to go to the first descendant with an error."
+        : HasOwnIssues ? " · Needs attention. Click to review this node's errors." : "");
+    private void NotifyAttentionChanged()
+    {
+        OnPropertyChanged(nameof(HasOwnIssues));
+        OnPropertyChanged(nameof(NeedsAttention));
+        OnPropertyChanged(nameof(IconDescription));
+        Parent?.RefreshDescendantIssues();
+    }
+    private void RefreshDescendantIssues()
+    {
+        if (SetProperty(ref hasDescendantIssues, Children.Any(child => child.NeedsAttention), nameof(HasDescendantIssues)))
+            NotifyAttentionChanged();
+    }
     internal void RememberSavedLocations(string rootFolder)
     {
         savedFolderPath = GetFolderPath(rootFolder);
@@ -230,7 +261,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         SetProperty(ref diskStatus, label, nameof(DiskStatus));
         SetProperty(ref diskStatusDetail, detail, nameof(DiskStatusDetail));
         SetProperty(ref isMissingOnDisk, missing, nameof(IsMissingOnDisk));
-        SetProperty(ref hasDiskWarning, warning || missing, nameof(HasDiskWarning));
+        if (SetProperty(ref hasDiskWarning, warning || missing, nameof(HasDiskWarning))) NotifyAttentionChanged();
         return (missing ? 1 : 0) + Children.Sum(child => child.RefreshDiskStatus(rootFolder, pendingCopy, pendingMove));
     }
     internal WorkspaceFolderCopy? PendingCopy { get; set; }
@@ -272,6 +303,7 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     internal string GetFolderPath(string rootFolder) => Parent is null ? rootFolder
         : IsRun ? Path.Combine(Parent.GetFolderPath(rootFolder), "runs", PathName) : Path.Combine(Parent.GetFolderPath(rootFolder), PathName);
     public bool IsSelected { get => isSelected; set => SetProperty(ref isSelected, value); }
+    public bool IsExpanded { get => isExpanded; set => SetProperty(ref isExpanded, value); }
     public WorkspaceTreeNode? Parent { get; private set; }
     public ObservableCollection<WorkspaceTreeNode> Children { get; } = [];
     public string Name

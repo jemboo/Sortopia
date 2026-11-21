@@ -29,7 +29,7 @@ public sealed class WorkspaceReportingSchedule : ViewModelBase
     }
     public string Preview => Error.Length > 0 ? "" : "Sample generations: "
         + string.Join(", ", SgdReporting.samples(Schedule, int.MaxValue).Take(8))
-        + " … GenerationCount must be a scheduled point.";
+        + " …";
     private void Notify() { OnPropertyChanged(""); changed(); }
     internal void Load(string schedule)
     {

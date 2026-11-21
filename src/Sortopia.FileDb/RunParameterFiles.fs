@@ -15,7 +15,8 @@ open Sortopia.Core.Serialization
 module RunParameterSchema =
     let version = 2
 
-/// One immutable results invocation. No paths or live project settings are needed.
+/// An immutable results invocation, with the current SGD target resolved from its run definition.
+/// No workspace or upstream project settings are needed.
 type runParameters = {
     Id: Guid<workItemId>
     ProjectId: Guid<projectId>
@@ -28,6 +29,7 @@ type runParameters = {
     SetupSuffixStages: int option
     ResultsSuffixStages: int option
     Reporting: sgdReportingConfig option
+    Sgd: sgdRunConfig option
 }
 
 [<MessagePackObject>]
@@ -90,6 +92,19 @@ type reportingRunParametersDto = {
     [<Key(2)>] SnapshotSchedule: string
     [<Key(3)>] SummarySchedule: string
 }
+
+/// The count lives in the run definition; changing it never rewrites an invocation.
+[<MessagePackObject>]
+type sgdRunParametersDto = {
+    [<Key(0)>] Version: int
+    [<Key(1)>] Invocation: runParametersDto
+    [<Key(2)>] SnapshotInterval: int
+    [<Key(3)>] SummarySchedule: string
+}
+
+/// Read only the run control fields, without loading its workspace or project configuration.
+[<CLIMutable>]
+type sgdRunTargetDto = { id: Guid; parentProjectId: Guid; sgd: sgdRunConfig option }
 
 module internal RunParameterCodec =
     let reference (value: storedDataReference) : dataReferenceDto = {
@@ -155,13 +170,17 @@ module internal RunParameterCodec =
           Parameters = dto.Parameters |> Array.map readBinding |> parameterSet.fromBindings
           SetupInputs = dto.SetupInputs |> Array.map readReference |> Array.toList
           SetNumber = dto.SetNumber; SetupSetNumber = dto.SetupSetNumber
-          SetupSuffixStages = dto.SetupSuffixStages; ResultsSuffixStages = dto.ResultsSuffixStages; Reporting = None }
+          SetupSuffixStages = dto.SetupSuffixStages; ResultsSuffixStages = dto.ResultsSuffixStages; Reporting = None; Sgd = None }
 
     let encode value =
         let invocation = toDto value
-        match value.Reporting with
-        | None -> MessagePackSetup.serialize invocation
-        | Some reporting ->
+        match value.Sgd, value.Reporting with
+        | Some controls, reporting ->
+            SgdRun.validate controls |> ignore
+            MessagePackSetup.serialize { Version = 4; Invocation = invocation; SnapshotInterval = controls.SnapshotInterval
+                                         SummarySchedule = reporting |> Option.map _.SummarySchedule |> Option.defaultValue "Constant(1)" }
+        | None, None -> MessagePackSetup.serialize invocation
+        | None, Some reporting ->
             SgdReporting.validate reporting |> ignore
             MessagePackSetup.serialize { Version = 3; Invocation = invocation; SnapshotSchedule = reporting.SnapshotSchedule; SummarySchedule = reporting.SummarySchedule }
 
@@ -174,6 +193,11 @@ module internal RunParameterCodec =
             let dto = MessagePackSetup.deserialize<reportingRunParametersDto> payload
             let reporting = SgdReporting.validate { SnapshotSchedule = dto.SnapshotSchedule; SummarySchedule = dto.SummarySchedule }
             { fromDto id dto.Invocation with Reporting = Some reporting }
+        | 4 ->
+            let dto = MessagePackSetup.deserialize<sgdRunParametersDto> payload
+            let controls = SgdRun.validate { SnapshotInterval = dto.SnapshotInterval; SnapshotCount = 0 }
+            let reporting = SgdReporting.validate { SnapshotSchedule = $"Constant({dto.SnapshotInterval})"; SummarySchedule = dto.SummarySchedule }
+            { fromDto id dto.Invocation with Reporting = Some reporting; Sgd = Some controls }
         | _ -> invalidOp "Unsupported runParameters schema. Regenerate the run parameter files."
 
 /// Small immutable metadata files, atomically published beside project-local data.
@@ -244,7 +268,18 @@ module RunParameterFiles =
         if hash payload <> id then invalidOp "The runParameters contents do not match their file ID."
         let value = RunParameterCodec.decode id payload
         RunParameterStorage.requireProject folder value.ProjectId
-        value
+        match value.Sgd with
+        | None -> value
+        | Some frozen ->
+            let path = RunParameterStorage.path folder "runs" (UMX.untag value.RunId)
+            let info = FileInfo path
+            if info.Length > 67108864L then invalidOp "Run definition exceeds the 64 MiB limit."
+            let run = MessagePackSetup.deserialize<sgdRunTargetDto> (File.ReadAllBytes path)
+            if run.id <> UMX.untag value.RunId || run.parentProjectId <> UMX.untag value.ProjectId then
+                invalidOp "The SGD run definition does not match this parameter file."
+            let controls = run.sgd |> Option.defaultWith (fun () -> invalidOp "The SGD run definition is missing its snapshot controls.") |> SgdRun.validate
+            SgdRun.validateExtension frozen controls
+            { value with Sgd = Some controls }
 
     /// The selected folder stays inside its project; copied projects need no workspace.
     let projectFolder (parametersFolder: string) =

@@ -51,7 +51,7 @@ public sealed class SorterSuccessFractionTests
         var editor = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Models", family: setup ? hierarchyKind.Branch : hierarchyKind.Root).Editor!;
         var name = $"sorter-model-set.{(prefix ? "prefix" : "uniform")}.{model}{ModelFamilyResultsTests.Suffix(family)}";
         var version = setup ? SetupFunctionCatalog.require(name).Version : ResultsFunctionCatalog.require(name).Version;
-        Assert.Equal(model == "msuf4" ? "6" : "2", version);
+        Assert.Equal(model == "msuf4" ? "7" : "2", version);
         if (setup) editor.SetupFunctionName = name; else editor.ResultsFunctionName = name;
         (setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
         var defaults = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;

@@ -50,7 +50,7 @@ public sealed class FunctionParameterEditorTests
     [Theory]
     [InlineData("AMax", parameterValueType.Integer, "-1")]
     [InlineData("ActivationProbability", parameterValueType.Floating, "2")]
-    [InlineData("OrthoRate", parameterValueType.Floating, "-2")]
+    [InlineData("OrthoGenRate", parameterValueType.Floating, "-2")]
     [InlineData("RngType", parameterValueType.Text, "custom")]
     public void Without_a_provider_only_the_value_type_supplies_policy(string key, parameterValueType type, string text)
     {
@@ -63,9 +63,9 @@ public sealed class FunctionParameterEditorTests
     [InlineData("sorter-model-set.uniform.mssi.simple-r", "AMax", "-1", "0", "0 or greater")]
     [InlineData("sorter-model-set.uniform.mssi.simple-r", "AInitial", "bad", "-1", "[-AMax, AMax]")]
     [InlineData("sorter-model-set.uniform.mssi.simple-s", "ActivationProbability", "1.1", "0.5", "between 0 and 1")]
-    [InlineData("sorter-model-set.uniform.msuf4.simple", "OrthoRate", "-1", "0", "normalized together")]
-    [InlineData("sorter-model-set.uniform.msuf4.simple", "ParaRate", "-1", "0", "normalized together")]
-    [InlineData("sorter-model-set.uniform.msuf4.simple", "SelfSymRate", "-1", "0", "normalized together")]
+    [InlineData("sorter-model-set.uniform.msuf4.simple", "OrthoGenRate", "-1", "0", "normalized together")]
+    [InlineData("sorter-model-set.uniform.msuf4.simple", "ParaGenRate", "-1", "0", "normalized together")]
+    [InlineData("sorter-model-set.uniform.msuf4.simple", "SelfSymGenRate", "-1", "0", "normalized together")]
     public void Owning_generators_and_copy_functions_supply_the_same_editor_policy(string function, string key, string invalid, string valid, string hint)
     {
         var type = ParamKeys.valueType(key);
@@ -84,11 +84,11 @@ public sealed class FunctionParameterEditorTests
     [Fact]
     public void Copied_source_keys_keep_typed_editors_and_validate_inherited_defaults_and_spans()
     {
-        var models = SourceEvaluationInputsTests.Source("SorterModelSet", "AMax", "AInitial", "OrthoRate", "RngType", "Seed6Weights");
+        var models = SourceEvaluationInputsTests.Source("SorterModelSet", "AMax", "AInitial", "OrthoGenRate", "RngType", "Seed6Weights");
         var tests = SourceEvaluationInputsTests.Source("SortableTests", "SortableDataFormat");
         var parent = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Module, true, () => null, () => "Module", () => [models, tests]);
         parent.SetupFunctionName = SetupFunctionNames.evaluationSource;
-        parent.SetupDataTypesOverride.IsOverridden = true;
+        foreach (var sourceRow in parent.SetupDataTypes) sourceRow.SourceOverride!.IsOverridden = true;
         parent.SetupDataTypes.Single(row => row.DataType.Kind == "SorterModelSet").SourceProjectId = models.Id;
         parent.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").SourceProjectId = tests.Id;
         parent.AddRequiredSetupDefaultsCommand.Execute(null);
@@ -96,16 +96,16 @@ public sealed class FunctionParameterEditorTests
         Assert.Contains("SplitMix64", parent.SetupParameterDefaults.Single(row => row.Key == "RngType").Value.Choices);
         Assert.True(parent.SetupParameterDefaults.Single(row => row.Key == "Seed6Weights").Value.IsWeights);
         Assert.Contains("[-AMax, AMax]", parent.SetupParameterDefaults.Single(row => row.Key == "AInitial").Value.Hint);
-        parent.SetupParameterDefaults.Single(row => row.Key == "OrthoRate").RemoveCommand.Execute(null);
+        parent.SetupParameterDefaults.Single(row => row.Key == "OrthoGenRate").RemoveCommand.Execute(null);
 
         var project = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Project, true, () => parent, () => "Project", () => [models, tests]);
         var run = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Run, true, () => project, () => "Run", () => [models, tests]);
         run.AddMissingSetupParametersCommand.Execute(null);
         var rate = Assert.Single(run.SetupParameters);
-        Assert.Equal("OrthoRate", rate.Key); Assert.Contains("normalized together", rate.ValueHint);
+        Assert.Equal("OrthoGenRate", rate.Key); Assert.Contains("normalized together", rate.ValueHint);
         rate.AddValueCommand.Execute(null); rate.Values[0].Text = "-1";
         Assert.True(rate.Values[0].IsNumeric); Assert.NotEmpty(rate.Error);
-        Assert.True(run.SetupRequiredInputs.Rows.Single(row => row.Key == "OrthoRate").HasIssue);
+        Assert.True(run.SetupRequiredInputs.Rows.Single(row => row.Key == "OrthoGenRate").HasIssue);
         rate.Values[0].Text = "1";
         maximum.Text = "-1";
         project.RefreshInherited(); run.RefreshInherited();

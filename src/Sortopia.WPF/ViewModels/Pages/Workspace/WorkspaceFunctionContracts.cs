@@ -94,7 +94,6 @@ public sealed partial class WorkspaceConfigurationViewModel
     public bool FunctionsReady => HasResultsContract && (!IsBranch || HasSetupContract) && FunctionCompatibilityError.Length == 0
         && FunctionDefinitionError(false).Length == 0 && (!IsBranch || FunctionDefinitionError(true).Length == 0);
     public bool ShowFunctionConfiguration => FunctionsReady || IsModule && (HasResultsContract || HasSetupContract) && FunctionCompatibilityError.Length == 0;
-    public string FunctionsTitle => IsModule ? "Choose functions" : "Inherited functions";
     public string FunctionsHint => IsReadOnly ? "Functions are locked while descendant runs have generated parameter files. Remove those files or runs to resume editing, or create a new project version."
         : IsModule
         ? IsBranch ? "A module may leave either function undefined. Each branch run needs exactly one setup definition and one compatible results definition along its module path; they may be on different modules. Clear ‘Define on this module’ to inherit or leave the choice to a child module."
@@ -150,20 +149,19 @@ public sealed partial class WorkspaceConfigurationViewModel
         ?? (DeclaredResults ?? []).Select(entry => new resultsDataTypeConfigDto { dataType = entry.dataType, queryParameterKeys = SelectedQueryKeys(entry.dataType, false) }).ToArray();
     public IEnumerable<WorkspaceOutputContractPreview> ResultsOutputContracts => EffectiveResultsDataTypes.Select(entry =>
         new WorkspaceOutputContractPreview(entry.dataType.kind, entry.dataType.value, IsModule ? "Configured on each project" : string.Join(", ", entry.queryParameterKeys)));
-    private setupDataTypeConfigDto[] ResolveSetupTypes(setupDataTypeConfigDto[] local)
+    private setupDataTypeConfigDto[] ResolveSetupTypes()
     {
         if (DeclaredSetup is not { } outputs) return [];
         return outputs.Select(output => new setupDataTypeConfigDto {
             dataType = output.dataType, queryParameterKeys = SelectedQueryKeys(output.dataType, true),
-            sourceProjectId = NeedsSource(output.dataType) ? local.FirstOrDefault(entry => SameType(entry.dataType, output.dataType))?.sourceProjectId ?? Guid.Empty : Guid.Empty
+            sourceProjectId = NeedsSource(output.dataType) ? EffectiveSetupSource(output.dataType) : Guid.Empty
         }).ToArray();
     }
     private void RefreshContractRows()
     {
         if (DeclaredSetup is not { } outputs || IsRun || IsReadOnly) return;
-        var local = SetupDataTypes.Select(row => row.ToDto()).ToArray();
-        if (!local.Select(entry => (entry.dataType.kind, entry.dataType.value)).SequenceEqual(outputs.Select(entry => (entry.dataType.kind, entry.dataType.value))))
-            Quietly(() => LoadSetupDataTypes(ResolveSetupTypes(SetupDataTypesOverride.IsOverridden ? local : Parent?.EffectiveSetupDataTypes ?? [])));
+        if (!SetupDataTypes.Select(row => (row.DataType.Kind, row.DataType.Text)).SequenceEqual(outputs.Select(entry => (entry.dataType.kind, entry.dataType.value))))
+            Quietly(() => LoadSetupDataTypes(ResolveSetupTypes()));
         Quietly(() => { foreach (var row in SetupDataTypes) row.SetContract(NeedsSource(row.DataType.ToDto()), IsModule,
             SelectedQueryKeys(row.DataType.ToDto(), true), Requirements(true)?.Select(key => key.Name).ToArray(), SetupParametersFromSources); });
     }

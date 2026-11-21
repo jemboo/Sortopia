@@ -6,9 +6,11 @@ namespace Sortopia.FileDb.Tests;
 public sealed partial class PreparedExecutionTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Parallel_execution_shares_validated_common_inputs_without_rereading_them(bool varyingModels)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Parallel_execution_shares_validated_common_inputs_without_rereading_them(bool varyingModels, bool queued)
     {
         var paths = ParallelFiles();
         var first = RunParameterFiles.loadFile(paths[0]);
@@ -33,7 +35,10 @@ public sealed partial class PreparedExecutionTests
         {
             // Locks are acquired after preflight and held for the whole batch.
             // Noncommon model inputs remain readable in the mixed-source case.
-            var report = RunParameterExecution.executeFilesWithOptions(paths, new(2), null!, progress, Token);
+            var queue = new Queue<string>(paths);
+            var report = queued
+                ? RunParameterExecution.executeQueuedFilesWithOptions([paths[0]], () => queue.TryDequeue(out var path) ? path : null!, new(2), null!, progress, Token)
+                : RunParameterExecution.executeFilesWithOptions(paths, new(2), null!, progress, Token);
             Completed(report);
             Assert.Equal(common.Length, locks.Count);
             Assert.Equal(paths.Length, report.Results.Length);

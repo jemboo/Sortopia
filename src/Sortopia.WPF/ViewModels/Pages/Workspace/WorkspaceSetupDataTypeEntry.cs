@@ -27,15 +27,24 @@ public sealed class WorkspaceSetupDataTypeEntry : WorkspaceFormItem
     private bool allowUnassignedSource;
     private string[]? requiredParameters;
     private bool parametersFromSources;
-    public WorkspaceSetupDataTypeEntry(setupDataTypeConfigDto value, Func<IEnumerable<WorkspaceSourceProject>> sources)
+    public WorkspaceSetupDataTypeEntry(setupDataTypeConfigDto value, Func<IEnumerable<WorkspaceSourceProject>> sources,
+        WorkspaceSetupSourceOverride? sourceOverride = null)
     {
         this.sources = sources;
+        SourceOverride = sourceOverride;
         sourceProjectId = value.sourceProjectId;
         DataType = new(value.dataType.kind, value.dataType.value);
         QueryKeys = value.queryParameterKeys.ToArray();
     }
     public WorkspaceOutputType DataType { get; }
-    public Guid SourceProjectId { get => sourceProjectId; set { if (SetProperty(ref sourceProjectId, value)) Edited(); } }
+    public WorkspaceSetupSourceOverride? SourceOverride { get; }
+    public WorkspaceConfigurationViewModel? SelectionOwner { get; init; }
+    public string SelectionOrigin => SelectionOwner is { } owner ? $"Source selection defined on {owner.Name}" : "No source selection defined";
+    public Guid SourceProjectId
+    {
+        get => SourceOverride?.Value ?? sourceProjectId;
+        set { if (SourceOverride is { } state) state.Value = value; else if (SetProperty(ref sourceProjectId, value)) Edited(); }
+    }
     public IEnumerable<WorkspaceSourceProjectChoice> SourceProjects => RequiresSource
         ? sources().Select(p => new WorkspaceSourceProjectChoice(p, Incompatibility(p), QuerySummary(p)))
             .OrderByDescending(p => p.IsCompatible).ThenBy(p => p.Label, StringComparer.OrdinalIgnoreCase) : [];

@@ -25,7 +25,7 @@ public sealed class PrefixSorterModelFunctionTests
     private static parameterBinding[] ModelDefaults(string model, int width) => model switch {
         "Msce" => [Bind("ExcludeSelfCe", "true", parameterValueType.Boolean)],
         "Msrs" => [Bind("StageWeights", "1,1,1", parameterValueType.OpsWeights)],
-        "Msuf4" => [Bind("OrthoRate", "1", parameterValueType.Floating), Bind("ParaRate", "1", parameterValueType.Floating), Bind("SelfSymRate", "1", parameterValueType.Floating)],
+        "Msuf4" => [Bind("OrthoGenRate", "1", parameterValueType.Floating), Bind("ParaGenRate", "1", parameterValueType.Floating), Bind("SelfSymGenRate", "1", parameterValueType.Floating)],
         "Msuf6" => [Bind("Seed6Weights", "1,1,1,1,1,1,1", parameterValueType.Seed6Weights),
             Bind("UnfoldingWeights", string.Join(";", Enumerable.Repeat("1,1,1", Math.Max(0, (int)Math.Ceiling(Math.Log2(width / 6.0))))), parameterValueType.UnfoldingWeights)],
         _ => []
@@ -120,7 +120,7 @@ public sealed class PrefixSorterModelFunctionTests
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.prefixMsuf4SimpleSorterModels);
         Assert.Empty(definition.SourceDataTypes);
-        Assert.Equal(new[] { "OrthoRate", "ParaRate", "PrefixLibId", "Repl", "RngType", "SelfSymRate", "SorterCount", "SorterSuccessFraction" }, definition.RequiredParameters.Select(key => key.Name).Order());
+        Assert.Equal(new[] { "OrthoGenRate", "ParaGenRate", "PrefixLibId", "Repl", "RngType", "SelfSymGenRate", "SorterCount", "SorterSuccessFraction" }, definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.True(Assert.Single(definition.SortopiaDataTypes).IsSorterModelSet);
         var defaults = ListModule.OfSeq(Defaults("Msuf4").Where(value => value.KeyName != "PrefixLibId"));
         FunctionValidation.validateDefaults(definition, defaults);

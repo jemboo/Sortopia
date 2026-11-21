@@ -79,9 +79,7 @@ type FileRunDatabase internal (store: ISortopiaDb, plan: Map<runDataOutput, plan
 /// setup references. It deliberately has no workspace or upstream-project access.
 module FileResultsHost =
     let plan projectId (config: resultsConfig) parameters (inputs: storedDataReference list) =
-        let definition = ResultsFunctionCatalog.require config.FunctionName
-        if config.FunctionVersion <> definition.Version then
-            invalidOp $"Results function '{config.FunctionName}' requires version {config.FunctionVersion}; installed version is {definition.Version}."
+        let definition = ResultsFunctionCatalog.requireVersion config.FunctionName config.FunctionVersion
         FunctionConfiguration.validateOutputs definition config.DataTypes
         FunctionValidation.validate definition parameters
         if inputs |> List.exists (fun reference -> reference.ProjectId <> projectId || reference.Phase <> runExecutionPhase.Setup) then
@@ -89,25 +87,47 @@ module FileResultsHost =
         OutputPlan.create projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion
                           definition.Outputs config.DataTypes parameters inputs
 
-    let planWithReporting projectId (config: resultsConfig) parameters inputs reporting =
+    let planForRun projectId (config: resultsConfig) parameters inputs reporting sgd =
         let ordinary = plan projectId config parameters inputs
-        match reporting with
-        | None -> ordinary
-        | Some _ ->
+        match reporting, sgd with
+        | None, None -> ordinary
+        | _ ->
             if not (ResultsFunctionCatalog.require config.FunctionName).SupportsEvolutionReporting then
                 invalidArg "reporting" "The selected results function does not support evolution reporting."
             let final = ordinary |> Map.toList |> List.map fst |> List.find (fun output -> output.DataType = sortopiaDataType.SorterPoolSet "")
-            let samples = EvolutionSampling.plan parameters final reporting |> EvolutionSampling.outputs parameters
+            let samples = EvolutionSampling.planForRun parameters final reporting sgd |> EvolutionSampling.outputs parameters
             let sampled = OutputPlan.bind projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion samples
-            sampled |> Map.fold (fun outputs descriptor output -> Map.add descriptor output outputs) ordinary
+            if sgd.IsSome then sampled else sampled |> Map.fold (fun outputs descriptor output -> Map.add descriptor output outputs) ordinary
+
+    let planWithReporting projectId config parameters inputs reporting = planForRun projectId config parameters inputs reporting None
+
+    let private resumeSnapshot (store: ISortopiaDb) (plan: Map<runDataOutput, plannedOutput>) sgd token =
+        if Option.isNone sgd then None else
+        let mutable completePrefix = true
+        let mutable latest = None
+        // A checkpoint is usable once every preceding snapshot and summary batch exists.
+        // Missing reporting files therefore cause a replay only of the affected interval.
+        let ordered = plan |> Map.toArray |> Array.sortBy (fun (descriptor, _) ->
+            FunctionParameters.required ParamKeys.generationCurrentKey descriptor.QueryParameters,
+            if descriptor.DataType.IsSorterPoolSet then 1 else 0)
+        for descriptor, output in ordered do
+            if completePrefix then
+                match store.TryLoad(output.Key, token) |> HostStorage.require with
+                | None -> completePrefix <- false
+                | Some saved ->
+                    output.Validate saved.Value
+                    match saved.Value with
+                    | sortopiaStorageData.SorterPoolSet snapshot -> latest <- Some snapshot
+                    | _ -> ()
+        latest
 
     let internal createWithPreparedInputs evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list)
-                                         (prepared: Map<storedDataReference, sortopiaStorageData>) reporting (token: CancellationToken) =
+                                         (prepared: Map<storedDataReference, sortopiaStorageData>) reporting sgd (token: CancellationToken) =
         if evaluationParallelism < 1 then invalidArg "evaluationParallelism" "Evaluation parallelism must be positive."
         let definition = ResultsFunctionCatalog.require config.FunctionName
         // Setup can produce more types than results consumes; freeze only those needed.
         let inputs = outputs |> List.map _.Reference |> List.filter (fun reference -> List.contains reference.DataType definition.SourceDataTypes)
-        let plan = planWithReporting projectId config parameters inputs reporting
+        let plan = planForRun projectId config parameters inputs reporting sgd
         let store = SortopiaFileDb(folder, projectId) :> ISortopiaDb
         let reads = inputs |> List.map (fun reference ->
             reference, fun () ->
@@ -116,10 +136,10 @@ module FileResultsHost =
                 | None -> (store.Load(reference, token) |> HostStorage.require).Value) |> Map.ofList
         let database = FileRunDatabase(store, plan, token, reads, fun _ -> HostStorage.noSources ())
         { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; Reporting = reporting; PreparationCache = None
-          Database = database; Outputs = database.Outputs }
+          Database = database; Outputs = database.Outputs; GenerationProgress = None; Sgd = sgd; ResumeSnapshot = resumeSnapshot store plan sgd token }
 
     let createWithParallelism evaluationParallelism folder projectId config parameters outputs token =
-        createWithPreparedInputs evaluationParallelism folder projectId config parameters outputs Map.empty None token
+        createWithPreparedInputs evaluationParallelism folder projectId config parameters outputs Map.empty None None token
 
     let create folder projectId config parameters outputs token =
         createWithParallelism Environment.ProcessorCount folder projectId config parameters outputs token
@@ -155,9 +175,9 @@ type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: Cancellation
             let reads = sources |> List.map (fun data -> data.Reference, fun () -> data.Value) |> Map.ofList
             let database = FileRunDatabase(store, plan, token, reads, findSource)
             { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; Reporting = None; PreparationCache = None
-              Database = database; Outputs = database.Outputs }
+              Database = database; Outputs = database.Outputs; GenerationProgress = None; Sgd = None; ResumeSnapshot = None }
     member _.ForResults(parameters, setupOutputs) =
-        FileResultsHost.create folder parent.Id parent.Snapshot.Results parameters setupOutputs token
+        FileResultsHost.createWithPreparedInputs Environment.ProcessorCount folder parent.Id parent.Snapshot.Results parameters setupOutputs Map.empty value.Reporting value.Sgd token
     interface IRunHostFactory with
         member this.Run = this.Run
         member this.CancellationToken = this.CancellationToken

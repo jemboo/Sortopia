@@ -9,6 +9,36 @@ namespace Sortopia.WPF.Views.Pages.Workspace;
 
 public partial class WorkspacePage : UserControl
 {
+    private void OnReviewNodeErrors(object sender, RoutedEventArgs args)
+    {
+        args.Handled = true;
+        // Run after the command has expanded the ancestors and selected the target.
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            RevealSelectedTreeNode(focus: true);
+            ConfigurationSummaryViewport.ScrollToTop();
+            EntityInspectorViewport.ScrollToTop();
+        }));
+    }
+    private void RevealSelectedTreeNode(bool focus)
+    {
+        if (DataContext is not WorkspacePageViewModel { Selected: { } selected }) return;
+        var path = new Stack<WorkspaceTreeNode>();
+        for (var node = selected; node is not null; node = node.Parent) path.Push(node);
+        ItemsControl container = WorkspaceTree;
+        foreach (var node in path)
+        {
+            container.UpdateLayout();
+            if (container.ItemContainerGenerator.ContainerFromItem(node) is not TreeViewItem item) return;
+            container = item;
+        }
+        if (container is TreeViewItem target) { target.BringIntoView(); if (focus) target.Focus(); }
+    }
+    internal void RevealParameterSelection()
+    {
+        RevealSelectedTreeNode(focus: false);
+        RevealActiveItem();
+    }
     private void OnConfigurationItemClick(object sender, RoutedEventArgs args) =>
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => { EntityInspectorViewport.ScrollToTop(); RevealActiveItem(); }));
     private void RevealActiveItem()
@@ -42,6 +72,7 @@ public partial class WorkspacePage : UserControl
         }));
     }
     private readonly DispatcherTimer diskStatusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private CancellationTokenSource? executionProgressCancellation;
     private void OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> args)
     {
         if (DataContext is WorkspacePageViewModel viewModel) viewModel.Selected = args.NewValue as WorkspaceTreeNode;
@@ -58,14 +89,20 @@ public partial class WorkspacePage : UserControl
     public WorkspacePage()
     {
         InitializeComponent();
-        diskStatusTimer.Tick += (_, _) => RefreshDiskStatus();
+        diskStatusTimer.Tick += async (_, _) => { RefreshDiskStatus(); await RefreshExecutionProgressAsync(); };
         Loaded += async (_, _) =>
         {
+            executionProgressCancellation?.Cancel();
+            executionProgressCancellation?.Dispose();
+            executionProgressCancellation = new();
             RefreshDiskStatus(); diskStatusTimer.Start();
             if (DataContext is WorkspacePageViewModel { ShowExecutionEditor: true } viewModel) await viewModel.RefreshRunParameterFilesAsync();
+            await RefreshExecutionProgressAsync();
         };
-        Unloaded += (_, _) => diskStatusTimer.Stop();
+        Unloaded += (_, _) => { diskStatusTimer.Stop(); executionProgressCancellation?.Cancel(); executionProgressCancellation?.Dispose(); executionProgressCancellation = null; };
     }
+    private Task RefreshExecutionProgressAsync() => DataContext is WorkspacePageViewModel viewModel && executionProgressCancellation is { } cancellation
+        ? viewModel.RefreshExecutionProgressAsync(cancellation.Token) : Task.CompletedTask;
     private void RefreshDiskStatus()
     {
         if (DataContext is WorkspacePageViewModel viewModel) viewModel.RefreshDiskStatus();

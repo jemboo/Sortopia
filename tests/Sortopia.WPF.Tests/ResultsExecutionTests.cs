@@ -268,6 +268,50 @@ public sealed class ResultsExecutionTests : IDisposable
     }
 
     [Fact]
+    public async Task Pending_checks_change_the_live_queue_while_started_checks_stay_locked()
+    {
+        var workspace = await GenerateFiles();
+        using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
+        var first = model.Rows[0]; var removed = model.Rows[1]; var added = model.Rows[2];
+        first.IsSelected = removed.IsSelected = true;
+        var started = new List<WorkItemStatusRow>();
+        foreach (var row in model.Rows) row.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName != nameof(row.Status) || row.Status != "Running") return;
+            started.Add(row);
+            Assert.True(model.IsBusy);
+            Assert.False(row.CanChangeSelection);
+            row.IsSelected = false; Assert.True(row.IsSelected);
+            if (row == first)
+            {
+                Assert.True(model.ClearSelectionCommand.CanExecute(null));
+                Assert.True(removed.CanChangeSelection); Assert.True(added.CanChangeSelection);
+                removed.IsSelected = false;
+                Assert.Equal(1, model.ExecutionProgress.Total);
+                added.IsSelected = true;
+                Assert.Equal(2, model.ExecutionProgress.Total);
+            }
+            else
+            {
+                Assert.Equal("Complete", first.Status);
+                Assert.False(first.CanChangeSelection);
+                model.ClearSelectionCommand.Execute(null);
+                Assert.True(first.IsSelected); Assert.True(added.IsSelected);
+            }
+        };
+        await model.ExecuteAsync(); Assert.Empty(model.Error);
+        Assert.Equal(new[] { first, added }, started);
+        Assert.Equal(2, model.LastReport!.Results.Length);
+        Assert.Equal(2, model.ExecutionProgress.Total); Assert.Equal(2, model.ExecutionProgress.Finished);
+        Assert.Equal(0, model.ExecutionProgress.NotStarted); Assert.Equal(100, model.ExecutionProgress.Percent);
+        Assert.Equal("Pending", model.Rows.Single(row => row.Path == removed.Path).Status);
+        Assert.False(model.Rows.Single(row => row.Path == removed.Path).IsSelected);
+        Assert.All(model.Rows, row => Assert.True(row.CanChangeSelection));
+        model.ClearSelectionCommand.Execute(null); Assert.Equal(0, model.SelectedCount);
+        workspace.Cancel();
+    }
+
+    [Fact]
     public async Task Live_rows_continue_after_failure_and_keep_copyable_errors_until_retry()
     {
         var workspace = await GenerateFiles();
@@ -329,6 +373,7 @@ public sealed class ResultsExecutionTests : IDisposable
                 model.ClearSelectionCommand.Execute(null); failedRow.IsSelected = true; Layout();
                 var panel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
                 var grid = (DataGrid)panel.FindName("RunParametersGrid");
+                grid.SelectedItem = failedRow;
                 var jobs = (TextBox)panel.FindName("ParallelJobsInput");
                 jobs.Text = "0"; Layout(); Assert.False(model.CanExecute); Assert.NotEmpty(model.ParallelJobsError);
                 jobs.Text = "2"; Layout(); Assert.Equal("2", model.ParallelJobs); Assert.Empty(model.ParallelJobsError);
@@ -443,7 +488,7 @@ public sealed class ResultsExecutionTests : IDisposable
     }
 
     [Fact]
-    public async Task Wpf_grid_has_executor_binding_columns_and_native_multiple_row_selection()
+    public async Task Wpf_grid_checks_execution_independently_of_row_selection_and_keeps_scrolling()
     {
         var workspace = await GenerateFiles(8);
         using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
@@ -461,28 +506,63 @@ public sealed class ResultsExecutionTests : IDisposable
                 Layout();
                 var panel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
                 var grid = (DataGrid)panel.FindName("RunParametersGrid");
-                Assert.Equal(new[] { "File name", "Status", "Elapsed", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
-                Assert.Equal(3, grid.FrozenColumnCount);
+                Assert.Equal(new[] { "Run", "File name", "Status", "Generations", "Elapsed", "Est. remaining", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
+                Assert.Equal(6, grid.FrozenColumnCount);
                 Assert.Equal(24, grid.Items.Count); Assert.True(grid.IsReadOnly); Assert.True(grid.EnableRowVirtualization);
                 Assert.Null(grid.ItemContainerGenerator.ContainerFromItem(model.Rows[^1]));
                 grid.SelectedItems.Add(model.Rows[0]); grid.SelectedItems.Add(model.Rows[^1]); Layout();
-                Assert.Equal(2, model.SelectedCount); Assert.False(model.Rows[1].IsSelected);
+                Assert.Equal(0, model.SelectedCount);
+                CheckBox Check(WorkItemStatusRow row)
+                {
+                    grid.ScrollIntoView(row); Layout();
+                    var container = Assert.IsType<DataGridRow>(grid.ItemContainerGenerator.ContainerFromItem(row));
+                    return Descendants(grid.Columns[0].GetCellContent(container)).OfType<CheckBox>().Single();
+                }
+                Check(model.Rows[0]).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+                model.Rows[^1].IsSelected = true;
+                Layout(); Assert.Equal(2, model.SelectedCount); Assert.False(model.Rows[1].IsSelected);
                 Assert.True(((Button)panel.FindName("ExecuteSelectedButton")).IsEnabled);
-                var selectedPaths = grid.SelectedItems.Cast<WorkItemStatusRow>().Select(row => row.Path).Order().ToArray();
+                var selectedPaths = model.Rows.Where(row => row.IsSelected).Select(row => row.Path).Order().ToArray();
                 var refresh = model.RefreshAsync();
                 var timeout = DateTime.UtcNow.AddSeconds(10);
                 while (!refresh.IsCompleted && DateTime.UtcNow < timeout) { Layout(); Thread.Sleep(1); }
                 Assert.True(refresh.IsCompleted); refresh.GetAwaiter().GetResult(); Layout(); Assert.Empty(model.Error);
-                Assert.Equal(selectedPaths, grid.SelectedItems.Cast<WorkItemStatusRow>().Select(row => row.Path).Order());
-                grid.SelectAll(); Assert.Equal(24, model.SelectedCount);
-                model.ClearSelectionCommand.Execute(null); Layout(); Assert.Empty(grid.SelectedItems);
+                Assert.Equal(selectedPaths, model.Rows.Where(row => row.IsSelected).Select(row => row.Path).Order());
+                grid.SelectAll(); Assert.Equal(2, model.SelectedCount);
+                model.ClearSelectionCommand.Execute(null); Layout(); Assert.Equal(0, model.SelectedCount);
                 Assert.False(model.CanExecute);
-                model.SelectAllCommand.Execute(null); Layout(); Assert.Equal(24, grid.SelectedItems.Count);
-                grid.UnselectAll(); Layout(); Assert.Equal(0, model.SelectedCount);
+                model.SelectAllCommand.Execute(null); Layout(); Assert.Equal(24, model.SelectedCount);
+                grid.UnselectAll(); Layout(); Assert.Equal(24, model.SelectedCount);
+                model.ClearSelectionCommand.Execute(null);
+                var first = model.Rows[0]; first.IsSelected = true;
+                var checkedDuringExecution = false;
+                first.PropertyChanged += (_, change) =>
+                {
+                    if (change.PropertyName != nameof(first.Status) || first.Status != "Running") return;
+                    Assert.True(model.IsBusy); Layout(); Assert.True(grid.IsEnabled);
+                    Assert.False(Check(first).IsEnabled);
+                    var viewport = Descendants(grid).OfType<ScrollViewer>().First();
+                    viewport.ScrollToBottom(); Layout();
+                    Assert.True(viewport.VerticalOffset > 0);
+                    var lastContainer = Assert.IsType<DataGridRow>(grid.ItemContainerGenerator.ContainerFromItem(model.Rows[^1]));
+                    var lastCheck = Descendants(grid.Columns[0].GetCellContent(lastContainer)).OfType<CheckBox>().Single();
+                    Assert.True(lastCheck.IsEnabled);
+                    lastCheck.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+                    Assert.True(model.Rows[^1].IsSelected);
+                    lastCheck.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
+                    Assert.False(model.Rows[^1].IsSelected);
+                    checkedDuringExecution = true;
+                };
+                var execution = model.ExecuteAsync();
+                timeout = DateTime.UtcNow.AddSeconds(15);
+                while (!execution.IsCompleted && DateTime.UtcNow < timeout) { Layout(); Thread.Sleep(1); }
+                Assert.True(execution.IsCompleted); execution.GetAwaiter().GetResult(); Layout();
+                Assert.Empty(model.Error); Assert.True(checkedDuringExecution); Assert.Single(model.LastReport!.Results);
                 Assert.InRange(grid.ActualHeight, 140, 700); // Constrained viewport keeps the grid virtualized.
                 if (Environment.GetEnvironmentVariable("SORTOPIA_RESULTS_SCREENSHOT") is { Length: > 0 } path)
                 {
-                    grid.SelectedItems.Add(model.Rows[0]); grid.SelectedItems.Add(model.Rows[2]); Layout();
+                    model.Rows[0].IsSelected = model.Rows[2].IsSelected = true;
+                    grid.ScrollIntoView(model.Rows[0]); Layout();
                     var bitmap = new RenderTargetBitmap(1100, 760, 96, 96, PixelFormats.Pbgra32); bitmap.Render(view);
                     var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                     using var stream = File.Create(path); encoder.Save(stream);

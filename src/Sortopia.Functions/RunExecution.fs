@@ -43,14 +43,13 @@ module RunExecution =
             { Status = status; Setup = setup.ToArray(); Results = results.ToArray(); Error = error }
         try
             cancellation.ThrowIfCancellationRequested()
+            FunctionConfiguration.validateRunInputs value
             // Resolve both names before generating data or calling either function.
-            let resultsFunction =
-                ResultsFunctionCatalog.functions |> Map.tryFind value.ResultsFunctionName
-                |> Option.defaultWith (fun () -> invalidOp $"Unknown results function '{value.ResultsFunctionName}'.")
+            let config = match value with run.RootRun r -> r.ProjectConfiguration.Results | run.BranchRun r -> r.ProjectConfiguration.Results
+            let resultsFunction = ResultsFunctionCatalog.requireVersion value.ResultsFunctionName config.FunctionVersion
             let setupFunction = value.SetupFunctionName |> Option.map (fun name ->
                 SetupFunctionCatalog.functions |> Map.tryFind name
                 |> Option.defaultWith (fun () -> invalidOp $"Unknown setup function '{name}'."))
-            FunctionConfiguration.validateRunInputs value
             let sets = RunParameterSets.create value
             match value with
             | run.RootRun root -> FunctionConfiguration.validateResults root.ProjectConfiguration.Results

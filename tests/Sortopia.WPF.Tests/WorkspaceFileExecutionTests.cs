@@ -157,7 +157,7 @@ public sealed class WorkspaceFileExecutionTests : IDisposable
         WorkspaceDatabase Database(workspace world) => new(world, temporary.FullName,
             new FileRunDatabase(new SortopiaFileDb(outputFolder, consumerId), plan, Token));
         runHost Host(WorkspaceDatabase database) => new(runExecutionPhase.Setup, parameters,
-            database, database.Outputs, Token, Environment.ProcessorCount, null, null);
+            database, database.Outputs, Token, Environment.ProcessorCount, null, null, null, null, null);
         var reader = Database(world);
         var setup = Host(reader);
         Assert.Contains("exactly the source projects", Assert.Throws<ArgumentException>(() => definition.Execute.Invoke(setup).Invoke(projects.Remove(modelsType))).Message);

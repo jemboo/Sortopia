@@ -8,6 +8,14 @@ namespace Sortopia.WPF.Views.Pages.Workspace;
 
 public partial class WorkspaceParameterValueEditor : UserControl
 {
+    internal void FocusValue()
+    {
+        Control input = value?.IsLibraryId == true ? LibraryCatalogInput
+            : value?.HasChoices == true ? ChoiceValueInput
+            : value?.IsBoolean == true ? BooleanValueInput : TypedValueInput;
+        input.BringIntoView();
+        if (input.Focus() && input is TextBox text) text.SelectAll();
+    }
     private WorkspaceTypedValue? value;
     private bool refreshing;
     public WorkspaceParameterValueEditor()

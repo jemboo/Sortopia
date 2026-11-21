@@ -8,6 +8,57 @@
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
         <BooleanToVisibilityConverter x:Key="VisibleWhen" />
+        <Geometry x:Key="NoParameterValueIcon">M12,5 A7,7 0 1 0 12,19 A7,7 0 1 0 12,5 Z</Geometry>
+        <Geometry x:Key="FixedParameterValueIcon">M8,8 A4,4 0 1 0 8,16 A4,4 0 1 0 8,8 Z M12,12 H22 M18,12 V17 M21,12 V15</Geometry>
+        <Geometry x:Key="ParameterSpanIcon">M5,4 H2 V20 H5 M19,4 H22 V20 H19 M7,12 H17 M8,9 V15 M12,9 V15 M16,9 V15</Geometry>
+        <DataTemplate x:Key="FunctionParameterValue">
+            <Border BorderBrush="{DynamicResource Workspace.StrokeSubtle}" BorderThickness="0,0,0,1" Padding="0,8">
+                <Grid x:Name="FunctionParameterRow" AutomationProperties.Name="{Binding Name}" ToolTip="{Binding Hint}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="FunctionParameterName" Text="{Binding Name}" TextWrapping="Wrap" Margin="0,0,12,0"
+                               Foreground="{DynamicResource Workspace.TextPrimary}" VerticalAlignment="Center" />
+                    <DockPanel Grid.Column="1">
+                        <Button x:Name="OpenParameterValueButton" DockPanel.Dock="Right" Width="24" Height="24" Margin="10,0,0,0" VerticalAlignment="Center"
+                                Command="{Binding DataContext.OpenFunctionParameterCommand, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspacePage}}}"
+                                CommandParameter="{Binding}" Click="OnOpenFunctionParameter" IsEnabled="{Binding CanNavigate}" IsTabStop="{Binding CanNavigate}"
+                                ToolTip="{Binding NavigationHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="{Binding NavigationLabel}">
+                            <Button.Style><Style TargetType="Button">
+                                <Setter Property="Cursor" Value="Hand" />
+                                <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                                    <Grid>
+                                        <Border x:Name="IconSurface" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="3" />
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="IconSurface" Property="Background" Value="{DynamicResource Workspace.SurfaceHover}" /></Trigger>
+                                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="IconSurface" Property="BorderBrush" Value="{DynamicResource Workspace.Focus}" /></Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate></Setter.Value></Setter>
+                                <Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Cursor" Value="Arrow" /></Trigger></Style.Triggers>
+                            </Style></Button.Style>
+                        <Grid x:Name="ParameterSupplyIcon" Width="24" Height="24" ToolTip="{Binding NavigationHint}" AutomationProperties.Name="{Binding IconDescription}">
+                            <Path x:Name="ParameterSupplyShape" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                                <Path.Style><Style TargetType="Path">
+                                    <Setter Property="Data" Value="{StaticResource NoParameterValueIcon}" />
+                                    <Setter Property="Stroke" Value="{DynamicResource Workspace.TextSecondary}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Supply}" Value="{x:Static vm:WorkspaceParameterSupply.Default}">
+                                            <Setter Property="Data" Value="{StaticResource FixedParameterValueIcon}" /><Setter Property="Stroke" Value="{DynamicResource Workspace.Accent}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Supply}" Value="{x:Static vm:WorkspaceParameterSupply.Span}">
+                                            <Setter Property="Data" Value="{StaticResource ParameterSpanIcon}" /><Setter Property="Stroke" Value="{DynamicResource Workspace.Accent}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style></Path.Style>
+                            </Path>
+                        </Grid>
+                        </Button>
+                        <TextBlock x:Name="FunctionParameterValueText" Text="{Binding Value}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Workspace.TextPrimary}" />
+                    </DockPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
         <DataTemplate x:Key="ReportingSchedule">
             <StackPanel Margin="0,6,0,10">
                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,0,0,4" />
@@ -136,8 +187,15 @@
                     <TextBlock Text="{Binding DataType.TextSummary}" TextWrapping="Wrap" />
                     <TextBlock Text="Generated from parameters; no source project needed." TextWrapping="Wrap" Margin="0,6,0,6" Visibility="{Binding GeneratesData, Converter={StaticResource VisibleWhen}}" />
                     <StackPanel Visibility="{Binding RequiresSource, Converter={StaticResource VisibleWhen}}">
+                    <CheckBox x:Name="SetupSourceOverrideCheckBox" Content="{Binding SourceOverride.OverrideCaption}"
+                              IsChecked="{Binding SourceOverride.IsOverridden}" IsEnabled="{Binding SourceOverride.CanOverride}"
+                              Visibility="{Binding SourceOverride.ShowOverrideToggle, Converter={StaticResource VisibleWhen}}"
+                              MinHeight="28" Foreground="{DynamicResource Workspace.TextPrimary}"
+                              AutomationProperties.Name="{Binding DataType.Kind, StringFormat=Override {0} source}" />
+                    <local:WorkspaceValueSource DataContext="{Binding SourceOverride}" />
                     <Label Content="Source project" Target="{Binding ElementName=SetupSourceProjectInput}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
                     <ComboBox x:Name="SetupSourceProjectInput" ItemsSource="{Binding SourceProjects}" SelectedValuePath="Id" TextSearch.TextPath="Label"
+                              IsEnabled="{Binding SourceOverride.CanEditValue}"
                               SelectedValue="{Binding SourceProjectId, Mode=TwoWay}" ToolTip="{Binding SourceLabel}" AutomationProperties.Name="Setup source project"
                               MaxDropDownHeight="420">
                         <ComboBox.ItemTemplate>
@@ -182,6 +240,7 @@
                 <StackPanel>
                     <TextBlock Text="{Binding DataType.Kind}" FontWeight="SemiBold" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding DataType.TextSummary}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding SelectionOrigin}" Style="{StaticResource Help}" Visibility="{Binding RequiresSource, Converter={StaticResource VisibleWhen}}" />
                     <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SetupSourceLink}" Visibility="{Binding RequiresSource, Converter={StaticResource VisibleWhen}}" />
                     <TextBlock Text="{Binding SourceQueryHint}" Style="{StaticResource Help}" />
                     <TextBlock Text="Query keys" FontWeight="SemiBold" Margin="0,6,0,4" />
@@ -255,14 +314,18 @@
         </ResourceDictionary>
     </UserControl.Resources>
     <StackPanel>
-        <Expander x:Name="FunctionsSection" Header="{Binding FunctionsTitle}" Style="{StaticResource EditorSection}" IsExpanded="True">
+        <Expander x:Name="FunctionsSection" Style="{StaticResource EditorSection}" IsExpanded="True">
             <StackPanel Margin="4,6,0,0">
                 <TextBlock Text="{Binding FunctionsHint}" Style="{StaticResource Help}" />
             <StackPanel x:Name="SetupFunctionItem"><local:WorkspaceOverrideEditor x:Name="SetupFunctionOverrideEditor" DataContext="{Binding SetupFunctionOverride}" />
-                <TextBlock Text="{Binding SetupRequirementsHint}" TextWrapping="Wrap" Margin="0,0,0,12" />
+            <ItemsControl x:Name="SetupFunctionParametersTable" ItemsSource="{Binding SetupFunctionInputs}"
+                              ItemTemplate="{StaticResource FunctionParameterValue}" Margin="0,0,0,12" AutomationProperties.Name="Setup function input values" />
+                <TextBlock Text="{Binding SetupFunctionParametersHint}" Style="{StaticResource Help}" />
             </StackPanel>
         <StackPanel x:Name="ResultsFunctionItem"><local:WorkspaceOverrideEditor x:Name="ResultsFunctionOverrideEditor" DataContext="{Binding ResultsFunctionOverride}" />
-            <TextBlock Text="{Binding ResultsRequirementsHint}" TextWrapping="Wrap" Margin="0,0,0,12" />
+            <ItemsControl x:Name="ResultsFunctionParametersTable" ItemsSource="{Binding ResultsFunctionParameters}"
+                          ItemTemplate="{StaticResource FunctionParameterValue}" Margin="0,0,0,12" AutomationProperties.Name="Results function parameter values" />
+            <TextBlock Text="{Binding ResultsFunctionParametersHint}" Style="{StaticResource Help}" />
             <TextBlock Text="{Binding FunctionCompatibilityError}" Style="{StaticResource InlineError}" />
         </StackPanel>
                 <TextBlock Text="{Binding FunctionsStatus}" Style="{StaticResource Help}" />
@@ -321,20 +384,31 @@
         <TextBlock Text="{Binding ResultsParameterDefaultsError}" Style="{StaticResource InlineError}" />
         </StackPanel>
         </Expander>
-        <StackPanel Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}">
-            <Expander x:Name="EvolutionReportingSection" Header="Evolution reporting" IsExpanded="True" Style="{StaticResource EditorSection}"
-                      Visibility="{Binding SupportsReporting, Converter={StaticResource VisibleWhen}}" Tag="{Binding ReportingError}">
-                <StackPanel Margin="4,6,0,0" IsEnabled="{Binding IsEditable}">
-                    <CheckBox Content="Save evolution snapshots and summaries" IsChecked="{Binding ReportingEnabled}" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                    <TextBlock Text="Full snapshots retain every model and its evaluation. Summaries retain pool statistics. GenerationCount must fall on both schedules; no extra final snapshot or summary is added. The last snapshot uses the final result file." Style="{StaticResource Help}" />
-                    <StackPanel IsEnabled="{Binding ReportingEnabled}">
+        <Expander x:Name="EvolutionReportingSection" Header="Evolution reporting" IsExpanded="True" Style="{StaticResource EditorSection}"
+                  Visibility="Collapsed" Tag="{Binding ReportingError}">
+                <StackPanel Margin="4,6,0,0">
+                    <StackPanel Visibility="{Binding UsesSnapshotControls, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock Text="SnapshotInterval" FontWeight="SemiBold" />
+                        <TextBox Text="{Binding SnapshotInterval, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditSnapshotInterval}" AutomationProperties.Name="SnapshotInterval" />
+                        <TextBlock Text="Generations between full snapshots. Locked after runParameters are created." Style="{StaticResource Help}" />
+                        <TextBlock Text="SnapshotCount" FontWeight="SemiBold" />
+                        <TextBox Text="{Binding SnapshotCount, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditSnapshotCount}" AutomationProperties.Name="SnapshotCount" />
+                        <TextBlock Text="Number of snapshots after generation zero. Increase and save to extend the run; execute its parameter files to continue from the latest checkpoint." Style="{StaticResource Help}" />
+                        <TextBlock Text="{Binding SnapshotTargetText}" Style="{StaticResource Help}" />
+                    </StackPanel>
+                    <StackPanel Visibility="{Binding ShowLegacyReporting, Converter={StaticResource VisibleWhen}}" IsEnabled="{Binding IsEditable}">
+                        <CheckBox Content="Save evolution snapshots and summaries" IsChecked="{Binding ReportingEnabled}" Foreground="{DynamicResource Workspace.TextPrimary}" />
+                        <TextBlock Text="Legacy run: GenerationCount must fall on both reporting schedules." Style="{StaticResource Help}" />
                         <ContentControl Content="{Binding SnapshotReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
+                    </StackPanel>
+                    <StackPanel IsEnabled="{Binding IsEditable}" Visibility="{Binding ReportingEnabled, Converter={StaticResource VisibleWhen}}">
                         <ContentControl Content="{Binding SummaryReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
                     </StackPanel>
                     <TextBlock x:Name="EvolutionReportingError" Text="{Binding ReportingError}" Style="{StaticResource InlineError}" />
-                    <TextBlock Text="The schedules are frozen when parameter files are generated. Export their CSV reports from Results execution after the run completes." Style="{StaticResource Help}" />
+                    <TextBlock Text="Full snapshots retain every model, mutation cursor and evaluation. Summaries retain pool statistics. Export CSV reports from Results execution after the run completes." Style="{StaticResource Help}" />
                 </StackPanel>
-            </Expander>
+        </Expander>
+        <StackPanel Visibility="{Binding IsRun, Converter={StaticResource VisibleWhen}}">
             <Expander x:Name="ResultsSpansSection" Header="Results parameter spans" Tag="{Binding ResultsParametersError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsSpans, Mode=TwoWay}">
             <StackPanel Margin="4,6,0,0">
             <ContentControl x:Name="ResultsRequiredInputsSummary" Content="{Binding ResultsRequiredInputs}" ContentTemplate="{StaticResource RequiredInputs}" />
@@ -369,12 +443,12 @@
             <StackPanel x:Name="SetupDatabaseItem"><local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding SetupDatabaseOverride}" /></StackPanel>
 <StackPanel x:Name="SetupOutputsItem">
             <TextBlock Text="{Binding SetupContractHint}" Style="{StaticResource Help}" />
-            <ContentControl Content="{Binding SetupDataTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
-            <StackPanel Visibility="{Binding SetupDataTypesOverride.CanEditValue, Converter={StaticResource VisibleWhen}}">
+            <TextBlock Text="Each source inherits independently. Override only the source you want to define here; clear its checkbox to inherit again." Style="{StaticResource Help}" Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}" />
+            <StackPanel Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}">
                 <ItemsControl x:Name="SetupDataTypesList" ItemsSource="{Binding SetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypeEntry}" />
             </StackPanel>
-            <ItemsControl ItemsSource="{Binding InheritedSetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypePreview}"
-                          Visibility="{Binding SetupDataTypesOverride.ShowPreview, Converter={StaticResource VisibleWhen}}" />
+            <ItemsControl x:Name="InheritedSetupDataTypesList" ItemsSource="{Binding InheritedSetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypePreview}"
+                          Visibility="{Binding ShowSetupSourcePreview, Converter={StaticResource VisibleWhen}}" />
             <StackPanel Visibility="{Binding ShowQueryConfiguration, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="Setup query keys" FontWeight="SemiBold" Margin="0,10,0,4" />
                 <TextBlock Text="{Binding QueryConfigurationHint}" Style="{StaticResource Help}" />

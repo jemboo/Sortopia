@@ -186,7 +186,7 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
         get
         {
             if (!required || !(IsOverridden || requireInherited) || !string.IsNullOrWhiteSpace(EffectiveValue)) return "";
-            var section = HasChoices ? "Choose functions" : Title.StartsWith("Setup", StringComparison.Ordinal) ? "Setup settings" : "Results settings";
+            var section = HasChoices ? Title : Title.StartsWith("Setup", StringComparison.Ordinal) ? "Setup settings" : "Results settings";
             if (IsProjectValue) return $"Enter a {Title.ToLowerInvariant()} name in {section}. Database names are defined on this project.";
             var action = HasChoices ? $"choose a {Title.ToLowerInvariant()} from the catalog" : $"enter a {Title.ToLowerInvariant()}";
             if (IsOverridden) return $"{Title} is empty. In {section}, {action}."
@@ -228,16 +228,52 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
     private bool generatedParametersLock;
     private bool reportingEnabled;
+    private string snapshotInterval = "100", snapshotCount = "1";
+    private sgdRunConfig? frozenSnapshotControls;
+    public bool UsesSnapshotControls => SupportsReporting && ResultsFunctionVersion == "7";
+    public bool ShowLegacyReporting => ShowReportingConfiguration && !UsesSnapshotControls;
+    public bool CanEditSnapshotInterval => UsesSnapshotControls && IsEditable && frozenSnapshotControls is null;
+    public bool CanEditSnapshotCount => UsesSnapshotControls;
+    public string SnapshotInterval { get => snapshotInterval; set { if (CanEditSnapshotInterval && SetProperty(ref snapshotInterval, value)) NotifyChanged(); } }
+    public string SnapshotCount { get => snapshotCount; set { if (CanEditSnapshotCount && SetProperty(ref snapshotCount, value)) NotifyChanged(); } }
+    private sgdRunConfig SnapshotControls()
+    {
+        if (!int.TryParse(SnapshotInterval, out var interval) || !int.TryParse(SnapshotCount, out var count))
+            throw new ArgumentException("SnapshotInterval and SnapshotCount must be whole numbers.");
+        var controls = SgdRun.validate(new(interval, count));
+        if (frozenSnapshotControls is not null) SgdRun.validateExtension(frozenSnapshotControls, controls);
+        return controls;
+    }
+    internal void SetSnapshotControlsLock(sgdRunConfig? controls)
+    {
+        if (Equals(frozenSnapshotControls, controls)) return;
+        frozenSnapshotControls = controls;
+        OnPropertyChanged("");
+    }
+    public string SnapshotTargetText
+    {
+        get
+        {
+            try { var controls = SnapshotControls(); return $"Target: {SgdRun.target(controls):N0} generations · {(long)controls.SnapshotCount + 1:N0} snapshots including generation zero."; }
+            catch { return "Enter a positive interval and a nonnegative snapshot count."; }
+        }
+    }
     public WorkspaceReportingSchedule SnapshotReporting { get; }
     public WorkspaceReportingSchedule SummaryReporting { get; }
     public bool SupportsReporting => IsRun && ResultsFunctionCatalog.functions.TryGetValue(ResultsFunctionName, out var definition) && definition.SupportsEvolutionReporting;
-    public bool ReportingEnabled { get => reportingEnabled; set { if (IsEditable && SetProperty(ref reportingEnabled, value)) NotifyChanged(); } }
+    public bool ShowReportingConfiguration => IsRun && (SupportsReporting || ReportingEnabled);
+    public bool ReportingEnabled { get => UsesSnapshotControls || reportingEnabled; set { if (IsEditable && !UsesSnapshotControls && SetProperty(ref reportingEnabled, value)) NotifyChanged(); } }
     public string ReportingError
     {
         get
         {
             if (!IsRun || !ReportingEnabled) return "";
             if (!SupportsReporting) return "The results function does not support evolution reporting.";
+            if (UsesSnapshotControls)
+            {
+                try { SnapshotControls(); return SummaryReporting.Error; }
+                catch (Exception error) { return error.GetBaseException().Message; }
+            }
             if (SnapshotReporting.Error.Length > 0) return "Full snapshots: " + SnapshotReporting.Error;
             if (SummaryReporting.Error.Length > 0) return "Summaries: " + SummaryReporting.Error;
             var counts = EffectiveOutputDefaults.Where(value => value.keyName == "GenerationCount").Select(value => value.value)
@@ -298,15 +334,12 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         {
             var field = new WorkspaceListOverride(title, owner, () => key switch {
                 nameof(OutputTypesOverride) when HasResultsContract => ValueSource(nameof(ResultsFunctionName)),
-                nameof(SetupDataTypes) when SetupGeneratesAllOutputs => ValueSource(nameof(SetupFunctionName)),
                 _ => Parent?.ValueSource(key)
             }, () => Quietly(seed), IsDefaults);
             properties.Add(key, field); field.Changed += NotifyChanged; return field;
         }
         OutputTypesOverride = List(nameof(OutputTypesOverride), "Results data types", () => { });
-        SetupDataTypesOverride = List(nameof(SetupDataTypes), "Setup outputs and source projects", () => LoadSetupDataTypes(Parent?.EffectiveSetupDataTypes ?? []));
         OutputTypesOverride.FixedByFunction = () => true;
-        SetupDataTypesOverride.FixedByFunction = () => SetupGeneratesAllOutputs;
         ResultsParameterDefaultsOverride = List(nameof(ResultsParameterDefaults), "Results parameter defaults", () => { });
         SetupParameterDefaultsOverride = List(nameof(SetupParameterDefaults), "Setup parameter defaults", () => { });
         WorkspaceFormItem.Watch(ResultsParameterDefaults, () => ListChanged(ResultsParameterDefaultsOverride));
@@ -315,19 +348,18 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         AddSetupParameterDefaultCommand = new RelayCommand(() => { SetupParameterDefaultsOverride.IsOverridden = true; AddDefault(SetupParameterDefaults, new() { keyName = "", valueType = 0, value = "" }); }, () => CanEditDefaults && IsBranch);
         AddRequiredResultsDefaultsCommand = new RelayCommand(() => AddRequiredDefaults(false), () => CanAddRequiredDefaults(false));
         AddRequiredSetupDefaultsCommand = new RelayCommand(() => AddRequiredDefaults(true), () => CanAddRequiredDefaults(true));
-        WorkspaceFormItem.Watch(SetupDataTypes, () => ListChanged(SetupDataTypesOverride));
         WorkspaceFormItem.Watch(ResultsParameters, NotifyChanged); WorkspaceFormItem.Watch(SetupParameters, NotifyChanged);
         AddResultsParameterCommand = new RelayCommand(() => AddSpan(ResultsParameters, "", [""]));
         AddSetupParameterCommand = new RelayCommand(() => AddSpan(SetupParameters, "", [""]));
         AddMissingResultsParametersCommand = new RelayCommand(() => AddMissing(ResultsParameters, MissingOutputKeys), () => MissingOutputKeys.Length > 0);
         AddMissingSetupParametersCommand = new RelayCommand(() => AddMissing(SetupParameters, MissingSetupKeys), () => MissingSetupKeys.Length > 0);
+        RefreshInherited();
     }
     private WorkspaceConfigurationViewModel? Parent => parent();
     internal string Name => name();
     private WorkspaceConfigurationViewModel? ValueSource(string property)
     {
         if (HasResultsContract && property is nameof(OutputTypesOverride)) property = nameof(ResultsFunctionName);
-        if (SetupGeneratesAllOutputs && property == nameof(SetupDataTypes)) property = nameof(SetupFunctionName);
         var field = properties[property];
         var definesValue = field.IsOverridden && (field is not WorkspaceOverrideField { IsFunctionDefinition: true } function || !string.IsNullOrWhiteSpace(function.OverrideValue));
         return definesValue ? this : Parent?.ValueSource(property);
@@ -341,7 +373,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public bool IsBranch { get; }
     public string Title => IsModule ? "Module defaults" : IsProject ? "Project defaults" : "Run inputs";
     public string Hint => IsReadOnly ? "Settings are locked while descendant runs have generated parameter files. Remove those files or runs to edit again; save run removals to finish deleting their files." : IsDefaults
-        ? "Parameter defaults inherit by key: local values replace matching keys and add new ones. Other properties follow their nearest ancestor override; other list overrides replace the whole list."
+        ? "Parameter defaults inherit by key. Setup source choices inherit independently by data type. Each local override replaces only its matching inherited value."
         : "Functions and defaults come from the parent project. Override the description and supply spans for the functions’ required parameters.";
     public string Description { get => DescriptionOverride.EffectiveValue; set => DescriptionOverride.SetLocal(value); }
     public string ResultsDatabaseName { get => ResultsDatabaseOverride.EffectiveValue; set { if (IsProject) ResultsDatabaseOverride.SetLocal(value); } }
@@ -378,7 +410,6 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public WorkspaceOverrideField SetupDatabaseOverride { get; }
     public WorkspaceOverrideField SetupFunctionOverride { get; }
     public WorkspaceListOverride OutputTypesOverride { get; }
-    public WorkspaceListOverride SetupDataTypesOverride { get; }
     public WorkspaceListOverride ResultsParameterDefaultsOverride { get; }
     public WorkspaceListOverride SetupParameterDefaultsOverride { get; }
     public ObservableCollection<WorkspaceParameterBinding> ResultsParameterDefaults { get; } = [];
@@ -541,10 +572,10 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private string[] QueryKeys(bool setup) => setup ? EffectiveSetupKeys : EffectiveOutputKeys;
     private sortopiaDataTypeDto[] EffectiveOutputs => EffectiveResultsDataTypes.Select(output => output.dataType).ToArray();
     private string[] EffectiveOutputKeys => EffectiveResultsDataTypes.SelectMany(output => output.queryParameterKeys).Distinct(StringComparer.Ordinal).ToArray();
-    private setupDataTypeConfigDto[] EffectiveSetupDataTypes => (IsRun ? Parent?.EffectiveSetupDataTypes : null) ?? frozenSettings?.setupDataTypes ?? ResolveSetupTypes(SetupDataTypesOverride.IsOverridden ? SetupDataTypes.Select(row => row.ToDto()).ToArray() : Parent?.EffectiveSetupDataTypes ?? []);
+    private setupDataTypeConfigDto[] EffectiveSetupDataTypes => (IsRun ? Parent?.EffectiveSetupDataTypes : null) ?? frozenSettings?.setupDataTypes ?? ResolveSetupTypes();
     public IEnumerable<WorkspaceSetupDataTypeEntry> InheritedSetupDataTypes => EffectiveSetupDataTypes.Select(value =>
     {
-        var row = new WorkspaceSetupDataTypeEntry(value, sources);
+        var row = new WorkspaceSetupDataTypeEntry(value, sources) { SelectionOwner = DefinedSetupSourceOwner(value.dataType) };
         if (HasSetupContract) row.SetContract(NeedsSource(value.dataType), IsModule, value.queryParameterKeys, Requirements(true)?.Select(key => key.Name).ToArray(), SetupParametersFromSources);
         return row;
     });
@@ -639,6 +670,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     {
         resultsPreview = setupPreview = null;
         RefreshContractRows();
+        foreach (var state in setupSourceOverrides.Values) { state.IsReadOnly = IsReadOnly; state.RefreshInherited(); }
         foreach (var field in properties.Values) field.RefreshInherited();
         foreach (var span in ResultsParameters.Concat(SetupParameters)) span.RefreshInherited();
         foreach (var row in SetupDataTypes) row.RefreshSources();
@@ -672,7 +704,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         description = value.description, resultsDatabaseName = value.resultsDatabaseName, resultsParameterDefaults = value.resultsParameterDefaults,
         resultsQueries = IsProject ? value.resultsDataTypes : null, setupQueries = IsProject && IsBranch ? (value.setupDataTypes ?? []).Select(row => new resultsDataTypeConfigDto { dataType = row.dataType, queryParameterKeys = row.queryParameterKeys }).ToArray() : null,
         setupDatabaseName = IsBranch ? value.setupDatabaseName : null, setupParameterDefaults = IsBranch ? value.setupParameterDefaults : null,
-        setupSources = IsBranch ? (value.setupDataTypes ?? []).Where(row => row.sourceProjectId != Guid.Empty).Select(row => new setupSourceConfigDto { dataType = row.dataType, sourceProjectId = row.sourceProjectId }).ToArray() : null
+        setupSources = IsBranch ? (value.setupDataTypes ?? []).Select(row => new setupSourceConfigDto { dataType = row.dataType, sourceProjectId = row.sourceProjectId }).ToArray() : null
         });
     }
     public void LoadModuleOverrides(moduleOverridesDto value)
@@ -689,16 +721,15 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         {
             DescriptionOverride.Load(value.description); ResultsDatabaseOverride.Load(IsProject ? value.resultsDatabaseName ?? "Results" : null);
             SetupDatabaseOverride.Load(IsProject && IsBranch ? value.setupDatabaseName ?? "Setup" : null);
-            LoadSetupDataTypes((value.setupSources ?? []).Select(row => new setupDataTypeConfigDto { dataType = row.dataType, sourceProjectId = row.sourceProjectId, queryParameterKeys = [] }).ToArray());
+            LoadSetupSources(value.setupSources);
             LoadDefaults(ResultsParameterDefaults, value.resultsParameterDefaults ?? []); LoadDefaults(SetupParameterDefaults, value.setupParameterDefaults ?? []);
             ResultsParameterDefaultsOverride.Load(value.resultsParameterDefaults is not null); SetupParameterDefaultsOverride.Load(IsBranch && value.setupParameterDefaults is not null);
-            SetupDataTypesOverride.Load(IsBranch && value.setupSources is not null);
         });
         NotifyChanged();
     }
     private void LoadSetupDataTypes(setupDataTypeConfigDto[] values)
     {
-        SetupDataTypes.Clear(); foreach (var value in values) SetupDataTypes.Add(new(value, sources));
+        SetupDataTypes.Clear(); foreach (var value in values) SetupDataTypes.Add(new(value, sources, SetupSourceOverride(value.dataType)));
     }
     public void LoadRun(runDto value)
     {
@@ -708,6 +739,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         {
             DescriptionOverride.Load(value.descriptionOverride);
             reportingEnabled = value.reporting is not null;
+            snapshotInterval = (value.sgd?.Value.SnapshotInterval ?? SgdRun.defaults.SnapshotInterval).ToString();
+            snapshotCount = (value.sgd?.Value.SnapshotCount ?? SgdRun.defaults.SnapshotCount).ToString();
             SnapshotReporting.Load(value.reporting?.Value.SnapshotSchedule ?? SgdReporting.defaults.SnapshotSchedule);
             SummaryReporting.Load(value.reporting?.Value.SummarySchedule ?? SgdReporting.defaults.SummarySchedule);
             ResultsParameters.Clear(); foreach (var span in value.resultsParameterSpans) AddSpan(ResultsParameters, span.keyName, span.values);
@@ -737,7 +770,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         resultsParameterDefaults = ResultsParameterDefaultsOverride.IsOverridden ? LocalResultsParameterDefaults.Select(row => row.ToDto()).ToArray() : null,
         setupParameterDefaults = IsBranch && SetupParameterDefaultsOverride.IsOverridden ? LocalSetupParameterDefaults.Select(row => row.ToDto()).ToArray() : null,
         setupDatabaseName = IsProject && IsBranch ? SetupDatabaseName : null,
-        setupSources = IsBranch && SetupDataTypesOverride.IsOverridden ? EffectiveSetupDataTypes.Where(row => NeedsSource(row.dataType)).Select(row => new setupSourceConfigDto { dataType = row.dataType, sourceProjectId = row.sourceProjectId }).ToArray() : null
+        setupSources = IsBranch && LocalSetupSources.Length > 0 ? LocalSetupSources : null
     };
     internal moduleOverridesDto ToModuleOverrides()
     {
@@ -759,6 +792,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         schemaVersion = WorkspaceDtoSchema.version, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
         descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ActiveResultsParameters.Select(span => span.ToDto()).ToArray(),
         setupParameterSpans = IsBranch ? ActiveSetupParameters.Select(span => span.ToDto()).ToArray() : [],
-        reporting = ReportingEnabled ? Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(new(SnapshotReporting.Schedule, SummaryReporting.Schedule)) : null
+        reporting = ReportingEnabled ? Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(new(UsesSnapshotControls ? $"Constant({SnapshotControls().SnapshotInterval})" : SnapshotReporting.Schedule, SummaryReporting.Schedule)) : null,
+        sgd = UsesSnapshotControls ? Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(SnapshotControls()) : null
     };
 }

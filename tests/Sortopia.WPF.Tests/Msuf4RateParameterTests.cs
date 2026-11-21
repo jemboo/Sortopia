@@ -33,7 +33,7 @@ public sealed class Msuf4RateParameterTests
         if (setup) editor.SetupFunctionName = name; else editor.ResultsFunctionName = name;
         (setup ? editor.AddRequiredSetupDefaultsCommand : editor.AddRequiredResultsDefaultsCommand).Execute(null);
         var rows = setup ? editor.SetupParameterDefaults : editor.ResultsParameterDefaults;
-        foreach (var key in new[] { "OrthoRate", "ParaRate", "SelfSymRate" })
+        foreach (var key in new[] { "OrthoGenRate", "ParaGenRate", "SelfSymGenRate" })
         {
             var value = rows.Single(row => row.Key == key).Value;
             Assert.Equal("1", value.Text); Assert.Equal(parameterValueType.Floating, value.ValueType);
@@ -42,7 +42,7 @@ public sealed class Msuf4RateParameterTests
         Assert.DoesNotContain(rows, row => row.Key is "Seed4Weights" or "UnfoldingWeights");
         rows.Single(row => row.Key == "SorterCount").Value.Text = "1";
         rows.Single(row => row.Key == "SorterSuccessFraction").Value.Text = "50%";
-        foreach (var (key, value) in new[] { ("OrthoRate", ortho), ("ParaRate", para), ("SelfSymRate", self) })
+        foreach (var (key, value) in new[] { ("OrthoGenRate", ortho), ("ParaGenRate", para), ("SelfSymGenRate", self) })
             rows.Single(row => row.Key == key).Value.Text = value.ToString("R", CultureInfo.InvariantCulture);
         rows.Single(row => row.Key == (phase == "prefix" ? "PrefixLibId" : "ChannelCount")).Value.Text = phase == "prefix"
             ? PrefixLibId.toString(prefixLibId.create(width, 1, prefixLibVariant.Prefix1)) : width.ToString();
@@ -85,11 +85,13 @@ public sealed class Msuf4RateParameterTests
         Assert.Equal(expected.Id, generated.Id);
         Assert.All(generated.TwoOrbitUnfolder4s, stage => Assert.Equal(levels, stage.TwoOrbitUnfolderSteps.Length));
         // Scaling all relative rates preserves the generated distribution and model identity.
-        var scaled = parameters.WithBinding(ParameterBinding.create(ParamKeys.orthoRateKey, 20.0))
-            .WithBinding(ParameterBinding.create(ParamKeys.paraRateKey, 10.0)).WithBinding(ParameterBinding.create(ParamKeys.selfSymRateKey, 10.0));
+        var scaled = parameters.WithBinding(ParameterBinding.create(ParamKeys.orthoGenRateKey, 20.0))
+            .WithBinding(ParameterBinding.create(ParamKeys.paraGenRateKey, 10.0)).WithBinding(ParameterBinding.create(ParamKeys.selfSymGenRateKey, 10.0));
         Assert.Equal(generated.Id, Generate(phase, editor, scaled).Id);
         foreach (var obsolete in new[] { ParameterBinding.create(ParamKeys.seed4WeightsKey, new opsWeights(1, 1, 1)),
-            ParameterBinding.create(ParamKeys.unfoldingWeightsKey, new unfoldingWeights([])) })
+            ParameterBinding.create(ParamKeys.unfoldingWeightsKey, new unfoldingWeights([])),
+            ParameterBinding.create(ParamKeys.orthoRateKey, 1.0), ParameterBinding.create(ParamKeys.paraRateKey, 1.0),
+            ParameterBinding.create(ParamKeys.selfSymRateKey, 1.0) })
             Assert.Contains("not used", Assert.Throws<ArgumentException>(() => Generate(phase, editor, parameters.WithBinding(obsolete))).Message);
     }
 
@@ -143,22 +145,64 @@ public sealed class Msuf4RateParameterTests
     public void Validation_checks_partial_defaults_and_every_rate_span_combination_without_expanding_them()
     {
         var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.uniformMsuf4SimpleSorterModels);
-        Assert.Equal("6", definition.Version);
-        foreach (var key in new[] { ParamKeys.orthoRateKey, ParamKeys.paraRateKey, ParamKeys.selfSymRateKey })
+        Assert.Equal("7", definition.Version);
+        foreach (var key in new[] { ParamKeys.orthoGenRateKey, ParamKeys.paraGenRateKey, ParamKeys.selfSymGenRateKey })
             Assert.Contains(key.Name, definition.InputError.Invoke([ParameterBinding.create(key, -1.0)]).Invoke([]));
-        var zeros = new[] { ParameterBinding.create(ParamKeys.orthoRateKey, 0.0), ParameterBinding.create(ParamKeys.paraRateKey, 0.0), ParameterBinding.create(ParamKeys.selfSymRateKey, 0.0) };
+        var zeros = new[] { ParameterBinding.create(ParamKeys.orthoGenRateKey, 0.0), ParameterBinding.create(ParamKeys.paraGenRateKey, 0.0), ParameterBinding.create(ParamKeys.selfSymGenRateKey, 0.0) };
         Assert.Empty(definition.InputError.Invoke(ListModule.OfSeq(zeros.Take(2))).Invoke([]));
         Assert.Contains("positive", definition.InputError.Invoke(ListModule.OfArray(zeros)).Invoke([]));
-        var spans = ListModule.OfSeq(new[] { ParamKeys.orthoRateKey, ParamKeys.paraRateKey, ParamKeys.selfSymRateKey }
+        var spans = ListModule.OfSeq(new[] { ParamKeys.orthoGenRateKey, ParamKeys.paraGenRateKey, ParamKeys.selfSymGenRateKey }
             .Select(key => ParameterSpan.create(key, ListModule.OfSeq(Enumerable.Repeat(1.0, 50).Append(0.0)))));
         Assert.Contains("every parameter combination", definition.InputError.Invoke([]).Invoke(spans));
         var (editor, parameters) = Configure("results", "Simple", 4, double.MaxValue, double.MaxValue, double.MaxValue);
         Assert.NotEmpty(Generate("results", editor, parameters).TwoOrbitUnfolder4s);
         foreach (var text in new[] { "NaN", "Infinity", "-1" })
         {
-            editor.ResultsParameterDefaults.Single(row => row.Key == "OrthoRate").Value.Text = text;
+            editor.ResultsParameterDefaults.Single(row => row.Key == "OrthoGenRate").Value.Text = text;
             Assert.NotEmpty(editor.ResultsParameterDefaultsError);
         }
-        Assert.Equal("SelfSymRate", ParamKeys.selfSymRateKey.Name);
+        Assert.Equal("SelfSymGenRate", ParamKeys.selfSymGenRateKey.Name);
+    }
+
+    [Theory]
+    [InlineData("V1")]
+    [InlineData("V2")]
+    public void Generation_and_mutation_choose_modes_independently(string variant)
+    {
+        var (editor, parameters) = Configure("prefix", "Simple", 16, 1, 0, 0);
+        var parent = Generate("prefix", editor, parameters);
+        var mutation = SimpleSorterModelMutator.getMsuf4ModelMutator(16, rngFactory.SmxFactory, true,
+            1, 1, 0, 1, 0, MutatorVariant.fromString(variant));
+        var child = Assert.IsType<simpleSorterModel.Msuf4>(SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod(
+            mutation, simpleSorterModel.NewMsuf4(parent), 0, 0)).Item;
+        Assert.Equal(parent.Prefix, child.Prefix);
+        Assert.Equal(parent.TwoOrbitUnfolder4s.Length, child.TwoOrbitUnfolder4s.Length);
+        foreach (var stage in parent.TwoOrbitUnfolder4s)
+            Assert.All(stage.TwoOrbitUnfolderSteps.SelectMany(step => step.TwoOrbitPairTypes).Prepend(stage.SeedTwoOrbitPairType),
+                mode => Assert.True(mode.IsOrtho));
+        foreach (var stage in child.TwoOrbitUnfolder4s)
+            Assert.All(stage.TwoOrbitUnfolderSteps.SelectMany(step => step.TwoOrbitPairTypes).Prepend(stage.SeedTwoOrbitPairType),
+                mode => Assert.True(mode.IsPara));
+    }
+
+    [Fact]
+    public void Generation_and_sgd_publish_separate_rate_inputs_and_query_keys()
+    {
+        var generation = ResultsFunctionCatalog.require(ResultsFunctionNames.uniformMsuf4SimpleSorterModels);
+        var mutation = SgdFunctions.standardMsuf4Simple;
+        foreach (var (gen, mut) in new[] { (ParamKeys.orthoGenRateKey, ParamKeys.orthoRateKey),
+            (ParamKeys.paraGenRateKey, ParamKeys.paraRateKey), (ParamKeys.selfSymGenRateKey, ParamKeys.selfSymRateKey) })
+        {
+            Assert.Equal(parameterValueType.Floating, ParamKeys.valueType(gen.Name));
+            Assert.Equal(parameterValueType.Floating, ParamKeys.valueType(mut.Name));
+            Assert.Contains(generation.RequiredParameters, key => key.Name == gen.Name);
+            Assert.DoesNotContain(generation.RequiredParameters, key => key.Name == mut.Name);
+            Assert.Contains(mutation.RequiredParameters, key => key.Name == mut.Name);
+            Assert.DoesNotContain(mutation.RequiredParameters, key => key.Name == gen.Name);
+            Assert.Contains(gen.Name, generation.DataTypes[sortopiaDataType.NewSorterModelSet("")]);
+            Assert.DoesNotContain(mut.Name, generation.DataTypes[sortopiaDataType.NewSorterModelSet("")]);
+            Assert.Contains(mut.Name, mutation.DataTypes[sortopiaDataType.NewSorterPoolSet("")]);
+            Assert.DoesNotContain(gen.Name, mutation.DataTypes[sortopiaDataType.NewSorterPoolSet("")]);
+        }
     }
 }

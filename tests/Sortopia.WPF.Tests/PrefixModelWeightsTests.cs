@@ -32,7 +32,7 @@ public sealed class PrefixModelWeightsTests
     [InlineData("msce", "ExcludeSelfCe")]
     [InlineData("mssi", "")]
     [InlineData("msrs", "StageWeights")]
-    [InlineData("msuf4", "OrthoRate,ParaRate,SelfSymRate")]
+    [InlineData("msuf4", "OrthoGenRate,ParaGenRate,SelfSymGenRate")]
     [InlineData("msuf6", "Seed6Weights,UnfoldingWeights")]
     public void Each_function_exposes_only_its_algorithm_inputs_with_valid_initial_values(string model, string extras)
     {
@@ -40,7 +40,7 @@ public sealed class PrefixModelWeightsTests
         string[] common = ["PrefixLibId", "RngType", "SorterSuccessFraction", "SorterCount", "Repl"];
         Assert.Equal(common.Concat(extras.Split(',', StringSplitOptions.RemoveEmptyEntries)).Order(), definition.RequiredParameters.Select(key => key.Name).Order());
         Assert.False(ResultsFunctionCatalog.functions.ContainsKey("sorter-model-set.prefix"));
-        Assert.Equal(model == "msuf4" ? "6" : "2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
+        Assert.Equal(model == "msuf4" ? "7" : "2", definition.Version); Assert.Empty(editor.ResultsParameterDefaultsError);
         var parameters = Parameters(editor); FunctionValidation.validate(definition, parameters);
         var models = Assert.IsType<sortopiaStorageData.SorterModelSet>(Assert.Single(CatalogTestHost.Invoke(false, Function(model), parameters))).Item;
         Assert.Equal(2, models.Count);
@@ -128,9 +128,9 @@ public sealed class PrefixModelWeightsTests
             page.AddModuleCommand.Execute(null); var editor = page.Selected!.Editor!;
             editor.ResultsFunctionName = Function(model); editor.AddRequiredResultsDefaultsCommand.Execute(null);
             editor.ResultsParameterDefaults.Single(row => row.Key == "SorterCount").Value.Text = "2";
-            var key = model == "msuf4" ? "OrthoRate" : "UnfoldingWeights";
+            var key = model == "msuf4" ? "OrthoGenRate" : "UnfoldingWeights";
             editor.ResultsParameterDefaults.Single(row => row.Key == key).RemoveCommand.Execute(null);
-            if (model == "msuf4") editor.ResultsParameterDefaults.Single(row => row.Key == "SelfSymRate").Value.Text = "0";
+            if (model == "msuf4") editor.ResultsParameterDefaults.Single(row => row.Key == "SelfSymGenRate").Value.Text = "0";
             page.AddProjectCommand.Execute(null); var projectId = page.Selected!.Id;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
             run.Editor!.AddMissingResultsParametersCommand.Execute(null);
@@ -164,7 +164,7 @@ public sealed class PrefixModelWeightsTests
                     var simple = Assert.IsType<sorterModel.Simple>(item).Item;
                     if (simple is simpleSorterModel.Msuf4 uf4)
                     {
-                        var rate = call.Parameters.TryFind(ParamKeys.orthoRateKey).Value;
+                        var rate = call.Parameters.TryFind(ParamKeys.orthoGenRateKey).Value;
                         var pairs = uf4.Item.TwoOrbitUnfolder4s.SelectMany(stage => stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes.Prepend(stage.SeedTwoOrbitPairType));
                         Assert.All(pairs, pair => { Assert.False(pair.IsSelfRefl); if (rate == 0) Assert.True(pair.IsPara); });
                     }

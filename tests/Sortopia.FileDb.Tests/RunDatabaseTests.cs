@@ -107,7 +107,7 @@ public sealed class RunDatabaseTests : IDisposable
         foreach (var saveCount in new[] { 0, 1, 2 })
         {
             var storage = new FileRunDatabase(Store(), plan, Token);
-            var host = new runHost(runExecutionPhase.Results, parameterSet.fromBindings([]), storage, storage.Outputs, Token, 1, null, null);
+            var host = new runHost(runExecutionPhase.Results, parameterSet.fromBindings([]), storage, storage.Outputs, Token, 1, null, null, null, null, null);
             var before = host.Outputs.Stored;
             var definition = FunctionDefinition.results("1", ListModule.Empty<paramKeyDescriptor>(),
                 [new(Type, [], [])], FunctionParameterSupport.empty, FuncConvert.FromFunc<runHost, Unit>(current =>
