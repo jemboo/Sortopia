@@ -28,6 +28,8 @@ public sealed partial class WorkspacePageViewModel
     {
         ResetGeneratedFilesCommand.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(ResetGeneratedFilesHint));
+        ExportWorkspaceCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(ExportWorkspaceHint));
     }
     public string ResetGeneratedFilesHint => isResultsExecutionBusy()
         ? "Wait for Results execution to finish or finish cancelling before resetting generated files."

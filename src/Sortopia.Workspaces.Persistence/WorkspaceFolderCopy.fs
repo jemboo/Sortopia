@@ -66,6 +66,19 @@ type WorkspaceFolderCopy private (source: string, destination: string, snapshot:
 
     member internal this.Stage(workspaceRoot: string, token: CancellationToken) =
         this.ValidateDestination(workspaceRoot)
+        this.CopyToStaging(workspaceRoot, token)
+
+    // Exports use an empty, already selected destination instead of an import target.
+    static member internal PrepareExport(sourceFolder: string, destinationFolder: string, token: CancellationToken) =
+        let source = WorkspaceFolderCopy.Normalize(sourceFolder)
+        let destination = WorkspaceFolderCopy.Normalize(destinationFolder)
+        WorkspaceFolderCopy.CheckAncestors(source)
+        WorkspaceFolderCopy.CheckAncestors(destination)
+        WorkspaceFolderCopy(source, destination, WorkspaceFolderCopy.Capture(source, token), Guid.NewGuid(), [||], Dictionary<Guid, Guid>())
+
+    member internal this.StageExport(token: CancellationToken) = this.CopyToStaging(destination, token)
+
+    member private this.CopyToStaging(workspaceRoot: string, token: CancellationToken) =
         WorkspaceFolderCopy.CheckAncestors(source)
         let staging = Path.Combine(WorkspaceFolderCopy.Normalize(workspaceRoot), ".sortopia-import-" + Guid.NewGuid().ToString("N"))
         if this.Directories.Length > 0 then Directory.CreateDirectory(staging) |> ignore

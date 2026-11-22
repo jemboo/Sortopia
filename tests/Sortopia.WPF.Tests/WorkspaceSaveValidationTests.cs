@@ -268,7 +268,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
                 var toolbar = (System.Windows.Controls.Grid)page.FindName("WorkspaceToolbar");
                 var nodeToolbar = (Sortopia.WPF.Views.Shared.JustifiedWrapPanel)page.FindName("WorkspaceNodeToolbar");
                 var path = (System.Windows.Controls.TextBox)page.FindName("WorkspaceFolderPath");
-                Assert.InRange(path.ActualWidth, 500, 650);
+                Assert.InRange(path.ActualWidth, 350, 500);
                 Assert.InRange(toolbar.ActualHeight, 32, 44);
                 Assert.Null(page.FindName("InspectFilesButton"));
                 Assert.Equal("_Back", ((System.Windows.Controls.Button)page.FindName("BackToSortopiaButton")).Content);
@@ -288,7 +288,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
                 Layout(640);
                 Assert.InRange(toolbar.ActualHeight, 32, 44);
                 CheckAlignedRows();
-                foreach (var name in new[] { "WorkspaceFolderPath", "SaveWorkspaceButton", "DiscardChangesButton", "BackToSortopiaButton" })
+                foreach (var name in new[] { "WorkspaceFolderPath", "SaveWorkspaceButton", "DiscardChangesButton", "ExportWorkspaceButton", "BackToSortopiaButton" })
                 {
                     var control = (System.Windows.FrameworkElement)page.FindName(name);
                     var bounds = control.TransformToAncestor(toolbar).TransformBounds(new System.Windows.Rect(control.RenderSize));

@@ -78,9 +78,19 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
     let read reference expectedQuery expectedIdentity token =
         let dto = readEnvelope reference expectedQuery expectedIdentity token
         { Reference = reference; Value = DataCodec.decode dto.Kind dto.RawLength dto.Payload }
+    let tryReadExisting reference (token: CancellationToken) read =
+        token.ThrowIfCancellationRequested()
+        // Outputs that have not been generated are ordinary cache misses. Avoid
+        // throwing an exception per output during workspace status refreshes.
+        let path = filePath reference
+        // A directory occupying the expected filename is an error, not a miss.
+        if not (File.Exists path || Directory.Exists path) then None
+        else
+            try Some (read ()) with
+            // The file can still disappear between the existence check and open.
+            | :? FileNotFoundException | :? DirectoryNotFoundException -> None
     let tryRead (key: dataKey) token =
-        try Some (read key.Reference (Some key.QueryBytes) (Some key.IdentityBytes) token) with
-        | :? FileNotFoundException | :? DirectoryNotFoundException -> None
+        tryReadExisting key.Reference token (fun () -> read key.Reference (Some key.QueryBytes) (Some key.IdentityBytes) token)
     let acquireWriter (token: CancellationToken) =
         let lockPath = Path.Combine(dataFolder, ".write.lock")
         checkPath lockPath
@@ -126,10 +136,9 @@ type SortopiaFileDb(projectFolder: string, projectId: Guid<projectId>) =
     /// the envelope and compressed payload checksum, without decoding models.
     /// Consumers must still use TryLoad/Load for full payload validation.
     member _.CheckIntegrity(key: dataKey, token: CancellationToken) = protect (fun () ->
-        try
+        tryReadExisting key.Reference token (fun () ->
             readEnvelope key.Reference (Some key.QueryBytes) (Some key.IdentityBytes) token |> ignore
-            Some key.Reference
-        with :? FileNotFoundException | :? DirectoryNotFoundException -> None)
+            key.Reference))
 
     /// Read immutable query metadata without loading model/test payloads.
     /// The exact saved reference is checked before any values are returned.

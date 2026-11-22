@@ -116,13 +116,15 @@
         <Grid x:Name="WorkspaceToolbar" Margin="0,0,0,6">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <TextBox x:Name="WorkspaceFolderPath" Text="{Binding WorkspaceFolder, Mode=OneWay}" IsReadOnly="True"
-                         MinWidth="160" MinHeight="32" VerticalContentAlignment="Center" ToolTip="{Binding WorkspaceFolder}" AutomationProperties.Name="Workspace folder" />
+                         MinWidth="32" MinHeight="32" VerticalContentAlignment="Center" ToolTip="{Binding WorkspaceFolder}" AutomationProperties.Name="Workspace folder" />
                 <Button Grid.Column="1" Content="_Browse…" Command="{Binding BrowseWorkspaceFolderCommand}"
                         MinHeight="32" MinWidth="74" Margin="6,0,0,0" AutomationProperties.Name="Browse for Workspace folder" />
             <StackPanel x:Name="WorkspaceActionsPanel" Grid.Column="2" Visibility="{Binding ShowWorkspaceEditor, Converter={StaticResource WorkspaceBoolVisibility}}"
                         Orientation="Horizontal" Margin="6,0,0,0" IsEnabled="{Binding CanEdit}">
                 <Button x:Name="SaveWorkspaceButton" Content="Save workspace" Command="{Binding SaveWorkspaceCommand}" Style="{StaticResource PrimaryAction}" Margin="0" ToolTip="{Binding SaveHint}" ToolTipService.ShowOnDisabled="True" />
                 <Button x:Name="DiscardChangesButton" Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="6,0,0,0" />
+                <Button x:Name="ExportWorkspaceButton" Content="Export workspace" Command="{Binding ExportWorkspaceCommand}" Margin="6,0,0,0"
+                        ToolTip="{Binding ExportWorkspaceHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Export workspace" />
             </StackPanel>
                 <Button x:Name="BackToSortopiaButton" Grid.Column="3" Content="_Back" Command="{Binding ReturnHomeCommand}"
                         Style="{StaticResource PageReturnButtonStyle}" Margin="6,0,0,0" MinHeight="32" MinWidth="64" AutomationProperties.Name="Back" />

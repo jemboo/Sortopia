@@ -17,6 +17,9 @@ open WorkspaceFileSystem
 type WorkspaceFileStore private () =
     static member LoadDefinition(rootFolder: string) = WorkspaceDisk.loadDefinition rootFolder
     static member LoadDocument(rootFolder: string) = WorkspaceDisk.loadDocument rootFolder
+    /// Copy the complete saved workspace, preserving IDs and data, into an existing empty folder.
+    static member ExportWorkspace(rootFolder: string, destinationFolder: string, token: CancellationToken) =
+        WorkspaceExport.copy rootFolder destinationFolder token
     static member private RuntimeResult(result: WorkspaceDocumentSaveResult) =
         WorkspaceSaveResult(WorkspaceDocument.toDomain result.Definition, result.CopiedFolders, result.RetainedFolders, result.MovedFolders, result.CleanupWarnings)
     static member GetFolderName(rootFolder: string) = WorkspaceDisk.folderName rootFolder

@@ -9,6 +9,7 @@
     <Compile Include="WorkspaceImportIdentity.fs" />
     <Compile Include="WorkspaceStorageTypes.fs" />
     <Compile Include="WorkspaceDisk.fs" />
+    <Compile Include="WorkspaceExport.fs" />
     <Compile Include="WorkspaceSavePlan.fs" />
     <Compile Include="WorkspaceCommit.fs" />
     <Compile Include="WorkspaceProjectState.fs" />

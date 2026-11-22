@@ -24,7 +24,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public MainWindowViewModel(Func<string?, string?> pickWorkspaceFolder,
         WorkspaceFolderSettings? workspaceSettings = null, Func<WorkspaceUnsavedChoice>? confirmWorkspaceChanges = null,
         Func<WorkspaceFolderRequest, string?>? pickExistingWorkspaceFolder = null, Action<string>? openWorkspaceFolder = null,
-        Func<WorkspaceResetRequest, bool>? confirmWorkspaceReset = null)
+        Func<WorkspaceResetRequest, bool>? confirmWorkspaceReset = null, Func<string?, string?>? pickWorkspaceExportFolder = null)
     {
         homePage = new HomePageViewModel(OpenNetworks, OpenRandomNetworks, OpenSgd, OpenWorkspace, () => OpenFileInspector(false), OpenResultsExecution);
         networksPage = new NetworksPageViewModel(ReturnHome);
@@ -34,7 +34,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         var executionSettings = new ResultsExecutionSettings();
         resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder, executionSettings.Load, executionSettings.Save);
         workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder, openWorkspaceFolder,
-            () => OpenFileInspector(true), OpenWorkspaceResultsExecutionAsync, confirmWorkspaceReset, () => resultsExecutionPage.IsBusy);
+            () => OpenFileInspector(true), OpenWorkspaceResultsExecutionAsync, confirmWorkspaceReset, () => resultsExecutionPage.IsBusy, pickWorkspaceExportFolder);
         resultsExecutionPage.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ResultsExecutionPageViewModel.IsBusy)) workspacePage.NotifyResetAvailability();

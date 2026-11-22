@@ -242,18 +242,20 @@ module internal WorkspaceDisk =
           Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder folder "module" reference) (depth + 1) reader (Some reference.id))
           Projects = dto.projects |> Array.map (fun reference -> readProjectDocument (referenceFolder folder "project" reference) (depth + 1) reader (Some reference.id)) }
 
-    let loadDocument rootFolder =
+    let loadDocumentWithFolderName rootFolder name =
         let root = normalizeRoot rootFolder
         let reader = Reader(CancellationToken.None)
         let path, bytes = definition root "workspace" 0 reader
         let dto = WorkspaceDefinitionCodec.decodeWorkspace bytes
         reader.Identity(path, "workspace", dto.id, None)
         let value = WorkspaceDocument.validate {
-            Definition = { dto with folderName = folderName root }
+            Definition = { dto with folderName = name }
             Modules = dto.modules |> Array.map (fun reference -> readModuleDocument (referenceFolder root "module" reference) 1 reader (Some reference.id)) }
         reader.Verify()
         remember value reader.Files
         value
+
+    let loadDocument rootFolder = loadDocumentWithFolderName rootFolder (folderName rootFolder)
 
     let rememberSavedDocument root (value: WorkspaceDocument) =
         let files = ResizeArray<string * string * string>()

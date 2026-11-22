@@ -40,7 +40,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public WorkspacePageViewModel(Action returnHome, Func<string?, string?> pickFolder, WorkspaceFolderSettings settings,
         Func<WorkspaceUnsavedChoice>? confirmUnsavedChanges = null, Func<WorkspaceFolderRequest, string?>? pickExistingFolder = null,
         Action<string>? openFolder = null, Action? inspectFiles = null, Func<string, Guid?, Task>? openResultsExecution = null,
-        Func<WorkspaceResetRequest, bool>? confirmReset = null, Func<bool>? isResultsExecutionBusy = null)
+        Func<WorkspaceResetRequest, bool>? confirmReset = null, Func<bool>? isResultsExecutionBusy = null,
+        Func<string?, string?>? pickExportFolder = null)
     {
         this.returnHome = returnHome;
         this.pickFolder = pickFolder;
@@ -77,6 +78,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         PasteCommand = new RelayCommand(async () => await PasteAsync(), () => CanPaste);
         CancelCutCommand = new RelayCommand(CancelCut, () => CanEdit && HasCutItem);
         SaveWorkspaceCommand = new RelayCommand(async () => await SaveWorkspaceAsync(), () => CanSaveWorkspace);
+        InitializeExportCommand(pickExportFolder ?? pickFolder);
         InitializeRunParameterCommands(openResultsExecution);
         InitializeResetCommand(confirmReset, isResultsExecutionBusy);
         DiscardChangesCommand = new RelayCommand(DiscardEdits, () => CanEdit && (HasUnsavedChanges || HasStructuralErrors));
@@ -569,6 +571,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(GenerationHint));
         OnPropertyChanged(nameof(GenerationInstructions));
         OnPropertyChanged(nameof(ResumeProjectEditingHint));
+        OnPropertyChanged(nameof(ExportWorkspaceHint));
         NotifyRunParameterCommands();
         ResetGeneratedFilesCommand.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(ResetGeneratedFilesHint));
@@ -579,7 +582,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         EditProjectQueryProjectionsCommand.RaiseCanExecuteChanged();
         OpenFunctionParameterCommand.RaiseCanExecuteChanged();
         foreach (var command in new[] { ReturnHomeCommand, InspectFilesCommand, BrowseWorkspaceFolderCommand, OpenFolderCommand, AddModuleCommand, AddBranchModuleCommand, AddProjectCommand, AddRunCommand, CreateProjectVersionCommand, ResumeProjectEditingCommand, EditProjectDefaultsCommand, SelectValueSourceCommand, AddExistingModuleCommand, AddExistingProjectCommand,
-            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, DiscardChangesCommand, CancelCommand })
+            RemoveCommand, CutCommand, PasteCommand, CancelCutCommand, SaveWorkspaceCommand, ExportWorkspaceCommand, DiscardChangesCommand, CancelCommand })
             command.RaiseCanExecuteChanged();
     }
     public void Cancel() => cancellation?.Cancel();

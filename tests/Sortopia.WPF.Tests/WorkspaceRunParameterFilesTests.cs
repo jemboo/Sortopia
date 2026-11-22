@@ -17,6 +17,35 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-run-files-");
 
+    [Fact]
+    public void Tree_status_checks_do_not_throw_for_projects_without_parameter_files()
+    {
+        var projectId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var reader = new WorkspaceExecutionProgressReader();
+        var exceptions = new List<Exception>();
+        var thread = Environment.CurrentManagedThreadId;
+        void Observe(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs args)
+        {
+            if (Environment.CurrentManagedThreadId == thread && args.Exception is IOException)
+                exceptions.Add(args.Exception);
+        }
+        AppDomain.CurrentDomain.FirstChanceException += Observe;
+        try
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                var result = reader.Read([new(projectId, temporary.FullName, [runId])], TestContext.Current.CancellationToken)[projectId];
+                Assert.Equal(0, result.Runs[runId].Files);
+                Assert.False(result.Runs[runId].Unavailable);
+                Assert.False(result.Unassigned.Unavailable);
+            }
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= Observe; }
+        Assert.Empty(exceptions);
+        Assert.False(Directory.Exists(Path.Combine(temporary.FullName, "runParameters")));
+    }
+
     private async Task<WorkspacePageViewModel> GenerateAsync(bool branch)
     {
         var page = WorkspaceRunExecutionTests.Create(temporary.FullName, branch);

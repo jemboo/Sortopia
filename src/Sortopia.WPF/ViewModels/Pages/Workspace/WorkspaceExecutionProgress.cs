@@ -69,7 +69,7 @@ internal sealed class WorkspaceExecutionProgressReader
                 if (project.Folder is { } folder)
                 {
                     var parametersFolder = Path.Combine(folder, "runParameters");
-                    try { files = Directory.GetFiles(parametersFolder, "*.msgpack"); }
+                    try { if (Directory.Exists(parametersFolder)) files = Directory.GetFiles(parametersFolder, "*.msgpack"); }
                     catch (DirectoryNotFoundException) { }
                 }
             }
