@@ -13,6 +13,9 @@ public sealed record WorkspaceFunctionParameter(string Name, string Value, strin
     public string? SourceKind { get; init; }
     public string SourceText { get; init; } = "";
     public bool IsSourceInput => SourceKind is not null;
+    public bool IsSourceHeading { get; init; }
+    public string? RequiredBy { get; init; }
+    public bool IsSourceParameter => RequiredBy is not null;
     public bool TargetsSpan => TargetEditor?.IsRun == true;
     private string MissingEntryError => !IsSourceInput && Supply == WorkspaceParameterSupply.None
         ? TargetEditor?.MissingFunctionParameterError(Name, IsSetup) ?? "" : "";
@@ -30,15 +33,34 @@ public sealed record WorkspaceFunctionParameter(string Name, string Value, strin
         WorkspaceParameterSupply.Span => "Run parameter span",
         _ => "No value assigned"
     };
-    public string Hint => $"{IconDescription} · {ValueType}. {Source}";
+    public string Hint => $"{IconDescription} · {ValueType}. {Source}"
+        + (RequiredBy is null ? "" : $" Required by {RequiredBy}.");
 }
 
 public sealed partial class WorkspaceConfigurationViewModel
 {
     public WorkspaceFunctionParameter[] ResultsFunctionParameters => FunctionParameters(false);
     public WorkspaceFunctionParameter[] SetupFunctionParameters => FunctionParameters(true);
-    // Show each selected source's query parameters while the remaining source choices are unfinished.
-    public WorkspaceFunctionParameter[] SetupFunctionInputs => [.. SetupFunctionSources(), .. SetupFunctionParameters];
+    public WorkspaceFunctionParameter[] SetupFunctionInputs
+    {
+        get
+        {
+            var parameters = SetupFunctionParameters;
+            if (!SetupParametersFromSources) return [.. SetupFunctionSources(), .. parameters];
+            var values = parameters.ToDictionary(row => row.Name, StringComparer.Ordinal);
+            var outputs = EffectiveSetupDataTypes;
+            var rows = new List<WorkspaceFunctionParameter>();
+            foreach (var source in SetupFunctionSources())
+            {
+                rows.Add(source with { IsSourceHeading = true });
+                var output = outputs.Single(row => row.dataType.kind == source.SourceKind && row.dataType.value == source.SourceText);
+                // Shared keys appear under every source that requires them, with the same edit target.
+                foreach (var key in SourceContractFor(output).RequiredParameters)
+                    if (values.TryGetValue(key.Name, out var parameter)) rows.Add(parameter with { RequiredBy = source.Name });
+            }
+            return rows.ToArray();
+        }
+    }
 
     // Keep Requirements unchanged: a module's unresolved sources must not filter out defaults
     // intended for a source that a descendant will choose later.
@@ -138,7 +160,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         : required.Length == 0 ? "This function has no required parameters." : "";
     public string SetupFunctionParametersHint => !IsBranch ? ""
         : SetupParametersFromSources && InheritedSetupDataTypes.Any(row => row.RequiresSource && row.Source is null)
-            ? "Parameters from selected sources are shown below the source rows. Use the source icons to choose projects for the remaining inputs."
+            ? "Each selected source's parameters appear beneath it. Use the source icons to choose projects for the remaining inputs."
         : Requirements(true) is not { } required ? SetupRequirementsHint
         : required.Length == 0 ? SetupParametersFromSources ? "The selected sources need no query parameters." : "This function has no required parameters." : "";
 }

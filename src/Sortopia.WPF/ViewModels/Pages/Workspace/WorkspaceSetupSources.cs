@@ -10,6 +10,7 @@ public sealed class WorkspaceSetupSourceOverride : WorkspaceOverrideState
     internal WorkspaceSetupSourceOverride(string title, string owner, Func<Guid> inherited,
         Func<WorkspaceConfigurationViewModel?> source, bool canOverride)
         : base(title, owner, source, canOverride) => this.inherited = inherited;
+    protected override string OverrideAction => inherited() == Guid.Empty ? "Define" : "Override";
     public Guid Value
     {
         get => IsOverridden ? value : inherited();

@@ -41,6 +41,21 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
             Assert.DoesNotContain(page.InspectorItems, item => item.Key is "resultsDefaults" or "resultsSpans" or "resultsTypes" or "setupOutputs");
             Assert.Contains(page.InspectorItems, item => item.Key == "resultsDatabase");
         }
+        if (branch)
+        {
+            module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationSource;
+            foreach (var node in new[] { project, run })
+            {
+                page.Selected = node;
+                Assert.False(node.Editor!.FunctionsReady);
+                var outputs = Assert.Single(page.InspectorItems, item => item.Key == "setupOutputs");
+                Assert.Equal("Setup", outputs.Group);
+                Assert.Equal("Setup outputs and source projects", outputs.Title);
+                page.SelectConfigurationItemCommand.Execute(outputs);
+                Assert.Equal("setupOutputs", page.ActiveItemKey);
+                page.SelectConfigurationItem("setupFunction");
+            }
+        }
         module.Editor!.LoadProject(RunExecutionTests.Settings(branch));
         foreach (var node in new[] { project, run })
         {

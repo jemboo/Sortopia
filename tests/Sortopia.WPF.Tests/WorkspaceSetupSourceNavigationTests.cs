@@ -48,11 +48,16 @@ public sealed class WorkspaceSetupSourceNavigationTests
                 var models = Source("Models", ResultsFunctionNames.uniformMsuf4SimpleSorterModels);
                 var sourceRun = Add(models, WorkspaceEntityKind.Run, "Source run", hierarchyKind.Root);
                 WorkspaceParameterSetsPreviewTests.AddSpan(sourceRun, "ChannelCount", false, "16");
+                WorkspaceParameterSetsPreviewTests.AddSpan(sourceRun, "Repl", false, "0", "1");
                 models.Editor!.ResultsQueryOutputs.Single().Keys.Single(key => key.Key == "ChannelCount").Selected = true;
+                models.Editor.ResultsQueryOutputs.Single().Keys.Single(key => key.Key == "Repl").Selected = true;
                 var tests = Source("Tests", ResultsFunctionNames.standardSortableTests);
+                var testsRun = Add(tests, WorkspaceEntityKind.Run, "Tests run", hierarchyKind.Root);
+                WorkspaceParameterSetsPreviewTests.AddSpan(testsRun, "ChannelCount", false, "16");
+                WorkspaceParameterSetsPreviewTests.AddSpan(testsRun, "SortableDataFormat", false, "Bools");
+                foreach (var key in tests.Editor!.ResultsQueryOutputs.Single().Keys) key.Selected = true;
                 var module = Add(model.Roots[0], WorkspaceEntityKind.Module, "Sgd", hierarchyKind.Branch);
                 module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationSource;
-                module.Editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
                 var project = Add(module, WorkspaceEntityKind.Project, "Project", hierarchyKind.Branch);
                 var run = Add(project, WorkspaceEntityKind.Run, "Run", hierarchyKind.Branch);
                 var node = kind == WorkspaceEntityKind.Module ? module : kind == WorkspaceEntityKind.Project ? project : run;
@@ -66,10 +71,11 @@ public sealed class WorkspaceSetupSourceNavigationTests
                 var table = (ItemsControl)editor.FindName("SetupFunctionParametersTable");
                 void Draw() { view.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle); view.UpdateLayout(); }
                 void Show(WorkspaceTreeNode selected) { model.Selected = selected; model.SelectConfigurationItem("setupFunction"); Draw(); }
-                WorkspaceFunctionParameter Row(string name) => table.Items.Cast<WorkspaceFunctionParameter>().Single(row => row.Name == name);
-                void Click(string name)
+                WorkspaceFunctionParameter Row(string name, string? requiredBy = null) => table.Items.Cast<WorkspaceFunctionParameter>()
+                    .First(row => row.Name == name && (requiredBy is null || row.RequiredBy == requiredBy));
+                void Click(string name, string? requiredBy = null)
                 {
-                    var container = (ContentPresenter)table.ItemContainerGenerator.ContainerFromItem(Row(name));
+                    var container = (ContentPresenter)table.ItemContainerGenerator.ContainerFromItem(Row(name, requiredBy));
                     var button = (Button)table.ItemTemplate.FindName("OpenParameterValueButton", container);
                     Assert.True(button.IsEnabled); Assert.True(button.IsTabStop);
                     ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)!).Invoke(); Draw();
@@ -80,7 +86,15 @@ public sealed class WorkspaceSetupSourceNavigationTests
                     var row = rows.Items.Cast<WorkspaceSetupDataTypeEntry>().Single(row => row.DataType.Kind == type);
                     return (ComboBox)rows.ItemTemplate.FindName("SetupSourceProjectInput", (ContentPresenter)rows.ItemContainerGenerator.ContainerFromItem(row));
                 }
+                CheckBox SourceToggle(string type)
+                {
+                    var rows = (ItemsControl)editor.FindName("SetupDataTypesList");
+                    var row = rows.Items.Cast<WorkspaceSetupDataTypeEntry>().Single(row => row.DataType.Kind == type);
+                    return (CheckBox)rows.ItemTemplate.FindName("SetupSourceOverrideCheckBox", (ContentPresenter)rows.ItemContainerGenerator.ContainerFromItem(row));
+                }
                 Draw();
+                Assert.False(node.Editor!.FunctionsReady);
+                Assert.Contains(model.InspectorItems, item => item.Key == "setupOutputs" && item.Group == "Setup");
                 Assert.Equal(2, table.Items.Count); Assert.True(table.ActualHeight > 0);
                 Assert.All(table.Items.Cast<WorkspaceFunctionParameter>(), row => Assert.Equal(WorkspaceParameterSupply.None, row.Supply));
                 var bitmap = new RenderTargetBitmap((int)Math.Ceiling(editor.ActualWidth), (int)Math.Ceiling(editor.ActualHeight), 96, 96, PixelFormats.Pbgra32);
@@ -89,13 +103,18 @@ public sealed class WorkspaceSetupSourceNavigationTests
                 using (var file = File.Create(Path.Combine(AppContext.BaseDirectory, $"setup-source-inputs-{kind}.png"))) encoder.Save(file);
                 Click("SorterModelSet");
                 Assert.Same(owner, model.Selected); Assert.Equal("setupOutputs", model.ActiveItemKey);
+                Assert.True(((FrameworkElement)editor.FindName("SetupOutputsItem")).IsVisible);
                 Assert.Same(SourceInput("SorterModelSet"), FocusManager.GetFocusedElement(window));
+                Assert.Equal(owner.Editor!.IsModule ? "Define on this module" : "Define on this project", SourceToggle("SorterModelSet").Content);
+                Assert.Equal("Define SorterModelSet source", new CheckBoxAutomationPeer(SourceToggle("SorterModelSet")).GetName());
+                Assert.False(SourceToggle("SortableTests").IsChecked);
                 Assert.Empty(owner.Editor!.SetupParameterDefaults); Assert.Empty(run.Editor!.SetupParameters);
                 SourceInput("SorterModelSet").SelectedValue = models.Id; Draw();
+                module.Editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
                 Show(node); Assert.Equal("Models project", Row("SorterModelSet").Value);
                 Assert.Equal(WorkspaceParameterSupply.Default, Row("SorterModelSet").Supply);
                 // A source's parameters are usable immediately, before the other source is selected.
-                Assert.Equal(3, table.Items.Count); Assert.Equal("Not set", Row("SortableTests").Value);
+                Assert.Equal(4, table.Items.Count); Assert.Equal("Not set", Row("SortableTests").Value);
                 Assert.Equal("Not set", Row("ChannelCount").Value);
                 Assert.True(Row("ChannelCount").CanNavigate);
                 Click("ChannelCount");
@@ -114,22 +133,30 @@ public sealed class WorkspaceSetupSourceNavigationTests
                 Click("SortableTests"); Assert.Same(SourceInput("SortableTests"), FocusManager.GetFocusedElement(window));
                 SourceInput("SortableTests").SelectedValue = tests.Id; Draw();
                 Show(node);
-                Assert.Equal(3, table.Items.Count); Assert.Equal(node.IsRun ? "[16]" : "16", Row("ChannelCount").Value);
+                Assert.Equal(new[] { "SorterModelSet", "ChannelCount", "Repl", "SortableTests", "ChannelCount", "SortableDataFormat" },
+                    table.Items.Cast<WorkspaceFunctionParameter>().Select(row => row.Name));
+                Assert.Equal(node.IsRun ? "[16]" : "16", Row("ChannelCount", "SorterModelSet").Value);
+                Assert.Equal(node.IsRun ? "[16]" : "16", Row("ChannelCount", "SortableTests").Value);
                 Assert.False(Row("ChannelCount").IsSourceInput);
-                Click("ChannelCount");
+                Click("ChannelCount", "SortableTests");
                 Assert.Same(node, model.Selected); Assert.Equal(node.IsRun ? "setupSpans" : "setupDefaults", model.ActiveItemKey);
                 Assert.Equal("ChannelCount", node.IsRun ? Assert.Single(node.Editor!.SetupParameters).Key : Assert.Single(node.Editor!.SetupParameterDefaults).Key);
+                Assert.IsType<TextBox>(FocusManager.GetFocusedElement(window)).Text = "32"; Draw(); Show(node);
+                Assert.All(table.Items.Cast<WorkspaceFunctionParameter>().Where(row => row.Name == "ChannelCount"),
+                    row => Assert.Equal(node.IsRun ? "[32]" : "32", row.Value));
+                bitmap = new RenderTargetBitmap((int)Math.Ceiling(editor.ActualWidth), (int)Math.Ceiling(editor.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(editor); encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using (var file = File.Create(Path.Combine(AppContext.BaseDirectory, $"setup-source-groups-{kind}.png"))) encoder.Save(file);
 
                 // The two checkboxes control independent choices, which may live on different ancestors.
                 var testsOwner = owner == module ? project : module;
                 var sharedTests = testsOwner.Editor!.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
                 sharedTests.SourceOverride!.IsOverridden = true; sharedTests.SourceProjectId = tests.Id;
                 model.Selected = owner; model.SelectConfigurationItem("setupOutputs"); Draw();
-                var sourceRows = (ItemsControl)editor.FindName("SetupDataTypesList");
                 var testsRow = owner.Editor.SetupDataTypes.Single(row => row.DataType.Kind == "SortableTests");
-                var testsContainer = (ContentPresenter)sourceRows.ItemContainerGenerator.ContainerFromItem(testsRow);
-                var toggle = (CheckBox)sourceRows.ItemTemplate.FindName("SetupSourceOverrideCheckBox", testsContainer);
-                Assert.Equal(owner.Editor.IsModule ? "Override on this module" : "Override on this project", toggle.Content);
+                var toggle = SourceToggle("SortableTests");
+                Assert.Equal(owner.Editor.IsModule ? "Define on this module" : "Override on this project", toggle.Content);
+                Assert.Equal(owner.Editor.IsModule ? "Define SortableTests source" : "Override SortableTests source", new CheckBoxAutomationPeer(toggle).GetName());
                 Assert.True(toggle.IsChecked);
                 ((IToggleProvider)new CheckBoxAutomationPeer(toggle).GetPattern(PatternInterface.Toggle)!).Toggle(); Draw();
                 Assert.False(toggle.IsChecked); Assert.False(SourceInput("SortableTests").IsEnabled);

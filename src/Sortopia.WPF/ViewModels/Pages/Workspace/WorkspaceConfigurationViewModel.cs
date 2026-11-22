@@ -121,8 +121,9 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     public string? DefinitionHint => ParentFunctionDefinition is { } source
         ? $"This function is already defined on {source.Name}. Follow the source link to edit it there."
         : HasDescendantFunctionDefinitions ? "This function is already defined in descendant modules. Follow the links below to edit those definitions." : null;
-    public string OverrideCaption => IsFunctionDefinition ? "Define on this module" : ownerKind == "run" ? "Override for this run" : $"Override on this {ownerKind}";
-    public string OverrideAutomationName => $"{(IsFunctionDefinition ? "Define" : "Override")} {Title}";
+    protected virtual string OverrideAction => IsFunctionDefinition ? "Define" : "Override";
+    public string OverrideCaption => IsFunctionDefinition ? "Define on this module" : ownerKind == "run" ? $"{OverrideAction} for this run" : $"{OverrideAction} on this {ownerKind}";
+    public string OverrideAutomationName => $"{OverrideAction} {Title}";
     public bool IsOverridden
     {
         get => isOverridden;

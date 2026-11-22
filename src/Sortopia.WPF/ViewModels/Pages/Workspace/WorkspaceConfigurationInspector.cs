@@ -36,14 +36,7 @@ public sealed partial class WorkspaceConfigurationViewModel
                 UsesSnapshotControls ? $"SnapshotInterval: {SnapshotInterval}; SnapshotCount: {SnapshotCount}; {SnapshotTargetText} Pool summaries: {SummaryReporting.Schedule}"
                     : ReportingEnabled ? $"Full snapshots: {SnapshotReporting.Schedule}; Pool summaries: {SummaryReporting.Schedule}" : "Disabled",
                 UsesSnapshotControls && !CanEditSnapshotInterval ? "Interval locked · count may increase" : IsReadOnly ? "Locked · generated parameters" : "Run settings", ReportingError);
-        if (!ShowFunctionConfiguration)
-        {
-            // Defaults can be defined above the module that chooses the function.
-            if (HasParameterDefaults(false)) yield return Defaults(false);
-            if (IsBranch && HasParameterDefaults(true)) yield return Defaults(true);
-            yield break;
-        }
-        if (HasResultsContract)
+        if (ShowResultsConfiguration)
         {
             yield return List("resultsTypes", "Results", OutputTypesOverride, IsModule ? Types(EffectiveOutputs)
                 : Summary(ResultsQueryOutputs.Select(output => output.InspectorSummary)), FirstError(OutputTypesError, ResultsQueryKeysError))
@@ -53,20 +46,15 @@ public sealed partial class WorkspaceConfigurationViewModel
                 yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
         }
         else if (HasParameterDefaults(false)) yield return Defaults(false);
-        if (!IsBranch || !HasSetupContract)
+        if (ShowSetupConfiguration)
         {
-            if (IsBranch && HasParameterDefaults(true)) yield return Defaults(true);
-            yield break;
+            yield return new("setupOutputs", "Setup", "Setup outputs and source projects",
+                Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")),
+                SetupSourcesStatus, FirstError(SetupDataTypesError, SetupQueryKeysError), IsRun ? Parent : null);
+            yield return Defaults(true);
+            if (IsRun)
+                yield return new("setupSpans", "Setup", "Required parameters and spans", Spans(ActiveSetupParameters), SetupRequiredInputs.Summary, SetupParametersError);
         }
-
-
-        yield return new("setupOutputs", "Setup", "Setup outputs and source projects",
-            Summary(InheritedSetupDataTypes.Select(row => $"{row.DataType.Kind}: {row.DataType.Text} · {(row.RequiresSource ? row.Source?.Name ?? "Source not assigned" : "Generated from parameters")} · keys: {row.QueryKeysSummary}")),
-            SetupSourcesStatus, FirstError(SetupDataTypesError, SetupQueryKeysError), IsRun ? Parent : null);
-        yield return Defaults(true);
-        if (IsRun)
-        {
-            yield return new("setupSpans", "Setup", "Required parameters and spans", Spans(ActiveSetupParameters), SetupRequiredInputs.Summary, SetupParametersError);
-        }
+        else if (IsBranch && HasParameterDefaults(true)) yield return Defaults(true);
     }
 }

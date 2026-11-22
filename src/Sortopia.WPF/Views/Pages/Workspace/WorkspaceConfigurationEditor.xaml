@@ -12,7 +12,7 @@
         <Geometry x:Key="FixedParameterValueIcon">M8,8 A4,4 0 1 0 8,16 A4,4 0 1 0 8,8 Z M12,12 H22 M18,12 V17 M21,12 V15</Geometry>
         <Geometry x:Key="ParameterSpanIcon">M5,4 H2 V20 H5 M19,4 H22 V20 H19 M7,12 H17 M8,9 V15 M12,9 V15 M16,9 V15</Geometry>
         <DataTemplate x:Key="FunctionParameterValue">
-            <Border BorderBrush="{DynamicResource Workspace.StrokeSubtle}" BorderThickness="0,0,0,1" Padding="0,8">
+            <Border x:Name="FunctionParameterBorder" BorderBrush="{DynamicResource Workspace.StrokeSubtle}" BorderThickness="0,0,0,1" Padding="0,8">
                 <Grid x:Name="FunctionParameterRow" AutomationProperties.Name="{Binding Name}" ToolTip="{Binding Hint}">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
                     <TextBlock x:Name="FunctionParameterName" Text="{Binding Name}" TextWrapping="Wrap" Margin="0,0,12,0"
@@ -58,6 +58,16 @@
                     </DockPanel>
                 </Grid>
             </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSourceHeading}" Value="True">
+                    <Setter TargetName="FunctionParameterBorder" Property="Margin" Value="0,12,0,0" />
+                    <Setter TargetName="FunctionParameterBorder" Property="Padding" Value="0,10,0,8" />
+                    <Setter TargetName="FunctionParameterName" Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSourceParameter}" Value="True">
+                    <Setter TargetName="FunctionParameterName" Property="Margin" Value="18,0,12,0" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
         <DataTemplate x:Key="ReportingSchedule">
             <StackPanel Margin="0,6,0,10">
@@ -191,7 +201,7 @@
                               IsChecked="{Binding SourceOverride.IsOverridden}" IsEnabled="{Binding SourceOverride.CanOverride}"
                               Visibility="{Binding SourceOverride.ShowOverrideToggle, Converter={StaticResource VisibleWhen}}"
                               MinHeight="28" Foreground="{DynamicResource Workspace.TextPrimary}"
-                              AutomationProperties.Name="{Binding DataType.Kind, StringFormat=Override {0} source}" />
+                              AutomationProperties.Name="{Binding SourceOverride.OverrideAutomationName, StringFormat={}{0} source}" />
                     <local:WorkspaceValueSource DataContext="{Binding SourceOverride}" />
                     <Label Content="Source project" Target="{Binding ElementName=SetupSourceProjectInput}" Padding="0,0,0,4" Foreground="{DynamicResource Workspace.TextPrimary}" />
                     <ComboBox x:Name="SetupSourceProjectInput" ItemsSource="{Binding SourceProjects}" SelectedValuePath="Id" TextSearch.TextPath="Label"
@@ -443,7 +453,7 @@
             <StackPanel x:Name="SetupDatabaseItem"><local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding SetupDatabaseOverride}" /></StackPanel>
 <StackPanel x:Name="SetupOutputsItem">
             <TextBlock Text="{Binding SetupContractHint}" Style="{StaticResource Help}" />
-            <TextBlock Text="Each source inherits independently. Override only the source you want to define here; clear its checkbox to inherit again." Style="{StaticResource Help}" Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}" />
+            <TextBlock Text="Each source inherits independently. Check Define to select a source here, or Override to replace an inherited source. Clear its checkbox to inherit again." Style="{StaticResource Help}" Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}" />
             <StackPanel Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}">
                 <ItemsControl x:Name="SetupDataTypesList" ItemsSource="{Binding SetupDataTypes}" ItemTemplate="{StaticResource SetupDataTypeEntry}" />
             </StackPanel>

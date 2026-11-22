@@ -37,7 +37,30 @@ public sealed class WorkspaceSourceOverridesTests
     public void Modules_and_projects_override_each_source_independently_including_explicit_blanks()
     {
         var tree = Tree(); var tests = Guid.NewGuid(); var models = Guid.NewGuid();
+        // An explicitly unassigned ancestor is still not a source selection to override.
+        Set(tree.Tests, "SortableTests", Guid.Empty);
+        foreach (var node in new[] { tree.Models, tree.Project })
+            foreach (var row in node.Editor!.SetupDataTypes.Where(row => row.RequiresSource))
+            {
+                Assert.False(row.SourceOverride!.IsOverridden);
+                Assert.Equal(node.Editor.IsModule ? "Define on this module" : "Define on this project", row.SourceOverride.OverrideCaption);
+            }
         Set(tree.Tests, "SortableTests", tests); Set(tree.Models, "SorterModelSet", models);
+        foreach (var node in new[] { tree.Models, tree.Project })
+        {
+            var state = Source(node, "SortableTests").SourceOverride!;
+            Assert.False(state.IsOverridden);
+            Assert.Equal(node.Editor!.IsModule ? "Override on this module" : "Override on this project", state.OverrideCaption);
+            Assert.False(state.CanEditValue);
+        }
+        Assert.All(tree.Project.Editor!.SetupDataTypes, row => Assert.False(row.SourceOverride!.IsOverridden));
+        // Descendants created after the parent selection also start with inheritance enabled.
+        var added = Add(tree.Models, WorkspaceEntityKind.Module, "New child");
+        Assert.All(added.Editor!.SetupDataTypes, row => Assert.False(row.SourceOverride!.IsOverridden));
+        Set(tree.Tests, "SortableTests", Guid.Empty);
+        Assert.Equal("Define on this module", Source(tree.Models, "SortableTests").SourceOverride!.OverrideCaption);
+        Assert.False(Source(tree.Models, "SortableTests").SourceOverride!.IsOverridden);
+        Set(tree.Tests, "SortableTests", tests);
         foreach (var node in new[] { tree.Models, tree.Project, tree.Run })
         {
             Assert.Equal(tests, Effective(node, "SortableTests")); Assert.Equal(models, Effective(node, "SorterModelSet"));
@@ -115,6 +138,8 @@ public sealed class WorkspaceSourceOverridesTests
         var selected = parent.SetupDataTypes.Single(row => row.DataType.Kind == firstType);
         selected.SourceOverride!.IsOverridden = true; selected.SourceProjectId = first.Id;
         Assert.Equal(first.Settings.resultsDataTypes.Single().queryParameterKeys.Order(), parent.SetupFunctionParameters.Select(row => row.Name).Order());
+        Assert.All(parent.SetupFunctionInputs.Where(row => row.IsSourceParameter), row => Assert.Equal(firstType, row.RequiredBy));
+        Assert.All(parent.SetupFunctionInputs.Where(row => row.IsSourceInput), row => Assert.True(row.IsSourceHeading));
         Assert.All(parent.SetupFunctionParameters, row => Assert.True(row.CanNavigate));
         Assert.DoesNotContain(parent.SetupFunctionParameters, row => row.Name == deferredKey);
         Assert.Equal(deferredKey, Assert.Single(parent.ToProjectSettings().setupParameterDefaults).keyName);
@@ -128,6 +153,12 @@ public sealed class WorkspaceSourceOverridesTests
         var other = child.SetupDataTypes.Single(row => row.DataType.Kind == secondType);
         other.SourceOverride!.IsOverridden = true; other.SourceProjectId = second.Id;
         Assert.Equal(new[] { "ChannelCount", "Repl", "SortableDataFormat" }, child.SetupFunctionParameters.Select(row => row.Name).Order());
+        Assert.Equal(new[] { "SorterModelSet", "ChannelCount", "Repl", "SortableTests", "ChannelCount", "SortableDataFormat" },
+            child.SetupFunctionInputs.Select(row => row.Name));
+        var sharedRows = child.SetupFunctionInputs.Where(row => row.Name == "ChannelCount").ToArray();
+        Assert.Equal(new[] { "SorterModelSet", "SortableTests" }, sharedRows.Select(row => row.RequiredBy));
+        Assert.All(sharedRows, row => { Assert.Equal("16", row.Value); Assert.Same(parent, row.TargetEditor); });
+        Assert.Contains("Required by SortableTests", sharedRows[1].Hint);
         // An inherited blank default remains editable on the parent, even if only the child knows its source.
         var inheritedBlank = child.SetupFunctionParameters.Single(row => row.Name == deferredKey);
         Assert.Same(parent, inheritedBlank.TargetEditor); Assert.True(inheritedBlank.CanNavigate);
@@ -137,6 +168,7 @@ public sealed class WorkspaceSourceOverridesTests
         selected.SourceProjectId = Guid.Empty; child.RefreshInherited();
         Assert.Empty(parent.SetupFunctionParameters);
         Assert.Equal(second.Settings.resultsDataTypes.Single().queryParameterKeys.Order(), child.SetupFunctionParameters.Select(row => row.Name).Order());
+        Assert.All(child.SetupFunctionInputs.Where(row => row.IsSourceParameter), row => Assert.Equal(secondType, row.RequiredBy));
         Assert.Equal(2, parent.ToProjectSettings().setupParameterDefaults.Length);
         selected.SourceProjectId = Guid.NewGuid();
         Assert.Empty(parent.SetupFunctionParameters); // A missing project contributes no invented keys.

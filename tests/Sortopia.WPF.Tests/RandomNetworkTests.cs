@@ -2420,7 +2420,7 @@ public sealed class RandomNetworkTests
             Choose(setupEditor, Sortopia.Functions.SetupFunctionNames.standardTests);
             Assert.False(module.Editor.FunctionsReady);
             Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, module.Editor.ResultsFunctionName);
-            Assert.DoesNotContain(vm.InspectorItems, item => item.Key == "resultsDefaults");
+            Assert.Contains(vm.InspectorItems, item => item.Key == "resultsDefaults");
             Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.mergeSortableTests);
             module.Editor.LoadProject(RunExecutionTests.Settings(true));
             vm.AddProjectCommand.Execute(null);

@@ -72,6 +72,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     public bool HasSetupInputGuidance => SetupInputGuidance.Length > 0;
     public bool HasResultsContract => ResultsFunctionCatalog.functions.ContainsKey(ResultsFunctionName);
     public bool HasSetupContract => SetupFunctionCatalog.functions.ContainsKey(SetupFunctionName);
+    public bool ShowSetupConfiguration => IsBranch && HasSetupContract;
+    public bool ShowResultsConfiguration => HasResultsContract;
     public bool SetupGeneratesAllOutputs => SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;
     public string ResultsContractHint => HasResultsContract ? "Saved data types and their text are defined by the results function. Query keys are chosen on the project from explicit run spans." : "";
     public string SetupContractHint => HasSetupContract ? "Saved data types and their text are defined by the setup function. Query keys are chosen on the project from explicit run spans. Choose source projects only for outputs that consume source data." : "";
@@ -93,7 +95,7 @@ public sealed partial class WorkspaceConfigurationViewModel
     }
     public bool FunctionsReady => HasResultsContract && (!IsBranch || HasSetupContract) && FunctionCompatibilityError.Length == 0
         && FunctionDefinitionError(false).Length == 0 && (!IsBranch || FunctionDefinitionError(true).Length == 0);
-    public bool ShowFunctionConfiguration => FunctionsReady || IsModule && (HasResultsContract || HasSetupContract) && FunctionCompatibilityError.Length == 0;
+    public bool ShowFunctionConfiguration => ShowSetupConfiguration || ShowResultsConfiguration;
     public string FunctionsHint => IsReadOnly ? "Functions are locked while descendant runs have generated parameter files. Remove those files or runs to resume editing, or create a new project version."
         : IsModule
         ? IsBranch ? "A module may leave either function undefined. Each branch run needs exactly one setup definition and one compatible results definition along its module path; they may be on different modules. Clear ‘Define on this module’ to inherit or leave the choice to a child module."
@@ -103,10 +105,10 @@ public sealed partial class WorkspaceConfigurationViewModel
     public string FunctionsStatus => !FunctionVersionsCurrent ? "This project uses a different function version. Saved settings and data remain available; create a new project version to execute the installed functions."
         : FunctionDefinitionError(false).Length > 0 ? FunctionDefinitionError(false)
         : IsBranch && FunctionDefinitionError(true).Length > 0 ? FunctionDefinitionError(true)
-        : !FunctionsReady && !IsModule ? "The inherited functions are missing, unavailable, or incompatible. Select the parent module and choose compatible catalog functions before configuring parameters and outputs."
-        : ResultsFunctionError.Length > 0 || IsBranch && SetupFunctionError.Length > 0 ? "Review the function issues below before configuring parameters and outputs."
+        : !FunctionsReady && !IsModule ? "Each phase can be configured as soon as its function is selected. Select missing functions and resolve compatibility issues on the parent modules before generating run parameters."
+        : ResultsFunctionError.Length > 0 || IsBranch && SetupFunctionError.Length > 0 ? "Each selected function's configuration remains available. Review the function issues below before generating run parameters."
         : IsModule && (!HasResultsContract || IsBranch && !HasSetupContract) ? "Functions not defined here can be supplied by a child module before a run is configured. This module can be saved as it is."
-        : FunctionCompatibilityError.Length > 0 ? "Choose a compatible setup/results pair to continue."
+        : FunctionCompatibilityError.Length > 0 ? "Choose a compatible setup/results pair before generating run parameters."
         : IsRun ? "Select parameter spans, outputs, or Run parameter files in Configuration to continue."
         : "Select parameter defaults or outputs in Configuration to continue.";
     public string RetainedResultsDefaultsHint => RetainedDefaultsHint(false);

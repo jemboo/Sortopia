@@ -10,7 +10,8 @@ namespace Sortopia.WPF.Views.Pages.Workspace;
 
 public partial class WorkspaceConfigurationEditor : UserControl
 {
-    private bool configurationVisible;
+    private bool resultsConfigurationVisible;
+    private bool setupConfigurationVisible;
     private bool reportingVisible;
     public static readonly DependencyProperty ActiveItemKeyProperty = DependencyProperty.Register(nameof(ActiveItemKey), typeof(string),
         typeof(WorkspaceConfigurationEditor), new PropertyMetadata("description", (owner, _) => ((WorkspaceConfigurationEditor)owner).ShowActiveItem()));
@@ -73,11 +74,13 @@ public partial class WorkspaceConfigurationEditor : UserControl
     }
     private void ConfigurationChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (string.IsNullOrEmpty(args.PropertyName) || args.PropertyName is nameof(WorkspaceConfigurationViewModel.ShowFunctionConfiguration)
+        if (string.IsNullOrEmpty(args.PropertyName) || args.PropertyName is nameof(WorkspaceConfigurationViewModel.ShowResultsConfiguration)
+            or nameof(WorkspaceConfigurationViewModel.ShowSetupConfiguration)
             or nameof(WorkspaceConfigurationViewModel.ShowReportingConfiguration))
         {
             var configuration = DataContext as WorkspaceConfigurationViewModel;
-            if (configurationVisible != configuration?.ShowFunctionConfiguration || reportingVisible != configuration?.ShowReportingConfiguration)
+            if (resultsConfigurationVisible != configuration?.ShowResultsConfiguration || setupConfigurationVisible != configuration?.ShowSetupConfiguration
+                || reportingVisible != configuration?.ShowReportingConfiguration)
                 ShowActiveItem();
         }
     }
@@ -85,13 +88,20 @@ public partial class WorkspaceConfigurationEditor : UserControl
     {
         if (DescriptionSection is null) return;
         var configuration = DataContext as WorkspaceConfigurationViewModel;
-        configurationVisible = configuration?.ShowFunctionConfiguration ?? false;
+        resultsConfigurationVisible = configuration?.ShowResultsConfiguration ?? false;
+        setupConfigurationVisible = configuration?.ShowSetupConfiguration ?? false;
         reportingVisible = configuration?.ShowReportingConfiguration ?? false;
-        var activeKey = configuration is { ShowFunctionConfiguration: false }
-            && ActiveItemKey is not ("description" or "resultsFunction" or "setupFunction" or "resultsDatabase" or "setupDatabase" or "evolutionReporting")
-            && !(ActiveItemKey == "resultsDefaults" && configuration.HasParameterDefaults(false))
-            && !(ActiveItemKey == "setupDefaults" && configuration.HasParameterDefaults(true))
-                ? configuration.IsBranch ? "setupFunction" : "resultsFunction" : ActiveItemKey;
+        var available = ActiveItemKey switch
+        {
+            "setupOutputs" => setupConfigurationVisible,
+            "setupDefaults" => setupConfigurationVisible || configuration?.HasParameterDefaults(true) == true,
+            "setupSpans" => setupConfigurationVisible && configuration?.IsRun == true,
+            "resultsTypes" or "resultsQueryKeys" => resultsConfigurationVisible,
+            "resultsDefaults" => resultsConfigurationVisible || configuration?.HasParameterDefaults(false) == true,
+            "resultsSpans" => resultsConfigurationVisible && configuration?.IsRun == true,
+            _ => true
+        };
+        var activeKey = available ? ActiveItemKey : configuration?.IsBranch == true ? "setupFunction" : "resultsFunction";
         void Show(FrameworkElement element, params string[] keys)
         {
             var active = keys.Contains(activeKey);
