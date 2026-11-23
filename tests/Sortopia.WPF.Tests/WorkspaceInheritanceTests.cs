@@ -23,6 +23,8 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.description = description;
         settings.resultsParameterDefaults = []; settings.setupParameterDefaults = [];
+        foreach (var output in settings.resultsDataTypes) output.queryParameterKeys = ["ChannelCount", "SortableDataFormat"];
+        foreach (var output in settings.setupDataTypes) output.queryParameterKeys = ["ChannelCount", "SortableDataFormat"];
         return project.create(Guid.NewGuid(), name, ProjectDto.settingsToDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
     private static runDto Inputs(project parent, string name = "R")

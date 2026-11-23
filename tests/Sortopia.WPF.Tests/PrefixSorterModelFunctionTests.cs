@@ -186,6 +186,7 @@ public sealed class PrefixSorterModelFunctionTests
         Assert.Equal(6, project.Editor!.InheritedOutputDefaults.Count());
         prefix.Value.Text = Prefix(9); Assert.Contains("incompatible", project.Editor.ResultsParameterDefaultsError);
         prefix.RemoveCommand.Execute(null);
+        project.Editor!.ResultsQueryOutputs.Single().Keys.Single(row => row.Key == "PrefixLibId").Selected = true;
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
         var inputs = run.Editor!;
         Assert.Equal(5, inputs.ResultsRequiredInputs.DefaultCount);
@@ -223,6 +224,7 @@ public sealed class PrefixSorterModelFunctionTests
             prefix = module.Editor!.ResultsParameterDefaults.Single(value => value.Key == "PrefixLibId");
             prefix.RemoveCommand.Execute(null);
             page.AddProjectCommand.Execute(null); var project = page.Selected!;
+            project.Editor!.ResultsQueryOutputs.Single().Keys.Single(row => row.Key == "PrefixLibId").Selected = true;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
             run.Editor!.AddMissingResultsParametersCommand.Execute(null);
             var span = Assert.Single(run.Editor.ResultsParameters);

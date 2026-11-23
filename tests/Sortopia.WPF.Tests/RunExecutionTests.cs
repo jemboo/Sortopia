@@ -42,13 +42,16 @@ public sealed class RunExecutionTests
         var id = Guid.NewGuid();
         settings = SettingsDto.fromDomain(SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings ?? Settings(branch)));
         var definition = ResultsFunctionCatalog.require(settings.resultsFunctionName);
-        settings.resultsDataTypes = definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.ToArray() }).ToArray();
+        var extraResultsKeys = (results ?? []).Select(span => span.keyName).Intersect(definition.RequiredParameters.Select(key => key.Name)).Except(definition.DataTypes.Values.SelectMany(keys => keys)).ToArray();
+        settings.resultsDataTypes = definition.DataTypes.Select(entry => new resultsDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key), queryParameterKeys = entry.Value.Concat(extraResultsKeys).Distinct().ToArray() }).ToArray();
         results = QuerySpans(settings.resultsDataTypes.SelectMany(output => output.queryParameterKeys), settings.resultsParameterDefaults.Select(ParameterBindingDto.toDomain), results);
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
         if (branch) {
             var setupDefinition = SetupFunctionCatalog.require(settings.setupFunctionName);
+            var extraSetupKeys = (setup ?? []).Select(span => span.keyName).Except(setupDefinition.ParametersFromSources
+                ? settings.setupDataTypes.SelectMany(output => output.queryParameterKeys) : setupDefinition.DataTypes.Values.SelectMany(keys => keys)).ToArray();
             settings.setupDataTypes = setupDefinition.DataTypes.Select(entry => new setupDataTypeConfigDto { dataType = SortopiaDataTypeDto.fromDomain(entry.Key),
-                queryParameterKeys = setupDefinition.ParametersFromSources ? settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.queryParameterKeys ?? [] : entry.Value.ToArray(),
+                queryParameterKeys = (setupDefinition.ParametersFromSources ? settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.queryParameterKeys ?? [] : entry.Value.ToArray()).Concat(extraSetupKeys).Distinct().ToArray(),
                 sourceProjectId = settings.setupDataTypes.FirstOrDefault(output => output.dataType.kind == SortopiaDataType.kindName(entry.Key))?.sourceProjectId ?? Guid.Empty }).ToArray();
             setup = QuerySpans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
             settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();

@@ -29,6 +29,9 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
     {
         if (setup && !run.IsBranch || run.Parent?.Editor is not { IsEditable: true }) return;
         var editor = run.Editor!;
+        foreach (var choice in (setup ? run.Parent.Editor!.SetupQueryOutputs : run.Parent.Editor!.ResultsQueryOutputs)
+            .SelectMany(output => output.Keys).Where(choice => choice.Selected && !choice.Available).ToArray())
+            choice.Selected = false;
         var values = (setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults).ToArray();
         foreach (var value in values)
             if (!(setup ? editor.SetupParameters : editor.ResultsParameters).Any(span => span.Key == value.Key))
@@ -48,9 +51,16 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
                 overrides.resultsParameterDefaults = overrides.resultsParameterDefaults?.Where(value => value.keyName != key).ToArray();
             }
             project.LoadOverrides(overrides);
+            foreach (var choice in (setup ? project.SetupQueryOutputs : project.ResultsQueryOutputs).SelectMany(output => output.Keys).Where(choice => choice.Key == key).ToArray())
+                choice.Selected = true;
         }
-        (setup ? editor.AddSetupParameterCommand : editor.AddResultsParameterCommand).Execute(null);
-        var span = (setup ? editor.SetupParameters : editor.ResultsParameters).Last();
+        var rows = setup ? editor.SetupParameters : editor.ResultsParameters;
+        var span = rows.FirstOrDefault(row => row.Key == key && row.Values.Count == 0);
+        if (span is null)
+        {
+            (setup ? editor.AddSetupParameterCommand : editor.AddResultsParameterCommand).Execute(null);
+            span = rows.Last();
+        }
         span.Key = key;
         span.Values.Clear();
         foreach (var value in values)

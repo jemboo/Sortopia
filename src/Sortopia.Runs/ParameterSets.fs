@@ -11,12 +11,17 @@ module ParameterSets =
         if overlap.IsEmpty then ""
         else "Parameters cannot have both a default and a span: " + System.String.Join(", ", overlap)
              + ". Remove the span, or remove/exclude the default on the project before using a span."
-    /// Query parameters must be explicitly present in the run, even if a default exists.
+    /// Run spans implement exactly the project's query keys for this phase.
     let querySpansError (queryKeys: string<paramKeyName> list) (spanKeys: string<paramKeyName> list) =
         let missing = queryKeys |> List.distinct |> List.filter (fun key -> not (List.contains key spanKeys))
-        if missing.IsEmpty then ""
-        else "Query keys require explicit parameter spans: " + System.String.Join(", ", missing)
-             + ". Add a span for each key, using one value if it is fixed. Defaults do not satisfy query keys."
+        let extra = spanKeys |> List.distinct |> List.filter (fun key -> not (List.contains key queryKeys))
+        [ if not missing.IsEmpty then
+              yield "Query keys require explicit parameter spans: " + System.String.Join(", ", missing)
+                    + ". Add a span for each key, using one value if it is fixed. Defaults do not satisfy query keys."
+          if not extra.IsEmpty then
+              yield "Spans must use only the project's query keys. Undeclared span keys: " + System.String.Join(", ", extra)
+                    + ". Select these query keys on the project, or supply fixed defaults and remove the spans." ]
+        |> String.concat " "
     let validateQuerySpans queryKeys (spans: parameterSpan list) =
         let error = querySpansError queryKeys (spans |> List.map (fun span -> span.KeyName))
         if error <> "" then invalidArg "parameterSpans" error
@@ -34,7 +39,7 @@ module ParameterSets =
           let queryError = querySpansError queryKeys spanKeys
           if queryError <> "" then yield queryError
           if not missing.IsEmpty then
-              yield "Missing values for required parameters: " + System.String.Join(", ", missing) + ". Supply a default or a parameter span." ]
+              yield "Missing values for required parameters: " + System.String.Join(", ", missing) + ". Supply spans for project query keys and fixed defaults for all other required parameters." ]
         |> String.concat " "
 
     let validateSpans (bindings: parameterBinding list) (spans: parameterSpan list) =

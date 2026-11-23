@@ -134,7 +134,7 @@ public sealed class WorkspaceFunctionParametersTests
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", setup, "4");
         var conflict = Row(project, "ChannelCount", setup);
         Assert.Equal(WorkspaceParameterSupply.None, conflict.Supply);
-        Assert.False(conflict.CanNavigate); Assert.Contains("child run spans", conflict.NavigationHint);
+        Assert.False(conflict.CanNavigate); Assert.Contains("project query key", conflict.NavigationHint);
         Assert.False(project.Editor.PrepareMissingFunctionParameter("ChannelCount", setup));
         Assert.Empty(setup ? project.Editor.SetupParameterDefaults : project.Editor.ResultsParameterDefaults);
         Assert.Equal("[4]", Row(run, "ChannelCount", setup).Value);

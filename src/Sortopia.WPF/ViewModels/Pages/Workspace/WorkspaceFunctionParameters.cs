@@ -114,8 +114,8 @@ public sealed partial class WorkspaceConfigurationViewModel
                 return new WorkspaceFunctionParameter(key.Name, spanValue, type, WorkspaceParameterSupply.Span,
                     $"{values.Length} value(s) supplied by this run.") { TargetEditor = this, IsSetup = setup };
             return new WorkspaceFunctionParameter(key.Name, "Not set", type, WorkspaceParameterSupply.None,
-                matches.Length > 0 ? "The run's span has no values yet." : "Assign a default or supply a span on a run.")
-                { TargetEditor = this, IsSetup = setup, NeedsEntry = matches.Length == 0 };
+                matches.Length > 0 ? "The run's span has no values yet." : QueryKeys(setup).Contains(key.Name) ? "Supply this project query key's span on a run." : "Assign a fixed default on the project or an ancestor module.")
+                { TargetEditor = IsRun && matches.Length == 0 && !QueryKeys(setup).Contains(key.Name) ? Parent : this, IsSetup = setup, NeedsEntry = matches.Length == 0 };
         }).ToArray();
     }
     internal string MissingFunctionParameterError(string key, bool setup)
@@ -127,11 +127,11 @@ public sealed partial class WorkspaceConfigurationViewModel
         var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
         if (IsRun) return defaults.Any(value => value.keyName == key)
             ? "This parameter already has a default. Open its defining node to edit it."
+            : !QueryKeys(setup).Contains(key) ? "Only project query keys can have run spans. Set a fixed default on the project or select this query key there."
             : FunctionGridRequirements(setup)?.Any(value => value.Name == key) == true ? "" : "Choose a function that requires this parameter first.";
+        if (IsProject && QueryKeys(setup).Contains(key)) return "This is a project query key. Supply its span on each run instead of a default.";
         if ((setup ? SetupParameterDefaults : ResultsParameterDefaults).Any(value => value.Key == key)) return "";
         if (defaults.Any(value => value.keyName == key)) return "This parameter already has an inherited default. Open its defining node to edit it.";
-        if (IsProject && childEditors().Any(child => child.ActiveParameters(setup).Any(span => span.Key == key)))
-            return "This parameter is supplied by child run spans. Remove those spans before adding a project default.";
         return FunctionGridRequirements(setup)?.Any(value => value.Name == key) == true ? "" : "Choose a function that requires this parameter first.";
     }
     internal bool PrepareMissingFunctionParameter(string key, bool setup)

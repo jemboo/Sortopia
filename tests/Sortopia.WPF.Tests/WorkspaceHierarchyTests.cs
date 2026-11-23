@@ -42,6 +42,8 @@ public sealed class WorkspaceHierarchyTests : IDisposable
     internal static run FromRunDto(runDto value, string projectName = "Project")
     {
         var settings = ProjectSettings(value.runKind == "branch");
+        foreach (var output in settings.resultsDataTypes) output.queryParameterKeys = value.resultsParameterSpans.Select(span => span.keyName).ToArray();
+        foreach (var output in settings.setupDataTypes) output.queryParameterKeys = value.setupParameterSpans.Select(span => span.keyName).ToArray();
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !value.resultsParameterSpans.Any(span => span.keyName == binding.keyName)).ToArray();
         settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !value.setupParameterSpans.Any(span => span.keyName == binding.keyName)).ToArray();
         return RunDto.toDomain(project.create(value.parentProjectId, projectName, SettingsDto.toDomain(value.runKind == "branch" ? hierarchyKind.Branch : hierarchyKind.Root, settings), []), value);

@@ -65,6 +65,7 @@ public sealed class EvaluationChannelCountTests
         module.Editor!.LoadProject(settings);
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch);
         module.Children.Add(project);
+        foreach (var key in project.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys).ToArray()) key.Selected = true;
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Full", family: hierarchyKind.Branch);
         project.Children.Add(run);
         run.Editor!.LoadRun(new runDto {

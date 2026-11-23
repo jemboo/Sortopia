@@ -175,6 +175,8 @@ public sealed class WorkspaceParameterNavigationTests
                 module.Editor.ResultsFunctionName = ResultsFunctionNames.standardSortableTests;
                 WorkspaceParameterInheritanceTests.AddDefault(module.Editor, "ChannelCount", "64", !setup);
                 var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
+                if (kind == WorkspaceEntityKind.Run)
+                    foreach (var key in (setup ? project.Editor!.SetupQueryOutputs : project.Editor!.ResultsQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
                 var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
                 var node = kind == WorkspaceEntityKind.Module ? module : kind == WorkspaceEntityKind.Project ? project : run;
                 var phase = setup ? "Setup" : "Results";

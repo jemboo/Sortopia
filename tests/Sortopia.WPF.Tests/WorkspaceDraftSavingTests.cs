@@ -95,6 +95,7 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
 
         Assert.Single(restoredSpans).RemoveCommand.Execute(null);
         var projectEditor = Project(reopened).Editor!;
+        foreach (var key in (setup ? projectEditor.SetupQueryOutputs : projectEditor.ResultsQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = false;
         Assert.Single(setup ? projectEditor.ExcludedSetupDefaults : projectEditor.ExcludedResultsDefaults).RestoreCommand.Execute(null);
         defaults = setup ? Module(reopened).Editor!.SetupParameterDefaults : Module(reopened).Editor!.ResultsParameterDefaults;
         defaults.Single(row => row.Key == "ChannelCount").Value.Text = "4";

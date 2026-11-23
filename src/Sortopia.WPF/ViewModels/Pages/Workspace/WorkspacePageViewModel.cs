@@ -342,6 +342,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         for (var suffix = 2; parent.HasChildIdentity(kind, name); suffix++) name = stem + " " + suffix;
         var child = new WorkspaceTreeNode(kind, name, family: childFamily);
         parent.Children.Add(child);
+        if (child.IsRun) child.Editor!.InitializeQuerySpans();
         Selected = child;
         Status = $"Added {kind.ToString().ToLowerInvariant()} to the definition. Choose Save workspace to save it.";
     }

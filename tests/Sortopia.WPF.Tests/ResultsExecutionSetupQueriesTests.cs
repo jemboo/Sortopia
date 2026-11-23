@@ -60,6 +60,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "2", "10");
         WorkspaceParameterSetsPreviewTests.AddSpan(run, sgd ? "OrthoRate" : "SorterEvalType", false, sgd ? ["1", "2"] : ["V1", "V2"]);
         project.Editor!.SetupQueryOutputs.Single(row => row.Kind == "SorterModelSet").Keys.Single(key => key.Key == "Repl").Selected = true;
+        project.Editor.SetupQueryOutputs.Single(row => row.Kind == "SortableTests").Keys.Single(key => key.Key == "Repl").Selected = false;
         if (sgd)
             foreach (var output in project.Editor.ResultsQueryOutputs) output.Keys.Single(key => key.Key == "OrthoRate").Selected = true;
         else Assert.Single(Assert.Single(project.Editor.ResultsQueryOutputs).Keys).Selected = true;

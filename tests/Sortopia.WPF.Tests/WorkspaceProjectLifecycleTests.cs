@@ -27,11 +27,13 @@ public sealed class WorkspaceProjectLifecycleTests : IDisposable
     {
         var page = await Create();
         Assert.False(page.Selected!.Parent!.IsSealed);
+        page.Selected.Parent.Editor!.ResultsQueryOutputs.Single().Keys.Single(key => key.Key == "ChannelCount").Selected = false;
+        await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError);
         page = Open(); WorkspaceRunExecutionTests.SelectRun(page);
         var run = page.Selected!; var parent = run.Parent!;
         Assert.False(parent.IsSealed); Assert.True(parent.Editor!.CanEditQuerySelection); Assert.False(run.Editor!.CanEditQuerySelection);
         Assert.Single(parent.Editor.ResultsQueryOutputs).Keys.Single(key => key.Key == "ChannelCount").Selected = true;
-        Assert.False(page.GenerateRunParametersCommand.CanExecute(null)); Assert.Contains("Save the changes to project", page.GenerationHint);
+        Assert.False(page.GenerateRunParametersCommand.CanExecute(null)); Assert.Contains("Saved run '16and18'", page.GenerationHint);
         await page.SaveWorkspaceAsync(); WorkspaceRunExecutionTests.SelectRun(page);
         Assert.False(page.Selected!.Parent!.IsSealed);
         page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null);

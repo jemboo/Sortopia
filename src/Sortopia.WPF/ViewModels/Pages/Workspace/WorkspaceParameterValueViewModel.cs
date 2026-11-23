@@ -120,7 +120,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     public RelayCommand RemoveCommand { get; }
     public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Choose a required parameter key."
         : requirements() is { } required && !required.Any(value => value.Name == Key) ? $"‘{Key}’ is not required by the selected function. Remove this default or choose one of its required keys."
-        : spanKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is already supplied by a run span. Defaults and spans must use different keys." : "";
+        : spanKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is a project query key and must be supplied by a run span. Defaults and spans must use different keys." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
     private void RowChanged() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
     internal void RefreshSource() { RefreshKeyChoices(); Value.RefreshType(); RemoveCommand.RaiseCanExecuteChanged(); OnPropertyChanged(""); }

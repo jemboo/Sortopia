@@ -132,6 +132,7 @@ public sealed class PrefixModelWeightsTests
             editor.ResultsParameterDefaults.Single(row => row.Key == key).RemoveCommand.Execute(null);
             if (model == "msuf4") editor.ResultsParameterDefaults.Single(row => row.Key == "SelfSymGenRate").Value.Text = "0";
             page.AddProjectCommand.Execute(null); var projectId = page.Selected!.Id;
+            page.Selected.Editor!.ResultsQueryOutputs.Single().Keys.Single(row => row.Key == key).Selected = true;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
             run.Editor!.AddMissingResultsParametersCommand.Execute(null);
             var span = Assert.Single(run.Editor.ResultsParameters); Assert.Equal(key, span.Key);

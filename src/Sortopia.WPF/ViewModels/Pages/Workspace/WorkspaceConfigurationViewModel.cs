@@ -32,13 +32,16 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
     private string key;
     private readonly Func<string, parameterBindingDto?> defaultValue;
     private readonly Func<IEnumerable<string>> suggestedKeys;
+    private readonly Func<IEnumerable<string>>? queryKeys;
     private string[] keyChoices = [];
     public WorkspaceParameterSpan(string key, IEnumerable<string> values, Action<WorkspaceParameterSpan> remove, Func<string, parameterBindingDto?> defaultValue,
-        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<functionParameterSupport?>? support = null)
+        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<functionParameterSupport?>? support = null,
+        Func<IEnumerable<string>>? queryKeys = null)
     {
         this.key = key; this.defaultValue = defaultValue; this.suggestedKeys = suggestedKeys ?? (() => []);
         this.requirements = requirements ?? (() => null);
         this.support = support;
+        this.queryKeys = queryKeys;
         Watch(Values, ValuesChanged);
         foreach (var value in values) AddValue(value);
         AddValueCommand = new RelayCommand(() => AddValue(""));
@@ -62,6 +65,7 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
     public string Error => defaultValue(Key) is not null ? $"‘{Key}’ already has a default. Remove this span or exclude the default on the project."
         : string.IsNullOrWhiteSpace(Key) ? "Enter a parameter key."
         : requirements() is { } required && !required.Any(value => value.Name == Key) ? $"‘{Key}’ is not required by the selected function. Remove this span or choose one of its required keys."
+        : queryKeys is not null && !queryKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is not a project query key. Select it on the project, or supply a fixed default and remove this span."
         : Values.Count == 0 ? "Add at least one value. Blank values are allowed for text parameters."
         : Values.Select(value => value.Error).FirstOrDefault(error => error.Length > 0) ?? "";
     public parameterValueType ValueType => requirements()?.FirstOrDefault(value => value.Name == Key)?.ValueType
@@ -69,10 +73,11 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
     public string TypeLabel => ParameterValue.label(ValueType);
     public string ValueHint => WorkspaceParameterRules.Hint(support?.Invoke(), Key, ValueType);
     public string DefaultHint => defaultValue(Key) is { } value ? $"Conflicts with default: {value.value}"
-        : "Additional parameter; its values are included in the combinations.";
+        : queryKeys is not null ? "Project query parameter; supply one or more values in this run." : "Additional parameter; its values are included in the combinations.";
     internal void RefreshInherited()
     {
         var choices = (requirements() is { } required ? required.Select(value => value.Name) : WorkspaceParameterBinding.KnownKeys.Concat(suggestedKeys()).Append(Key))
+            .Where(value => queryKeys is null || queryKeys().Contains(value, StringComparer.Ordinal))
             .Where(value => !string.IsNullOrWhiteSpace(value) && defaultValue(value) is null).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (!keyChoices.SequenceEqual(choices)) keyChoices = choices;
         foreach (var value in Values) value.RefreshType();
@@ -375,7 +380,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string Title => IsModule ? "Module defaults" : IsProject ? "Project defaults" : "Run inputs";
     public string Hint => IsReadOnly ? "Settings are locked while descendant runs have generated parameter files. Remove those files or runs to edit again; save run removals to finish deleting their files." : IsDefaults
         ? "Parameter defaults inherit by key. Setup source choices inherit independently by data type. Each local override replaces only its matching inherited value."
-        : "Functions and defaults come from the parent project. Override the description and supply spans for the functions’ required parameters.";
+        : "Functions and defaults come from the parent project. Supply spans for exactly its query keys; other required parameters use fixed defaults.";
     public string Description { get => DescriptionOverride.EffectiveValue; set => DescriptionOverride.SetLocal(value); }
     public string ResultsDatabaseName { get => ResultsDatabaseOverride.EffectiveValue; set { if (IsProject) ResultsDatabaseOverride.SetLocal(value); } }
     public string ResultsFunctionName { get => frozenSettings?.resultsFunctionName ?? ResultsFunctionOverride.EffectiveValue; set { if (IsModule) ResultsFunctionOverride.SetLocal(value); } }
@@ -396,7 +401,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private string RequirementsHint(bool setup) => setup && SetupParametersFromSources && SourceSetupKeys.Length == 0
         ? "Choose source projects for SorterModelSet and SortableTests. Their results query keys determine the setup parameters; no models or tests are generated."
         : Requirements(setup) is { } required
-        ? "Required parameters: " + string.Join(", ", required.Select(key => $"{key.Name} ({ParameterValue.label(key.ValueType)})")) + ". Supply each through exactly one default or run span. Defaults and spans cannot share keys. Each query key needs an explicit span."
+        ? "Required parameters: " + string.Join(", ", required.Select(key => $"{key.Name} ({ParameterValue.label(key.ValueType)})")) + ". Project query keys require run spans. All other required parameters need fixed defaults. Defaults and spans cannot share keys."
         : "Select a catalog function on a module to define the required parameter keys.";
     private parameterBindingDto[] InheritedDefaults(bool setup)
     {
@@ -604,9 +609,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         : values.Distinct(StringComparer.Ordinal).Count() != values.Length ? "Query keys must be unique." : "";
     private static string[] MissingKeys(IEnumerable<WorkspaceParameterSpan> spans, IEnumerable<string>? keys) =>
         keys?.Where(key => !string.IsNullOrWhiteSpace(key) && !spans.Any(span => span.Key == key)).Distinct(StringComparer.Ordinal).ToArray() ?? [];
-    private string[] MissingInputKeys(bool setup) => MissingKeys(setup ? SetupParameters : ResultsParameters,
-        QueryKeys(setup).Concat((Requirements(setup)?.Select(key => key.Name) ?? (setup ? RequiredSetupKeys : EffectiveOutputKeys))
-            .Except((setup ? EffectiveSetupDefaults : EffectiveOutputDefaults).Select(value => value.keyName), StringComparer.Ordinal)));
+    private string[] MissingInputKeys(bool setup) => MissingKeys(setup ? SetupParameters : ResultsParameters, QueryKeys(setup));
     private string[] MissingOutputKeys => MissingInputKeys(false);
     private string[] MissingSetupKeys => MissingInputKeys(true);
     private string ParametersError(bool setup)
@@ -686,15 +689,22 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         rows.Add(new(key, values, item => rows.Remove(item), name => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults : EffectiveOutputDefaults).FirstOrDefault(value => value.keyName == name),
             () => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults.Select(value => value.keyName).Concat(RequiredSetupKeys)
                 : EffectiveOutputDefaults.Select(value => value.keyName).Concat(EffectiveOutputKeys)).Concat(rows.Select(row => row.Key)),
-            () => Requirements(ReferenceEquals(rows, SetupParameters)), () => ParameterSupport(ReferenceEquals(rows, SetupParameters))));
+            () => Requirements(ReferenceEquals(rows, SetupParameters)), () => ParameterSupport(ReferenceEquals(rows, SetupParameters)),
+            () => QueryKeys(ReferenceEquals(rows, SetupParameters))));
     private void AddMissing(ObservableCollection<WorkspaceParameterSpan> rows, IEnumerable<string>? keys)
     { foreach (var key in MissingKeys(rows, keys)) AddSpan(rows, key, []); }
+    internal void InitializeQuerySpans()
+    {
+        if (!IsRun || !IsEditable) return;
+        Quietly(() => { AddMissing(ResultsParameters, QueryKeys(false)); if (IsBranch) AddMissing(SetupParameters, QueryKeys(true)); });
+        NotifyChanged();
+    }
     private void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value) =>
         rows.Add(new(value.keyName, (parameterValueType)value.valueType, value.value, item => rows.Remove(item), key => LocalParameterSource(key, ReferenceEquals(rows, SetupParameterDefaults)),
             () => (ReferenceEquals(rows, SetupParameterDefaults) ? EffectiveSetupDefaults : EffectiveOutputDefaults).Select(binding => binding.keyName),
             key => (ReferenceEquals(rows, SetupParameterDefaults) ? Parent?.EffectiveSetupDefaults : Parent?.EffectiveOutputDefaults)?.FirstOrDefault(binding => binding.keyName == key),
             () => Requirements(ReferenceEquals(rows, SetupParameterDefaults)),
-            () => IsProject ? childEditors().SelectMany(child => child.ActiveParameters(ReferenceEquals(rows, SetupParameterDefaults))).Select(span => span.Key) : [], () => !IsReadOnly,
+            () => IsProject ? QueryKeys(ReferenceEquals(rows, SetupParameterDefaults)) : [], () => !IsReadOnly,
             () => ParameterSupport(ReferenceEquals(rows, SetupParameterDefaults))));
     private void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }

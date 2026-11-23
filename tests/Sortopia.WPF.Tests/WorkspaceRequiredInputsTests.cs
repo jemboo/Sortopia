@@ -30,6 +30,8 @@ public sealed class WorkspaceRequiredInputsTests
         Assert.Equal(2, Coverage().DefaultCount); Assert.Equal(0, Coverage().NeedsSpanCount);
         Assert.Empty(setup ? editor.SetupParameters : editor.ResultsParameters);
         (setup ? project.Editor!.InheritedSetupDefaults : project.Editor!.InheritedOutputDefaults).Single(row => row.Key == "ChannelCount").ExcludeCommand!.Execute(null);
+        Assert.Equal("Needs default", Coverage().Rows.Single(row => row.Key == "ChannelCount").Status);
+        (setup ? project.Editor.SetupQueryOutputs : project.Editor.ResultsQueryOutputs).Single().Keys.Single(key => key.Key == "ChannelCount").Selected = true;
         Assert.Equal(1, Coverage().DefaultCount); Assert.Equal(1, Coverage().NeedsSpanCount);
         var fixedValue = Coverage().Rows.Single(row => row.Key == "SortableDataFormat");
         Assert.Equal("Supplied by default", fixedValue.Status); Assert.Equal("Bools", fixedValue.Detail);
@@ -49,6 +51,7 @@ public sealed class WorkspaceRequiredInputsTests
         Assert.Equal("Default/span conflict", Coverage().Rows.Single(row => row.Key == "ChannelCount").Status);
         Assert.Equal(1, Coverage().OtherIssueCount);
         span.RemoveCommand.Execute(null);
+        (setup ? project.Editor.SetupQueryOutputs : project.Editor.ResultsQueryOutputs).Single().Keys.Single(key => key.Key == "ChannelCount").Selected = false;
         Assert.Equal(2, Coverage().DefaultCount);
     }
 
@@ -59,6 +62,7 @@ public sealed class WorkspaceRequiredInputsTests
         module.Editor.AddResultsParameterDefaultCommand.Execute(null);
         var format = module.Editor.ResultsParameterDefaults.Single(); format.Key = "SortableDataFormat"; format.Value.Text = "Bools";
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Prefix tests"); module.Children.Add(project);
+        project.Editor!.ResultsQueryOutputs.Single().Keys.Single(key => key.Key == "PrefixLibId").Selected = true;
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "cc"); project.Children.Add(run);
         var editor = run.Editor!; editor.AddMissingResultsParametersCommand.Execute(null);
         var span = editor.ResultsParameters.Single();
@@ -82,7 +86,7 @@ public sealed class WorkspaceRequiredInputsTests
         var beforeDefaults = editor.ToProjectSettings().setupParameterDefaults;
         foreach (var output in project.Editor!.SetupQueryOutputs.ToArray()) {
             Assert.Equal(new[] { "ChannelCount", "Repl" }, output.Keys.Select(key => key.Key));
-            output.Keys.Single(key => key.Key == (output.Kind == "SortableTests" ? "ChannelCount" : "Repl")).Selected = true;
+            foreach (var key in output.Keys) key.Selected = key.Key == (output.Kind == "SortableTests" ? "ChannelCount" : "Repl");
         }
         var settings = editor.ToProjectSettings();
         Assert.Equal(new[] { "ChannelCount" }, settings.setupDataTypes.Single(output => output.dataType.kind == "SortableTests").queryParameterKeys);
@@ -98,8 +102,7 @@ public sealed class WorkspaceRequiredInputsTests
         var run = PrefixRun(); var editor = run.Editor!;
         Assert.Equal(1, editor.ResultsRequiredInputs.DefaultCount); Assert.Equal(1, editor.ResultsRequiredInputs.SpanCount);
         var output = editor.ResultsQueryOutputs.Single();
-        Assert.True(output.HasEmptyProjection); Assert.Contains("all parameter sets share one output", output.Summary);
-        Assert.Contains("No query keys selected for SortableTests", editor.ResultsProjectionNotice);
+        Assert.False(output.HasEmptyProjection); Assert.Empty(editor.ResultsProjectionNotice);
         var key = Assert.Single(output.Keys); Assert.Equal("PrefixLibId", key.Key);
         Assert.False(key.CanChange);
         run.Parent!.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;

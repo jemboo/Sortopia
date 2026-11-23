@@ -96,14 +96,16 @@ public sealed class DisjointParameterInputsTests
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
     [Fact]
-    public void Project_query_selection_must_be_available_in_every_child_run()
+    public void Project_query_selection_is_available_before_every_child_has_spans()
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module"); module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
         var first = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "First"); project.Children.Add(first);
         WorkspaceParameterSetsPreviewTests.AddSpan(first, "ChannelCount", false, "8");
         var second = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Second"); project.Children.Add(second);
-        Assert.Empty(project.Editor!.ResultsQueryOutputs.Single().Keys);
+        var choice = Assert.Single(project.Editor!.ResultsQueryOutputs.Single().Keys);
+        Assert.True(choice.Available); Assert.True(choice.Selected);
+        Assert.Contains("ChannelCount", second.Editor!.ResultsParametersError);
         WorkspaceParameterSetsPreviewTests.AddSpan(second, "ChannelCount", false, "4");
         Assert.Equal("ChannelCount", Assert.Single(project.Editor.ResultsQueryOutputs.Single().Keys).Key);
     }

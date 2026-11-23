@@ -54,12 +54,12 @@ public sealed partial class WorkspaceConfigurationViewModel
     private resultsDataTypeConfigDto[] resultsQueries = [], setupQueries = [];
     public bool ShowQueryConfiguration => !IsModule;
     public bool CanEditQuerySelection => IsProject && IsEditable;
-    private string QuerySelectionGuidance => CanEditQuerySelection ? "Select span keys to distinguish those outputs."
+    private string QuerySelectionGuidance => CanEditQuerySelection ? "Select query keys here, then supply their spans in each run. Remove or exclude a parameter's default before selecting it."
         : IsRun && Parent is { IsEditable: true } ? "Edit query projections on the project before generating run parameters."
         : "Remove generated parameter files from every run in the project to resume editing, or create a new version to choose different query keys.";
     public string QueryConfigurationHint => IsModule ? "Query keys are selected on each project."
         : IsRun ? $"Inherited from project ‘{Parent?.Name}’ · Read-only on this run. Every selected key requires an explicit span in this run. {QuerySelectionGuidance}"
-        : CanEditQuerySelection ? $"Project ‘{Name}’: choose query keys from explicit spans shared by its runs. Add run spans first. Each output can use a different subset. Choices are fixed when run parameters are generated."
+        : CanEditQuerySelection ? $"Project ‘{Name}’: choose query keys before creating runs. Each output can use a different subset. Every run must supply exactly the combined query keys for each phase; other required parameters need fixed defaults. Choices are fixed when run parameters are generated."
         : "Query keys are locked while this project has generated parameter files. Remove them from all its runs to resume editing, or create a new version. Every selected key requires an explicit span in each run.";
     public IEnumerable<WorkspaceOutputQuery> ResultsQueryOutputs => QueryRows(false);
     public IEnumerable<WorkspaceOutputQuery> SetupQueryOutputs => QueryRows(true);
@@ -108,15 +108,13 @@ public sealed partial class WorkspaceConfigurationViewModel
     {
         var owner = IsRun ? Parent : this;
         if (owner is null) return [];
-        var runs = owner.childEditors().Where(child => child.IsRun).ToArray();
-        if (runs.Length == 0) return [];
-        var keys = runs.Select(run => run.ActiveParameters(setup).Where(span => span.Error.Length == 0).Select(span => span.Key).ToHashSet(StringComparer.Ordinal)).ToArray();
         var defaults = (setup ? owner.EffectiveSetupDefaults : owner.EffectiveOutputDefaults).Select(value => value.keyName);
-        return keys[0].Where(key => keys.All(set => set.Contains(key))).Except(defaults, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return (owner.Requirements(setup) ?? []).Select(key => key.Name).Except(defaults, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     }
     private void SetQueryKey(sortopiaDataTypeDto type, bool setup, string key, bool selected)
     {
         if (!CanEditQuerySelection || selected && !QueryCandidates(setup).Contains(key, StringComparer.Ordinal)) return;
+        if (selected && (setup ? EffectiveSetupDefaults : EffectiveOutputDefaults).Any(value => value.keyName == key)) return;
         if (setup && SetupParametersFromSources && selected && !SourceKeysFor(EffectiveSetupDataTypes.Single(entry => SameType(entry.dataType, type))).Contains(key, StringComparer.Ordinal)) return;
         var entries = (setup ? setupQueries : resultsQueries).Where(entry => !SameType(entry.dataType, type)).ToList();
         var keys = SelectedQueryKeys(type, setup).ToHashSet(StringComparer.Ordinal);
@@ -135,11 +133,15 @@ public sealed partial class WorkspaceConfigurationViewModel
             var chosen = output.queryParameterKeys;
             var sourceKeys = setup && SetupParametersFromSources ? SourceKeysFor(EffectiveSetupDataTypes.Single(entry => SameType(entry.dataType, output.dataType))) : null;
             var availableForOutput = sourceKeys is null ? available : available.Intersect(sourceKeys, StringComparer.Ordinal).ToArray();
-            var keys = availableForOutput.Concat(chosen).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(key => {
-                var supplied = IsRun ? ActiveParameters(setup).Any(span => span.Key == key && span.Error.Length == 0) : available.Contains(key, StringComparer.Ordinal);
+            var keys = (IsRun ? chosen : availableForOutput.Concat(chosen)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(key => {
+                var supported = availableForOutput.Contains(key, StringComparer.Ordinal);
+                var supplied = IsRun && ActiveParameters(setup).Any(span => span.Key == key && span.Error.Length == 0);
                 var fromSource = sourceKeys is null || sourceKeys.Contains(key, StringComparer.Ordinal);
-                var status = !fromSource ? "Not a query key of this source" : defaults.Contains(key) ? "Conflict: supplied by a default" : supplied ? "Explicit span supplied" : "Missing explicit span";
-                return new WorkspaceQueryKeyChoice(key, chosen.Contains(key, StringComparer.Ordinal), supplied && fromSource, CanEditQuerySelection, status,
+                var status = !fromSource ? "Not a query key of this source" : defaults.Contains(key) ? "Remove or exclude its default to use a query key"
+                    : !supported ? "Not required by this function"
+                    : IsRun ? supplied ? "Explicit span supplied" : "Missing explicit span"
+                    : chosen.Contains(key, StringComparer.Ordinal) ? "Requires a span in every run" : "Available query key";
+                return new WorkspaceQueryKeyChoice(key, chosen.Contains(key, StringComparer.Ordinal), supported && fromSource && !defaults.Contains(key), CanEditQuerySelection, status,
                     selected => SetQueryKey(output.dataType, setup, key, selected));
             }).ToArray();
             var inherited = setup ? [] : InheritedSetupQueries(output.dataType);

@@ -55,7 +55,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
                 var required = setup ? SetupFunctionCatalog.require(editor.SetupFunctionName).RequiredParameters : ResultsFunctionCatalog.require(editor.ResultsFunctionName).RequiredParameters;
                 var spans = setup ? editor.SetupParameters : editor.ResultsParameters;
                 var defaults = setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults;
-                foreach (var key in required.Where(key => !spans.Any(span => span.Key == key.Name) && !defaults.Any(value => value.Key == key.Name))) {
+                foreach (var key in required.Where(key => !spans.Any(span => span.Key == key.Name && span.Values.Count > 0) && !defaults.Any(value => value.Key == key.Name))) {
                     var source = node.Parent!.Children.Where(sibling => !ReferenceEquals(sibling, node)).SelectMany(sibling => setup ? sibling.Editor!.SetupParameters : sibling.Editor!.ResultsParameters).FirstOrDefault(span => span.Key == key.Name);
                     if (source is not null) WorkspaceParameterSetsPreviewTests.AddSpan(node, key.Name, setup, source.Values.Take(1).Select(value => value.Text).ToArray());
                 }
@@ -85,7 +85,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     }
     internal static async Task<runExecutionReport> GenerateAndExecuteAsync(WorkspacePageViewModel workspace)
     {
-        await workspace.GenerateRunParametersAsync(); Assert.Empty(workspace.Error);
+        await workspace.GenerateRunParametersAsync(); Assert.True(workspace.Error.Length == 0, workspace.Error);
         using var page = await OpenExecutionAsync(workspace);
         page.SelectAllCommand.Execute(null); await page.ExecuteAsync(); Assert.Empty(page.Error);
         return page.LastReport!;

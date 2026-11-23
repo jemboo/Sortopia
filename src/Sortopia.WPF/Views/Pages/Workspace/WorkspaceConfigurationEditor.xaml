@@ -267,7 +267,7 @@
                     </DockPanel>
                     <ComboBox x:Name="ParameterKeyInput" ItemsSource="{Binding KeyChoices}" IsEditable="True" IsReadOnly="True" IsTextSearchEnabled="True"
                               Text="{Binding Key, Mode=OneWay}" SelectedItem="{Binding SelectedKey, Mode=TwoWay}" MaxDropDownHeight="260"
-                              ToolTip="Choose a required key that has no default. The key determines its value editor and validation." AutomationProperties.Name="Parameter key" />
+                              ToolTip="Choose a project query key. Other required parameters use fixed project or module defaults." AutomationProperties.Name="Parameter key" />
                     <TextBlock Text="{Binding TypeLabel}" Style="{StaticResource Help}" />
                     <TextBlock Text="{Binding DefaultHint}" Style="{StaticResource Help}" />
                     <TextBlock Text="Values" Margin="0,10,0,4" />

@@ -75,6 +75,9 @@ public sealed class ExplicitQuerySpanTests
         // Explicitly removing inheritance does not supply span values.
         foreach (var value in (setup ? project.Editor!.InheritedSetupDefaults : project.Editor!.InheritedOutputDefaults).ToArray()) value.ExcludeCommand!.Execute(null);
         addMissing.Execute(null);
+        Assert.Empty(rows);
+        foreach (var key in (setup ? project.Editor!.SetupQueryOutputs : project.Editor!.ResultsQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
+        addMissing.Execute(null);
         Assert.Equal(2, rows.Count); Assert.All(rows, span => Assert.Empty(span.Values));
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         Assert.Equal(2, (setup ? module.Editor.SetupParameterDefaults : module.Editor.ResultsParameterDefaults).Count);

@@ -30,10 +30,10 @@ public sealed class WorkspaceQueryInheritanceTests
             Assert.Contains("Inherited from project ‘Shared queries’", run.Editor.QueryConfigurationHint);
             Assert.Contains("Read-only", run.Editor.QueryConfigurationHint);
             Assert.False(Key(run).CanChange);
-            Key(run).Selected = true;
-            Assert.False(Key(run).Selected);
-            Assert.False(Key(project).Selected);
-            Assert.Contains("Edit query projections on the project", Output(run).Summary);
+            Key(run).Selected = false;
+            Assert.True(Key(run).Selected);
+            Assert.True(Key(project).Selected);
+            Assert.Contains("Edit query projections on the project", run.Editor.QueryConfigurationHint);
         }
         Key(project).Selected = true;
         foreach (var run in new[] { first, second })
@@ -44,7 +44,9 @@ public sealed class WorkspaceQueryInheritanceTests
             Assert.True(Key(project).Selected);
         }
         Key(project).Selected = false;
-        Assert.False(Key(first).Selected); Assert.False(Key(second).Selected);
+        Assert.Empty(Output(first).Keys); Assert.Empty(Output(second).Keys);
+        Assert.NotEmpty(first.Editor!.ResultsParameters.Concat(first.Editor.SetupParameters));
+        Key(project).Selected = true;
         project.Editor.Freeze();
         Assert.False(project.Editor.CanEditQuerySelection);
         Assert.False(Key(first).CanChange);

@@ -22,7 +22,7 @@ public sealed class WorkspaceResultsSetupQueryTests
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "0", "1");
         foreach (var output in project.Editor!.SetupQueryOutputs.ToArray())
             foreach (var key in output.Keys)
-                if (key.Key == "ChannelCount" || output.Kind == "SorterModelSet" && key.Key == "Repl") key.Selected = true;
+                key.Selected = key.Key == "ChannelCount" || output.Kind == "SorterModelSet" && key.Key == "Repl";
         return (module, project, run);
     }
 
@@ -56,6 +56,7 @@ public sealed class WorkspaceResultsSetupQueryTests
     {
         var (_, project, run) = Evaluation();
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "SorterEvalType", false, "V1", "V2");
+        Assert.Single(Assert.Single(project.Editor!.ResultsQueryOutputs).Keys).Selected = false;
         Assert.Contains("No additional results query keys", run.Editor!.ResultsProjectionNotice);
         Assert.Contains("Different setup files", run.Editor.ResultsProjectionNotice);
         Assert.Single(Assert.Single(project.Editor!.ResultsQueryOutputs).Keys).Selected = true;

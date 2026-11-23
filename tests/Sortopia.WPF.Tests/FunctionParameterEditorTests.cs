@@ -99,6 +99,7 @@ public sealed class FunctionParameterEditorTests
         parent.SetupParameterDefaults.Single(row => row.Key == "OrthoGenRate").RemoveCommand.Execute(null);
 
         var project = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Project, true, () => parent, () => "Project", () => [models, tests]);
+        project.SetupQueryOutputs.Single(row => row.Kind == "SorterModelSet").Keys.Single(row => row.Key == "OrthoGenRate").Selected = true;
         var run = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Run, true, () => project, () => "Run", () => [models, tests]);
         run.AddMissingSetupParametersCommand.Execute(null);
         var rate = Assert.Single(run.SetupParameters);

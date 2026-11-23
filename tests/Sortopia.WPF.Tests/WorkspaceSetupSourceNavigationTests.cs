@@ -110,6 +110,8 @@ public sealed class WorkspaceSetupSourceNavigationTests
                 Assert.False(SourceToggle("SortableTests").IsChecked);
                 Assert.Empty(owner.Editor!.SetupParameterDefaults); Assert.Empty(run.Editor!.SetupParameters);
                 SourceInput("SorterModelSet").SelectedValue = models.Id; Draw();
+                if (node.IsRun)
+                    project.Editor!.SetupQueryOutputs.Single(output => output.Kind == "SorterModelSet").Keys.Single(key => key.Key == "ChannelCount").Selected = true;
                 module.Editor.ResultsFunctionName = ResultsFunctionNames.sorterEval;
                 Show(node); Assert.Equal("Models project", Row("SorterModelSet").Value);
                 Assert.Equal(WorkspaceParameterSupply.Default, Row("SorterModelSet").Supply);
