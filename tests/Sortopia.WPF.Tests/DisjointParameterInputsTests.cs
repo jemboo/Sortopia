@@ -37,7 +37,7 @@ public sealed class DisjointParameterInputsTests
         Assert.DoesNotContain(setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults, value => value.Key == "ChannelCount");
         var span = Assert.Single(setup ? editor.SetupParameters : editor.ResultsParameters);
         Assert.Equal("ChannelCount", span.Key); Assert.Equal("8", Assert.Single(span.Values).Text);
-        Assert.DoesNotContain("SortableDataFormat", span.KeyChoices);
+        Assert.DoesNotContain("SortableDataFormat", editor.PhaseContract(setup).SpanKeys);
         var output = (setup ? project.Editor!.SetupQueryOutputs : project.Editor!.ResultsQueryOutputs).Single();
         var query = Assert.Single(output.Keys); Assert.Equal("ChannelCount", query.Key); Assert.True(query.CanChange);
         query.Selected = true;
@@ -52,8 +52,8 @@ public sealed class DisjointParameterInputsTests
         var restored = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Restored", family: hierarchyKind.Branch); module.Children.Add(restored);
         restored.Editor!.LoadOverrides(OverridesDto.fromDomain(OverridesDto.toDomain(hierarchyKind.Branch, local)));
         Assert.Equal(new[] { "SortableDataFormat" }, (setup ? restored.Editor.ToProjectSettings().setupParameterDefaults : restored.Editor.ToProjectSettings().resultsParameterDefaults).Select(value => value.keyName));
-        span.RemoveCommand.Execute(null);
-        Assert.Contains("explicit", setup ? editor.SetupParametersError : editor.ResultsParametersError);
+        Assert.False(span.RemoveCommand.CanExecute(null)); span.Values.Clear();
+        Assert.Contains("Add at least one value", setup ? editor.SetupParametersError : editor.ResultsParametersError);
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
     }
     [Fact]
@@ -75,9 +75,9 @@ public sealed class DisjointParameterInputsTests
                 var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
                 var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
                 var editor = run.Editor!;
-                editor.AddResultsParameterCommand.Execute(null);
+                editor.AddDraftSpan(false);
                 var invalid = editor.ResultsParameters.Single(); invalid.Key = "ChannelCount"; invalid.Values[0].Text = "8";
-                Assert.DoesNotContain("ChannelCount", invalid.KeyChoices); Assert.Contains("already has a default", invalid.Error);
+                Assert.True(invalid.IsRepair); Assert.Contains("already has a default", invalid.Error);
                 Assert.Empty(editor.ResultsParameterSetsPreview.Rows); invalid.RemoveCommand.Execute(null);
                 WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", false, "8");
                 project.Editor!.ResultsQueryOutputs.Single().Keys.Single().Selected = true;

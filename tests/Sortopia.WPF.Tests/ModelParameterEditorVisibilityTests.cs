@@ -78,9 +78,9 @@ public sealed class ModelParameterEditorVisibilityTests
     {
         var (module, _, run) = Hierarchy(); Family(module.Editor!, setup, "SimpleR");
         var initial = WorkspaceParameterSetsPreviewTests.AddSpan(run, "AInitial", setup, "-1", "1");
-        Assert.Contains("AInitial", initial.KeyChoices);
-        Assert.DoesNotContain("ActivationProbability", initial.KeyChoices);
-        Assert.DoesNotContain("SorterModelType", initial.KeyChoices);
+        Assert.Contains("AInitial", run.Editor!.PhaseContract(setup).SpanKeys);
+        Assert.DoesNotContain("ActivationProbability", run.Editor.PhaseContract(setup).SpanKeys);
+        Assert.DoesNotContain("SorterModelType", run.Editor.PhaseContract(setup).SpanKeys);
         Assert.Empty(setup ? run.Editor!.SetupParametersError : run.Editor!.ResultsParametersError);
         Assert.Equal(2, (setup ? run.Editor.SetupParameterSetsPreview : run.Editor.ResultsParameterSetsPreview).Rows.Count());
         initial.Values[1].Text = "2";

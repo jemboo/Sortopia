@@ -59,7 +59,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     private readonly Func<IEnumerable<string>> suggestedKeys;
     private readonly Func<string, parameterBindingDto?> inheritedValue;
     private readonly Func<paramKeyDescriptor[]?> requirements;
-    private readonly Func<IEnumerable<string>> spanKeys;
+    private readonly Func<IEnumerable<string>> queryKeys;
     private string[] keyChoices = [];
     private string key;
     private parameterValueType customType;
@@ -68,14 +68,14 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
         .Select(type => new WorkspaceParameterTypeChoice(type, ParameterValue.label(type))).ToArray();
     public WorkspaceParameterBinding(string key, parameterValueType type, string value, Action<WorkspaceParameterBinding> remove,
         Func<string, WorkspaceParameterValueSource>? source = null, Func<IEnumerable<string>>? suggestedKeys = null,
-        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? spanKeys = null, Func<bool>? canEdit = null,
+        Func<string, parameterBindingDto?>? inheritedValue = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<IEnumerable<string>>? queryKeys = null, Func<bool>? canEdit = null,
         Func<functionParameterSupport?>? support = null)
     {
         this.canEdit = canEdit ?? (() => true);
         this.key = key; customType = type; this.source = source;
         this.suggestedKeys = suggestedKeys ?? (() => []); this.inheritedValue = inheritedValue ?? (_ => null);
         this.requirements = requirements ?? (() => null);
-        this.spanKeys = spanKeys ?? (() => []);
+        this.queryKeys = queryKeys ?? (() => []);
         Value = new(value, () => ValueType, key: () => Key, canEdit: this.canEdit, support: support);
         Value.Changed += RowChanged;
         RemoveCommand = new RelayCommand(() => { if (this.canEdit()) remove(this); }, this.canEdit);
@@ -103,7 +103,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     private void RefreshKeyChoices()
     {
         var choices = (requirements() is { } required ? required.Select(value => value.Name) : KnownKeys.Concat(suggestedKeys()).Append(Key)).Where(value => !string.IsNullOrWhiteSpace(value))
-            .Except(spanKeys(), StringComparer.Ordinal)
+            .Except(queryKeys(), StringComparer.Ordinal)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (keyChoices.SequenceEqual(choices)) return;
         keyChoices = choices; OnPropertyChanged(nameof(KeyChoices));
@@ -120,7 +120,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
     public RelayCommand RemoveCommand { get; }
     public string KeyError => string.IsNullOrWhiteSpace(Key) ? "Choose a required parameter key."
         : requirements() is { } required && !required.Any(value => value.Name == Key) ? $"‘{Key}’ is not required by the selected function. Remove this default or choose one of its required keys."
-        : spanKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is a project query key and must be supplied by a run span. Defaults and spans must use different keys." : "";
+        : queryKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is a project query key and must be supplied by a run span. Defaults and spans must use different keys." : "";
     public string Error => KeyError.Length > 0 ? KeyError : Value.Error;
     private void RowChanged() { RefreshKeyChoices(); Value.RefreshType(); OnPropertyChanged(""); NotifyChanged(); }
     internal void RefreshSource() { RefreshKeyChoices(); Value.RefreshType(); RemoveCommand.RaiseCanExecuteChanged(); OnPropertyChanged(""); }

@@ -2167,7 +2167,20 @@ public sealed class RandomNetworkTests
     }
 
     [Fact]
-    public void Sgd_channel_picker_and_evaluator_control_apply_to_the_next_run() => OnSta(() =>
+    public async Task Sgd_channel_picker_and_evaluator_control_apply_to_the_next_run()
+    {
+        const string method = nameof(Sgd_channel_picker_and_evaluator_control_apply_to_the_next_run);
+        // Application.Shutdown permanently changes WPF's process-wide state.
+        // Keep the real application lifecycle coverage out of other UI tests' process.
+        if (Environment.GetEnvironmentVariable("SORTOPIA_APPLICATION_TEST") != method)
+        {
+            await ApplicationTestProcess.RunAsync(typeof(RandomNetworkTests), method, TestContext.Current.CancellationToken);
+            return;
+        }
+        OnSta(CheckApplicationControls);
+    }
+
+    private static void CheckApplicationControls()
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         try
@@ -2192,7 +2205,7 @@ public sealed class RandomNetworkTests
             CheckWorkspaceRunExecution();
         }
         finally { app.Shutdown(); }
-    });
+    }
 
     private static void CheckWorkspaceQueryInheritance()
     {
@@ -2468,7 +2481,7 @@ public sealed class RandomNetworkTests
             Assert.Null(fields.FindName("MoveResultsDefaultsToSpansButton"));
             Assert.Null(fields.FindName("MoveSetupDefaultsToSpansButton"));
             var originalDefaults = run.Editor.InheritedOutputDefaults.Select(value => (value.Key, value.Value)).ToArray();
-            run.Editor.AddMissingResultsParametersCommand.Execute(null); Layout();
+            run.Editor.RefreshInherited(); Layout();
             Assert.Empty(run.Editor.ResultsParameters);
             Assert.Equal(originalDefaults, run.Editor.InheritedOutputDefaults.Select(value => (value.Key, value.Value)));
             // Explicit span fixture setup is separate from the UI's default controls.
@@ -3185,10 +3198,10 @@ public sealed class RandomNetworkTests
             var typedSpans = (ItemsControl)FindWorkspaceField(fields, "ResultsParametersList");
             var evaluatorSpan = branchRun.Editor.ResultsParameters.Single(row => row.Key == "SorterEvalType");
             var spanRow = (ContentPresenter)typedSpans.ItemContainerGenerator.ContainerFromItem(evaluatorSpan);
-            var spanPicker = (ComboBox)typedSpans.ItemTemplate.FindName("ParameterKeyInput", spanRow);
-            Assert.True(spanPicker.IsReadOnly);
-            Assert.DoesNotContain("RngType", spanPicker.Items.Cast<string>());
-            Assert.DoesNotContain("ChannelCount", spanPicker.Items.Cast<string>());
+            var spanLabel = (TextBlock)typedSpans.ItemTemplate.FindName("ParameterKeyLabel", spanRow);
+            Assert.Equal("SorterEvalType", spanLabel.Text);
+            Assert.DoesNotContain("RngType", branchRun.Editor.PhaseContract(false).SpanKeys);
+            Assert.DoesNotContain("ChannelCount", branchRun.Editor.PhaseContract(false).SpanKeys);
             var values = (ItemsControl)typedSpans.ItemTemplate.FindName("ParameterValues", spanRow);
             var valueRow = (ContentPresenter)values.ItemContainerGenerator.ContainerFromIndex(0);
             var valueEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceParameterValueEditor)values.ItemTemplate.FindName("ParameterValueEditor", valueRow);
@@ -3223,10 +3236,11 @@ public sealed class RandomNetworkTests
             vm.Selected = branchRun; vm.SelectConfigurationItem("resultsSpans"); LayoutWorkspace();
             branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardSortableTests; LayoutWorkspace();
             Assert.Equal("SorterEvalType", retainedSpan.Key);
-            Assert.DoesNotContain(retainedSpan, branchRun.Editor.ActiveResultsParameters);
+            Assert.DoesNotContain(retainedSpan, branchRun.Editor.DeclaredResultsParameters);
+            Assert.Contains(retainedSpan, branchRun.Editor.RepairResultsParameters);
             branchModule.Editor.ResultsFunctionName = Sortopia.Functions.ResultsFunctionNames.sorterEval; LayoutWorkspace();
             Assert.Contains(retainedDefault, branchProject.Editor.LocalResultsParameterDefaults);
-            Assert.Contains(retainedSpan, branchRun.Editor.ActiveResultsParameters);
+            Assert.Contains(retainedSpan, branchRun.Editor.ResultsParameters);
             Assert.True(save.IsEnabled);
             var overrideEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "DescriptionOverrideEditor");
             var overrideToggle = (CheckBox)overrideEditor.FindName("OverrideToggle");
@@ -3835,7 +3849,8 @@ public sealed class RandomNetworkTests
     private static void OnSta(Action action)
     {
         Exception? error = null;
-        var thread = new Thread(() => { try { action(); } catch (Exception ex) { error = ex; } });
+        var thread = new Thread(() => { try { action(); } catch (Exception ex) { error = ex; }
+            finally { System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread)?.InvokeShutdown(); } });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start(); thread.Join();
         if (error is not null) ExceptionDispatchInfo.Capture(error).Throw();

@@ -82,7 +82,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         Assert.Null(typeof(projectOverridesDto).GetProperty("resultsDataTypes"));
         Assert.Null(typeof(moduleOverridesDto).GetProperty("resultsQueryParameterKeys"));
         Assert.Null(typeof(WorkspaceConfigurationViewModel).GetProperty("AddOutputTypeCommand"));
-        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, run.Editor.ResultsParameters[0].KeyChoices);
+        Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, run.Editor.PhaseContract(false).SpanKeys);
     }
     public void Dispose() => temporary.Delete(true);
 }

@@ -13,34 +13,15 @@ module ParameterSets =
              + ". Remove the span, or remove/exclude the default on the project before using a span."
     /// Run spans implement exactly the project's query keys for this phase.
     let querySpansError (queryKeys: string<paramKeyName> list) (spanKeys: string<paramKeyName> list) =
-        let missing = queryKeys |> List.distinct |> List.filter (fun key -> not (List.contains key spanKeys))
-        let extra = spanKeys |> List.distinct |> List.filter (fun key -> not (List.contains key queryKeys))
-        [ if not missing.IsEmpty then
-              yield "Query keys require explicit parameter spans: " + System.String.Join(", ", missing)
-                    + ". Add a span for each key, using one value if it is fixed. Defaults do not satisfy query keys."
-          if not extra.IsEmpty then
-              yield "Spans must use only the project's query keys. Undeclared span keys: " + System.String.Join(", ", extra)
-                    + ". Select these query keys on the project, or supply fixed defaults and remove the spans." ]
-        |> String.concat " "
+        PhaseParameterContract.spanKeysIssues queryKeys spanKeys |> PhaseParameterContract.messages
     let validateQuerySpans queryKeys (spans: parameterSpan list) =
         let error = querySpansError queryKeys (spans |> List.map (fun span -> span.KeyName))
         if error <> "" then invalidArg "parameterSpans" error
 
     /// Shared by the run editor and execution validation; never inserts spans.
     let inputKeysError (requiredKeys: string<paramKeyName> list) queryKeys (defaultKeys: string<paramKeyName> list) spanKeys =
-        let provided = Set.ofList (defaultKeys @ spanKeys)
-        let required = Set.ofList requiredKeys
-        let extra = Set.difference provided required |> Set.toList
-        let missing = Set.difference required provided |> Set.toList
-        [ if not extra.IsEmpty then
-              yield "Parameters not required by the selected function: " + System.String.Join(", ", extra) + "."
-          let overlap = overlapError defaultKeys spanKeys
-          if overlap <> "" then yield overlap
-          let queryError = querySpansError queryKeys spanKeys
-          if queryError <> "" then yield queryError
-          if not missing.IsEmpty then
-              yield "Missing values for required parameters: " + System.String.Join(", ", missing) + ". Supply spans for project query keys and fixed defaults for all other required parameters." ]
-        |> String.concat " "
+        let contract = PhaseParameterContract.create requiredKeys [queryKeys :> seq<_>]
+        PhaseParameterContract.keyIssues contract defaultKeys spanKeys |> PhaseParameterContract.messages
 
     let validateSpans (bindings: parameterBinding list) (spans: parameterSpan list) =
         ParameterBinding.validateUnique bindings
@@ -50,8 +31,10 @@ module ParameterSets =
         if overlap <> "" then invalidArg "spans" overlap
         if (Set.ofList names).Count <> names.Length then invalidArg "spans" "Parameter spans must have unique key names."
         for span in spans do
-            if String.IsNullOrWhiteSpace (UMX.untag span.KeyName) || span.Values.IsEmpty then
+            if String.IsNullOrWhiteSpace (UMX.untag span.KeyName) then
                 invalidArg "spans" "Each parameter span needs a key and at least one value."
+            let valuesError = PhaseParameterContract.spanValuesIssues span.KeyName span.Values.Length |> PhaseParameterContract.messages
+            if valuesError <> "" then invalidArg "spans" valuesError
             let kind = span.ValueType
             for value in span.Values do
                 let error = ParameterValue.validationError kind value

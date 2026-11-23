@@ -43,7 +43,7 @@ public sealed partial class WorkspaceConfigurationViewModel
                 with { Title = IsModule ? "Results data types" : "Outputs and query keys", Status = IsModule ? "Defined by function" : IsRun ? "Inherited from project" : CanEditQuerySelection ? "Project query choices" : "Locked · generated parameters", Source = IsRun ? Parent : OutputTypesOverride.InheritedSource };
             yield return Defaults(false);
             if (IsRun)
-                yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ActiveResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
+                yield return new("resultsSpans", "Results", "Required parameters and spans", Spans(ResultsParameters), ResultsRequiredInputs.Summary, ResultsParametersError);
         }
         else if (HasParameterDefaults(false)) yield return Defaults(false);
         if (ShowSetupConfiguration)
@@ -53,7 +53,7 @@ public sealed partial class WorkspaceConfigurationViewModel
                 SetupSourcesStatus, FirstError(SetupDataTypesError, SetupQueryKeysError), IsRun ? Parent : null);
             yield return Defaults(true);
             if (IsRun)
-                yield return new("setupSpans", "Setup", "Required parameters and spans", Spans(ActiveSetupParameters), SetupRequiredInputs.Summary, SetupParametersError);
+                yield return new("setupSpans", "Setup", "Required parameters and spans", Spans(SetupParameters), SetupRequiredInputs.Summary, SetupParametersError);
         }
         else if (IsBranch && HasParameterDefaults(true)) yield return Defaults(true);
     }

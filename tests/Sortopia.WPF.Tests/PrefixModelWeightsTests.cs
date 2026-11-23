@@ -134,7 +134,7 @@ public sealed class PrefixModelWeightsTests
             page.AddProjectCommand.Execute(null); var projectId = page.Selected!.Id;
             page.Selected.Editor!.ResultsQueryOutputs.Single().Keys.Single(row => row.Key == key).Selected = true;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
-            run.Editor!.AddMissingResultsParametersCommand.Execute(null);
+            run.Editor!.RefreshInherited();
             var span = Assert.Single(run.Editor.ResultsParameters); Assert.Equal(key, span.Key);
             foreach (var text in model == "msuf4" ? new[] { "0", "3" } : new[] { "0,1,0", "1,0,0" }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = text; }
             Assert.All(span.Values, value => Assert.Equal(model == "msuf6", value.IsWeights));

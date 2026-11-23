@@ -35,7 +35,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
             var source = page.Selected!; source.Name = "Source";
             page.AddRunCommand.Execute(null);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false);
-            configuration.setupDataTypes = [new() { dataType = configuration.resultsDataTypes[0].dataType, sourceProjectId = source.Id, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }];
+            configuration.setupDataTypes = [new() { dataType = configuration.resultsDataTypes[0].dataType, sourceProjectId = source.Id, queryParameterKeys = [] }];
             run.Parent!.Editor!.LoadProject(configuration);
             page.Selected = run;
             run.Editor.ResultsParameters.Clear(); run.Editor.SetupParameters.Clear();

@@ -145,7 +145,7 @@ public sealed class WorkspaceParameterNavigationTests
                 Assert.Contains(previews.Items.Cast<WorkspaceParameterBindingPreview>(), value => value.Key == "ChannelCount" && value.Value == "32");
             }
             catch (Exception exception) { failure = exception; }
-            finally { window?.Close(); folder.Delete(true); }
+            finally { window?.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown(); folder.Delete(true); }
         });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
@@ -195,12 +195,21 @@ public sealed class WorkspaceParameterNavigationTests
                 Assert.Equal(WorkspaceParameterSupply.None, missing.Supply);
                 var container = (ContentPresenter)table.ItemContainerGenerator.ContainerFromItem(missing);
                 var button = (Button)table.ItemTemplate.FindName("OpenParameterValueButton", container);
-                Assert.True(button.IsEnabled); Assert.True(button.IsTabStop); Assert.StartsWith("Add ChannelCount", (string)button.ToolTip);
+                Assert.True(button.IsEnabled); Assert.True(button.IsTabStop);
+                Assert.StartsWith(node.IsRun ? "Open ChannelCount" : "Add ChannelCount", (string)button.ToolTip);
                 ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)!).Invoke(); Draw();
                 Assert.Same(node, model.Selected);
                 Assert.Equal(keyPrefix + (node.IsRun ? "Spans" : "Defaults"), model.ActiveItemKey);
                 var rows = (ItemsControl)editor.FindName(node.IsRun ? $"{phase}ParametersList" : $"{phase}ParameterDefaultsList");
-                var item = Assert.Single(rows.Items.Cast<object>());
+                // Run rows already exist for every project query key. Navigation
+                // should add a value only to the selected row, leaving the others empty.
+                var item = Assert.Single(rows.Items.Cast<object>(), row => row switch
+                {
+                    WorkspaceParameterSpan span => span.Key == "ChannelCount",
+                    WorkspaceParameterBinding binding => binding.Key == "ChannelCount",
+                    _ => false
+                });
+                var rowCount = rows.Items.Count;
                 WorkspaceTypedValue value;
                 var rowContainer = (ContentPresenter)rows.ItemContainerGenerator.ContainerFromItem(item);
                 WorkspaceParameterValueEditor valueEditor;
@@ -221,7 +230,7 @@ public sealed class WorkspaceParameterNavigationTests
                 var focused = Assert.IsAssignableFrom<DependencyObject>(FocusManager.GetFocusedElement(window));
                 Assert.True(valueEditor.IsAncestorOf(focused));
                 // Repeated clicks while the value is still blank must reuse the row and its first field.
-                model.OpenFunctionParameterCommand.Execute(missing); Draw(); Assert.Single(rows.Items.Cast<object>());
+                model.OpenFunctionParameterCommand.Execute(missing); Draw(); Assert.Equal(rowCount, rows.Items.Count);
                 if (item is WorkspaceParameterSpan existing) Assert.Same(value, Assert.Single(existing.Values));
                 ((TextBox)valueEditor.FindName("TypedValueInput")).Text = "16"; Draw();
                 model.OpenFunctionParameterCommand.Execute(missing); Draw(); Assert.Equal("16", value.Text);
@@ -237,10 +246,11 @@ public sealed class WorkspaceParameterNavigationTests
                 Assert.False(locked.CanNavigate); Assert.Contains("locked", locked.NavigationHint);
                 model.OpenFunctionParameterCommand.Execute(locked);
                 Assert.DoesNotContain(setup ? node.Editor.SetupParameterDefaults : node.Editor.ResultsParameterDefaults, row => row.Key == "SortableDataFormat");
-                Assert.DoesNotContain(setup ? node.Editor.SetupParameters : node.Editor.ResultsParameters, row => row.Key == "SortableDataFormat");
+                if (node.IsRun)
+                    Assert.Empty(Assert.Single(setup ? node.Editor.SetupParameters : node.Editor.ResultsParameters, row => row.Key == "SortableDataFormat").Values);
             }
             catch (Exception exception) { failure = exception; }
-            finally { window?.Close(); folder.Delete(true); }
+            finally { window?.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown(); folder.Delete(true); }
         });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();

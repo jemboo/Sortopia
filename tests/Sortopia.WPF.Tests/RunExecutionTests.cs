@@ -76,6 +76,22 @@ public sealed class RunExecutionTests
     private static runExecutionReport Execute(run value, IProgress<runExecutionProgress>? progress = null, CancellationToken token = default) =>
         RunExecution.execute(new CatalogTestHost(value, token), progress!);
 
+    // Use valid inputs and fail during execution: malformed values are rejected
+    // before the run is constructed and cannot exercise partial-progress handling.
+    private sealed class FailingHost(CatalogTestHost inner, bool setup) : IRunHostFactory
+    {
+        private int calls;
+        public run Run => inner.Run;
+        public CancellationToken CancellationToken => inner.CancellationToken;
+        private void BeforeCall(bool isSetup)
+        {
+            if (isSetup == setup && ++calls == 2) throw new System.IO.IOException("Simulated database failure.");
+        }
+        public runHost ForSetup(parameterSet parameters) { BeforeCall(true); return inner.ForSetup(parameters); }
+        public runHost ForResults(parameterSet parameters, FSharpList<storedOutput> outputs)
+        { BeforeCall(false); return inner.ForResults(parameters, outputs); }
+    }
+
     [Fact]
     public void Root_executes_every_set_beyond_the_preview_limit_and_keeps_typed_parameters()
     {
@@ -120,21 +136,27 @@ public sealed class RunExecutionTests
     [Fact]
     public void A_setup_failure_retains_completed_setup_and_prevents_all_results()
     {
-        var report = Execute(MakeRun(true, setup: [new() { keyName = "SortableDataFormat", values = ["Bools", "invalid"] }]), token: TestContext.Current.CancellationToken);
+        var host = new CatalogTestHost(MakeRun(true, setup: [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]), TestContext.Current.CancellationToken);
+        var report = RunExecution.execute(new FailingHost(host, setup: true), null!);
         Assert.Equal(runExecutionStatus.Failed, report.Status);
         Assert.Single(report.Setup);
         Assert.Empty(report.Results);
         Assert.Contains("Setup set 2", report.Error);
         Assert.Contains(SetupFunctionNames.standardTests, report.Error);
+        Assert.Contains("Simulated database failure", report.Error);
+        Assert.NotNull(host.Load(Assert.Single(report.Setup[0].StoredOutputs).Reference));
     }
 
     [Fact]
     public void A_results_failure_retains_completed_calls_and_identifies_its_set()
     {
-        var report = Execute(MakeRun(false, results: [new() { keyName = "SortableDataFormat", values = ["Bools", "invalid", "Bools"] }]), token: TestContext.Current.CancellationToken);
+        var host = new CatalogTestHost(MakeRun(false, results: [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints", "Bools"] }]), TestContext.Current.CancellationToken);
+        var report = RunExecution.execute(new FailingHost(host, setup: false), null!);
         Assert.Equal(runExecutionStatus.Failed, report.Status);
         Assert.Single(report.Results);
         Assert.Contains("Results set 2", report.Error);
+        Assert.Contains("Simulated database failure", report.Error);
+        Assert.NotNull(host.Load(Assert.Single(report.Results[0].StoredOutputs).Reference));
     }
 
     [Theory]

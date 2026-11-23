@@ -436,12 +436,24 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
                     var workspaceView = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = workspace };
                     void WorkspaceLayout() { workspaceView.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle); workspaceView.Measure(new Size(1400, 1000)); workspaceView.Arrange(new Rect(0, 0, 1400, 1000)); workspaceView.UpdateLayout(); }
                     WorkspaceLayout();
+                    // Opening this section starts an asynchronous refresh. Finish
+                    // loading before sorting so replacing ItemsSource cannot reset it.
+                    var refresh = workspace.RefreshRunParameterFilesAsync();
+                    if (!refresh.IsCompleted)
+                    {
+                        var frame = new DispatcherFrame();
+                        refresh.GetAwaiter().OnCompleted(() => frame.Continue = false);
+                        Dispatcher.PushFrame(frame);
+                    }
+                    refresh.GetAwaiter().GetResult(); WorkspaceLayout();
+                    Assert.False(workspace.SelectedExecution!.Files.IsRefreshing);
                     var files = (DataGrid)workspaceView.FindName("RunParameterFilesTable");
                     var setupColumn = files.Columns.Single(column => Equals(column.Header, "Setup · Repl"));
                     Assert.Equal(4, files.Items.Count);
                     CheckSorting(files, setupColumn, WorkspaceLayout);
                 }
                 catch (Exception error) { failure = error; }
+                finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); }
             });
             thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
             if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();

@@ -32,10 +32,14 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         foreach (var choice in (setup ? run.Parent.Editor!.SetupQueryOutputs : run.Parent.Editor!.ResultsQueryOutputs)
             .SelectMany(output => output.Keys).Where(choice => choice.Selected && !choice.Available).ToArray())
             choice.Selected = false;
+        foreach (var span in (setup ? editor.SetupParameters : editor.ResultsParameters).Where(span => !editor.PhaseContract(setup).RequiredKeys.Contains(span.Key)).ToArray())
+            span.RemoveCommand.Execute(null);
         var values = (setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults).ToArray();
         foreach (var value in values)
-            if (!(setup ? editor.SetupParameters : editor.ResultsParameters).Any(span => span.Key == value.Key))
-                AddSpan(run, value.Key, setup, value.Value);
+        {
+            var existing = (setup ? editor.SetupParameters : editor.ResultsParameters).FirstOrDefault(span => span.Key == value.Key);
+            AddSpan(run, value.Key, setup, existing is { Values.Count: > 0 } ? existing.Values.Select(row => row.Text).ToArray() : [value.Value]);
+        }
     }
     internal static WorkspaceParameterSpan AddSpan(WorkspaceTreeNode run, string key, bool setup, params string[] values)
     {
@@ -55,10 +59,10 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
                 choice.Selected = true;
         }
         var rows = setup ? editor.SetupParameters : editor.ResultsParameters;
-        var span = rows.FirstOrDefault(row => row.Key == key && row.Values.Count == 0);
+        var span = rows.FirstOrDefault(row => row.Key == key);
         if (span is null)
         {
-            (setup ? editor.AddSetupParameterCommand : editor.AddResultsParameterCommand).Execute(null);
+            editor.AddDraftSpan(setup);
             span = rows.Last();
         }
         span.Key = key;
@@ -125,8 +129,8 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         var span = editor.ResultsParameters.Single(row => row.Key == "ChannelCount"); span.Values[0].Text = "bad";
         Assert.NotEmpty(editor.ResultsParameterSetsPreview.Error); Assert.Empty(editor.ResultsParameterSetsPreview.Rows); Assert.True(editor.SetupParameterSetsPreview.HasRows);
         span.Values[0].Text = "12"; Assert.Equal(12, editor.ResultsParameterSetsPreview.Rows[0].ParameterSet.TryFind(ParamKeys.channelCountKey).Value);
-        var duplicate = AddSpan(run, "ChannelCount", false, "16"); Assert.Contains("unique", editor.ResultsParameterSetsPreview.Error);
-        duplicate.RemoveCommand.Execute(null); span.RemoveCommand.Execute(null); Assert.Contains("Missing values", editor.ResultsParameterSetsPreview.Error);
+        editor.AddDraftSpan(false, "ChannelCount", ["16"]); var duplicate = editor.ResultsParameters.Last(); Assert.Contains("unique", editor.ResultsParameterSetsPreview.Error);
+        duplicate.RemoveCommand.Execute(null); span.Values.Clear(); Assert.Contains("Add at least one value", editor.ResultsParameterSetsPreview.Error);
     }
 
     [Fact]

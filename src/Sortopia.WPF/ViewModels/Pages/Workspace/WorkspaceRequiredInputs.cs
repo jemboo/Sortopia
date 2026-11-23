@@ -26,43 +26,16 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!IsRun || setup && !IsBranch) return new([], "");
         if (Requirements(setup) is not { } required)
             return new([], "Required inputs are unavailable for this function version. Check the inherited function.");
-        var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
-        var spans = ActiveParameters(setup).ToArray();
-        var queryKeys = QueryKeys(setup).ToHashSet(StringComparer.Ordinal);
-        var rows = required.Select(key =>
+        var rows = ParameterStates(setup).Select(state =>
         {
-            var bindings = defaults.Where(value => value.keyName == key.Name).ToArray();
-            var matches = spans.Where(span => span.Key == key.Name).ToArray();
-            var type = ParameterValue.label(key.ValueType);
-            if (!queryKeys.Contains(key.Name) && matches.Length > 0)
-                return new WorkspaceRequiredInput(key.Name, type, "Conflict", "Undeclared span",
-                    "Select this query key on the project, or supply a fixed default and remove the span.", false, true);
-            if (bindings.Length > 0)
-            {
-                var value = bindings[0];
-                var source = ParameterSource(key.Name, setup);
-                var origin = new WorkspaceParameterValueSource(source is null ? "Project default" : $"Default from {source.Name}", source);
-                if (matches.Length > 0 || queryKeys.Contains(key.Name))
-                    return new WorkspaceRequiredInput(key.Name, type, "Conflict", "Default/span conflict",
-                        "Query keys cannot have defaults. Remove or exclude this default on the project.", false, true, origin);
-                var error = bindings.Length > 1 ? "Default keys must be unique."
-                    : (parameterValueType)value.valueType != key.ValueType ? $"The default must have type {type}."
-                    : WorkspaceParameterRules.Error(ParameterSupport(setup), key.Name, key.ValueType, value.value);
-                return new WorkspaceRequiredInput(key.Name, type, "Default", error.Length == 0 ? "Supplied by default" : "Invalid default",
-                    error.Length == 0 ? value.value : $"{value.value} · {error}", false, error.Length > 0, origin);
-            }
-            if (!queryKeys.Contains(key.Name))
-                return new WorkspaceRequiredInput(key.Name, type, "Missing", "Needs default",
-                    "Set a fixed default on the project or an ancestor module, or select this as a project query key.", false, true);
-            if (matches.Length == 0)
-                return new WorkspaceRequiredInput(key.Name, type, "Missing", "Needs span", "Enter one or more values.", true, true);
-            if (matches.Length > 1)
-                return new WorkspaceRequiredInput(key.Name, type, "Span", "Duplicate spans", "Keep one span for this parameter.", true, true);
-            var span = matches[0];
-            return new WorkspaceRequiredInput(key.Name, type, "Span", span.Error.Length == 0 ? "Supplied by span" : "Span needs attention",
-                span.Error.Length == 0 ? $"{span.Values.Count} explicitly entered value(s)" : span.Error,
-                span.Error.Length > 0, span.Error.Length > 0);
+            var origin = state.Defaults.Length == 0 ? null : new WorkspaceParameterValueSource(
+                state.DefaultEditor is null ? "Project default" : $"Default from {state.DefaultEditor.Name}", state.DefaultEditor);
+            return new WorkspaceRequiredInput(state.Key, ParameterValue.label(state.ValueType),
+                state.HasIssue && !state.NeedsSpan ? "Conflict" : state.Supply == WorkspaceParameterSupply.Default ? "Default"
+                    : state.Supply == WorkspaceParameterSupply.Span ? "Span" : "Missing",
+                state.Status, state.HasIssue ? state.Error : state.Defaults.Length > 0 ? state.Defaults[0].value
+                    : $"{state.Spans.Sum(span => span.Values.Count)} explicitly entered value(s)", state.NeedsSpan, state.HasIssue, origin);
         }).ToArray();
-        return new(rows, "Enter spans for exactly the project's query keys. Other required parameters need fixed defaults.");
+        return new(rows, "Enter values for the project's query keys. Other required parameters use fixed defaults.");
     }
 }

@@ -163,7 +163,7 @@ public sealed class PrefixSorterModelFunctionTests
         Assert.DoesNotContain(editor.ResultsParameterDefaults, row => row.Key is "SorterModelType" or "AMax" or "AInitial" or "ActivationProbability");
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
-        run.Editor!.AddMissingResultsParametersCommand.Execute(null);
+        run.Editor!.RefreshInherited();
         Assert.Empty(run.Editor.ResultsParameters);
         Assert.DoesNotContain(project.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys), key => key.Key == "SorterModelType");
     }
@@ -190,7 +190,7 @@ public sealed class PrefixSorterModelFunctionTests
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
         var inputs = run.Editor!;
         Assert.Equal(5, inputs.ResultsRequiredInputs.DefaultCount);
-        inputs.AddMissingResultsParametersCommand.Execute(null);
+        inputs.RefreshInherited();
         var span = Assert.Single(inputs.ResultsParameters); Assert.Equal("PrefixLibId", span.Key); Assert.Empty(span.Values);
         span.AddValueCommand.Execute(null); span.Values.Last().Text = Prefix(8);
         span.AddValueCommand.Execute(null); span.Values.Last().Text = Prefix(9);
@@ -226,7 +226,7 @@ public sealed class PrefixSorterModelFunctionTests
             page.AddProjectCommand.Execute(null); var project = page.Selected!;
             project.Editor!.ResultsQueryOutputs.Single().Keys.Single(row => row.Key == "PrefixLibId").Selected = true;
             page.AddRunCommand.Execute(null); var run = page.Selected!;
-            run.Editor!.AddMissingResultsParametersCommand.Execute(null);
+            run.Editor!.RefreshInherited();
             var span = Assert.Single(run.Editor.ResultsParameters);
             foreach (var width in new[] { 8, 9 }) { span.AddValueCommand.Execute(null); span.Values.Last().Text = Prefix(width); }
             await page.SaveWorkspaceAsync(); Assert.Contains("incompatible", page.Error);

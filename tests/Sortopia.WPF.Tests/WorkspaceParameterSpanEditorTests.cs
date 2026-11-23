@@ -38,7 +38,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     public void Named_choices_use_the_domain_contract_and_validate_unknown_values(string key, string valid, string invalid)
     {
         var row = Span(key, valid); var value = row.Values.Single();
-        Assert.Contains(key, row.KeyChoices); Assert.Contains(valid, value.Choices);
+        Assert.Equal(key, row.Key); Assert.Contains(valid, value.Choices);
         Assert.True(value.HasChoices); Assert.False(value.IsTextEditor); Assert.Empty(value.Error);
         value.Text = invalid; Assert.NotEmpty(row.Error); Assert.Contains(key, row.Error);
         Assert.Equal(invalid, value.Text);
@@ -97,8 +97,8 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         run.Parent!.Parent!.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
         var results = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", false, "8");
         var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "3");
-        Assert.DoesNotContain("SorterEvalType", results.KeyChoices); Assert.DoesNotContain("Repl", results.KeyChoices);
-        Assert.Contains("Repl", setup.KeyChoices); Assert.DoesNotContain("SorterEvalType", setup.KeyChoices);
+        Assert.True(results.IsRepair); Assert.False(setup.IsRepair);
+        Assert.Contains("Repl", run.Editor!.PhaseContract(true).SpanKeys); Assert.DoesNotContain("SorterEvalType", run.Editor.PhaseContract(true).SpanKeys);
         Assert.Equal(parameterValueType.Integer, results.ValueType); Assert.Equal(parameterValueType.Integer, setup.ValueType);
     }
 

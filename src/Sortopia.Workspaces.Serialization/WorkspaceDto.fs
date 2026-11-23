@@ -248,6 +248,11 @@ module SettingsDto =
         | _ -> invalidArg "kind" "Project kind must be root or branch."
 
 module OverridesDto =
+    // Draft documents retain excluded text for restoration. Runtime overrides only
+    // need active bindings, so an unfinished excluded value must not be parsed.
+    let private activeDefaults excluded values =
+        let excluded = if isNull excluded then Set.empty else Set.ofArray excluded
+        values |> Option.ofObj |> Option.map (Array.filter (fun (binding: parameterBindingDto) -> not (Set.contains binding.keyName excluded)) >> Array.map ParameterBindingDto.toDomain >> Array.toList)
     let fromDomain value : projectOverridesDto =
         match value with
         | RootOverrides value ->
@@ -279,19 +284,19 @@ module OverridesDto =
                 ResultsDatabaseName = Option.ofObj value.resultsDatabaseName |> Option.map UMX.tag<resultsDatabaseName>
                 ExcludedResultsDefaults = (if isNull value.excludedResultsDefaults then [||] else value.excludedResultsDefaults) |> Array.map UMX.tag |> Array.toList
                 ResultsQueries = Option.ofObj value.resultsQueries |> Option.map (Array.map ResultsDataTypeConfigDto.toDomain >> Array.toList)
-                ResultsParameterDefaults = Option.ofObj value.resultsParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList) }
+                ResultsParameterDefaults = activeDefaults value.excludedResultsDefaults value.resultsParameterDefaults }
         | hierarchyKind.Branch ->
             BranchOverrides {
                 Description = Option.ofObj value.description
                 ResultsDatabaseName = Option.ofObj value.resultsDatabaseName |> Option.map UMX.tag<resultsDatabaseName>
                 ExcludedResultsDefaults = (if isNull value.excludedResultsDefaults then [||] else value.excludedResultsDefaults) |> Array.map UMX.tag |> Array.toList
                 ResultsQueries = Option.ofObj value.resultsQueries |> Option.map (Array.map ResultsDataTypeConfigDto.toDomain >> Array.toList)
-                ResultsParameterDefaults = Option.ofObj value.resultsParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList)
+                ResultsParameterDefaults = activeDefaults value.excludedResultsDefaults value.resultsParameterDefaults
                 SetupDatabaseName = Option.ofObj value.setupDatabaseName |> Option.map UMX.tag<setupDatabaseName>
                 SetupSources = Option.ofObj value.setupSources |> Option.map (Array.map SetupSourceConfigDto.toDomain >> Array.toList)
                 ExcludedSetupDefaults = (if isNull value.excludedSetupDefaults then [||] else value.excludedSetupDefaults) |> Array.map UMX.tag |> Array.toList
                 SetupQueries = Option.ofObj value.setupQueries |> Option.map (Array.map ResultsDataTypeConfigDto.toDomain >> Array.toList)
-                SetupParameterDefaults = Option.ofObj value.setupParameterDefaults |> Option.map (Array.map ParameterBindingDto.toDomain >> Array.toList) }
+                SetupParameterDefaults = activeDefaults value.excludedSetupDefaults value.setupParameterDefaults }
         | _ -> invalidArg "kind" "Defaults must be root or branch."
 
 module ModuleSettingsDto =

@@ -42,6 +42,8 @@ public partial class WorkspaceConfigurationEditor : UserControl
             ItemsControl rows = span ? parameter.IsSetup ? SetupParametersList : ResultsParametersList
                 : parameter.TargetEditor!.CanEditDefaults ? parameter.IsSetup ? SetupParameterDefaultsList : ResultsParameterDefaultsList
                 : parameter.IsSetup ? InheritedSetupParameterDefaultsList : InheritedResultsParameterDefaultsList;
+            if (span && !rows.Items.Cast<WorkspaceParameterSpan>().Any(row => row.Key == parameter.Name))
+                rows = parameter.IsSetup ? SetupRepairParametersList : ResultsRepairParametersList;
             var item = rows.Items.Cast<object>().FirstOrDefault(value => (value switch
             {
                 WorkspaceParameterSpan row => row.Key,

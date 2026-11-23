@@ -6,6 +6,7 @@ using Sortopia.WPF.Commands;
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
 public sealed record WorkspaceExcludedDefault(string Key, RelayCommand RestoreCommand);
+public sealed record WorkspaceFixedQueryChoice(string Key, string Value, RelayCommand UseAsQueryKeyCommand);
 public sealed class WorkspaceQueryKeyChoice : ViewModelBase
 {
     private bool selected;
@@ -26,6 +27,8 @@ public sealed record WorkspaceInheritedSetupQuery(string Kind, string Text, stri
 }
 public sealed record WorkspaceOutputQuery(string Kind, string Text, WorkspaceQueryKeyChoice[] Keys, string Summary)
 {
+    public WorkspaceFixedQueryChoice[] FixedParameters { get; init; } = [];
+    public bool HasFixedParameters => FixedParameters.Length > 0;
     public WorkspaceInheritedSetupQuery[] InheritedSetupQueries { get; init; } = [];
     public bool HasSetupInputs => InheritedSetupQueries.Length > 0;
     public bool HasInheritedSetupKeys => InheritedSetupQueries.Any(input => input.Keys.Length > 0);
@@ -54,7 +57,7 @@ public sealed partial class WorkspaceConfigurationViewModel
     private resultsDataTypeConfigDto[] resultsQueries = [], setupQueries = [];
     public bool ShowQueryConfiguration => !IsModule;
     public bool CanEditQuerySelection => IsProject && IsEditable;
-    private string QuerySelectionGuidance => CanEditQuerySelection ? "Select query keys here, then supply their spans in each run. Remove or exclude a parameter's default before selecting it."
+    private string QuerySelectionGuidance => CanEditQuerySelection ? "Select query keys here, then enter values in each run. Use ‘Use as query key’ to switch a fixed parameter for this output."
         : IsRun && Parent is { IsEditable: true } ? "Edit query projections on the project before generating run parameters."
         : "Remove generated parameter files from every run in the project to resume editing, or create a new version to choose different query keys.";
     public string QueryConfigurationHint => IsModule ? "Query keys are selected on each project."
@@ -67,7 +70,7 @@ public sealed partial class WorkspaceConfigurationViewModel
     public string SetupProjectionNotice => ProjectionNotice(true);
     private string ProjectionNotice(bool setup)
     {
-        if (!IsRun || !ActiveParameters(setup).Any(span => span.Key.Length > 0)) return "";
+        if (!IsRun || !ParameterSpans(setup).Any(span => span.Key.Length > 0)) return "";
         var empty = QueryRows(setup).Where(output => output.HasEmptyProjection).ToArray();
         if (empty.Length > 0 && empty.All(output => output.HasSetupInputs))
             return $"No additional results query keys selected for {string.Join(", ", empty.Select(output => output.Kind))}. Different results span values share the same output for the same setup inputs. Different setup files still produce separate results. " + QuerySelectionGuidance;
@@ -76,14 +79,14 @@ public sealed partial class WorkspaceConfigurationViewModel
     }
     public IEnumerable<WorkspaceExcludedDefault> ExcludedResultsDefaults => Exclusions(false);
     public IEnumerable<WorkspaceExcludedDefault> ExcludedSetupDefaults => Exclusions(true);
-    internal void RefreshQueryChoices()
-    {
-        OnPropertyChanged(nameof(ResultsQueryOutputs));
-        OnPropertyChanged(nameof(SetupQueryOutputs));
-    }
     private IEnumerable<WorkspaceExcludedDefault> Exclusions(bool setup) => (setup ? excludedSetupDefaults : excludedResultsDefaults)
         .Order(StringComparer.Ordinal).Select(key => new WorkspaceExcludedDefault(key, new RelayCommand(() => {
-            (setup ? excludedSetupDefaults : excludedResultsDefaults).Remove(key); NotifyChanged();
+            Quietly(() => {
+                foreach (var output in (setup ? SetupQueryOutputs : ResultsQueryOutputs).ToArray())
+                    foreach (var choice in output.Keys.Where(choice => choice.Key == key && choice.Selected)) choice.Selected = false;
+                (setup ? excludedSetupDefaults : excludedResultsDefaults).Remove(key);
+            });
+            NotifyChanged();
         }, () => CanEditDefaults)));
     private void ExcludeDefault(string key, bool setup)
     {
@@ -109,7 +112,19 @@ public sealed partial class WorkspaceConfigurationViewModel
         var owner = IsRun ? Parent : this;
         if (owner is null) return [];
         var defaults = (setup ? owner.EffectiveSetupDefaults : owner.EffectiveOutputDefaults).Select(value => value.keyName);
-        return (owner.Requirements(setup) ?? []).Select(key => key.Name).Except(defaults, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return owner.PhaseContract(setup).RequiredKeys.Except(defaults, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    }
+    private void UseAsQueryKey(sortopiaDataTypeDto type, bool setup, string key)
+    {
+        if (!CanEditQuerySelection || !PhaseContract(setup).RequiredKeys.Contains(key)) return;
+        if (setup && SetupParametersFromSources && !SourceKeysFor(EffectiveSetupDataTypes.Single(entry => SameType(entry.dataType, type))).Contains(key)) return;
+        Quietly(() =>
+        {
+            // Retain local defaults in the existing exclusion representation for later restoration.
+            (setup ? excludedSetupDefaults : excludedResultsDefaults).Add(key);
+            SetQueryKey(type, setup, key, true);
+        });
+        NotifyChanged();
     }
     private void SetQueryKey(sortopiaDataTypeDto type, bool setup, string key, bool selected)
     {
@@ -135,7 +150,7 @@ public sealed partial class WorkspaceConfigurationViewModel
             var availableForOutput = sourceKeys is null ? available : available.Intersect(sourceKeys, StringComparer.Ordinal).ToArray();
             var keys = (IsRun ? chosen : availableForOutput.Concat(chosen)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(key => {
                 var supported = availableForOutput.Contains(key, StringComparer.Ordinal);
-                var supplied = IsRun && ActiveParameters(setup).Any(span => span.Key == key && span.Error.Length == 0);
+                var supplied = IsRun && ParameterSpans(setup).Any(span => span.Key == key && span.Error.Length == 0);
                 var fromSource = sourceKeys is null || sourceKeys.Contains(key, StringComparer.Ordinal);
                 var status = !fromSource ? "Not a query key of this source" : defaults.Contains(key) ? "Remove or exclude its default to use a query key"
                     : !supported ? "Not required by this function"
@@ -152,7 +167,11 @@ public sealed partial class WorkspaceConfigurationViewModel
                 ? "No query keys selected: all parameter sets share one output for the same project and input data, even when span values differ. "
                     + QuerySelectionGuidance
                 : "Only the selected span keys distinguish this output. Other span changes reuse it for the same input data.";
-            yield return new(output.dataType.kind, output.dataType.value, keys, summary) { InheritedSetupQueries = inherited };
+            var fixedParameters = IsProject ? (setup ? EffectiveSetupDefaults : EffectiveOutputDefaults)
+                .Where(value => PhaseContract(setup).RequiredKeys.Contains(value.keyName) && (sourceKeys is null || sourceKeys.Contains(value.keyName)))
+                .Select(value => new WorkspaceFixedQueryChoice(value.keyName, value.value,
+                    new RelayCommand(() => UseAsQueryKey(output.dataType, setup, value.keyName), () => CanEditQuerySelection))).ToArray() : [];
+            yield return new(output.dataType.kind, output.dataType.value, keys, summary) { InheritedSetupQueries = inherited, FixedParameters = fixedParameters };
         }
     }
     private WorkspaceInheritedSetupQuery[] InheritedSetupQueries(sortopiaDataTypeDto output)

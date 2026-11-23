@@ -77,7 +77,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Defaults_and_spans_follow_function_changes_and_only_active_values_are_saved(bool setup)
+    public async Task Function_changes_retain_run_values_for_repair_until_explicitly_discarded(bool setup)
     {
         var page = Open();
         (setup ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
@@ -97,11 +97,11 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         }
         Change(true);
         Assert.DoesNotContain(setup ? project.Editor!.LocalSetupParameterDefaults : project.Editor!.LocalResultsParameterDefaults, row => row.Key == "Repl");
-        Assert.DoesNotContain(setup ? run.Editor!.ActiveSetupParameters : run.Editor!.ActiveResultsParameters, row => row.Key == "Repl");
-        Assert.Contains("editing session", setup ? run.Editor.RetainedSetupSpansHint : run.Editor.RetainedResultsSpansHint);
+        Assert.Contains(setup ? run.Editor!.RepairSetupParameters : run.Editor!.RepairResultsParameters, row => row.Key == "Repl");
+        Assert.Contains("saved with the draft", setup ? run.Editor.RetainedSetupSpansHint : run.Editor.RetainedResultsSpansHint);
         Change(false);
         Assert.DoesNotContain(local, setup ? project.Editor.LocalSetupParameterDefaults : project.Editor.LocalResultsParameterDefaults);
-        Assert.Contains(span, setup ? run.Editor.ActiveSetupParameters : run.Editor.ActiveResultsParameters);
+        Assert.Contains(span, setup ? run.Editor.SetupParameters : run.Editor.ResultsParameters);
         Assert.Equal("5", local.Value.Text);
         Assert.Equal(new[] { "2", "3" }, span.Values.Select(value => value.Text));
         Change(true);

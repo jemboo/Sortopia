@@ -155,8 +155,6 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     private void ChildChanged()
     {
         Editor?.RefreshFunctionDefinitions();
-        Editor?.RefreshQueryChoices();
-        foreach (var child in Children) child.Editor?.RefreshQueryChoices();
         Changed?.Invoke();
     }
     private void ChildValidationChanged() => ValidationChanged?.Invoke();

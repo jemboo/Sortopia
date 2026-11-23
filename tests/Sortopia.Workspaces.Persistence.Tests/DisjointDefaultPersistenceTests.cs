@@ -9,6 +9,32 @@ public sealed class DisjointDefaultPersistenceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Runtime_overrides_skip_excluded_draft_values_without_modifying_the_document(bool branch)
+    {
+        var family = branch ? hierarchyKind.Branch : hierarchyKind.Root;
+        parameterBindingDto[] defaults = [new() { keyName = "ChannelCount", valueType = (int)parameterValueType.Integer, value = "unfinished" },
+            new() { keyName = "SortableDataFormat", valueType = (int)parameterValueType.Text, value = "Bools" }];
+        var local = new projectOverridesDto {
+            resultsParameterDefaults = defaults, excludedResultsDefaults = ["ChannelCount"],
+            setupParameterDefaults = branch ? defaults : null, excludedSetupDefaults = branch ? ["ChannelCount"] : [] };
+        var runtime = OverridesDto.fromDomain(OverridesDto.toDomain(family, local));
+        Assert.Equal("SortableDataFormat", Assert.Single(runtime.resultsParameterDefaults).keyName);
+        if (branch) Assert.Equal("SortableDataFormat", Assert.Single(runtime.setupParameterDefaults).keyName);
+        var module = ModuleOverridesDto.fromProjectOverrides(local);
+        Assert.Equal("SortableDataFormat", Assert.Single(ModuleOverridesDto.fromDomain(ModuleOverridesDto.toDomain(family, module)).resultsParameterDefaults).keyName);
+        Assert.Equal("unfinished", local.resultsParameterDefaults[0].value);
+        local.excludedResultsDefaults = [];
+        Assert.Throws<ArgumentException>(() => OverridesDto.toDomain(family, local));
+        if (branch)
+        {
+            local.excludedResultsDefaults = ["ChannelCount"]; local.excludedSetupDefaults = [];
+            Assert.Throws<ArgumentException>(() => OverridesDto.toDomain(family, local));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void Excluded_defaults_and_project_queries_survive_detached_module_loading(bool branch)
     {
         var temporary = Directory.CreateTempSubdirectory("Sortopia-disjoint-defaults-");

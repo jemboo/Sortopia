@@ -49,13 +49,15 @@ public sealed class FunctionParameterContractTests
 
         var results = WorkspaceParameterSetsPreviewTests.AddSpan(run, "SortableDataFormat", false, "Bools");
         var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", true, "8");
-        Assert.Equal(new[] { "SortableDataFormat" }, results.KeyChoices);
-        Assert.Equal(new[] { "ChannelCount" }, setup.KeyChoices);
-        Assert.True(results.HasRestrictedKeys);
+        Assert.Equal(new[] { "SortableDataFormat" }, run.Editor.PhaseContract(false).SpanKeys);
+        Assert.Equal(new[] { "ChannelCount" }, run.Editor.PhaseContract(true).SpanKeys);
+        Assert.False(results.IsRepair);
         results.Key = "ChannelCount";
         Assert.Contains("not required", results.Error);
         Assert.Empty(run.Editor.ResultsParameterSetsPreview.Rows);
-        results.Key = "SortableDataFormat";
+        results.RemoveCommand.Execute(null);
+        results = run.Editor.ResultsParameters.Single(row => row.Key == "SortableDataFormat");
+        results.AddValueCommand.Execute(null); results.Values[0].Text = "Bools";
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false);
         Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows);
 
@@ -65,9 +67,9 @@ public sealed class FunctionParameterContractTests
         Assert.DoesNotContain(project.Editor.LocalResultsParameterDefaults, row => row.Key == "Repl");
         extra.RemoveCommand.Execute(null);
         module.Editor.ResultsParameterDefaults.Single(row => row.Key == "MergeLibId").RemoveCommand.Execute(null);
-        run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").RemoveCommand.Execute(null);
+        run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values.Clear();
         Assert.Contains("MergeLibId", run.Editor.ResultsParametersError);
-        run.Editor.AddMissingResultsParametersCommand.Execute(null);
+        run.Editor.RefreshInherited();
         Assert.True(run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values.Count == 0);
         Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
     }

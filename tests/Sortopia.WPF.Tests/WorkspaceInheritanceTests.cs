@@ -204,7 +204,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Contains("ChannelCount", page.Error);
         Assert.Empty(page.OperationError); Assert.False(page.HasUnsavedChanges);
-        Assert.Empty(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Runs[0].resultsParameterSpans);
+        Assert.All(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Runs[0].resultsParameterSpans, span => Assert.Empty(span.values));
         Assert.Equal(before, File.ReadAllBytes(file));
     }
 

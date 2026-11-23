@@ -88,8 +88,8 @@ public sealed class FunctionOutputContractTests : IDisposable
             Assert.True(node.Editor.SetupGeneratesAllOutputs);
         }
         var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "1", "2");
-        Assert.DoesNotContain("SortableDataFormat", span.KeyChoices);
-        Assert.DoesNotContain("CollectSortableTests", span.KeyChoices);
+        Assert.DoesNotContain("SortableDataFormat", run.Editor!.PhaseContract(true).SpanKeys);
+        Assert.DoesNotContain("CollectSortableTests", run.Editor.PhaseContract(true).SpanKeys);
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         Assert.Equal(2, run.Editor!.SetupParameterSetsPreview.Rows.Count());
         module.Editor.SetupFunctionName = SetupFunctionNames.standardTests;

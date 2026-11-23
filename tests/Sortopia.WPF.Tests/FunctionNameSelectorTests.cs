@@ -414,7 +414,8 @@ public sealed class FunctionNameSelectorTests
     private static void OnSta(Action action)
     {
         Exception? failure = null;
-        var thread = new Thread(() => { try { action(); } catch (Exception error) { failure = error; } });
+        var thread = new Thread(() => { try { action(); } catch (Exception error) { failure = error; }
+            finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); } });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }

@@ -37,7 +37,7 @@ public sealed class WorkspaceRequiredInputsTests
         Assert.Equal("Supplied by default", fixedValue.Status); Assert.Equal("Bools", fixedValue.Detail);
         Assert.Same(module.Editor, fixedValue.Source!.InheritedSource);
         Assert.Equal("Needs span", Coverage().Rows.Single(row => row.Key == "ChannelCount").Status);
-        (setup ? editor.AddMissingSetupParametersCommand : editor.AddMissingResultsParametersCommand).Execute(null);
+        editor.RefreshInherited();
         var span = (setup ? editor.SetupParameters : editor.ResultsParameters).Single();
         Assert.Empty(span.Values); Assert.Equal(1, Coverage().NeedsSpanCount);
         span.AddValueCommand.Execute(null); span.Values[0].Text = "8";
@@ -51,7 +51,6 @@ public sealed class WorkspaceRequiredInputsTests
         Assert.Equal("Default/span conflict", Coverage().Rows.Single(row => row.Key == "ChannelCount").Status);
         Assert.Equal(1, Coverage().OtherIssueCount);
         span.RemoveCommand.Execute(null);
-        (setup ? project.Editor.SetupQueryOutputs : project.Editor.ResultsQueryOutputs).Single().Keys.Single(key => key.Key == "ChannelCount").Selected = false;
         Assert.Equal(2, Coverage().DefaultCount);
     }
 
@@ -64,7 +63,7 @@ public sealed class WorkspaceRequiredInputsTests
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Prefix tests"); module.Children.Add(project);
         project.Editor!.ResultsQueryOutputs.Single().Keys.Single(key => key.Key == "PrefixLibId").Selected = true;
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "cc"); project.Children.Add(run);
-        var editor = run.Editor!; editor.AddMissingResultsParametersCommand.Execute(null);
+        var editor = run.Editor!; editor.RefreshInherited();
         var span = editor.ResultsParameters.Single();
         foreach (var channels in new[] { 16, 18 }) {
             span.AddValueCommand.Execute(null);

@@ -190,7 +190,7 @@ public sealed class WorkspaceSetupSourceNavigationTests
                 Assert.Contains(previews.Items.Cast<WorkspaceSetupDataTypeEntry>(), row => row.SourceProjectId == models.Id);
             }
             catch (Exception exception) { failure = exception; }
-            finally { window?.Close(); folder.Delete(true); }
+            finally { window?.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown(); folder.Delete(true); }
         });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();

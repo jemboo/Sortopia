@@ -6,6 +6,7 @@
     <Compile Include="ParameterBinding.fs" />
     <Compile Include="ParameterSet.fs" />
     <Compile Include="ParameterSpan.fs" />
+    <Compile Include="PhaseParameterContract.fs" />
     <Compile Include="ParameterSets.fs" />
     <Compile Include="SortopiaDataType.fs" />
     <Compile Include="FolderName.fs" />

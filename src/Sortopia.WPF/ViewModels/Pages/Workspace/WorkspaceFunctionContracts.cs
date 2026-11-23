@@ -35,7 +35,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         try
         {
             var bindings = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
-            var inputs = (includeSpans ? ActiveParameters(setup) : []).ToArray();
+            var inputs = (includeSpans ? ParameterSpans(setup) : []).ToArray();
             if (DefaultsError(setup, bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0)) return "";
             var defaults = ListModule.OfSeq(bindings.Select(ParameterBindingDto.toDomain));
             var spans = ListModule.OfSeq(inputs.Select(span =>
@@ -54,7 +54,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         var support = ParameterSupport(setup);
         if (!PhaseVersionCurrent(setup) || support is null) return "";
         var bindings = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
-        var inputs = (IsRun ? ActiveParameters(setup) : []).ToArray();
+        var inputs = (IsRun ? ParameterSpans(setup) : []).ToArray();
         if (DefaultsError(setup, bindings).Length > 0 || inputs.Any(span => span.Error.Length > 0))
             return support.Guidance.Invoke(ListModule.Empty<parameterBinding>()).Invoke(ListModule.Empty<parameterSpan>());
         try
@@ -75,8 +75,8 @@ public sealed partial class WorkspaceConfigurationViewModel
     public bool ShowSetupConfiguration => IsBranch && HasSetupContract;
     public bool ShowResultsConfiguration => HasResultsContract;
     public bool SetupGeneratesAllOutputs => SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) && definition.SourceDataTypes.IsEmpty;
-    public string ResultsContractHint => HasResultsContract ? "Saved data types and their text are defined by the results function. Query keys are chosen on the project from explicit run spans." : "";
-    public string SetupContractHint => HasSetupContract ? "Saved data types and their text are defined by the setup function. Query keys are chosen on the project from explicit run spans. Choose source projects only for outputs that consume source data." : "";
+    public string ResultsContractHint => HasResultsContract ? "Saved data types and their text are defined by the results function. Project query keys define the run's span rows." : "";
+    public string SetupContractHint => HasSetupContract ? "Saved data types and their text are defined by the setup function. Project query keys define the run's span rows. Choose source projects only for outputs that consume source data." : "";
     public string[] CompatibleResultsFunctions => ResultsFunctionCatalog.functions
         .Where(entry => IsBranch ? !HasSetupContract || entry.Value.SourceDataTypes.All(input =>
             SetupFunctionCatalog.functions[SetupFunctionName].SortopiaDataTypes.Contains(input)) : entry.Value.SourceDataTypes.IsEmpty)
@@ -123,9 +123,9 @@ public sealed partial class WorkspaceConfigurationViewModel
     public string RetainedSetupSpansHint => RetainedSpansHint(true);
     private string RetainedSpansHint(bool setup)
     {
-        if (!IsRun || Requirements(setup) is not { } required) return "";
-        var count = (setup ? SetupParameters : ResultsParameters).Count(row => !string.IsNullOrWhiteSpace(row.Key) && !required.Any(key => key.Name == row.Key));
-        return count == 0 ? "" : $"{count} span(s) from other functions are kept for this editing session. They are not used or saved with this function; restoring the inherited function restores them.";
+        if (!IsRun) return "";
+        var count = (setup ? RepairSetupParameters : RepairResultsParameters).Count();
+        return count == 0 ? "" : $"{count} retained input(s) need repair below. Their values are saved with the draft; restore the project query keys or discard these rows before generating parameters.";
     }
     public string FunctionCompatibilityError
     {

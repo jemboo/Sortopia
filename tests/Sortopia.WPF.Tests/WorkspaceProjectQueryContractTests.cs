@@ -51,8 +51,8 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
         Assert.Equal("SortableDataFormat", results.Key);
         Assert.Equal("ChannelCount", setup.Key);
         Assert.Empty(results.Values); Assert.Empty(setup.Values);
-        Assert.Equal(new[] { "SortableDataFormat" }, results.KeyChoices);
-        Assert.Equal(new[] { "ChannelCount" }, setup.KeyChoices);
+        Assert.Equal(new[] { "SortableDataFormat" }, run.Editor.PhaseContract(false).SpanKeys);
+        Assert.Equal(new[] { "ChannelCount" }, run.Editor.PhaseContract(true).SpanKeys);
         Assert.Contains(run.Editor.ResultsRequiredInputs.Rows, row => row.Key == "MergeLibId" && row.Supply == "Default");
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.OperationError);
@@ -84,8 +84,8 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
         span.AddValueCommand.Execute(null); span.Values[0].Text = "Ints";
         project.Editor!.ResultsQueryOutputs.Single().Keys.Single(row => row.Key == span.Key).Selected = false;
         Assert.Contains("not a project query key", span.Error);
-        Assert.Same(span, Assert.Single(run.Editor.ActiveResultsParameters));
-        Assert.Empty(span.KeyChoices);
+        Assert.Same(span, Assert.Single(run.Editor.ResultsParameters));
+        Assert.True(span.IsRepair);
         Assert.Contains(run.Editor.ResultsRequiredInputs.Rows, row => row.Key == span.Key && row.Status == "Undeclared span");
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.OperationError);
@@ -106,7 +106,7 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
         var run = page.Selected!;
         Assert.True(run.IsRun);
         Assert.Empty(run.Editor!.ResultsParameters);
-        Assert.False(run.Editor.AddMissingResultsParametersCommand.CanExecute(null));
+        Assert.Empty(run.Editor.DeclaredResultsParameters);
         Assert.Contains(run.Editor.ResultsRequiredInputs.Rows, row => row.Key == "MergeLibId" && row.Status == "Needs default" && !row.NeedsSpan);
         Assert.Contains("fixed defaults", run.Editor.ResultsParametersError);
         Assert.Same(project.Editor, run.Editor.ResultsFunctionParameters.Single(row => row.Name == "MergeLibId").TargetEditor);
@@ -163,7 +163,7 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
             choice.Selected = true;
         }
         var run = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Run, true, () => project, () => "Run", () => [models, tests]);
-        run.InitializeQuerySpans();
+        run.RefreshInherited();
         Assert.Equal(new[] { "ChannelCount", "Repl", "SortableDataFormat" }, run.SetupParameters.Select(row => row.Key).Order());
         Assert.All(run.SetupParameters, span => Assert.Empty(span.Values));
     }

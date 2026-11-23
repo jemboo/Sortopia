@@ -13,7 +13,7 @@ public sealed class RandomNetworkEducationTests
     [InlineData("msce", 8, "160")]
     [InlineData("mssi", 8, "196")]
     [InlineData("msrs", 8, "204")]
-    [InlineData("msuf4", 8, "204")]
+    [InlineData("msuf4", 8, "1020")]
     [InlineData("msuf6", 12, "474")]
     [InlineData("mssi", 5, "34")]
     public void Size_defaults_use_the_method_specific_99_percent_CE_budget(string method, int width, string count) => OnSta(() =>
@@ -22,7 +22,7 @@ public sealed class RandomNetworkEducationTests
         vm.Method = method;
         vm.ChannelCount = width;
         Assert.Equal(count, vm.CeCountText);
-        Assert.Contains($"{count} CEs", vm.SizeHint);
+        Assert.Contains($"{int.Parse(count):N0} CEs", vm.SizeHint);
         vm.GenerateCommand.Execute(null);
         Assert.Equal(int.Parse(count), vm.SelectedNetwork.ComparatorCount);
         vm.CeCountText = "11";

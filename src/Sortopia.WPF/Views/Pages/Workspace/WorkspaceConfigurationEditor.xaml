@@ -149,6 +149,17 @@
                             <TextBlock Text="{Binding Status}" Style="{StaticResource Help}" Margin="22,0,0,0" />
                         </StackPanel>
                     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                    <Expander Header="Fixed parameters" Foreground="{DynamicResource Workspace.TextPrimary}" IsExpanded="False" Visibility="{Binding HasFixedParameters, Converter={StaticResource VisibleWhen}}">
+                        <ItemsControl ItemsSource="{Binding FixedParameters}"><ItemsControl.ItemTemplate><DataTemplate>
+                            <StackPanel Margin="0,6,0,6">
+                                <TextBlock Text="{Binding Key}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Value}" Style="{StaticResource Help}" />
+                                <Button Content="Use as query key" Command="{Binding UseAsQueryKeyCommand}" HorizontalAlignment="Left"
+                                        ToolTip="Exclude this fixed default on the project and select the key for this output. Run values start empty."
+                                        AutomationProperties.Name="{Binding Key, StringFormat=Use {0} as query key}" />
+                            </StackPanel>
+                        </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                    </Expander>
                     <TextBlock Text="{Binding Summary}" Style="{StaticResource Help}" />
                 </StackPanel>
             </Border>
@@ -178,7 +189,8 @@
         </DataTemplate>
         <DataTemplate x:Key="ExcludedDefault">
             <DockPanel Margin="0,4,0,4">
-                <Button Content="Restore inheritance" Command="{Binding RestoreCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" />
+                <Button Content="Restore fixed default" Command="{Binding RestoreCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                        ToolTip="Restore this default and remove the key from this project's output queries. Existing run values are retained for repair." />
                 <TextBlock Text="{Binding Key, StringFormat=Excluded default: {0}}" VerticalAlignment="Center" TextWrapping="Wrap" />
             </DockPanel>
         </DataTemplate>
@@ -262,15 +274,13 @@
             <Border BorderBrush="{DynamicResource Workspace.Stroke}" BorderThickness="1" CornerRadius="5" Padding="10" Margin="0,0,0,10">
                 <StackPanel>
                     <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding RemoveCommand}" Margin="6,0,0,4" ToolTip="Remove this parameter and its values" AutomationProperties.Name="Remove parameter" />
-                        <Label Content="Parameter key" Target="{Binding ElementName=ParameterKeyInput}" Foreground="{DynamicResource Workspace.TextPrimary}" Padding="0,4,0,4" />
+                        <Button x:Name="DiscardRetainedParameterButton" DockPanel.Dock="Right" Content="Discard retained values" Command="{Binding RemoveCommand}" Margin="6,0,0,4"
+                                Visibility="{Binding IsRepair, Converter={StaticResource VisibleWhen}}" AutomationProperties.Name="Discard retained parameter" />
+                        <TextBlock x:Name="ParameterKeyLabel" Text="{Binding Key}" Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" />
                     </DockPanel>
-                    <ComboBox x:Name="ParameterKeyInput" ItemsSource="{Binding KeyChoices}" IsEditable="True" IsReadOnly="True" IsTextSearchEnabled="True"
-                              Text="{Binding Key, Mode=OneWay}" SelectedItem="{Binding SelectedKey, Mode=TwoWay}" MaxDropDownHeight="260"
-                              ToolTip="Choose a project query key. Other required parameters use fixed project or module defaults." AutomationProperties.Name="Parameter key" />
                     <TextBlock Text="{Binding TypeLabel}" Style="{StaticResource Help}" />
                     <TextBlock Text="{Binding DefaultHint}" Style="{StaticResource Help}" />
-                    <TextBlock Text="Values" Margin="0,10,0,4" />
+                    <TextBlock Text="Values" Foreground="{DynamicResource Workspace.TextPrimary}" Margin="0,10,0,4" />
                     <TextBlock Text="{Binding ValueHint}" Style="{StaticResource Help}" />
                     <ItemsControl x:Name="ParameterValues" ItemsSource="{Binding Values}">
                         <ItemsControl.ItemTemplate><DataTemplate>
@@ -385,7 +395,7 @@
         </StackPanel>
         <StackPanel Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}">
             <TextBlock Text="Local defaults" FontWeight="SemiBold" Margin="0,10,0,6" />
-            <ItemsControl x:Name="ResultsParameterDefaultsList" ItemsSource="{Binding LocalResultsParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
+            <ItemsControl x:Name="ResultsParameterDefaultsList" ItemsSource="{Binding EditableResultsParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
             <Button x:Name="AddResultsParameterDefaultButton" Content="Add default parameter" Command="{Binding AddResultsParameterDefaultCommand}" HorizontalAlignment="Left" />
         </StackPanel>
         <TextBlock Text="{Binding RetainedResultsDefaultsHint}" Style="{StaticResource Help}" />
@@ -426,11 +436,13 @@
             <TextBlock Text="{Binding ResultsProjectionNotice}" Style="{StaticResource InlineError}" Margin="0,0,0,8" />
             <TextBlock Text="Enter spans only for required parameters that have no default. Output query projections are inherited from the project." Style="{StaticResource Help}" />
             <TextBlock Text="{Binding RetainedResultsSpansHint}" Style="{StaticResource Help}" />
-            <ItemsControl x:Name="ResultsParametersList" ItemsSource="{Binding ActiveResultsParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
-            <WrapPanel>
-                <Button Content="Add parameter" Command="{Binding AddResultsParameterCommand}" Margin="0,0,8,6" />
-                <Button x:Name="AddRequiredResultsParametersButton" Content="Add missing span rows" Command="{Binding AddMissingResultsParametersCommand}" Margin="0,0,8,6" Visibility="{Binding HasMissingResultsParameters, Converter={StaticResource VisibleWhen}}" />
-            </WrapPanel>
+            <ItemsControl x:Name="ResultsParametersList" ItemsSource="{Binding DeclaredResultsParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
+            <Expander Header="Retained inputs needing repair" Foreground="{DynamicResource Workspace.TextPrimary}" IsExpanded="True" Visibility="{Binding HasResultsParameterRepairs, Converter={StaticResource VisibleWhen}}">
+                <StackPanel>
+                    <TextBlock Text="These inputs no longer match the project, or duplicate another span. Re-select the key on the project to reuse its values, or discard the retained row." Style="{StaticResource Help}" />
+                    <ItemsControl x:Name="ResultsRepairParametersList" ItemsSource="{Binding RepairResultsParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
+                </StackPanel>
+            </Expander>
             <TextBlock Text="{Binding ResultsParametersError}" Style="{StaticResource InlineError}" />
             <TextBlock Text="{Binding ResultsParameterSetsSummary}" Style="{StaticResource Help}" />
             <Expander Header="Results output query projections" IsExpanded="True" Style="{StaticResource EditorSection}">
@@ -488,7 +500,7 @@
             </StackPanel>
             <StackPanel Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}">
                 <TextBlock Text="Local defaults" FontWeight="SemiBold" Margin="0,10,0,6" />
-                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding LocalSetupParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
+                <ItemsControl x:Name="SetupParameterDefaultsList" ItemsSource="{Binding EditableSetupParameterDefaults}" ItemTemplate="{StaticResource ParameterBinding}" />
                 <Button Content="Add default parameter" Command="{Binding AddSetupParameterDefaultCommand}" HorizontalAlignment="Left" />
             </StackPanel>
             <TextBlock Text="{Binding RetainedSetupDefaultsHint}" Style="{StaticResource Help}" />
@@ -503,13 +515,15 @@
                 <ContentControl x:Name="SetupRequiredInputsSummary" Content="{Binding SetupRequiredInputs}" ContentTemplate="{StaticResource RequiredInputs}" />
                 <TextBlock Text="{Binding SetupInputGuidance}" Style="{StaticResource Help}" Visibility="{Binding HasSetupInputGuidance, Converter={StaticResource VisibleWhen}}" />
                 <TextBlock Text="{Binding SetupProjectionNotice}" Style="{StaticResource InlineError}" Margin="0,0,0,8" />
-                <TextBlock Text="Enter spans only for required parameters that have no setup default. Output query projections are inherited from the project." Style="{StaticResource Help}" />
+                <TextBlock Text="Enter values for each setup query key. The project defines these rows." Style="{StaticResource Help}" />
                 <TextBlock Text="{Binding RetainedSetupSpansHint}" Style="{StaticResource Help}" />
-            <ItemsControl x:Name="SetupParametersList" ItemsSource="{Binding ActiveSetupParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
-                <WrapPanel>
-                    <Button Content="Add parameter" Command="{Binding AddSetupParameterCommand}" Margin="0,0,8,6" />
-                    <Button x:Name="AddRequiredSetupParametersButton" Content="Add missing span rows" Command="{Binding AddMissingSetupParametersCommand}" Margin="0,0,8,6" Visibility="{Binding HasMissingSetupParameters, Converter={StaticResource VisibleWhen}}" />
-                </WrapPanel>
+            <ItemsControl x:Name="SetupParametersList" ItemsSource="{Binding DeclaredSetupParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
+                <Expander Header="Retained inputs needing repair" Foreground="{DynamicResource Workspace.TextPrimary}" IsExpanded="True" Visibility="{Binding HasSetupParameterRepairs, Converter={StaticResource VisibleWhen}}">
+                    <StackPanel>
+                        <TextBlock Text="These inputs no longer match the project, or duplicate another span. Re-select the key on the project to reuse its values, or discard the retained row." Style="{StaticResource Help}" />
+                        <ItemsControl x:Name="SetupRepairParametersList" ItemsSource="{Binding RepairSetupParameters}" ItemTemplate="{StaticResource ParameterSpan}" />
+                    </StackPanel>
+                </Expander>
                 <TextBlock Text="{Binding SetupParametersError}" Style="{StaticResource InlineError}" />
                 <TextBlock Text="{Binding SetupParameterSetsSummary}" Style="{StaticResource Help}" />
                 <Expander Header="Setup output query projections" IsExpanded="True" Style="{StaticResource EditorSection}">

@@ -57,7 +57,7 @@ public sealed class EvaluationChannelCountTests
     }
 
     [Fact]
-    public void Draft_run_drops_the_obsolete_empty_channel_count_span_from_its_active_inputs()
+    public void Draft_run_preserves_the_obsolete_channel_count_span_until_explicitly_discarded()
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
         var settings = FunctionOutputContractTests.Combined(true);
@@ -74,7 +74,11 @@ public sealed class EvaluationChannelCountTests
                 new() { keyName = "SorterEvalType", values = ["V2"] },
                 new() { keyName = "CollectSortableTests", values = ["False"] }], setupParameterSpans = []
         });
-        Assert.DoesNotContain(run.Editor.ActiveResultsParameters, span => span.Key == "ChannelCount");
+        Assert.DoesNotContain(run.Editor.DeclaredResultsParameters, span => span.Key == "ChannelCount");
+        var retained = Assert.Single(run.Editor.RepairResultsParameters);
+        Assert.Equal("ChannelCount", retained.Key);
+        Assert.Contains(run.Editor.ToRunInputs(run.Id, run.Name, project.Id).resultsParameterSpans, span => span.keyName == "ChannelCount");
+        retained.RemoveCommand.Execute(null);
         Assert.Empty(run.Editor.ResultsParametersError);
         Assert.Single(run.Editor.ResultsParameterSetsPreview.Rows);
         Assert.Equal(new[] { "SorterEvalType", "CollectSortableTests" },

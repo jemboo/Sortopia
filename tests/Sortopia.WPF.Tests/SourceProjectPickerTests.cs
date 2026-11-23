@@ -20,7 +20,8 @@ public sealed class SourceProjectPickerTests
     public void Incompatible_projects_stay_visible_with_reasons_and_become_selectable_when_the_function_supports_them()
     {
         Exception? failure = null;
-        var thread = new Thread(() => { try { CheckPicker(); } catch (Exception error) { failure = error; } });
+        var thread = new Thread(() => { try { CheckPicker(); } catch (Exception error) { failure = error; }
+            finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); } });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }

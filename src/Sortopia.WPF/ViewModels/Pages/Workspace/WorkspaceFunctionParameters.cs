@@ -88,34 +88,22 @@ public sealed partial class WorkspaceConfigurationViewModel
     private WorkspaceFunctionParameter[] FunctionParameters(bool setup)
     {
         if (setup && !IsBranch) return [];
-        var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
-        var spans = (IsRun ? ActiveParameters(setup) : []).ToArray();
-        static string Display(string value) => string.IsNullOrWhiteSpace(value) ? "(empty)" : value;
-        return (FunctionGridRequirements(setup) ?? []).Select(key =>
+        static string Display(string value) => value.Length == 0 ? "(empty)" : value;
+        return ParameterStates(setup).Select(state =>
         {
-            var defaultEditor = ParameterSource(key.Name, setup);
-            var bindings = defaults.Where(value => value.keyName == key.Name).ToArray();
-            var matches = spans.Where(span => span.Key == key.Name).ToArray();
-            var values = matches.SelectMany(span => span.Values).Select(value => value.Text).ToArray();
-            var type = ParameterValue.label(key.ValueType);
-            var fixedValue = string.Join("; ", bindings.Select(value => Display(value.value)));
-            var spanValue = $"[{string.Join(", ", values.Select(Display))}]";
-            if (bindings.Length > 0 && matches.Length > 0)
-                return new WorkspaceFunctionParameter(key.Name, $"Default: {fixedValue}; span: {spanValue}", type,
-                    WorkspaceParameterSupply.Default, "Both a default and a span are assigned. Remove one to resolve the conflict.")
-                    { TargetEditor = defaultEditor, IsSetup = setup };
-            if (bindings.Length > 0)
-                return new WorkspaceFunctionParameter(key.Name,
-                    bindings.Any(value => !string.IsNullOrWhiteSpace(value.value)) ? fixedValue : "Not set", type,
-                    bindings.Any(value => !string.IsNullOrWhiteSpace(value.value)) ? WorkspaceParameterSupply.Default : WorkspaceParameterSupply.None,
-                    defaultEditor is { } source ? $"Default from {source.Name}." : "Project default.")
-                    { TargetEditor = defaultEditor, IsSetup = setup };
-            if (values.Any(value => !string.IsNullOrWhiteSpace(value)))
-                return new WorkspaceFunctionParameter(key.Name, spanValue, type, WorkspaceParameterSupply.Span,
-                    $"{values.Length} value(s) supplied by this run.") { TargetEditor = this, IsSetup = setup };
-            return new WorkspaceFunctionParameter(key.Name, "Not set", type, WorkspaceParameterSupply.None,
-                matches.Length > 0 ? "The run's span has no values yet." : QueryKeys(setup).Contains(key.Name) ? "Supply this project query key's span on a run." : "Assign a fixed default on the project or an ancestor module.")
-                { TargetEditor = IsRun && matches.Length == 0 && !QueryKeys(setup).Contains(key.Name) ? Parent : this, IsSetup = setup, NeedsEntry = matches.Length == 0 };
+            var values = state.Spans.SelectMany(span => span.Values).Select(value => Display(value.Text)).ToArray();
+            var value = state.Defaults.Length > 0 ? string.Join("; ", state.Defaults.Select(row => Display(row.value)))
+                : values.Length > 0 ? $"[{string.Join(", ", values)}]" : "Not set";
+            if (state.Supply == WorkspaceParameterSupply.None) value = "Not set";
+            if (state.Defaults.Length > 0 && state.Spans.Length > 0) value = $"Default: {value}; span: [{string.Join(", ", values)}]";
+            var source = state.HasIssue ? $"{state.Status}: {state.Error}" : state.Supply == WorkspaceParameterSupply.Default
+                ? $"Default from {state.DefaultEditor?.Name ?? "project"}." : $"{values.Length} value(s) supplied by this run.";
+            return new WorkspaceFunctionParameter(state.Key, value, ParameterValue.label(state.ValueType), state.Supply, source)
+            {
+                TargetEditor = state.Defaults.Length > 0 ? state.DefaultEditor
+                    : IsRun && !state.IsQuery && state.Spans.Length == 0 ? Parent : this,
+                IsSetup = setup, NeedsEntry = state.Defaults.Length == 0 && state.Spans.Length == 0
+            };
         }).ToArray();
     }
     internal string MissingFunctionParameterError(string key, bool setup)
@@ -153,6 +141,7 @@ public sealed partial class WorkspaceConfigurationViewModel
                 var descriptor = FunctionGridRequirements(setup)!.Single(value => value.Name == key);
                 AddDefault(rows, new() { keyName = key, valueType = (int)descriptor.ValueType, value = "" });
             }
+            (setup ? excludedSetupDefaults : excludedResultsDefaults).Remove(key);
         }
         return true;
     }

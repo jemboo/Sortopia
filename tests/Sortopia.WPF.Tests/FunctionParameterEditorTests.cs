@@ -101,7 +101,7 @@ public sealed class FunctionParameterEditorTests
         var project = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Project, true, () => parent, () => "Project", () => [models, tests]);
         project.SetupQueryOutputs.Single(row => row.Kind == "SorterModelSet").Keys.Single(row => row.Key == "OrthoGenRate").Selected = true;
         var run = new WorkspaceConfigurationViewModel(WorkspaceEntityKind.Run, true, () => project, () => "Run", () => [models, tests]);
-        run.AddMissingSetupParametersCommand.Execute(null);
+        run.RefreshInherited();
         var rate = Assert.Single(run.SetupParameters);
         Assert.Equal("OrthoGenRate", rate.Key); Assert.Contains("normalized together", rate.ValueHint);
         rate.AddValueCommand.Execute(null); rate.Values[0].Text = "-1";

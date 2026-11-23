@@ -57,16 +57,16 @@ public sealed class ExplicitQuerySpanTests
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
         var editor = run.Editor!;
         var rows = setup ? editor.SetupParameters : editor.ResultsParameters;
-        var addMissing = setup ? editor.AddMissingSetupParametersCommand : editor.AddMissingResultsParametersCommand;
+        Action addMissing = editor.RefreshInherited;
         var original = (setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults).Select(value => (value.Key, value.Value)).ToArray();
         Assert.Equal(2, original.Length);
-        addMissing.Execute(null);
+        addMissing();
         Assert.Empty(rows);
         Assert.Single((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         Assert.Empty((setup ? editor.SetupQueryOutputs : editor.ResultsQueryOutputs).Single().Keys);
-        (setup ? editor.AddSetupParameterCommand : editor.AddResultsParameterCommand).Execute(null);
+        editor.AddDraftSpan(setup);
         var invalid = rows.Single(); invalid.Key = original[0].Key; invalid.Values[0].Text = original[0].Value;
-        Assert.DoesNotContain(original[0].Key, invalid.KeyChoices);
+        Assert.True(invalid.IsRepair);
         Assert.Contains("already has a default", invalid.Error);
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         Assert.Equal(original, (setup ? editor.InheritedSetupDefaults : editor.InheritedOutputDefaults).Select(value => (value.Key, value.Value)));
@@ -74,10 +74,10 @@ public sealed class ExplicitQuerySpanTests
         Assert.Empty(rows);
         // Explicitly removing inheritance does not supply span values.
         foreach (var value in (setup ? project.Editor!.InheritedSetupDefaults : project.Editor!.InheritedOutputDefaults).ToArray()) value.ExcludeCommand!.Execute(null);
-        addMissing.Execute(null);
+        addMissing();
         Assert.Empty(rows);
         foreach (var key in (setup ? project.Editor!.SetupQueryOutputs : project.Editor!.ResultsQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
-        addMissing.Execute(null);
+        addMissing();
         Assert.Equal(2, rows.Count); Assert.All(rows, span => Assert.Empty(span.Values));
         Assert.Empty((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         Assert.Equal(2, (setup ? module.Editor.SetupParameterDefaults : module.Editor.ResultsParameterDefaults).Count);
@@ -106,7 +106,7 @@ public sealed class ExplicitQuerySpanTests
             var restored = reopened.Roots[0].Children[0].Children[0].Children[0].Editor!;
             Assert.False(restored.CanEditQuerySelection); Assert.All(restored.ResultsQueryOutputs.SelectMany(output => output.Keys), key => Assert.False(key.CanChange));
             restored.ResultsParameters[0].RemoveCommand.Execute(null);
-            Assert.True(reopened.SaveWorkspaceCommand.CanExecute(null)); Assert.Empty(restored.ResultsParameterSetsPreview.Rows);
+            Assert.False(restored.ResultsParameters[0].RemoveCommand.CanExecute(null)); Assert.NotEmpty(restored.ResultsParameterSetsPreview.Rows);
             page.Cancel(); reopened.Cancel();
         }
         finally { temporary.Delete(true); }

@@ -31,56 +31,53 @@ public sealed class WorkspaceParameterSpan : WorkspaceFormItem
     private readonly Func<functionParameterSupport?>? support;
     private string key;
     private readonly Func<string, parameterBindingDto?> defaultValue;
-    private readonly Func<IEnumerable<string>> suggestedKeys;
     private readonly Func<IEnumerable<string>>? queryKeys;
-    private string[] keyChoices = [];
+    private readonly Func<bool> canEdit;
+    private readonly Func<bool> isRepair;
+    private readonly parameterValueType? storedType;
+    private readonly Func<IEnumerable<parameterIssue>>? issues;
     public WorkspaceParameterSpan(string key, IEnumerable<string> values, Action<WorkspaceParameterSpan> remove, Func<string, parameterBindingDto?> defaultValue,
-        Func<IEnumerable<string>>? suggestedKeys = null, Func<paramKeyDescriptor[]?>? requirements = null, Func<functionParameterSupport?>? support = null,
-        Func<IEnumerable<string>>? queryKeys = null)
+        Func<paramKeyDescriptor[]?>? requirements = null, Func<functionParameterSupport?>? support = null,
+        Func<IEnumerable<string>>? queryKeys = null, Func<bool>? canEdit = null, Func<bool>? isRepair = null, parameterValueType? storedType = null,
+        Func<IEnumerable<parameterIssue>>? issues = null)
     {
-        this.key = key; this.defaultValue = defaultValue; this.suggestedKeys = suggestedKeys ?? (() => []);
+        this.key = key; this.defaultValue = defaultValue;
         this.requirements = requirements ?? (() => null);
         this.support = support;
         this.queryKeys = queryKeys;
+        this.canEdit = canEdit ?? (() => true); this.isRepair = isRepair ?? (() => true); this.storedType = storedType;
+        this.issues = issues;
         Watch(Values, ValuesChanged);
         foreach (var value in values) AddValue(value);
-        AddValueCommand = new RelayCommand(() => AddValue(""));
-        RemoveCommand = new RelayCommand(() => remove(this));
+        AddValueCommand = new RelayCommand(() => AddValue(""), this.canEdit);
+        RemoveCommand = new RelayCommand(() => { if (this.canEdit() && this.isRepair()) remove(this); }, () => this.canEdit() && this.isRepair());
         RefreshInherited();
     }
     private void ValuesChanged() { RefreshInherited(); NotifyChanged(); }
-    private void AddValue(string value) => Values.Add(new(value, () => ValueType, item => Values.Remove(item), () => Key, support: support));
-    public string[] KeyChoices => keyChoices;
-    public bool HasRestrictedKeys => requirements() is not null;
-    public string? SelectedKey
-    {
-        get => KeyChoices.Contains(Key, StringComparer.Ordinal) ? Key : null;
-        set { if (value is not null && KeyChoices.Contains(value, StringComparer.Ordinal)) Key = value; }
-    }
-
-    public string Key { get => key; set { if (SetProperty(ref key, value)) ValuesChanged(); } }
+    private void AddValue(string value) => Values.Add(new(value, () => ValueType, item => { if (canEdit()) Values.Remove(item); }, () => Key, canEdit, support));
+    public bool IsRepair => isRepair();
+    public string Key { get => key; internal set { if (SetProperty(ref key, value)) ValuesChanged(); } }
     public ObservableCollection<WorkspaceTypedValue> Values { get; } = [];
     public RelayCommand AddValueCommand { get; }
     public RelayCommand RemoveCommand { get; }
-    public string Error => defaultValue(Key) is not null ? $"‘{Key}’ already has a default. Remove this span or exclude the default on the project."
+    public string Error => issues is not null ? issues().FirstOrDefault()?.Message ?? Values.Select(value => value.Error).FirstOrDefault(error => error.Length > 0) ?? ""
+        : defaultValue(Key) is not null ? $"‘{Key}’ already has a default. Remove this span or exclude the default on the project."
         : string.IsNullOrWhiteSpace(Key) ? "Enter a parameter key."
         : requirements() is { } required && !required.Any(value => value.Name == Key) ? $"‘{Key}’ is not required by the selected function. Remove this span or choose one of its required keys."
         : queryKeys is not null && !queryKeys().Contains(Key, StringComparer.Ordinal) ? $"‘{Key}’ is not a project query key. Select it on the project, or supply a fixed default and remove this span."
-        : Values.Count == 0 ? "Add at least one value. Blank values are allowed for text parameters."
+        : PhaseParameterContract.spanValuesIssues(Key, Values.Count).FirstOrDefault() is { } issue ? issue.Message
         : Values.Select(value => value.Error).FirstOrDefault(error => error.Length > 0) ?? "";
     public parameterValueType ValueType => requirements()?.FirstOrDefault(value => value.Name == Key)?.ValueType
-        ?? (defaultValue(Key) is { } value ? (parameterValueType)value.valueType : ParamKeys.valueType(Key));
+        ?? storedType ?? (defaultValue(Key) is { } value ? (parameterValueType)value.valueType : ParamKeys.valueType(Key));
     public string TypeLabel => ParameterValue.label(ValueType);
     public string ValueHint => WorkspaceParameterRules.Hint(support?.Invoke(), Key, ValueType);
     public string DefaultHint => defaultValue(Key) is { } value ? $"Conflicts with default: {value.value}"
+        : IsRepair && queryKeys is not null ? "Retained input; resolve the issue below before generating parameters."
         : queryKeys is not null ? "Project query parameter; supply one or more values in this run." : "Additional parameter; its values are included in the combinations.";
     internal void RefreshInherited()
     {
-        var choices = (requirements() is { } required ? required.Select(value => value.Name) : WorkspaceParameterBinding.KnownKeys.Concat(suggestedKeys()).Append(Key))
-            .Where(value => queryKeys is null || queryKeys().Contains(value, StringComparer.Ordinal))
-            .Where(value => !string.IsNullOrWhiteSpace(value) && defaultValue(value) is null).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        if (!keyChoices.SequenceEqual(choices)) keyChoices = choices;
         foreach (var value in Values) value.RefreshType();
+        AddValueCommand?.RaiseCanExecuteChanged(); RemoveCommand?.RaiseCanExecuteChanged();
         OnPropertyChanged("");
     }
     internal parameterSpanDto ToDto() => new() { keyName = Key, values = Values.Select(value => value.Text).ToArray(), valueType = (int)ValueType };
@@ -229,7 +226,6 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private projectSettingsDto? frozenSettings;
     private WorkspaceParameterSetsPreview? resultsPreview, setupPreview;
     private WorkspaceParameterBinding[] activeResultsDefaults = [], activeSetupDefaults = [];
-    private WorkspaceParameterSpan[] activeResultsSpans = [], activeSetupSpans = [];
     public WorkspaceEditorSections Sections { get; } = new();
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
     private bool generatedParametersLock;
@@ -283,7 +279,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
             if (SnapshotReporting.Error.Length > 0) return "Full snapshots: " + SnapshotReporting.Error;
             if (SummaryReporting.Error.Length > 0) return "Summaries: " + SummaryReporting.Error;
             var counts = EffectiveOutputDefaults.Where(value => value.keyName == "GenerationCount").Select(value => value.value)
-                .Concat(ActiveResultsParameters.Where(row => row.Key == "GenerationCount").SelectMany(row => row.Values.Select(value => value.Text)));
+                .Concat(ResultsParameters.Where(row => row.Key == "GenerationCount").SelectMany(row => row.Values.Select(value => value.Text)));
             try { SgdReporting.validateGenerationCounts(new(SnapshotReporting.Schedule, SummaryReporting.Schedule), counts); return ""; }
             catch (Exception error) { return error.GetBaseException().Message; }
         }
@@ -355,10 +351,6 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         AddRequiredResultsDefaultsCommand = new RelayCommand(() => AddRequiredDefaults(false), () => CanAddRequiredDefaults(false));
         AddRequiredSetupDefaultsCommand = new RelayCommand(() => AddRequiredDefaults(true), () => CanAddRequiredDefaults(true));
         WorkspaceFormItem.Watch(ResultsParameters, NotifyChanged); WorkspaceFormItem.Watch(SetupParameters, NotifyChanged);
-        AddResultsParameterCommand = new RelayCommand(() => AddSpan(ResultsParameters, "", [""]));
-        AddSetupParameterCommand = new RelayCommand(() => AddSpan(SetupParameters, "", [""]));
-        AddMissingResultsParametersCommand = new RelayCommand(() => AddMissing(ResultsParameters, MissingOutputKeys), () => MissingOutputKeys.Length > 0);
-        AddMissingSetupParametersCommand = new RelayCommand(() => AddMissing(SetupParameters, MissingSetupKeys), () => MissingSetupKeys.Length > 0);
         RefreshInherited();
     }
     private WorkspaceConfigurationViewModel? Parent => parent();
@@ -473,6 +465,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     }
     public IEnumerable<WorkspaceParameterBinding> LocalResultsParameterDefaults => ActiveLocalDefaults(false);
     public IEnumerable<WorkspaceParameterBinding> LocalSetupParameterDefaults => ActiveLocalDefaults(true);
+    private WorkspaceParameterBinding[] editableResultsDefaults = [], editableSetupDefaults = [];
+    public IEnumerable<WorkspaceParameterBinding> EditableResultsParameterDefaults => StableRows(LocalResultsParameterDefaults.Where(row => !excludedResultsDefaults.Contains(row.Key)), ref editableResultsDefaults);
+    public IEnumerable<WorkspaceParameterBinding> EditableSetupParameterDefaults => StableRows(LocalSetupParameterDefaults.Where(row => !excludedSetupDefaults.Contains(row.Key)), ref editableSetupDefaults);
     private static parameterBindingDto[] MergeDefaults(parameterBindingDto[] inherited, IEnumerable<WorkspaceParameterBinding> rows)
     {
         var local = rows.Select(row => row.ToDto()).ToArray();
@@ -491,7 +486,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     }
     private string ParameterDefaultsError(bool setup)
     {
-        var local = setup ? LocalSetupParameterDefaults : LocalResultsParameterDefaults;
+        var local = setup ? EditableSetupParameterDefaults : EditableResultsParameterDefaults;
         var localError = IsReadOnly ? "" : local.Where(row => row.Error.Length > 0).Select(row => $"Parameter ‘{row.Key}’: {row.Error}").FirstOrDefault()
             ?? DefaultsError(setup, local.Select(row => row.ToDto()).ToArray());
         var values = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
@@ -548,13 +543,13 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public bool HasInheritedSetupDefaults => InheritedSetupDefaults.Any();
     public string ParameterDefaultsPreviewTitle => IsReadOnly ? "Fixed parameter defaults" : IsRun ? "Inherited project defaults" : "Inherited defaults";
     private static string SetCount(IEnumerable<WorkspaceParameterSpan> spans) => spans.Aggregate(BigInteger.One, (count, span) => count * span.Values.Count).ToString("N0", CultureInfo.InvariantCulture);
-    public string ResultsParameterSetsSummary => $"{SetCount(ActiveResultsParameters)} execution parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
-    public string SetupParameterSetsSummary => $"{SetCount(ActiveSetupParameters)} setup parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
+    public string ResultsParameterSetsSummary => $"{SetCount(ResultsParameters)} execution parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
+    public string SetupParameterSetsSummary => $"{SetCount(SetupParameters)} setup parameter set(s). Defaults stay fixed; span keys must be different from default keys.";
     public WorkspaceParameterSetsPreview ResultsParameterSetsPreview => !IsRun ? WorkspaceParameterSetsPreview.Empty
-        : resultsPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveOutputDefaults, ActiveResultsParameters,
+        : resultsPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveOutputDefaults, ResultsParameters,
             FirstError(ResultsParameterDefaultsError, ResultsParametersError), PhaseVersionCurrent(false) ? ParameterSupport(false) : null);
     public WorkspaceParameterSetsPreview SetupParameterSetsPreview => !IsRun || !IsBranch ? WorkspaceParameterSetsPreview.Empty
-        : setupPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveSetupDefaults, ActiveSetupParameters,
+        : setupPreview ??= WorkspaceParameterSetsPreview.Create(EffectiveSetupDefaults, SetupParameters,
             FirstError(SetupParameterDefaultsError, SetupParametersError), PhaseVersionCurrent(true) ? ParameterSupport(true) : null);
     private static string FirstError(params string[] errors) => errors.FirstOrDefault(error => error.Length > 0) ?? "";
     public string ResultsSettingsError => FirstError(ResultsDatabaseError, ResultsFunctionError, OutputTypesError, ResultsQueryKeysError);
@@ -562,20 +557,19 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public ObservableCollection<WorkspaceSetupDataTypeEntry> SetupDataTypes { get; } = [];
     public ObservableCollection<WorkspaceParameterSpan> ResultsParameters { get; } = [];
     public ObservableCollection<WorkspaceParameterSpan> SetupParameters { get; } = [];
-    private IEnumerable<WorkspaceParameterSpan> ActiveParameters(bool setup)
-    {
-        var rows = setup ? SetupParameters : ResultsParameters;
-        IEnumerable<WorkspaceParameterSpan> active = Requirements(setup) is { } required
-            ? rows.Where(row => string.IsNullOrWhiteSpace(row.Key) || required.Any(key => key.Name == row.Key)) : rows;
-        return setup ? StableRows(active, ref activeSetupSpans) : StableRows(active, ref activeResultsSpans);
-    }
-    public IEnumerable<WorkspaceParameterSpan> ActiveResultsParameters => ActiveParameters(false);
-    public IEnumerable<WorkspaceParameterSpan> ActiveSetupParameters => ActiveParameters(true);
-    public RelayCommand AddResultsParameterCommand { get; }
-    public RelayCommand AddSetupParameterCommand { get; }
-    public RelayCommand AddMissingResultsParametersCommand { get; }
-    public RelayCommand AddMissingSetupParametersCommand { get; }
-    private string[] QueryKeys(bool setup) => setup ? EffectiveSetupKeys : EffectiveOutputKeys;
+    private IEnumerable<WorkspaceParameterSpan> ParameterSpans(bool setup) => setup ? SetupParameters : ResultsParameters;
+    private string[] QueryKeys(bool setup) => PhaseContract(setup).SpanKeys.ToArray();
+    private WorkspaceParameterSpan[] declaredResultsSpans = [], declaredSetupSpans = [], repairResultsSpans = [], repairSetupSpans = [];
+    public IEnumerable<WorkspaceParameterSpan> DeclaredResultsParameters => StableRows(DeclaredParameters(false), ref declaredResultsSpans);
+    public IEnumerable<WorkspaceParameterSpan> DeclaredSetupParameters => StableRows(DeclaredParameters(true), ref declaredSetupSpans);
+    public IEnumerable<WorkspaceParameterSpan> RepairResultsParameters => StableRows(ResultsParameters.Where(row => row.IsRepair), ref repairResultsSpans);
+    public IEnumerable<WorkspaceParameterSpan> RepairSetupParameters => StableRows(SetupParameters.Where(row => row.IsRepair), ref repairSetupSpans);
+    public bool HasResultsParameterRepairs => RepairResultsParameters.Any();
+    public bool HasSetupParameterRepairs => RepairSetupParameters.Any();
+    private IEnumerable<WorkspaceParameterSpan> DeclaredParameters(bool setup) => ParameterSpans(setup).Where(row => !row.IsRepair);
+    private bool IsRepairSpan(ObservableCollection<WorkspaceParameterSpan> rows, WorkspaceParameterSpan span) =>
+        !QueryKeys(ReferenceEquals(rows, SetupParameters)).Contains(span.Key, StringComparer.Ordinal)
+        || !ReferenceEquals(rows.FirstOrDefault(row => row.Key == span.Key), span);
     private sortopiaDataTypeDto[] EffectiveOutputs => EffectiveResultsDataTypes.Select(output => output.dataType).ToArray();
     private string[] EffectiveOutputKeys => EffectiveResultsDataTypes.SelectMany(output => output.queryParameterKeys).Distinct(StringComparer.Ordinal).ToArray();
     private setupDataTypeConfigDto[] EffectiveSetupDataTypes => (IsRun ? Parent?.EffectiveSetupDataTypes : null) ?? frozenSettings?.setupDataTypes ?? ResolveSetupTypes();
@@ -609,18 +603,11 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         : values.Distinct(StringComparer.Ordinal).Count() != values.Length ? "Query keys must be unique." : "";
     private static string[] MissingKeys(IEnumerable<WorkspaceParameterSpan> spans, IEnumerable<string>? keys) =>
         keys?.Where(key => !string.IsNullOrWhiteSpace(key) && !spans.Any(span => span.Key == key)).Distinct(StringComparer.Ordinal).ToArray() ?? [];
-    private string[] MissingInputKeys(bool setup) => MissingKeys(setup ? SetupParameters : ResultsParameters, QueryKeys(setup));
-    private string[] MissingOutputKeys => MissingInputKeys(false);
-    private string[] MissingSetupKeys => MissingInputKeys(true);
     private string ParametersError(bool setup)
     {
-        var rows = ActiveParameters(setup).ToArray();
-        var defaults = setup ? EffectiveSetupDefaults : EffectiveOutputDefaults;
-        var required = Requirements(setup)?.Select(key => key.Name) ?? QueryKeys(setup).Concat(defaults.Select(value => value.keyName)).Concat(rows.Select(row => row.Key));
+        var rows = ParameterSpans(setup).ToArray();
         return rows.Where(row => row.Error.Length > 0).Select(row => $"Parameter ‘{(string.IsNullOrWhiteSpace(row.Key) ? "unnamed" : row.Key)}’: {row.Error}").FirstOrDefault()
-            ?? (rows.Select(row => row.Key).Distinct(StringComparer.Ordinal).Count() != rows.Length ? "Parameter keys must be unique."
-            : FirstError(ParameterSets.inputKeysError(ListModule.OfSeq(required), ListModule.OfArray(QueryKeys(setup)),
-                ListModule.OfSeq(defaults.Select(value => value.keyName)), ListModule.OfSeq(rows.Select(row => row.Key))), FunctionInputsError(setup, true)));
+            ?? FirstError(PhaseParameterContract.messages(PhaseIssues(setup)), FunctionInputsError(setup, true));
     }
     private string QueryContractError(bool setup, string[] keys)
     {
@@ -636,8 +623,6 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public string SetupQueryKeysError => FirstError(KeysError(EffectiveSetupKeys), FirstError(QueryContractError(true, EffectiveSetupKeys), SourceQueryContractError()));
     public string ResultsParametersError => ParametersError(false);
     public string SetupParametersError => ParametersError(true);
-    public bool HasMissingResultsParameters => MissingOutputKeys.Length > 0;
-    public bool HasMissingSetupParameters => MissingSetupKeys.Length > 0;
     public string OutputTypesSummary => EffectiveOutputs.Length == 0 ? "None" : "";
     public string SetupOutputTypesSummary => EffectiveSetupOutputs.Length == 0 ? "None" : "";
     public string ResultsQueryKeysSummary => Summary(EffectiveOutputKeys);
@@ -665,8 +650,6 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private void ListChanged(WorkspaceListOverride local)
     {
         if (loading) return;
-        if (ReferenceEquals(local, ResultsParameterDefaultsOverride)) excludedResultsDefaults.ExceptWith(ResultsParameterDefaults.Select(row => row.Key));
-        if (ReferenceEquals(local, SetupParameterDefaultsOverride)) excludedSetupDefaults.ExceptWith(SetupParameterDefaults.Select(row => row.Key));
         local.MarkLocal(); NotifyChanged();
     }
     private void NotifyChanged() { if (!loading) { RefreshInherited(); Changed?.Invoke(); } }
@@ -674,38 +657,51 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     {
         resultsPreview = setupPreview = null;
         RefreshContractRows();
+        SynchronizeQuerySpans();
         foreach (var state in setupSourceOverrides.Values) { state.IsReadOnly = IsReadOnly; state.RefreshInherited(); }
         foreach (var field in properties.Values) field.RefreshInherited();
         foreach (var span in ResultsParameters.Concat(SetupParameters)) span.RefreshInherited();
         foreach (var row in SetupDataTypes) row.RefreshSources();
         foreach (var row in ResultsParameterDefaults.Concat(SetupParameterDefaults)) row.RefreshSource();
         OnPropertyChanged("");
-        AddMissingResultsParametersCommand?.RaiseCanExecuteChanged(); AddMissingSetupParametersCommand?.RaiseCanExecuteChanged();
         AddRequiredResultsDefaultsCommand?.RaiseCanExecuteChanged(); AddRequiredSetupDefaultsCommand?.RaiseCanExecuteChanged();
         AddResultsParameterDefaultCommand?.RaiseCanExecuteChanged(); AddSetupParameterDefaultCommand?.RaiseCanExecuteChanged();
     }
     private void Quietly(Action action) { var wasLoading = loading; loading = true; try { action(); } finally { loading = wasLoading; } }
-    private void AddSpan(ObservableCollection<WorkspaceParameterSpan> rows, string key, IEnumerable<string> values) =>
-        rows.Add(new(key, values, item => rows.Remove(item), name => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults : EffectiveOutputDefaults).FirstOrDefault(value => value.keyName == name),
-            () => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults.Select(value => value.keyName).Concat(RequiredSetupKeys)
-                : EffectiveOutputDefaults.Select(value => value.keyName).Concat(EffectiveOutputKeys)).Concat(rows.Select(row => row.Key)),
+    private void AddSpan(ObservableCollection<WorkspaceParameterSpan> rows, string key, IEnumerable<string> values, parameterValueType? storedType = null)
+    {
+        WorkspaceParameterSpan? span = null;
+        span = new(key, values, item => rows.Remove(item), name => (ReferenceEquals(rows, SetupParameters) ? EffectiveSetupDefaults : EffectiveOutputDefaults).FirstOrDefault(value => value.keyName == name),
             () => Requirements(ReferenceEquals(rows, SetupParameters)), () => ParameterSupport(ReferenceEquals(rows, SetupParameters)),
-            () => QueryKeys(ReferenceEquals(rows, SetupParameters))));
+            () => QueryKeys(ReferenceEquals(rows, SetupParameters)), () => IsEditable, () => span is not null && IsRepairSpan(rows, span), storedType,
+            () => PhaseIssues(ReferenceEquals(rows, SetupParameters)).Where(issue => issue.Key == span!.Key));
+        rows.Add(span);
+    }
+    // Raw draft input is also used when importing old files; the normal editor only edits values.
+    internal void AddDraftSpan(bool setup, string key = "", string[]? values = null) => AddSpan(setup ? SetupParameters : ResultsParameters, key, values ?? [""]);
     private void AddMissing(ObservableCollection<WorkspaceParameterSpan> rows, IEnumerable<string>? keys)
     { foreach (var key in MissingKeys(rows, keys)) AddSpan(rows, key, []); }
-    internal void InitializeQuerySpans()
+    private void SynchronizeQuerySpans()
     {
-        if (!IsRun || !IsEditable) return;
+        if (!IsRun || !IsEditable || loading) return;
         Quietly(() => { AddMissing(ResultsParameters, QueryKeys(false)); if (IsBranch) AddMissing(SetupParameters, QueryKeys(true)); });
-        NotifyChanged();
     }
-    private void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value) =>
-        rows.Add(new(value.keyName, (parameterValueType)value.valueType, value.value, item => rows.Remove(item), key => LocalParameterSource(key, ReferenceEquals(rows, SetupParameterDefaults)),
+    private void AddDefault(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto value)
+    {
+        var setup = ReferenceEquals(rows, SetupParameterDefaults);
+        var row = new WorkspaceParameterBinding(value.keyName, (parameterValueType)value.valueType, value.value, item => rows.Remove(item), key => LocalParameterSource(key, setup),
             () => (ReferenceEquals(rows, SetupParameterDefaults) ? EffectiveSetupDefaults : EffectiveOutputDefaults).Select(binding => binding.keyName),
             key => (ReferenceEquals(rows, SetupParameterDefaults) ? Parent?.EffectiveSetupDefaults : Parent?.EffectiveOutputDefaults)?.FirstOrDefault(binding => binding.keyName == key),
-            () => Requirements(ReferenceEquals(rows, SetupParameterDefaults)),
-            () => IsProject ? QueryKeys(ReferenceEquals(rows, SetupParameterDefaults)) : [], () => !IsReadOnly,
-            () => ParameterSupport(ReferenceEquals(rows, SetupParameterDefaults))));
+            () => Requirements(setup), () => IsProject ? QueryKeys(setup) : [], () => !IsReadOnly, () => ParameterSupport(setup));
+        void ActivateEditedDefault()
+        {
+            // Editing this row must not restore unrelated, retained exclusions.
+            if (!loading && !QueryKeys(setup).Contains(row.Key)) (setup ? excludedSetupDefaults : excludedResultsDefaults).Remove(row.Key);
+        }
+        row.Changed += ActivateEditedDefault;
+        ActivateEditedDefault();
+        rows.Add(row);
+    }
     private void LoadDefaults(ObservableCollection<WorkspaceParameterBinding> rows, parameterBindingDto[] values)
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }
     public void LoadProject(projectSettingsDto value)
@@ -754,8 +750,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
             snapshotCount = (value.sgd?.Value.SnapshotCount ?? SgdRun.defaults.SnapshotCount).ToString();
             SnapshotReporting.Load(value.reporting?.Value.SnapshotSchedule ?? SgdReporting.defaults.SnapshotSchedule);
             SummaryReporting.Load(value.reporting?.Value.SummarySchedule ?? SgdReporting.defaults.SummarySchedule);
-            ResultsParameters.Clear(); foreach (var span in value.resultsParameterSpans) AddSpan(ResultsParameters, span.keyName, span.values);
-            SetupParameters.Clear(); foreach (var span in value.setupParameterSpans) AddSpan(SetupParameters, span.keyName, span.values);
+            ResultsParameters.Clear(); foreach (var span in value.resultsParameterSpans) AddSpan(ResultsParameters, span.keyName, span.values, span.valueType is { } type ? (parameterValueType)type : null);
+            SetupParameters.Clear(); foreach (var span in value.setupParameterSpans) AddSpan(SetupParameters, span.keyName, span.values, span.valueType is { } type ? (parameterValueType)type : null);
         });
         NotifyChanged();
     }
@@ -801,8 +797,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     internal runDto ToRunInputs(Guid id, string name, Guid parentProjectId) => new()
     {
         schemaVersion = WorkspaceDtoSchema.version, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
-        descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ActiveResultsParameters.Select(span => span.ToDto()).ToArray(),
-        setupParameterSpans = IsBranch ? ActiveSetupParameters.Select(span => span.ToDto()).ToArray() : [],
+        descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ResultsParameters.Select(span => span.ToDto()).ToArray(),
+        setupParameterSpans = IsBranch ? SetupParameters.Select(span => span.ToDto()).ToArray() : [],
         reporting = ReportingEnabled ? Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(new(UsesSnapshotControls ? $"Constant({SnapshotControls().SnapshotInterval})" : SnapshotReporting.Schedule, SummaryReporting.Schedule)) : null,
         sgd = UsesSnapshotControls ? Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(SnapshotControls()) : null
     };
