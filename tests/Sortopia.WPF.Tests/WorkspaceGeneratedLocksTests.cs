@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.IO;
 using Sortopia.Functions;
 using Sortopia.Workspaces.Persistence;
@@ -108,7 +109,7 @@ public sealed class WorkspaceGeneratedLocksTests : IDisposable
         foreach (var row in page.SelectedExecution!.Files.Rows) File.Delete(row.Path);
         await page.RefreshRunParameterFilesAsync(); Assert.Empty(page.Error);
         Assert.True(page.Selected.Parent!.Parent!.Parent!.Editor!.IsEditable);
-        Assert.False(WorkspaceFileStore.LoadDocument(page.WorkspaceFolder).Modules[0].Modules[1].Projects[0].Definition.isSealed);
+        Assert.False(WorkspaceFileStore.LoadWorkspace(page.WorkspaceFolder).CreateEditDocument().Modules[0].Modules[1].Projects[0].Definition.isSealed);
     }
 
     public void Dispose() => temporary.Delete(true);

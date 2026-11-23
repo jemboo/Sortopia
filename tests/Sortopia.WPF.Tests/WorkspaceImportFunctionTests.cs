@@ -7,7 +7,7 @@ using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -36,14 +36,14 @@ public sealed class WorkspaceImportFunctionTests : IDisposable
             if (setup) local.setupFunctionName = SetupFunctionNames.uniformMssiSimpleSorterModels;
             else local.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
         }
-        return WorkspaceModule.createInherited(Guid.NewGuid(), name, ModuleDefaults.configuration(branch),
+        return WorkspaceFixtures.InheritedModule(Guid.NewGuid(), name, ModuleDefaults.configuration(branch),
             ModuleOverridesDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, local), children, []);
     }
     internal static void WriteModule(string folder, WorkspaceModule module)
     {
         Directory.CreateDirectory(folder);
-        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(module.Id)), WorkspaceDefinitionCodec.encodeModule(module));
-        foreach (var child in module.Modules) WriteModule(Path.Combine(folder, child.ModuleName), child);
+        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(module.Definition.id)), Sortopia.Core.Serialization.MessagePackSetup.serialize(WorkspaceDocumentModule.moduleFile(module)));
+        foreach (var child in module.Modules) WriteModule(Path.Combine(folder, child.Definition.moduleName), child);
     }
     private static string Snapshot(string folder) => string.Join("\n", Directory.GetDirectories(folder, "*", SearchOption.AllDirectories)
         .Select(path => "D:" + Path.GetRelativePath(folder, path)).Concat(Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
@@ -115,9 +115,9 @@ public sealed class WorkspaceImportFunctionTests : IDisposable
         Assert.Equal(2, page.ImportFunctionConflicts.Count);
         Assert.All(page.ImportFunctionConflicts, conflict => Assert.NotNull(conflict.SourceFolder));
         Assert.Equal(before, Snapshot(sourceFolder));
-        var dto = WorkspaceDefinitionCodec.moduleWithOrigin(null!, source);
+        var dto = WorkspaceDocumentModule.moduleFile(source);
         if (setup) dto.localOverrides.setupFunctionName = null; else dto.localOverrides.resultsFunctionName = null;
-        File.WriteAllBytes(Path.Combine(sourceFolder, WorkspaceDefinitionFiles.Name(source.Id)), Sortopia.Core.Serialization.MessagePackSetup.serialize(dto));
+        File.WriteAllBytes(Path.Combine(sourceFolder, WorkspaceDefinitionFiles.Name(source.Definition.id)), Sortopia.Core.Serialization.MessagePackSetup.serialize(dto));
         await page.AddExistingAsync(WorkspaceEntityKind.Module);
         Assert.Empty(page.Error); Assert.False(page.HasRejectedModuleImport); Assert.Single(page.Roots[0].Children);
     }

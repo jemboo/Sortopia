@@ -20,7 +20,7 @@ public sealed class WorkspaceFieldTests : IDisposable
     private static WorkspaceTreeNode CreateProject(WorkspacePageViewModel page, bool branch)
     {
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings(branch));
+        page.Selected!.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings(branch));
         page.AddProjectCommand.Execute(null); return page.Selected!;
     }
     private static WorkspaceTreeNode CreateRun(WorkspacePageViewModel page)
@@ -38,7 +38,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         var span = run.Editor!.ResultsParameters.Single(row => row.Key == "ChannelCount");
         span.Values[0].Text = "7"; span.AddValueCommand.Execute(null); span.Values[1].Text = "11";
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRun(Root, document => document.Modules[0].Projects[0].Runs[0]);
         Assert.Equal(new[] { "7", "11" }, saved.ResultsParameterSpans.Single(row => row.KeyName == "ChannelCount").Values);
         Assert.Equal("Keep every setting: α", saved.Description);
         Assert.Null(RunDto.fromDomain(saved).descriptionOverride);
@@ -51,7 +51,7 @@ public sealed class WorkspaceFieldTests : IDisposable
         var page = Open(); var parent = CreateProject(page, true); var run = CreateRun(page);
         parent.Editor!.Description = "Parent description"; parent.Editor.SetupDatabaseName = "Local setup";
         run.Editor!.DescriptionOverride.IsOverridden = true; run.Editor.DescriptionOverride.EffectiveValue = "";
-        Assert.False(run.Editor.SetupDatabaseOverride.CanOverride);
+        Assert.False(run.Editor.SetupDatabaseField.CanEditValue);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var reopened = Open().Roots[0].Children[0].Children[0].Children[0].Editor!;
         Assert.Equal("", reopened.Description); Assert.Equal("Local setup", reopened.SetupDatabaseName);
@@ -79,7 +79,7 @@ public sealed class WorkspaceFieldTests : IDisposable
     {
         var page = Open(); var project = CreateProject(page, branch); var run = CreateRun(page);
         Assert.False(project.Editor!.OutputTypesOverride.CanOverride); Assert.False(run.Editor!.OutputTypesOverride.CanOverride);
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsDataTypes"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsDataTypes"));
         Assert.Null(typeof(moduleOverridesDto).GetProperty("resultsQueryParameterKeys"));
         Assert.Null(typeof(WorkspaceConfigurationViewModel).GetProperty("AddOutputTypeCommand"));
         Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, run.Editor.PhaseContract(false).SpanKeys);

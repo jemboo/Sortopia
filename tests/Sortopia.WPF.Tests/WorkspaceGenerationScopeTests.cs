@@ -19,7 +19,7 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
             var sourceModule = page.Roots[0].Children[1];
             var source = sourceModule.Children[0];
             var sourceSettings = FunctionOutputContractTests.Combined(false);
-            sourceModule.Editor!.LoadProject(sourceSettings);
+            sourceModule.Editor!.LoadFixtureSettings(sourceSettings);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(source.Children[0], false);
             foreach (var key in source.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys)) key.Selected = true;
             module.Editor!.SetupFunctionName = SetupFunctionNames.evaluationSource;
@@ -54,7 +54,7 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
     {
         var page = await Create(branch);
         page.Selected = page.Roots[0]; page.AddBranchModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(true));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
         page.Selected.Editor.SetupFunctionName = SetupFunctionNames.evaluationSource;
         page.AddProjectCommand.Execute(null);
         Assert.NotEmpty(page.SaveIssues);
@@ -107,6 +107,9 @@ public sealed class WorkspaceGenerationScopeTests : IDisposable
         await page.SaveWorkspaceAsync(); WorkspaceRunExecutionTests.SelectRun(page);
         Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
         Assert.Contains("SortableDataFormat", page.GenerationHint);
+        page.Selected!.Editor!.ResultsParameters.Single(row => row.Key == "SortableDataFormat").Values[0].Text = "Bools";
+        await page.SaveWorkspaceAsync(); WorkspaceRunExecutionTests.SelectRun(page);
+        Assert.True(page.GenerateRunParametersCommand.CanExecute(null), page.GenerationHint);
     }
 
     [Fact]

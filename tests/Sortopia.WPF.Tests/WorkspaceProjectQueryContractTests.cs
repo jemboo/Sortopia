@@ -21,7 +21,7 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
         Settings.Save(root);
         var page = new WorkspacePageViewModel(() => { }, _ => null, Settings);
         page.AddBranchModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(true));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
         page.AddProjectCommand.Execute(null);
         return page;
     }
@@ -117,7 +117,7 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
     {
         var page = Open();
         var project = page.Selected!;
-        project.Parent!.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
+        project.Parent!.Editor!.LoadFixtureSettings(FunctionOutputContractTests.Combined(true));
         foreach (var name in new[] { "ChannelCount", "Repl" })
             project.Editor!.InheritedSetupDefaults.Single(row => row.Key == name).ExcludeCommand!.Execute(null);
         foreach (var output in project.Editor!.SetupQueryOutputs.ToArray())
@@ -173,10 +173,10 @@ public sealed class WorkspaceProjectQueryContractTests : IDisposable
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings();
         settings.resultsParameterDefaults = [];
-        var parent = project.create(Guid.NewGuid(), "Project", SettingsDto.toDomain(hierarchyKind.Root, settings), []);
+        var parent = WorkspaceFixtures.Project(Guid.NewGuid(), "Project", SettingsDto.toDomain(hierarchyKind.Root, settings), []);
         var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Project", "Run"));
-        inputs.parentProjectId = parent.Id;
-        Assert.Contains("Undeclared span keys", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
+        inputs.parentProjectId = parent.Definition.id;
+        Assert.Contains("Undeclared span keys", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), inputs)).Message);
         Assert.Contains("ChannelCount", ParameterSets.querySpansError(ListModule.OfArray(new[] { "ChannelCount" }), ListModule.Empty<string>()));
         Assert.Contains("SortableDataFormat", ParameterSets.querySpansError(ListModule.OfArray(new[] { "ChannelCount" }), ListModule.OfArray(new[] { "ChannelCount", "SortableDataFormat" })));
     }

@@ -17,13 +17,13 @@ module internal WorkspaceExport =
         if Directory.EnumerateFileSystemEntries(destination) |> Seq.isEmpty |> not then
             raise (IOException($"The export folder must be empty. Choose another folder: {destination}"))
         // Load shallow documents so saved drafts can be exported too.
-        WorkspaceDisk.loadDocument root |> ignore
+        WorkspaceDisk.loadWorkspace root |> ignore
         let snapshot = WorkspaceFolderCopy.PrepareExport(root, destination, token)
         let staging = snapshot.StageExport(token)
         let published = ResizeArray<string * string>()
         try
             // Validate the copied hierarchy before publishing any of it.
-            WorkspaceDisk.loadDocumentWithFolderName staging (WorkspaceDisk.folderName destination) |> ignore
+            WorkspaceDisk.loadWorkspaceWithFolderName staging (WorkspaceDisk.folderName destination) |> ignore
             token.ThrowIfCancellationRequested()
             if Directory.EnumerateFileSystemEntries(destination) |> Seq.exists (fun path -> not (pathComparer.Equals(path, staging))) then
                 raise (IOException($"The export folder changed while copying. Choose an empty folder: {destination}"))

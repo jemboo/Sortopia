@@ -90,23 +90,19 @@ module internal WorkspaceSavePlan =
             let id = copyId dto.id folder
             let runs = value.Runs |> Array.map (fun run ->
                 { run with id = copyId run.id (Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name run.id)); parentProjectId = id })
-            let local = dto.localOverrides
-            { Definition = { dto with id = id; runs = runs |> Array.map _.id
-                                      configuration = settings folder dto.configuration; inheritedDefaults = settings folder dto.inheritedDefaults
-                                      localOverrides = if isNull (box local) then local else { local with setupSources = remapAssignments folder local.setupSources } }
+            { Definition = { dto with id = id
+                                      state = ProjectLifecycle.map (settings folder) (fun local -> { local with setupSources = remapAssignments folder local.setupSources }) (fun origin -> origin) dto.state }
               Runs = runs }
         let rec identifyModule (value: ModuleDocument) folder : ModuleDocument =
             let dto = value.Definition
             let modules = value.Modules |> Array.map (fun value -> identifyModule value (child folder value.Definition.moduleName))
             let projects = value.Projects |> Array.map (fun value -> identifyProject value (child folder value.Definition.projectName))
             { Definition = { dto with id = copyId dto.id folder
-                                      inheritedDefaults = { dto.inheritedDefaults with setupDataTypes = remapSources folder dto.inheritedDefaults.setupDataTypes }
-                                      localOverrides = { dto.localOverrides with setupSources = remapAssignments folder dto.localOverrides.setupSources }
-                                      modules = modules |> Array.map (fun m -> { id = m.Definition.id; name = m.Definition.moduleName })
-                                      projects = projects |> Array.map (fun p -> { id = p.Definition.id; name = p.Definition.projectName }) }
+                                      inheritedDefaults = { dto.inheritedDefaults with setupSources = remapAssignments folder dto.inheritedDefaults.setupSources }
+                                      localOverrides = { dto.localOverrides with setupSources = remapAssignments folder dto.localOverrides.setupSources } }
               Modules = modules; Projects = projects }
         let modules = definition.Modules |> Array.map (fun value -> identifyModule value (child root value.Definition.moduleName))
-        let definition = { definition with Modules = modules; Definition = { definition.Definition with modules = modules |> Array.map (fun m -> { id = m.Definition.id; name = m.Definition.moduleName }) } } |> WorkspaceDocument.withOrigins
+        let definition = { definition with Modules = modules } |> WorkspaceDocument.withOrigins
         let findRun projectFolder id =
             let path = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name id)
             if File.Exists path then path else null
@@ -159,16 +155,16 @@ module internal WorkspaceSavePlan =
         let addProject inheritedFrom (value: ProjectDocument) folder depth =
             checkDepth depth
             for run in value.Runs do add (Path.Combine(folder, "runs")) "run" run.id (MessagePackSetup.serialize run)
-            let dto = { value.Definition with inheritedFrom = if value.Definition.isSealed then Unchecked.defaultof<_> else inheritedFrom }
+            let dto = { WorkspaceDocument.projectFile value with state = ProjectLifecycle.withOrigin inheritedFrom value.Definition.state }
             add folder "project" dto.id (MessagePackSetup.serialize dto)
         let rec addModule inheritedFrom (value: ModuleDocument) folder depth =
             checkDepth depth
             let origin = { moduleId = value.Definition.id; moduleName = value.Definition.moduleName }
             for value in value.Modules do addModule origin value (child folder value.Definition.moduleName) (depth + 1)
             for value in value.Projects do addProject origin value (child folder value.Definition.projectName) (depth + 1)
-            add folder "module" value.Definition.id (MessagePackSetup.serialize { value.Definition with inheritedFrom = inheritedFrom })
+            add folder "module" value.Definition.id (MessagePackSetup.serialize { WorkspaceDocument.moduleFile value with inheritedFrom = inheritedFrom })
         for value in definition.Modules do addModule Unchecked.defaultof<_> value (child root value.Definition.moduleName) 1
-        add root "workspace" definition.Definition.id (MessagePackSetup.serialize definition.Definition) // Root references commit last.
+        add root "workspace" definition.Definition.id (MessagePackSetup.serialize (WorkspaceDocument.workspaceFile definition)) // Root references commit last.
         let hasOriginal path = writes |> Seq.exists (fun write -> pathComparer.Equals(write.OriginalPath, path))
         if transfers |> Array.exists (fun transfer -> not (expected.Contains(transfer.Destination)) && not (File.Exists(transfer.Source) && hasOriginal transfer.Destination)) then
             raise (ArgumentException("Every moved or imported folder must belong to an entity in the workspace definition."))

@@ -34,7 +34,7 @@ public sealed class FunctionParameterContractTests
     public void Module_functions_constrain_each_phase_and_missing_keys_include_non_query_inputs()
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(RunExecutionTests.Settings(true));
+        module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch);
         module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch);
@@ -71,14 +71,14 @@ public sealed class FunctionParameterContractTests
         Assert.Contains("MergeLibId", run.Editor.ResultsParametersError);
         run.Editor.RefreshInherited();
         Assert.True(run.Editor.ResultsParameters.Single(row => row.Key == "MergeLibId").Values.Count == 0);
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsFunctionName"));
     }
 
     [Fact]
     public void Switching_module_function_filters_inherited_defaults_and_retains_other_local_defaults_for_switching_back()
     {
         var parent = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Parent");
-        parent.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        parent.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
         parent.Editor.ResultsFunctionOverride.IsOverridden = false; // This container supplies defaults; its child owns the function.
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child"); parent.Children.Add(child);
         child.Editor!.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
@@ -86,7 +86,7 @@ public sealed class FunctionParameterContractTests
         var local = WorkspaceParameterInheritanceTests.AddDefault(child.Editor, "MergeLibId", parent.Editor.ResultsParameterDefaults.Single(value => value.Key == "MergeLibId").Value.Text);
         Assert.Empty(child.Editor.ResultsParameterDefaultsError);
         Assert.Empty(child.Editor.LocalResultsParameterDefaults);
-        Assert.Empty(child.Editor.ToLocalOverrides().resultsParameterDefaults);
+        Assert.Empty(child.Editor.ToModuleOverrides().resultsParameterDefaults);
         Assert.Contains("switching back", child.Editor.RetainedResultsDefaultsHint);
         child.Editor.ResultsFunctionName = ResultsFunctionNames.mergeSortableTests;
         Assert.Empty(child.Editor.ResultsParameterDefaultsError);
@@ -94,7 +94,7 @@ public sealed class FunctionParameterContractTests
 
         child.Editor.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
         local.RemoveCommand.Execute(null);
-        var rootConfig = ModuleSettingsDto.toDomain(hierarchyKind.Root, ModuleSettingsDto.fromProjectSettings(parent.Editor.ToProjectSettings()));
+        var rootConfig = ModuleSettingsDto.toDomain(hierarchyKind.Root, parent.Editor.ToModuleSettings());
         var overrides = ModuleOverridesDto.toDomain(hierarchyKind.Root, child.Editor.ToModuleOverrides());
         var resolved = ModuleDefaults.resolve(rootConfig, overrides);
         Assert.Equal(child.Editor.ToProjectSettings().resultsParameterDefaults.Select(value => value.keyName),
@@ -111,9 +111,9 @@ public sealed class FunctionParameterContractTests
     [Fact]
     public void Project_local_overrides_cannot_define_functions()
     {
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
-        Assert.Null(typeof(rootDefaultOverrides).GetProperty("ResultsFunctionName"));
-        Assert.Null(typeof(branchDefaultOverrides).GetProperty("SetupFunctionName"));
-        Assert.Null(typeof(branchRunConfig).GetProperty("SetupFunctionNameOverride"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsFunctionName"));
+        Assert.Null(typeof(projectLocalSettings).GetProperty("ResultsFunctionName"));
+        Assert.Null(typeof(projectSetupSettings).GetProperty("SetupFunctionName"));
+        Assert.Null(typeof(runConfig).GetProperty("SetupFunctionNameOverride"));
     }
 }

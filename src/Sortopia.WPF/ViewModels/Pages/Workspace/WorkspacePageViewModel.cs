@@ -25,7 +25,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     private WorkspaceTreeNode? selected;
     private WorkspaceTreeNode? cutNode;
     private IReadOnlyList<string> retainedFolders = [];
-    private WorkspaceDocument? savedDocument;
+    private SavedWorkspace? savedWorkspace;
     private HashSet<Guid> savedNodeIds = [];
     private string? pendingRemovalName;
     private string savedConfigurationError = "";
@@ -139,21 +139,16 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     {
         get
         {
-            if (Selected is not { IsProject: true, IsSealed: true } || savedDocument is null) return "Select a saved, sealed project.";
-            try { return WorkspaceFileStore.ResumeProjectEditingReason(WorkspaceFolder, savedDocument, Selected.Id); }
+            if (Selected is not { IsProject: true, IsSealed: true } || savedWorkspace is null) return "Select a saved, sealed project.";
+            try { return WorkspaceFileStore.ResumeProjectEditingReason(savedWorkspace, Selected.Id); }
             catch (Exception error) when (IsFolderError(error) || error is InvalidOperationException) { return error.GetBaseException().Message; }
         }
     }
     public Task ResumeProjectEditingAsync() => !ResumeProjectEditingCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
     {
         var project = Selected!;
-        var dirty = HasUnsavedChanges;
-        var result = await Task.Run(() => WorkspaceFileStore.ResumeProjectEditing(WorkspaceFolder, savedDocument!, project.Id, token));
-        savedDocument = result.Definition; ClearRunScope();
-        static IEnumerable<ProjectDocument> Projects(ModuleDocument module) => module.Projects.Concat(module.Modules.SelectMany(Projects));
-        project.ResumeEditing(result.Definition.Modules.SelectMany(Projects).Single(value => value.Definition.id == project.Id).Definition);
-        HasUnsavedChanges = dirty;
-        NotifyDraftProperties();
+        var result = await Task.Run(() => WorkspaceFileStore.ResumeProjectEditing(savedWorkspace!, project.Id, token));
+        ApplySavedLifecycleChanges(result.Workspace);
         Status = $"Project '{project.Name}' is editable again. Set its query keys, save, then generate run parameters when ready.";
     });
     public RelayCommand EditProjectDefaultsCommand { get; }
@@ -226,8 +221,8 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         ? $"Removal of '{pendingRemovalName}' is pending. Choose Save workspace to finish deleting it, or Discard changes to undo it. Further edits are paused until then."
         : "";
     public bool HasSavedWorkspace => workspaceFileState == WorkspaceFileState.Saved;
-    public bool ShowNewWorkspace => workspaceFileState == WorkspaceFileState.Missing && savedDocument is null;
-    public bool ShowWorkspaceEditor => (savedDocument is not null || workspaceFileState is WorkspaceFileState.Missing or WorkspaceFileState.Saved);
+    public bool ShowNewWorkspace => workspaceFileState == WorkspaceFileState.Missing && savedWorkspace is null;
+    public bool ShowWorkspaceEditor => (savedWorkspace is not null || workspaceFileState is WorkspaceFileState.Missing or WorkspaceFileState.Saved);
     public bool HasMissingComponents => missingComponents > 0;
     public string MissingComponentsMessage => missingComponents == 1 ? "1 saved component is missing from disk."
         : $"{missingComponents} saved components are missing from disk.";
@@ -245,7 +240,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     public string WorkspaceFileStatus => workspaceFileState switch
     {
         WorkspaceFileState.Saved => HasUnsavedChanges ? "Saved workspace file found at this location. Unsaved changes." : "Saved workspace file found at this location.",
-        WorkspaceFileState.Missing => savedDocument is null ? "No workspace file at this location. Enter a name and save a workspace."
+        WorkspaceFileState.Missing => savedWorkspace is null ? "No workspace file at this location. Enter a name and save a workspace."
             : "The saved workspace definition is missing from disk. Save workspace to restore it.",
         WorkspaceFileState.Unavailable => "The selected root folder is unavailable.",
         WorkspaceFileState.Conflict => workspaceFileIssue,
@@ -266,7 +261,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         }
     }
     private bool CanSaveWorkspace => CanEdit && Directory.Exists(WorkspaceFolder) && workspaceFileState != WorkspaceFileState.Conflict
-        && (ShowNewWorkspace || savedDocument is not null && (HasUnsavedChanges || HasMissingComponents))
+        && (ShowNewWorkspace || savedWorkspace is not null && (HasUnsavedChanges || HasMissingComponents))
         && !HasStructuralErrors && WorkspaceNameError.Length == 0;
     public IReadOnlyList<string> RetainedFolders
     {
@@ -275,12 +270,11 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     }
     public bool HasRetainedFolders => RetainedFolders.Count > 0;
 
-    private void ReplaceDraft(workspace value) => ReplaceDraft(WorkspaceTreeNode.FromWorkspace(value));
     private void ReplaceDraft(WorkspaceTreeNode root)
     {
         rejectedModuleImport = null;
         pendingRemovalName = null;
-        savedNodeIds = savedDocument is null ? [] : root.DescendantsAndSelf().Select(node => node.Id).ToHashSet();
+        savedNodeIds = savedWorkspace is null ? [] : root.DescendantsAndSelf().Select(node => node.Id).ToHashSet();
         ClearCut();
         if (Roots.Count > 0)
         {
@@ -289,7 +283,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         }
         Roots.Clear();
         Roots.Add(root);
-        if (savedDocument is not null) root.RememberSavedLocations(WorkspaceFolder);
+        if (savedWorkspace is not null) root.RememberSavedLocations(WorkspaceFolder);
         root.Changed += DraftChanged;
         root.ValidationChanged += EditValidationChanged;
         Selected = root;
@@ -299,24 +293,11 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
     }
     private void ResetDraft()
     {
-        ClearRunScope();
-        savedDocument = null;
+        savedWorkspace = null;
         savedConfigurationError = "";
         var name = WorkspaceFileStore.GetFolderName(WorkspaceFolder);
-        ReplaceDraft(workspace.create(Guid.NewGuid(), name, name, []));
-    }
-    private void AcceptSavedDefinition(workspace value)
-    {
-        AcceptSavedDocument(WorkspaceDocumentModule.fromDomain(value));
-    }
-    private void AcceptSavedDocument(WorkspaceDocument value)
-    {
-        savedDocument = value;
-        ClearRunScope();
-        savedConfigurationError = "";
-        // Editors validate drafts; strict whole-workspace runtime conversion would
-        // incorrectly report every unsealed project with runs as an error.
-        ReplaceDraft(WorkspaceTreeNode.FromDocument(value));
+        ReplaceDraft(WorkspaceTreeNode.FromDocument(new WorkspaceDocument(new WorkspaceDefinition
+        { id = Guid.NewGuid(), workspaceName = name, folderName = name }, [])));
     }
     private void OpenSelectedFolder()
     {
@@ -325,7 +306,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         try
         {
             if (WorkspaceDefinitionFiles.Find(WorkspaceFolder, "workspace") is null) return;
-            AcceptSavedDocument(WorkspaceFileStore.LoadDocument(WorkspaceFolder));
+            ReplaceDraftFromSavedWorkspace(WorkspaceFileStore.LoadWorkspace(WorkspaceFolder));
             Status = HasSaveIssues ? "Loaded the saved draft. Select a tree node to review its configuration issues." : "Loaded the saved workspace definition.";
         }
         catch (Exception exception)
@@ -391,13 +372,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
                 if (kind == WorkspaceEntityKind.Module)
                 {
                     var import = await Task.Run(() => WorkspaceImport.PrepareModule(WorkspaceFolder, folder, destination, token), token);
-                    child = WorkspaceTreeNode.FromModule(import.Definition);
+                    child = WorkspaceTreeNode.FromModuleDocument(import.Definition);
                     copy = import.Copy;
                 }
                 else
                 {
                     var import = await Task.Run(() => WorkspaceImport.PrepareProject(WorkspaceFolder, folder, destination, token), token);
-                    child = WorkspaceTreeNode.FromProject(import.Definition);
+                    child = WorkspaceTreeNode.FromProjectDocument(import.Definition);
                     copy = import.Copy;
                 }
                 token.ThrowIfCancellationRequested();
@@ -591,13 +572,13 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
         try
         {
             var definition = Roots.Single().ToDocument();
-            var original = savedDocument;
+            var original = savedWorkspace;
             await PrepareLocationCopiesAsync(token);
             var copies = Roots.Single().GetPendingCopies(WorkspaceFolder).ToArray();
             var moves = Roots.Single().GetPendingMoves(WorkspaceFolder);
             var result = await Task.Run(() => original is null ? WorkspaceFileStore.CreateDocument(WorkspaceFolder, definition, token, copies, moves)
-                : WorkspaceFileStore.SaveDocument(WorkspaceFolder, definition, original, token, copies, moves), token);
-            AcceptSavedDocument(result.Definition);
+                : WorkspaceFileStore.SaveDocument(definition, original, token, copies, moves), token);
+            ReplaceDraftFromSavedWorkspace(result.Workspace);
             RetainedFolders = result.RetainedFolders;
             Error = string.Join(Environment.NewLine, result.CleanupWarnings);
             Status = $"Workspace '{definition.Definition.workspaceName}' saved." + (HasSaveIssues ? " Draft saved with configuration issues; you can close Sortopia and continue later." : "") + (result.CopiedFolders > 0
@@ -634,7 +615,7 @@ public sealed partial class WorkspacePageViewModel : ViewModelBase
 
     private void DiscardEdits()
     {
-        if (savedDocument is not null) AcceptSavedDocument(savedDocument);
+        if (savedWorkspace is not null) ReplaceDraftFromSavedWorkspace(savedWorkspace);
         else ResetDraft();
         Error = "";
         Status = "Unsaved workspace changes discarded.";

@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.Collections.Concurrent;
 using Sortopia.FileDb;
 using Sortopia.Functions;
@@ -24,7 +25,7 @@ public sealed partial class PreparedExecutionTests
             new() { keyName = "MutationMod", values = ["0", "1"] }],
             reporting: reporting ? new("Constant(2)", "Constant(1)") : null);
         Completed(Prepare(world, consumer).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var paths = Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack");
         var events = new ConcurrentQueue<workItemGenerationProgress>();
         runExecutionReport Execute()
@@ -55,7 +56,7 @@ public sealed partial class PreparedExecutionTests
         var (world, consumer) = SgdWorkspace(resultsSpans: [new() { keyName = "GenerationCount", values = ["6"] }],
             reporting: new("Constant(2)", "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var path = Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
         using var cancellation = new CancellationTokenSource();
         var events = new List<int>();

@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.Globalization;
 using System.Security.Cryptography;
 using Sortopia.Evaluation;
@@ -13,7 +14,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, _, _, consumer, _, _) = EvaluationCopyWorkspace(8, prefix: true);
         Completed(Prepare(world, consumer).Execution);
-        var copy = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var copy = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parametersFolder = Path.Combine(copy, "runParameters");
         Completed(RunParameterExecution.executeFolder(parametersFolder, null!, null!, Token));
         var files = Directory.GetFiles(parametersFolder, "*.msgpack");
@@ -49,17 +50,17 @@ public sealed partial class PreparedExecutionTests
             Assert.All(ownDetails, detail => Assert.Equal(row["Setup.SortableTests.Query.PrefixLibId"], detail["Setup.SortableTests.Query.PrefixLibId"]));
         }
         var cliFolder = Path.Combine(temporary.FullName, "CLI report");
-        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].Id.ToString(), "--output", cliFolder]));
+        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].id.ToString(), "--output", cliFolder]));
         Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(cliFolder, "Summary.csv")));
         Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(cliFolder, "Details.csv")));
-        Assert.Equal(2, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0], "--run", consumer.Runs[0].Id.ToString(), "--output", "unused"]));
+        Assert.Equal(2, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0], "--run", consumer.Runs[0].id.ToString(), "--output", "unused"]));
         Assert.Equal(export.Folder, SorterEvalReportExport.exportFiles(files, export.Folder, Token).Folder);
         Assert.Contains("same results file", Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([files[0], files[0]], Path.Combine(temporary.FullName, "Duplicates"), Token)).Message);
         Assert.Equal(original.Keys.Order(), Directory.GetFiles(copy, "*", SearchOption.AllDirectories).Order());
         Assert.All(original, pair => Assert.Equal(pair.Value, SHA256.HashData(File.ReadAllBytes(pair.Key))));
         var reportsFolder = Path.Combine(copy, "data", "results", "reports");
         Assert.Equal(reportsFolder, SorterEvalReportExport.nextOutputFolder(parametersFolder));
-        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].Id.ToString()]));
+        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].id.ToString()]));
         Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
         Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")));
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0]]));
@@ -73,7 +74,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, _, _, consumer, _, _) = EvaluationCopyWorkspace(8, prefix: true);
         Completed(Prepare(world, consumer).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var parameters = Path.Combine(folder, "runParameters");
         Completed(RunParameterExecution.executeFolder(parameters, null!, null!, Token));
         var files = Directory.GetFiles(parameters, "*.msgpack");
@@ -98,7 +99,7 @@ public sealed partial class PreparedExecutionTests
     public void Csv_report_failures_leave_no_partial_export_or_overwritten_report()
     {
         var (world, project) = Create(true); Completed(Prepare(world, project).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var files = Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack").Order().ToArray();
         var output = Path.Combine(temporary.FullName, "Report");
         Assert.Contains("not been generated", Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles(files, output, Token)).Message);
@@ -123,7 +124,7 @@ public sealed partial class PreparedExecutionTests
     public void Csv_reports_reject_root_runs()
     {
         var (world, project) = Create(false); Completed(Prepare(world, project).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var file = Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
         Assert.False(SorterEvalReportExport.isSupported(RunParameterFiles.loadFile(file)));
         Assert.Contains("branch", Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([file], Path.Combine(temporary.FullName, "Report"), Token)).Message);

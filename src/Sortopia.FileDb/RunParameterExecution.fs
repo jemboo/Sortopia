@@ -106,7 +106,7 @@ module RunParameterExecution =
             let projectFolder = factory.ProjectFolder
             RunParameterStorage.requireProject projectFolder value.ParentProjectId
             let sets = RunParameterSets.create value
-            let config = match value with run.RootRun root -> root.ProjectConfiguration.Results | run.BranchRun branch -> branch.ProjectConfiguration.Results
+            let config = value.ProjectConfiguration.Results
             let resultsDefinition = ResultsFunctionCatalog.requireVersion value.ResultsFunctionName config.FunctionVersion
             FunctionConfiguration.validateResults config
             let setupCount = sets.Setup |> Option.map Array.length |> Option.defaultValue 0
@@ -115,19 +115,19 @@ module RunParameterExecution =
             for parameters in sets.Results do
                 token.ThrowIfCancellationRequested()
                 FunctionValidation.validate resultsDefinition parameters
-            match value, sets.Setup with
-            | run.BranchRun branch, Some parameters ->
-                let definition = SetupFunctionCatalog.require branch.SetupFunctionName
-                FunctionConfiguration.validateSetup true branch.ProjectConfiguration.Setup
+            match value.Setup, sets.Setup with
+            | Some settings, Some parameters ->
+                let definition = SetupFunctionCatalog.require settings.FunctionName
+                FunctionConfiguration.validateSetup true settings
                 for set in parameters do
                     token.ThrowIfCancellationRequested()
                     FunctionValidation.validate definition set
                 token.ThrowIfCancellationRequested()
                 beforeWrite ()
-                let sources = branch.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType definition.SourceDataTypes)
+                let sources = settings.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType definition.SourceDataTypes)
                 for i = 0 to parameters.Length - 1 do
                     token.ThrowIfCancellationRequested()
-                    context <- $"Setup set {i + 1} · {branch.SetupFunctionName}"
+                    context <- $"Setup set {i + 1} · {settings.FunctionName}"
                     notify progress context (int64 i) (int64 setupCount + resultsCount)
                     let host = factory.ForSetup parameters[i]
                     definition.Execute host sources
@@ -146,9 +146,9 @@ module RunParameterExecution =
                             | _ -> invalidOp "Expected copied sorter models."
                         else FunctionDefinition.tryPreviewValue "SuffixStages" definition parameters[i] |> Option.bind ParameterValue.tryGet<int>
                     setupSuffixStages.Add suffixStages
-                    setup.Add { Phase = runExecutionPhase.Setup; FunctionName = string branch.SetupFunctionName
+                    setup.Add { Phase = runExecutionPhase.Setup; FunctionName = string settings.FunctionName
                                 SetupSetNumber = None; SetNumber = i + 1; Parameters = parameters[i]; StoredOutputs = host.Outputs.Stored }
-            | run.RootRun _, None ->
+            | None, None ->
                 token.ThrowIfCancellationRequested()
                 beforeWrite ()
             | _ -> invalidOp "The generated parameter sets do not match the run type."
@@ -183,15 +183,12 @@ module RunParameterExecution =
                 | _ -> runExecutionStatus.Failed, $"{context}: {error.GetBaseException().Message}"
             { WorkItemIds = ids.ToArray(); Execution = finish status message }
 
-    let generate (workspace: workspace) workspaceRoot (value: run) progress (token: CancellationToken) =
-        generateUsing (fun () -> FileRunHost(workspace, workspaceRoot, value, token)) ignore progress token
-
     /// Only the selected saved run and its direct source results are dependencies.
-    let generateInScope (scope: runWorkspace) workspaceRoot progress (token: CancellationToken) =
+    let generateInScope (scope: RunExecutionScope) workspaceRoot progress (token: CancellationToken) =
         generateUsing (fun () -> FileRunHost(scope, workspaceRoot, token)) ignore progress token
 
     /// Persist the parent snapshot after validation, before any setup or work-item writes.
-    let generateInScopeBeforeWrite (scope: runWorkspace) workspaceRoot beforeWrite progress (token: CancellationToken) =
+    let generateInScopeBeforeWrite (scope: RunExecutionScope) workspaceRoot beforeWrite progress (token: CancellationToken) =
         generateUsing (fun () -> FileRunHost(scope, workspaceRoot, token)) beforeWrite progress token
 
     let private execute folder (workItems: runParameters array) (nextPath: Func<string>) (options: resultsExecutionOptions) progress itemProgress (generationProgress: IProgress<workItemGenerationProgress>) (token: CancellationToken) =

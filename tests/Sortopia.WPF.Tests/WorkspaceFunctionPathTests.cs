@@ -35,11 +35,11 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         if (branch) page.Selected.Editor.SetupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
         Assert.Empty(page.SaveIssues);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDocument(page.WorkspaceFolder);
-        var legacy = WorkspaceFileStore.LoadDocument(page.WorkspaceFolder);
+        var saved = WorkspaceFileStore.LoadWorkspace(page.WorkspaceFolder);
+        var legacy = saved.CreateEditDocument();
         legacy.Modules[0].Modules[0].Definition.localOverrides.resultsFunctionName = "";
         if (branch) legacy.Modules[0].Modules[0].Definition.localOverrides.setupFunctionName = " ";
-        WorkspaceFileStore.SaveDocument(page.WorkspaceFolder, legacy, saved, Token);
+        WorkspaceFileStore.SaveDocument(legacy, saved, Token);
 
         var reopened = Open();
         Assert.Empty(reopened.Error); Assert.Empty(reopened.SaveIssues);
@@ -48,8 +48,8 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         Assert.Null(prefix.ToModuleOverrides().resultsFunctionName);
         Assert.Contains("may leave", prefix.FunctionsHint);
         // Runtime readers also accept old empty overrides without modifying the files.
-        WorkspaceFileStore.LoadDefinition(page.WorkspaceFolder);
-        Assert.Equal("", WorkspaceFileStore.LoadDocument(page.WorkspaceFolder).Modules[0].Modules[0].Definition.localOverrides.resultsFunctionName);
+        WorkspaceFileStore.LoadWorkspace(page.WorkspaceFolder);
+        Assert.Equal("", WorkspaceFileStore.LoadWorkspace(page.WorkspaceFolder).CreateEditDocument().Modules[0].Modules[0].Definition.localOverrides.resultsFunctionName);
     }
 
     [Theory]
@@ -86,7 +86,7 @@ public sealed class WorkspaceFunctionPathTests : IDisposable
         Assert.Empty(page.SaveIssues);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         page.Selected = page.Roots[0].DescendantsAndSelf().Single(node => node.Id == runId);
-        var scope = WorkspaceRunDocument.resolveByRunId(WorkspaceFileStore.LoadDocument(page.WorkspaceFolder), runId);
+        var scope = WorkspaceFileStore.LoadWorkspace(page.WorkspaceFolder).ResolveRun(runId);
         Assert.Equal(ResultsFunctionNames.sorterEval, scope.Run.ResultsFunctionName);
         Assert.Equal(SetupFunctionNames.evaluationStandardMssiSimple, scope.Run.SetupFunctionName.Value);
         Assert.True(page.GenerateRunParametersCommand.CanExecute(null), page.GenerationHint);

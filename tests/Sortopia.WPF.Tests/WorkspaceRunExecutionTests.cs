@@ -19,7 +19,7 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings, openResultsExecution: openResultsExecution);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var configuration = RunExecutionTests.Settings(branch);
-        page.Selected!.Editor!.LoadProject(configuration);
+        page.Selected!.Editor!.LoadFixtureSettings(configuration);
         page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
         var run = page.Selected!;
@@ -30,13 +30,13 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
             page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null);
             page.Selected!.Name = "Source module";
-            page.Selected.Editor!.LoadProject(RunExecutionTests.Settings(false));
+            page.Selected.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
             page.AddProjectCommand.Execute(null);
             var source = page.Selected!; source.Name = "Source";
             page.AddRunCommand.Execute(null);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false);
             configuration.setupDataTypes = [new() { dataType = configuration.resultsDataTypes[0].dataType, sourceProjectId = source.Id, queryParameterKeys = [] }];
-            run.Parent!.Editor!.LoadProject(configuration);
+            run.Parent!.Editor!.LoadFixtureSettings(configuration);
             page.Selected = run;
             run.Editor.ResultsParameters.Clear(); run.Editor.SetupParameters.Clear();
         }

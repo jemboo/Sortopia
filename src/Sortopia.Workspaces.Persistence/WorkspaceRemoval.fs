@@ -14,24 +14,15 @@ type internal RemovedPath = { Source: string; Destination: string }
 
 module internal WorkspaceRemoval =
     let private projects root (value: WorkspaceDocument) =
-        let rec visit parent (modules: ModuleDocument array) = seq {
-            for m in modules do
-                let folder = Path.Combine(parent, m.Definition.moduleName)
-                for p in m.Projects do yield p, Path.Combine(folder, p.Definition.projectName)
-                yield! visit folder m.Modules }
-        visit root value.Modules |> Seq.toArray
+        (WorkspaceDocumentIndex value).Projects |> Array.map (fun entry -> entry.Document, Path.Combine(root, entry.RelativeFolder))
 
     let private entities root (value: WorkspaceDocument) =
-        let rec visit parent (modules: ModuleDocument array) = seq {
-            for m in modules do
-                let folder = Path.Combine(parent, m.Definition.moduleName)
-                yield ("module", m.Definition.id), folder
-                for p in m.Projects do
-                    let folder = Path.Combine(folder, p.Definition.projectName)
-                    yield ("project", p.Definition.id), folder
-                    for r in p.Runs do yield ("run", r.id), Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name r.id)
-                yield! visit folder m.Modules }
-        visit root value.Modules |> Map.ofSeq
+        let index = WorkspaceDocumentIndex value
+        seq {
+            for m in index.Modules do yield ("module", m.Document.Definition.id), Path.Combine(root, m.RelativeFolder)
+            for p in index.Projects do yield ("project", p.Document.Definition.id), Path.Combine(root, p.RelativeFolder)
+            for r in index.Runs do yield ("run", r.Document.id), Path.Combine(root, r.RelativePath) }
+        |> Map.ofSeq
 
     // Query keys are explicit spans. Incomplete surviving drafts conservatively
     // protect their output type; deleting another run must not discard their data.

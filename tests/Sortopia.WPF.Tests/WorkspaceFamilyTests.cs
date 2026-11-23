@@ -7,7 +7,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -16,7 +16,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-workspace-families-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static project Project(hierarchyKind kind)
+    private static ProjectDocument Project(hierarchyKind kind)
     {
         var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", kind == hierarchyKind.Branch));
         dto.id = Guid.NewGuid();
@@ -26,38 +26,34 @@ public sealed class WorkspaceFamilyTests : IDisposable
         [WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "nested", [], [Project(kind)])], [Project(kind)]);
 
     [Fact]
-    public void Concrete_types_express_the_allowed_children()
+    public void Modules_projects_and_runs_use_shared_types_for_both_families()
     {
-        Assert.Equal(typeof(rootRun[]), typeof(rootProject).GetProperty("Runs")!.PropertyType);
-        Assert.Equal(typeof(branchRun[]), typeof(branchProject).GetProperty("Runs")!.PropertyType);
-        Assert.Equal(typeof(rootModule[]), typeof(rootModule).GetProperty("Modules")!.PropertyType);
-        Assert.Equal(typeof(branchModule[]), typeof(branchModule).GetProperty("Modules")!.PropertyType);
-        Assert.Equal(typeof(rootProject[]), typeof(rootModule).GetProperty("Projects")!.PropertyType);
-        Assert.Equal(typeof(branchProject[]), typeof(branchModule).GetProperty("Projects")!.PropertyType);
-        Assert.Null(typeof(rootProject).GetProperty("Projects"));
-        Assert.Null(typeof(branchProject).GetProperty("Projects"));
+        Assert.Equal(typeof(runDto[]), typeof(ProjectDocument).GetProperty("Runs")!.PropertyType);
+        Assert.Equal(typeof(ModuleDocument[]), typeof(ModuleDocument).GetProperty("Modules")!.PropertyType);
+        Assert.Equal(typeof(ProjectDocument[]), typeof(ModuleDocument).GetProperty("Projects")!.PropertyType);
+        Assert.Null(typeof(ProjectDocument).GetProperty("Projects"));
     }
 
     [Fact]
     public void A_workspace_round_trips_both_families_and_guid_filenames()
     {
-        var value = workspace.create(Guid.NewGuid(), "Both families", "Workspace", [Module(hierarchyKind.Root), Module(hierarchyKind.Branch)]);
-        WorkspaceFileStore.CreateWorkspace(Root, value, Token);
-        var restored = WorkspaceFileStore.LoadDefinition(Root);
-        Assert.Equal(WorkspaceCodec.encodeWorkspace(value), WorkspaceCodec.encodeWorkspace(restored));
-        Assert.True(restored.Modules[0].IsRoot);
-        Assert.True(restored.Modules[1].IsBranch);
-        foreach (var module in restored.Modules)
+        var value = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Both families", "Workspace", [Module(hierarchyKind.Root), Module(hierarchyKind.Branch)]);
+        WorkspaceFileStore.CreateDocument(Root, value, Token);
+        var restored = WorkspaceFileStore.LoadWorkspace(Root);
+        Assert.True(WorkspaceDocumentModule.sameContent(value, restored.CreateEditDocument()));
+        Assert.Equal("root", restored.CreateEditDocument().Modules[0].Definition.moduleKind);
+        Assert.Equal("branch", restored.CreateEditDocument().Modules[1].Definition.moduleKind);
+        foreach (var module in restored.CreateEditDocument().Modules)
         {
-            Assert.Equal(module.Kind, module.Modules.Single().Kind);
-            var folder = Path.Combine(Root, module.ModuleName);
-            Assert.Equal(module.Kind, WorkspaceFileStore.LoadModuleFolder(folder, Token).Kind);
+            Assert.Equal(module.Definition.moduleKind, module.Modules.Single().Definition.moduleKind);
+            var folder = Path.Combine(Root, module.Definition.moduleName);
+            Assert.Equal(module.Definition.moduleKind, WorkspaceFileStore.LoadModuleDocument(folder, Token).Definition.moduleKind);
             var project = module.Projects.Single();
-            Assert.Equal(module.Kind, project.Kind);
-            var run = project.Runs.Single();
-            Assert.Equal(module.Kind == hierarchyKind.Branch, run.HasSetup);
-            var file = Path.Combine(folder, project.ProjectName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
-            Assert.Equal(run.Id, WorkspaceCodec.decodeRun(project, File.ReadAllBytes(file)).Id);
+            Assert.Equal(module.Definition.moduleKind, project.Definition.projectKind);
+            var run = restored.ResolveRun(project.Runs.Single().id).Run;
+            Assert.Equal(module.Definition.moduleKind == "branch", run.HasSetup);
+            var file = Path.Combine(folder, project.Definition.projectName, "runs", WorkspaceDefinitionFiles.Name(run.Id));
+            Assert.Equal(run.Id, RunCodec.decodeRun(WorkspaceDefinitionResolution.projectSnapshot(project.Definition), File.ReadAllBytes(file)).Id);
         }
     }
 
@@ -67,15 +63,15 @@ public sealed class WorkspaceFamilyTests : IDisposable
     public void Factories_and_wire_contracts_reject_mixed_families(hierarchyKind kind, hierarchyKind other)
     {
         var otherProject = Project(other);
-        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "p", otherProject.Runs));
+        Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(kind, Guid.NewGuid(), "p", otherProject.ResolvedRuns()));
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "m", [], [otherProject]));
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(kind, Guid.NewGuid(), "m", [Module(other)], []));
-        var projectDto = ProjectDto.fromDomain(otherProject);
-        projectDto.projectKind = kind.ToString().ToLowerInvariant();
-        Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeProject(MessagePackSetup.serialize(projectDto)));
-        var moduleDto = ModuleDto.fromDomain(Module(other));
-        moduleDto.moduleKind = kind.ToString().ToLowerInvariant();
-        Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeModule(MessagePackSetup.serialize(moduleDto)));
+        var projectDto = otherProject;
+        projectDto.Definition.projectKind = kind.ToString().ToLowerInvariant();
+        Assert.Throws<ArgumentException>(() => WorkspaceDocumentModule.validateProject(projectDto));
+        var moduleDto = Module(other);
+        moduleDto.Definition.moduleKind = kind.ToString().ToLowerInvariant();
+        Assert.Throws<ArgumentException>(() => WorkspaceDocumentModule.validateModule(moduleDto));
     }
 
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?>? pick = null)
@@ -112,7 +108,7 @@ public sealed class WorkspaceFamilyTests : IDisposable
         var id = run.Id;
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules.Single().Projects.Single().Runs.Single();
+        var saved = WorkspaceTestFiles.LoadRun(Root, document => document.Modules.Single().Projects.Single().Runs.Single());
         Assert.Equal(id, saved.Id);
         Assert.Equal(branch, saved.HasSetup);
         var rootFile = WorkspaceDefinitionFiles.Require(Root, "workspace");

@@ -89,7 +89,7 @@ public sealed class ModuleFunctionEditorTests
         editor.ResultsFunctionName = ResultsFunctionNames.prefixSortableTests;
         Assert.Same(format, Assert.Single(editor.LocalResultsParameterDefaults));
         Assert.Equal("BitVector512", editor.ToProjectSettings().resultsParameterDefaults.Single().value);
-        Assert.DoesNotContain(editor.ToLocalOverrides().resultsParameterDefaults, value => value.keyName == "MergeLibId");
+        Assert.DoesNotContain(editor.ToModuleOverrides().resultsParameterDefaults, value => value.keyName == "MergeLibId");
         editor.AddRequiredResultsDefaultsCommand.Execute(null);
         Assert.Equal(new[] { "PrefixLibId", "SortableDataFormat" }, editor.LocalResultsParameterDefaults.Select(row => row.Key).Order());
         editor.ResultsFunctionName = ResultsFunctionNames.mergeSortableTests;

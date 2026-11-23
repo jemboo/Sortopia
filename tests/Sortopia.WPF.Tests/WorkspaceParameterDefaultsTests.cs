@@ -18,16 +18,16 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static parameterBindingDto Default(string key, parameterValueType type, string value) => new() { keyName = key, valueType = (int)type, value = value };
     private static parameterSpanDto Span(string key, params string[] values) => new() { keyName = key, values = values };
-    private static project Parent(bool branch, parameterBindingDto[] defaults, parameterBindingDto[]? setup = null)
+    private static ProjectDocument Parent(bool branch, parameterBindingDto[] defaults, parameterBindingDto[]? setup = null)
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.resultsParameterDefaults = defaults;
         settings.setupParameterDefaults = setup ?? [];
-        return project.create(WorkspaceTestFiles.Id("parameter-defaults-project"), "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        return WorkspaceFixtures.Project(WorkspaceTestFiles.Id("parameter-defaults-project"), "Project", SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
     private static runDto Inputs(bool branch, parameterSpanDto[]? spans = null, parameterSpanDto[]? setup = null) => new()
     {
-        schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
+        schemaVersion = RunDtoSchema.version, id = Guid.NewGuid(), runKind = branch ? "branch" : "root", parentProjectId = WorkspaceTestFiles.Id("parameter-defaults-project"), runName = "Run",
         resultsParameterSpans = spans ?? [], setupParameterSpans = setup ?? []
     };
     private static parameterSet[] Expand(parameterBindingDto[] defaults, params parameterSpanDto[] spans) => ParameterSets.create(
@@ -125,10 +125,10 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Throws<ArgumentException>(() => ParameterBindingDto.toDomain(Default("", parameterValueType.Text, "")));
         Assert.Throws<ArgumentException>(() => ParameterBindingDto.toDomain(Default("Custom", (parameterValueType)99, "")));
         var parent = Parent(false, []);
-        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, Inputs(false))).Message);
+        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), Inputs(false))).Message);
         parent = Parent(false, [Default("ChannelCount", parameterValueType.Integer, "7")]);
-        Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, Inputs(false, [Span("Seed")])));
-        Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, Inputs(false, [Span("Seed", "8"), Span("Seed", "9")])));
+        Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), Inputs(false, [Span("Seed")])));
+        Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), Inputs(false, [Span("Seed", "8"), Span("Seed", "9")])));
         Assert.Single(ParameterSets.create(ListModule.Empty<parameterBinding>(), ListModule.Empty<parameterSpan>()));
         var excessive = ListModule.OfSeq(Enumerable.Range(0, 31).Select(i => ParameterSpan.create(ParamKey.text($"Key{i}"), ListModule.OfArray(new[] { "a", "b" }))));
         Assert.Throws<ArgumentException>(() => ParameterSets.create(ListModule.Empty<parameterBinding>(), excessive));
@@ -138,14 +138,14 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     public void Branch_setup_and_execution_defaults_and_spans_remain_independent_after_round_trip()
     {
         var value = RunExecutionTests.MakeRun(true, ModelSettings(true), [Span("Repl", "5", "7")], [Span("Repl", "10", "12", "14")]);
-        var parent = project.restore(value.ParentProjectId, "Project", projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration), Defaults.inherited(true), true, [value]);
-        var restored = WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)); var expanded = RunParameterSets.create(restored.Runs[0]);
+        var parent = WorkspaceFixtures.RestoreProject(value.ParentProjectId, "Project", value.ProjectConfiguration, ProjectResolution.local(value.ProjectConfiguration), true, [value]);
+        var restored = WorkspaceDocumentModule.cloneProject(parent); var expanded = RunParameterSets.create(restored.ResolvedRuns()[0]);
         Assert.Equal(new[] { 5, 7 }, expanded.Results.Select(set => set.TryFind(ParamKeys.replKey).Value));
         Assert.Equal(new[] { 10, 12, 14 }, expanded.Setup.Value.Select(set => set.TryFind(ParamKeys.replKey).Value));
         Assert.All(expanded.Results, set => Assert.Equal(8, set.TryFind(ParamKeys.channelCountKey).Value));
         Assert.All(expanded.Setup.Value, set => Assert.Equal(16, set.TryFind(ParamKeys.channelCountKey).Value));
-        var dto = ProjectDto.fromDomain(restored); dto.runs[0].setupParameterSpans.Single(span => span.keyName == "Repl").values[0] = "invalid integer";
-        Assert.Throws<ArgumentException>(() => WorkspaceCodec.decodeProject(MessagePackSetup.serialize(dto)));
+        var dto = WorkspaceDocumentModule.cloneProject(restored); dto.Runs[0].setupParameterSpans.Single(span => span.keyName == "Repl").values[0] = "invalid integer";
+        Assert.Throws<ArgumentException>(() => RunDto.toDomain(dto.Snapshot(), dto.Runs[0]));
     }
 
     [Theory]
@@ -154,7 +154,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     public async Task Project_defaults_inherit_through_modules_validate_run_values_and_survive_reopening(bool branch)
     {
         var page = Open(); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); var module = page.Selected!;
-        module.Editor!.LoadProject(ModelSettings(branch)); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
+        module.Editor!.LoadFixtureSettings(ModelSettings(branch)); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         page.AddProjectCommand.Execute(null); var parent = page.Selected!; page.AddRunCommand.Execute(null); var run = page.Selected!;
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null)); Assert.Same(module.Editor, run.Editor!.ResultsParameterDefaultsOverride.InheritedSource);
         parent.Editor!.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").OverrideCommand!.Execute(null);
@@ -165,8 +165,8 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         Assert.Equal("16", run.Editor.InheritedOutputDefaults.Single(row => row.Key == "ChannelCount").Value);
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Modules[0].Projects[0];
-        Assert.Equal(16, Assert.Single(Sets(saved.Runs[0])).TryFind(ParamKeys.channelCountKey).Value);
+        var saved = WorkspaceTestFiles.LoadRun(Root, document => document.Modules[0].Modules[0].Projects[0].Runs[0]);
+        Assert.Equal(16, Assert.Single(Sets(saved)).TryFind(ParamKeys.channelCountKey).Value);
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
     public async Task Key_specific_default_validation_follows_inheritance_overrides_and_save(bool branch, bool setup, bool onProject)
     {
         var page = Open(); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); var module = page.Selected!;
-        module.Editor!.LoadProject(ModelSettings(branch)); page.AddProjectCommand.Execute(null); var project = page.Selected!;
+        module.Editor!.LoadFixtureSettings(ModelSettings(branch)); page.AddProjectCommand.Execute(null); var project = page.Selected!;
         var owner = onProject ? project : module;
         if (onProject) (setup ? project.Editor!.InheritedSetupDefaults : project.Editor!.InheritedOutputDefaults).Single(row => row.Key == "RngType").OverrideCommand!.Execute(null);
         var row = (setup ? owner.Editor!.SetupParameterDefaults : owner.Editor!.ResultsParameterDefaults).Single(row => row.Key == "RngType");
@@ -220,7 +220,7 @@ public sealed class WorkspaceParameterDefaultsTests : IDisposable
         page.Selected = project; page.AddRunCommand.Execute(null); var editor = page.Selected!.Editor!;
         WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var sets = RunParameterSets.create(WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0]);
+        var sets = RunParameterSets.create(WorkspaceTestFiles.LoadRun(Root, document => document.Modules[0].Projects[0].Runs[0]));
         Assert.Equal("SplitMix64", Assert.Single(setup ? sets.Setup.Value : sets.Results).TryFind(ParamKeys.rngTypeKey).Value);
     }
 

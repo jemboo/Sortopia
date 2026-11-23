@@ -11,6 +11,23 @@ namespace Sortopia.FileDb.Tests;
 
 public sealed partial class PreparedExecutionTests
 {
+    [Fact]
+    public void Resolving_a_saved_run_does_not_expose_its_snapshot_or_reporting_controls()
+    {
+        var (_, consumer) = SgdWorkspace(sgd: new(2, 2), reporting: new("Constant(2)", "Constant(1)"));
+        var saved = WorkspaceFileStore.LoadWorkspace(Root);
+        var before = saved.CreateEditDocument();
+        var runId = consumer.Runs[0].id;
+        var scope = saved.ResolveRun(runId);
+        scope.Run.Sgd.Value.SnapshotCount = 99;
+        scope.Run.Reporting.Value.SnapshotSchedule = "unfinished";
+        Assert.Equal(2, saved.TryReadRunSnapshotControls(runId).Value.SnapshotCount);
+        var repeated = saved.ResolveRun(runId);
+        Assert.Equal(2, repeated.Run.Sgd.Value.SnapshotCount);
+        Assert.Equal("Constant(2)", repeated.Run.Reporting.Value.SnapshotSchedule);
+        Assert.True(WorkspaceDocumentModule.sameContent(before, saved.CreateEditDocument()));
+    }
+
     private static void SetTarget(string folder, Guid runId, int interval, int count)
     {
         var path = Path.Combine(folder, "runs", runId + ".msgpack");
@@ -34,7 +51,7 @@ public sealed partial class PreparedExecutionTests
         var (world, consumer) = SgdWorkspace(sgd: new(2, 2), reporting: new("Constant(2)", selection == "Best" ? "Constant(3)" : "Constant(1)"),
             resultsSpans: [new() { keyName = "InitialPoolSelection", values = [selection] }, new() { keyName = "AdjustCeLengthFrequency", values = ["3"] }]);
         var generated = Prepare(world, consumer); Completed(generated.Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var path = Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
         var item = RunParameterFiles.loadFile(path);
         Assert.Null(item.Parameters.TryFindText("GenerationCount"));
@@ -83,7 +100,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(sgd: new(2, 0));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var path = Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
         List<int> progress = [];
         Completed(ExecuteWithGenerations(path, progress, Token));
@@ -106,20 +123,20 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(sgd: new(2, 2));
         Completed(Prepare(world, consumer).Execution);
-        var saved = WorkspaceFileStore.LoadDocument(Root);
+        var saved = WorkspaceFileStore.LoadWorkspace(Root);
         WorkspaceDocument Change(int interval, int count)
         {
-            var next = MessagePackSetup.deserialize<WorkspaceDocument>(MessagePackSetup.serialize(saved));
-            var run = next.Modules.SelectMany(m => m.Projects).Single(p => p.Definition.id == consumer.Id).Runs[0];
+            var next = MessagePackSetup.deserialize<WorkspaceDocument>(MessagePackSetup.serialize(saved.CreateEditDocument()));
+            var run = next.Modules.SelectMany(m => m.Projects).Single(p => p.Definition.id == consumer.Definition.id).Runs[0];
             run.sgd = FSharpOption<sgdRunConfig>.Some(new(interval, count));
             return next;
         }
-        Assert.Contains("SnapshotInterval is locked", Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.SaveDocument(Root, Change(3, 2), saved, Token)).Message);
-        Assert.Contains("only increase", Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.SaveDocument(Root, Change(2, 1), saved, Token)).Message);
-        var result = WorkspaceFileStore.SaveDocument(Root, Change(2, 4), saved, Token);
-        Assert.Equal(4, result.Definition.Modules.SelectMany(m => m.Projects).Single(p => p.Definition.id == consumer.Id).Runs[0].sgd.Value.SnapshotCount);
-        var repeatWorld = WorkspaceFileStore.LoadDefinition(Root);
-        var repeat = Prepare(repeatWorld, repeatWorld.ProjectIndex[consumer.Id]); Completed(repeat.Execution);
-        Assert.Single(Directory.GetFiles(Path.Combine(WorkspaceData.projectFolder(world, Root, consumer.Id), "runParameters"), "*.msgpack"));
+        Assert.Contains("SnapshotInterval is locked", Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.SaveDocument(Change(3, 2), saved, Token)).Message);
+        Assert.Contains("only increase", Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.SaveDocument(Change(2, 1), saved, Token)).Message);
+        var result = WorkspaceFileStore.SaveDocument(Change(2, 4), saved, Token);
+        Assert.Equal(4, result.Workspace.CreateEditDocument().Modules.SelectMany(m => m.Projects).Single(p => p.Definition.id == consumer.Definition.id).Runs[0].sgd.Value.SnapshotCount);
+        var repeatWorld = WorkspaceFileStore.LoadWorkspace(Root);
+        var repeat = Prepare(repeatWorld.CreateEditDocument(), new WorkspaceDocumentIndex(repeatWorld.CreateEditDocument()).TryFindRun(consumer.Runs[0].id).Value.Parent.Document); Completed(repeat.Execution);
+        Assert.Single(Directory.GetFiles(Path.Combine(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder), "runParameters"), "*.msgpack"));
     }
 }

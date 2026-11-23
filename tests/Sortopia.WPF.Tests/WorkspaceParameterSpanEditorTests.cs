@@ -23,7 +23,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         var value = WorkspaceHierarchyTests.ProjectSettings(branch);
         value.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.uniformMssiSimpleSorterModels; value.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults();
         if (branch) { value.setupFunctionName = Sortopia.Functions.SetupFunctionNames.uniformMssiSimpleSorterModels; value.setupParameterDefaults = RunExecutionTests.UniformModelDefaults(); }
-        page.Selected!.Editor!.LoadProject(value);
+        page.Selected!.Editor!.LoadFixtureSettings(value);
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         return page;
     }
@@ -94,7 +94,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
     public void Key_choices_are_restricted_to_the_inherited_function_contract()
     {
         var page = Open(true); var run = page.Selected!;
-        run.Parent!.Parent!.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
+        run.Parent!.Parent!.Editor!.LoadFixtureSettings(FunctionOutputContractTests.Combined(true));
         var results = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", false, "8");
         var setup = WorkspaceParameterSetsPreviewTests.AddSpan(run, "Repl", true, "3");
         Assert.True(results.IsRepair); Assert.False(setup.IsRepair);
@@ -116,7 +116,7 @@ public sealed class WorkspaceParameterSpanEditorTests : IDisposable
         row.Values[0].Text = "SplitMix64";
         Assert.Single((setup ? editor.SetupParameterSetsPreview : editor.ResultsParameterSetsPreview).Rows);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(page.WorkspaceFolder).Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRun(page.WorkspaceFolder, document => document.Modules[0].Projects[0].Runs[0]);
         var sets = RunParameterSets.create(saved);
         Assert.Equal("SplitMix64", (setup ? sets.Setup.Value : sets.Results)[0].TryFind(ParamKeys.rngTypeKey).Value);
         var reopened = Open(setup); // Existing saved workspace is loaded by the settings path.

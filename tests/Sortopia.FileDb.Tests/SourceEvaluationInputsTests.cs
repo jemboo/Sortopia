@@ -15,7 +15,7 @@ namespace Sortopia.FileDb.Tests;
 
 public sealed partial class PreparedExecutionTests
 {
-    private (workspace World, project ModelsSource, project TestsSource, project Consumer,
+    private (WorkspaceDocument World, ProjectDocument ModelsSource, ProjectDocument TestsSource, ProjectDocument Consumer,
         runExecutionReport ModelsData, runExecutionReport TestsData) EvaluationCopyWorkspace(int channels, bool prefix = false)
     {
         var modelsType = sortopiaDataType.NewSorterModelSet("");
@@ -23,7 +23,7 @@ public sealed partial class PreparedExecutionTests
         var modelConfig = new resultsConfig("Model archive", ResultsFunctionNames.uniformMssiSimpleSorterModels,
             ResultsFunctionCatalog.require(ResultsFunctionNames.uniformMssiSimpleSorterModels).Version,
             ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("ChannelCount"))), ListModule.OfArray(Models));
-        var modelsSource = Project("Models", projectConfiguration.NewRootProjectConfig(new("Models by width", modelConfig)),
+        var modelsSource = Project("Models", new projectConfiguration("Models by width", modelConfig, null),
             [new() { keyName = "ChannelCount", values = ["4", "8"] }]);
         var prefixes = PrefixLib.ids().Where(id => id.ChannelCount == 8).Take(2).Select(PrefixLibId.toString).ToArray();
         var testsKey = prefix ? "PrefixLibId" : "ChannelCount";
@@ -31,31 +31,31 @@ public sealed partial class PreparedExecutionTests
         var testsConfig = new resultsConfig("Tests archive", prefix ? ResultsFunctionNames.prefixSortableTests : ResultsFunctionNames.standardSortableTests, "1",
             ListModule.Singleton(new resultsDataTypeConfig(testsType, ListModule.Singleton(testsKey))),
             ListModule.Singleton(Bind("SortableDataFormat", "Bools", parameterValueType.Text)));
-        var testsSource = Project("Tests", projectConfiguration.NewRootProjectConfig(new("Tests by width", testsConfig)),
+        var testsSource = Project("Tests", new projectConfiguration("Tests by width", testsConfig, null),
             [new() { keyName = testsKey, values = prefix ? prefixes : ["4", "8"] }]);
         var setup = new setupConfig("Local inputs", setupName, SetupFunctionCatalog.require(setupName).Version,
             ListModule.OfArray(new[] {
-                new setupDataTypeConfig(modelsType, modelsSource.Id, ListModule.Singleton("ChannelCount")),
-                new setupDataTypeConfig(testsType, testsSource.Id, ListModule.Singleton(testsKey)) }),
+                new setupDataTypeConfig(modelsType, modelsSource.Definition.id, ListModule.Singleton("ChannelCount")),
+                new setupDataTypeConfig(testsType, testsSource.Definition.id, ListModule.Singleton(testsKey)) }),
             ListModule.Singleton(Bind("ChannelCount", channels.ToString())));
-        var consumer = Project("Consumer", projectConfiguration.NewBranchProjectConfig(new("Evaluate copied inputs",
+        var consumer = Project("Consumer", new projectConfiguration("Evaluate copied inputs",
             new resultsConfig("Results", ResultsFunctionNames.sorterEval, ResultsFunctionCatalog.require(ResultsFunctionNames.sorterEval).Version,
                 ResultsFunctionCatalog.outputs(ResultsFunctionNames.sorterEval), ListModule.OfArray(new[] {
-                Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) })), setup)),
+                Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) })), FSharpOption<setupConfig>.Some(setup)),
             setup: prefix ? [new() { keyName = "PrefixLibId", values = prefixes }] : null);
-        workspaceModule Module(project project) => workspaceModule.createInherited(Guid.NewGuid(), project.ProjectName,
-            ModuleDefaults.configuration(project.IsBranchProject), ModuleOverridesDto.toDomain(project.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
-                new moduleOverridesDto { resultsFunctionName = project.ResultsFunctionName, setupFunctionName = project.IsBranchProject ? setupName : null }), [], [project]);
-        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [Module(modelsSource), Module(testsSource), Module(consumer)]);
+        ModuleDocument Module(ProjectDocument project) => WorkspaceFixtures.InheritedModule(Guid.NewGuid(), project.Definition.projectName,
+            ModuleDefaults.configuration(project.Configuration().HasSetup), ModuleOverridesDto.toDomain(project.Configuration().HasSetup ? hierarchyKind.Branch : hierarchyKind.Root,
+                new moduleOverridesDto { resultsFunctionName = project.Configuration().ResultsFunctionName, setupFunctionName = project.Configuration().HasSetup ? setupName : null }), [], [project]);
+        var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", [Module(modelsSource), Module(testsSource), Module(consumer)]);
         Directory.CreateDirectory(Root);
-        WorkspaceFileStore.CreateWorkspace(Root, world, Token);
-        world = WorkspaceFileStore.LoadDefinition(Root);
-        runExecutionReport Produce(project source)
+        WorkspaceFileStore.CreateDocument(Root, world, Token);
+        world = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument();
+        runExecutionReport Produce(ProjectDocument source)
         {
-            var report = FileRunExecution.execute(world, Root, world.ProjectIndex[source.Id].Runs[0], null!, Token);
+            var report = FileRunExecution.executeInScope(WorkspaceRunDocument.resolveByRunId(world, source.Runs[0].id), Root, null!, Token);
             Completed(report); return report;
         }
-        return (world, world.ProjectIndex[modelsSource.Id], world.ProjectIndex[testsSource.Id], world.ProjectIndex[consumer.Id],
+        return (world, new WorkspaceDocumentIndex(world).TryFindRun(modelsSource.Runs[0].id).Value.Parent.Document, new WorkspaceDocumentIndex(world).TryFindRun(testsSource.Runs[0].id).Value.Parent.Document, new WorkspaceDocumentIndex(world).TryFindRun(consumer.Runs[0].id).Value.Parent.Document,
             Produce(modelsSource), Produce(testsSource));
     }
 
@@ -64,10 +64,10 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, _, _, consumer, _, _) = EvaluationCopyWorkspace(4);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
-        var value = consumer.Runs[0];
-        var branch = ((run.BranchRun)value).Item;
+        var value = consumer.ResolvedRuns()[0];
+        var branch = value;
         var sets = RunParameterSets.create(value);
-        var factory = new FileRunHost(world, Root, value, cancellation.Token);
+        var factory = new FileRunHost(WorkspaceRunDocument.resolveByRunId(world, (value).Id), Root, cancellation.Token);
         var setup = factory.ForSetup(sets.Setup.Value[0]);
         var testsType = sortopiaDataType.NewSortableTests("");
         var resultType = sortopiaDataType.NewSorterSetEval("");
@@ -77,17 +77,17 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(runExecutionPhase.Results, source.Phase);
         Assert.Equal(runExecutionPhase.Setup, copied.Phase);
         Assert.Throws<ArgumentException>(() => setup.Database.Find(testsType));
-        SetupFunctionCatalog.require(branch.SetupFunctionName).Execute.Invoke(setup).Invoke(branch.SourceProjectIds);
+        SetupFunctionCatalog.require(branch.SetupFunctionName.Value).Execute.Invoke(setup).Invoke(branch.SourceProjectIds);
         Assert.Throws<ArgumentException>(() => setup.Database.Find(testsType));
         Assert.NotEqual(source, copied);
         Assert.Equal(setup.Database.Load(source), setup.Database.Load(copied));
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
-        var store = new SortopiaFileDb(folder, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
+        var store = new SortopiaFileDb(folder, consumer.Definition.id);
         var originals = setup.Outputs.Stored.ToDictionary(output => store.GetPath(output.Reference), output => File.ReadAllBytes(store.GetPath(output.Reference)));
         Assert.All(originals.Keys, path => Assert.StartsWith(Path.Combine(folder, "data", "setup") + Path.DirectorySeparatorChar, path));
 
         // Extra setup outputs must not become readable unless the results function consumes them.
-        var unrelated = new storedDataReference(consumer.Id, Guid.NewGuid(), Guid.NewGuid(), runExecutionPhase.Setup, sortopiaDataType.NewSortableTests("unused"));
+        var unrelated = new storedDataReference(consumer.Definition.id, Guid.NewGuid(), Guid.NewGuid(), runExecutionPhase.Setup, sortopiaDataType.NewSortableTests("unused"));
         var results = factory.ForResults(sets.Results[0], ListModule.OfSeq(setup.Outputs.Stored.Append(new storedOutput(unrelated, false))));
         Assert.All(setup.Outputs.Stored, output => Assert.Equal(output.Reference, results.Database.Find(output.Reference.DataType)));
         Assert.Empty(results.Outputs.Stored);
@@ -127,8 +127,8 @@ public sealed partial class PreparedExecutionTests
     public void Setup_database_resolves_source_queries_without_changing_its_planned_outputs()
     {
         var (world, _, tests, consumer, _, testsData) = EvaluationCopyWorkspace(4);
-        var parameters = RunParameterSets.create(consumer.Runs[0]).Setup.Value[0];
-        var host = new FileRunHost(world, Root, consumer.Runs[0], Token).ForSetup(parameters);
+        var parameters = RunParameterSets.create(consumer.ResolvedRuns()[0]).Setup.Value[0];
+        var host = new FileRunHost(WorkspaceRunDocument.resolveByRunId(world, (consumer.ResolvedRuns()[0]).Id), Root, Token).ForSetup(parameters);
         var database = host.Database;
         var planned = host.Outputs.Planned;
         var first = SourceReference(testsData, "4");
@@ -137,7 +137,7 @@ public sealed partial class PreparedExecutionTests
         Assert.Throws<ArgumentException>(() => database.Load(second));
 
         var query = parameters.WithBinding(Bind("ChannelCount", "8"));
-        Assert.Equal(second, database.Find(tests.Id, second.DataType, query));
+        Assert.Equal(second, database.Find(tests.Definition.id, second.DataType, query));
         Assert.Throws<ArgumentException>(() => database.Find(second.DataType));
         Assert.Equal(8, SortableTests.getChannelCount(Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(second)).Item));
         Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(first));
@@ -147,7 +147,7 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(first, Assert.Single(output.Dependencies));
         Assert.Throws<ArgumentException>(() => database.Save(host.Outputs.Output(second.DataType, ListModule.Singleton(second)),
             FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => throw new Exception("Changed dependencies must not generate output."))));
-        Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
+        Assert.Empty(DataFiles(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder), "setup"));
     }
 
     [Fact]
@@ -155,13 +155,13 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, _, tests, consumer, _, testsData) = EvaluationCopyWorkspace(4);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
-        var parameters = RunParameterSets.create(consumer.Runs[0]).Setup.Value[0];
-        var host = new FileRunHost(world, Root, consumer.Runs[0], cancellation.Token).ForSetup(parameters);
+        var parameters = RunParameterSets.create(consumer.ResolvedRuns()[0]).Setup.Value[0];
+        var host = new FileRunHost(WorkspaceRunDocument.resolveByRunId(world, (consumer.ResolvedRuns()[0]).Id), Root, cancellation.Token).ForSetup(parameters);
         var database = host.Database;
         var reference = SourceReference(testsData, "4");
         Assert.IsType<sortopiaStorageData.SortableTests>(database.Load(reference));
         cancellation.Cancel();
-        Assert.Throws<OperationCanceledException>(() => database.Find(tests.Id, reference.DataType, parameters));
+        Assert.Throws<OperationCanceledException>(() => database.Find(tests.Definition.id, reference.DataType, parameters));
         Assert.Throws<OperationCanceledException>(() => database.Load(reference));
         Assert.Empty(host.Outputs.Stored);
     }
@@ -176,10 +176,10 @@ public sealed partial class PreparedExecutionTests
         var sourceModel = SourceReference(modelsData, "8");
         var prepared = Prepare(world, consumer); Completed(prepared.Execution);
         Assert.Equal(2, prepared.WorkItemIds.Length); Assert.Equal(2, prepared.Execution.Setup.Length);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
-        ISortopiaDb local = new SortopiaFileDb(folder, consumer.Id);
-        ISortopiaDb sourceModels = new SortopiaFileDb(WorkspaceData.projectFolder(world, Root, modelsSource.Id), modelsSource.Id);
-        ISortopiaDb sourceTests = new SortopiaFileDb(WorkspaceData.projectFolder(world, Root, testsSource.Id), testsSource.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
+        ISortopiaDb local = new SortopiaFileDb(folder, consumer.Definition.id);
+        ISortopiaDb sourceModels = new SortopiaFileDb(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(modelsSource.Definition.id).RelativeFolder), modelsSource.Definition.id);
+        ISortopiaDb sourceTests = new SortopiaFileDb(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(testsSource.Definition.id).RelativeFolder), testsSource.Definition.id);
         foreach (var row in prepared.Execution.Setup)
         {
             var models = row.StoredOutputs.Single(output => output.Reference.DataType.IsSorterModelSet);
@@ -201,7 +201,7 @@ public sealed partial class PreparedExecutionTests
         var portable = Isolate(folder);
         var report = RunParameterExecution.executeFolder(Path.Combine(portable, "runParameters"), null!, null!, Token);
         Completed(report); Assert.Equal(2, report.Results.Length);
-        ISortopiaDb portableDb = new SortopiaFileDb(portable, consumer.Id);
+        ISortopiaDb portableDb = new SortopiaFileDb(portable, consumer.Definition.id);
         foreach (var output in report.Results.SelectMany(row => row.StoredOutputs))
             Assert.Contains(Assert.IsType<sortopiaStorageData.SorterSetEval>(portableDb.Load(output.Reference, Token).ResultValue.Value).Item.SorterTestId, expectedTestIds);
     }
@@ -211,9 +211,9 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, modelsSource, testsSource, consumer, modelsData, testsData) = EvaluationCopyWorkspace(8);
         var sources = new[] { SourceReference(modelsData, "8"), SourceReference(testsData, "8") };
-        Assert.Equal(modelsSource.Id, sources[0].ProjectId); Assert.Equal(testsSource.Id, sources[1].ProjectId);
+        Assert.Equal(modelsSource.Definition.id, sources[0].ProjectId); Assert.Equal(testsSource.Definition.id, sources[1].ProjectId);
         var originals = sources.Select(reference => {
-            var store = new SortopiaFileDb(WorkspaceData.projectFolder(world, Root, reference.ProjectId), reference.ProjectId);
+            var store = new SortopiaFileDb(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(reference.ProjectId).RelativeFolder), reference.ProjectId);
             return (Reference: reference, Path: store.GetPath(reference), Bytes: File.ReadAllBytes(store.GetPath(reference)),
                 Value: ((ISortopiaDb)store).Load(reference, Token).ResultValue.Value);
         }).ToArray();
@@ -221,11 +221,11 @@ public sealed partial class PreparedExecutionTests
         Assert.Single(prepared.WorkItemIds);
         var copied = Assert.Single(prepared.Execution.Setup).StoredOutputs;
         Assert.Equal(2, copied.Length);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
-        ISortopiaDb local = new SortopiaFileDb(folder, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
+        ISortopiaDb local = new SortopiaFileDb(folder, consumer.Definition.id);
         foreach (var output in copied)
         {
-            Assert.False(output.Reused); Assert.Equal(runExecutionPhase.Setup, output.Reference.Phase); Assert.Equal(consumer.Id, output.Reference.ProjectId);
+            Assert.False(output.Reused); Assert.Equal(runExecutionPhase.Setup, output.Reference.Phase); Assert.Equal(consumer.Definition.id, output.Reference.ProjectId);
             var original = originals.Single(source => source.Reference.DataType.Equals(output.Reference.DataType));
             Assert.Equal(original.Value, local.Load(output.Reference, Token).ResultValue.Value);
             Assert.Equal(original.Bytes, File.ReadAllBytes(original.Path));
@@ -241,7 +241,7 @@ public sealed partial class PreparedExecutionTests
         var report = RunParameterExecution.executeFolder(Path.Combine(portableFolder, "runParameters"), null!, null!, Token);
         Completed(report);
         var result = Assert.Single(Assert.Single(report.Results).StoredOutputs);
-        ISortopiaDb portable = new SortopiaFileDb(portableFolder, consumer.Id);
+        ISortopiaDb portable = new SortopiaFileDb(portableFolder, consumer.Definition.id);
         var evaluation = Assert.IsType<sortopiaStorageData.SorterSetEval>(portable.Load(result.Reference, Token).ResultValue.Value).Item;
         Assert.Equal(3, evaluation.SorterEvals.Length);
         var originalTests = Assert.IsType<sortopiaStorageData.SortableTests>(originals.Single(source => source.Value.IsSortableTests).Value);
@@ -259,7 +259,7 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
         Assert.Contains("missing", prepared.Execution.Error);
         Assert.Empty(prepared.WorkItemIds);
-        Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
+        Assert.Empty(DataFiles(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder), "setup"));
     }
 
     [Theory]
@@ -270,14 +270,14 @@ public sealed partial class PreparedExecutionTests
         var (world, models, tests, consumer, modelsData, testsData) = EvaluationCopyWorkspace(8);
         var source = missingTests ? tests : models;
         var reference = SourceReference(missingTests ? testsData : modelsData, "8");
-        var store = new SortopiaFileDb(WorkspaceData.projectFolder(world, Root, source.Id), source.Id);
+        var store = new SortopiaFileDb(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(source.Definition.id).RelativeFolder), source.Definition.id);
         File.Delete(store.GetPath(reference));
         var prepared = Prepare(world, consumer);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
         Assert.Contains("missing", prepared.Execution.Error);
         Assert.Contains(missingTests ? "SortableTests" : "SorterModelSet", prepared.Execution.Error);
         Assert.Empty(prepared.WorkItemIds);
-        Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
+        Assert.Empty(DataFiles(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder), "setup"));
     }
 
     [Theory]
@@ -290,17 +290,17 @@ public sealed partial class PreparedExecutionTests
         var data = ambiguousTests ? testsData : modelsData;
         var selected = data.Results.Single(row => row.Parameters.TryFindText("ChannelCount").Value == "8");
         var original = Assert.Single(selected.StoredOutputs).Reference;
-        ISortopiaDb store = new SortopiaFileDb(WorkspaceData.projectFolder(world, Root, source.Id), source.Id);
+        ISortopiaDb store = new SortopiaFileDb(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(source.Definition.id).RelativeFolder), source.Definition.id);
         var payload = store.Load(original, Token).ResultValue.Value;
-        var configuration = source.Snapshot.Results;
-        var another = DataKey.create(source.Id, configuration.DatabaseName, false, configuration.FunctionName, configuration.FunctionVersion,
+        var configuration = source.ResultsSnapshot().Results;
+        var another = DataKey.create(source.Definition.id, configuration.DatabaseName, false, configuration.FunctionName, configuration.FunctionVersion,
             original.DataType, ListModule.Singleton("ChannelCount"), selected.Parameters, ListModule.Singleton(data.Results[0].StoredOutputs[0].Reference));
         Assert.True(store.GetOrCreate(another, FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => FSharpResult<sortopiaStorageData, string>.NewOk(payload)), Token).IsOk);
         var prepared = Prepare(world, consumer);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
         Assert.Contains("ambiguous", prepared.Execution.Error);
         Assert.Empty(prepared.WorkItemIds);
-        Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
+        Assert.Empty(DataFiles(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder), "setup"));
     }
 
     [Theory]
@@ -311,19 +311,19 @@ public sealed partial class PreparedExecutionTests
         var (world, models, tests, consumer, modelsData, testsData) = EvaluationCopyWorkspace(8);
         var source = invalidTests ? tests : models;
         var data = invalidTests ? testsData : modelsData;
-        var store = new SortopiaFileDb(WorkspaceData.projectFolder(world, Root, source.Id), source.Id);
+        var store = new SortopiaFileDb(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(source.Definition.id).RelativeFolder), source.Definition.id);
         var selected = data.Results.Single(row => row.Parameters.TryFindText("ChannelCount").Value == "8");
         var reference = Assert.Single(selected.StoredOutputs).Reference;
         var wrongWidth = ((ISortopiaDb)store).Load(SourceReference(data, "4"), Token).ResultValue.Value;
         File.Delete(store.GetPath(reference));
-        var configuration = source.Snapshot.Results;
-        var key = DataKey.create(source.Id, configuration.DatabaseName, false, configuration.FunctionName, configuration.FunctionVersion,
+        var configuration = source.ResultsSnapshot().Results;
+        var key = DataKey.create(source.Definition.id, configuration.DatabaseName, false, configuration.FunctionName, configuration.FunctionVersion,
             reference.DataType, ListModule.Singleton("ChannelCount"), selected.Parameters, ListModule.Empty<storedDataReference>());
         Assert.True(((ISortopiaDb)store).GetOrCreate(key, FuncConvert.FromFunc<Unit, FSharpResult<sortopiaStorageData, string>>(_ => FSharpResult<sortopiaStorageData, string>.NewOk(wrongWidth)), Token).IsOk);
         var prepared = Prepare(world, consumer);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
         Assert.Contains("channel", prepared.Execution.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(prepared.WorkItemIds);
-        Assert.Empty(DataFiles(WorkspaceData.projectFolder(world, Root, consumer.Id), "setup"));
+        Assert.Empty(DataFiles(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder), "setup"));
     }
 }

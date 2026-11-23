@@ -15,7 +15,7 @@ public sealed class FileInspectionTests : IDisposable
     public void Inspector_reads_saved_fields_and_child_references_without_loading_the_hierarchy(bool branch)
     {
         var root = Path.Combine(temporary.FullName, "Workspace");
-        var saved = WorkspaceFileStore.CreateWorkspace(root, WorkspacePersistenceTests.Sample(branch), Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(root, WorkspacePersistenceTests.Sample(branch), Token).Workspace;
         var workspaceFile = WorkspaceDefinitionFiles.Require(root, "workspace");
         var before = Directory.GetFiles(root, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
         var top = WorkspaceFileInspection.inspectConfiguration(root, workspaceFile, Token);

@@ -38,13 +38,13 @@ public sealed class ExplicitQuerySpanTests
     public void Run_loading_rejects_a_query_key_without_an_explicit_span(bool setup)
     {
         var value = RunExecutionTests.MakeRun(setup);
-        var config = value is run.RootRun root ? projectConfiguration.NewRootProjectConfig(root.Item.ProjectConfiguration) : projectConfiguration.NewBranchProjectConfig(((run.BranchRun)value).Item.ProjectConfiguration);
-        var parent = project.create(value.ParentProjectId, "Project", config, []);
+        var config = value.ProjectConfiguration;
+        var parent = WorkspaceFixtures.Project(value.ParentProjectId, "Project", config, []);
         var dto = RunDto.fromDomain(value);
         var key = setup ? dto.setupParameterSpans[0].keyName : dto.resultsParameterSpans[0].keyName;
         if (setup) dto.setupParameterSpans = dto.setupParameterSpans.Where(span => span.keyName != key).ToArray();
         else dto.resultsParameterSpans = dto.resultsParameterSpans.Where(span => span.keyName != key).ToArray();
-        var error = Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, dto)).Message;
+        var error = Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), dto)).Message;
         Assert.Contains(key, error); Assert.Contains("explicit", error);
     }
     [Theory]
@@ -52,7 +52,7 @@ public sealed class ExplicitQuerySpanTests
     [InlineData(true)]
     public void Defaults_stay_defaults_and_missing_span_rows_never_copy_their_values(bool setup)
     {
-        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch); module.Editor!.LoadProject(RunExecutionTests.Settings(true));
+        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch); module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
         var editor = run.Editor!;
@@ -91,7 +91,7 @@ public sealed class ExplicitQuerySpanTests
             var folder = Directory.CreateDirectory(Path.Combine(temporary.FullName, "Workspace")).FullName;
             var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(folder);
             var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
-            page.AddBranchModuleCommand.Execute(null); page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(true));
+            page.AddBranchModuleCommand.Execute(null); page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
             page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null); var editor = page.Selected!.Editor!;
             Assert.Empty(editor.ResultsParameters); Assert.Single(editor.ResultsParameterSetsPreview.Rows);
             WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, false); WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(page.Selected!, true);
@@ -99,7 +99,7 @@ public sealed class ExplicitQuerySpanTests
             foreach (var key in projectEditor.ResultsQueryOutputs.Concat(projectEditor.SetupQueryOutputs).SelectMany(output => output.Keys).ToArray()) key.Selected = true;
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error); WorkspaceRunExecutionTests.SelectRun(page);
             var report = await WorkspaceRunExecutionTests.GenerateAndExecuteAsync(page); Assert.Empty(page.Error); Assert.Equal(runExecutionStatus.Completed, report.Status);
-            var saved = WorkspaceFileStore.LoadDefinition(folder).Modules[0].Projects[0].Runs[0];
+            var saved = WorkspaceTestFiles.LoadRun(folder, document => document.Modules[0].Projects[0].Runs[0]);
             Assert.Equal(2, saved.ResultsParameterSpans.Length); Assert.Equal(2, saved.SetupParameterSpans.Value.Length);
             Assert.Empty(saved.ResultsParameterDefaults); Assert.Empty(saved.SetupParameterDefaults.Value);
             var reopened = new WorkspacePageViewModel(() => { }, _ => null, settings);

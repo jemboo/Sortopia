@@ -58,22 +58,22 @@ public sealed class FunctionOutputContractTests : IDisposable
         Assert.DoesNotContain(function.DataTypes[sortopiaDataType.NewSortableTests("")], key => key == "Repl");
         Assert.Contains(function.DataTypes[sortopiaDataType.NewSorterModelSet("")], key => key == "Repl");
         var settings = Combined(false);
-        var run = (run.RootRun)RunExecutionTests.MakeRun(false, settings);
-        var dto = SettingsDto.fromDomain(projectConfiguration.NewRootProjectConfig(run.Item.ProjectConfiguration));
+        var run = RunExecutionTests.MakeRun(false, settings);
+        var dto = SettingsDto.fromDomain(run.ProjectConfiguration);
         dto.resultsDataTypes[0].dataType.value = "edited label";
-        var edited = (projectConfiguration.RootProjectConfig)SettingsDto.toDomain(hierarchyKind.Root, dto);
-        Assert.Contains("exactly match", Assert.Throws<ArgumentException>(() => FunctionConfiguration.validateResults(edited.Item.Results)).Message);
+        var edited = SettingsDto.toDomain(hierarchyKind.Root, dto);
+        Assert.Contains("exactly match", Assert.Throws<ArgumentException>(() => FunctionConfiguration.validateResults(edited.Results)).Message);
         dto.resultsDataTypes[0].dataType.value = "";
         dto.resultsDataTypes[0].queryParameterKeys = [];
-        edited = (projectConfiguration.RootProjectConfig)SettingsDto.toDomain(hierarchyKind.Root, dto);
-        FunctionConfiguration.validateResults(edited.Item.Results);
+        edited = SettingsDto.toDomain(hierarchyKind.Root, dto);
+        FunctionConfiguration.validateResults(edited.Results);
     }
 
     [Fact]
     public void Module_contracts_keep_output_labels_fixed_and_project_query_keys_editable()
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(Combined(true));
+        module.Editor!.LoadFixtureSettings(Combined(true));
         var child = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Child", family: hierarchyKind.Branch); module.Children.Add(child);
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); child.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
@@ -145,20 +145,19 @@ public sealed class FunctionOutputContractTests : IDisposable
         Assert.Contains("ChannelCount", Assert.ThrowsAny<Exception>(() => Invoke(true, name, wrongChannels, source, models)).Message);
     }
 
-    private workspace SaveRun(bool branch, projectSettingsDto settings, parameterSpanDto[] results, parameterSpanDto[] setup)
+    private WorkspaceDocument SaveRun(bool branch, projectSettingsDto settings, parameterSpanDto[] results, parameterSpanDto[] setup)
     {
         var run = RunExecutionTests.MakeRun(branch, settings, results, setup);
-        var config = branch ? projectConfiguration.NewBranchProjectConfig(((run.BranchRun)run).Item.ProjectConfiguration)
-            : projectConfiguration.NewRootProjectConfig(((run.RootRun)run).Item.ProjectConfiguration);
-        var parent = project.withRuns(project.create(run.ParentProjectId, "Project", config, []), [run]);
+        var config = run.ProjectConfiguration;
+        var parent = WorkspaceFixtures.WithRuns(WorkspaceFixtures.Project(run.ParentProjectId, "Project", config, []), [run]);
         var module = WorkspaceHierarchyTests.MakeModule(branch ? hierarchyKind.Branch : hierarchyKind.Root, Guid.NewGuid(), "Module", [], [parent]);
-        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [module]);
-        WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token);
-        return WorkspaceFileStore.LoadDefinition(temporary.FullName);
+        var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", [module]);
+        WorkspaceFileStore.CreateDocument(temporary.FullName, world, Token);
+        return WorkspaceFileStore.LoadWorkspace(temporary.FullName).CreateEditDocument();
     }
-    private runExecutionReport Execute(workspace world)
+    private runExecutionReport Execute(WorkspaceDocument world)
     {
-        var report = FileRunExecution.execute(world, temporary.FullName, world.Modules[0].Projects[0].Runs[0], null!, Token);
+        var report = FileRunExecution.executeInScope(WorkspaceRunDocument.resolveByRunId(world, world.Modules[0].Projects[0].Runs[0].id), temporary.FullName, null!, Token);
         Assert.True(report.Status == runExecutionStatus.Completed, report.Error);
         return report;
     }
@@ -183,12 +182,12 @@ public sealed class FunctionOutputContractTests : IDisposable
             // Fetching tests from a multi-output source must not require model-only keys.
             var source = world.Modules[0].Projects[0];
             var testKeys = ListModule.OfArray(new[] { "ChannelCount", "SortableDataFormat" });
-            var entry = new setupDataTypeConfig(sortopiaDataType.NewSortableTests(""), source.Id, testKeys);
-            var selected = WorkspaceData.loadSource(world, temporary.FullName, entry,
+            var entry = new setupDataTypeConfig(sortopiaDataType.NewSortableTests(""), source.Definition.id, testKeys);
+            var selected = WorkspaceData.loadScopedSource(WorkspaceRunDocument.resolveByRunId(world, source.Runs[0].id), temporary.FullName, entry,
                 Parameters([RunExecutionTests.Binding("ChannelCount", "4", parameterValueType.Integer), Format]), Token);
             Assert.Equal(tests[0].Reference, selected.Reference);
         }
-        var second = Execute(WorkspaceFileStore.LoadDefinition(temporary.FullName));
+        var second = Execute(WorkspaceFileStore.LoadWorkspace(temporary.FullName).CreateEditDocument());
         Assert.All(second.Setup.Concat(second.Results).SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
         var dataFiles = Directory.GetFiles(temporary.FullName, "*.msgpack", SearchOption.AllDirectories).Count(path => path.Contains(Path.DirectorySeparatorChar + "data" + Path.DirectorySeparatorChar));
         Assert.Equal(branch ? 5 : 3, dataFiles);

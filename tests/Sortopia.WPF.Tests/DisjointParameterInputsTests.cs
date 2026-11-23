@@ -26,7 +26,7 @@ public sealed class DisjointParameterInputsTests
     public void Defaults_and_spans_partition_each_phase_and_query_choices_use_explicit_spans(bool setup)
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings(true));
+        module.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings(true));
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
         var editor = run.Editor!;
@@ -44,13 +44,13 @@ public sealed class DisjointParameterInputsTests
         var settings = project.Editor!.ToProjectSettings();
         Assert.Equal(new[] { "ChannelCount" }, setup ? settings.setupDataTypes.Single().queryParameterKeys : settings.resultsDataTypes.Single().queryParameterKeys);
         Assert.Equal(new[] { "SortableDataFormat" }, (setup ? settings.setupParameterDefaults : settings.resultsParameterDefaults).Select(value => value.keyName));
-        var parent = Sortopia.Workspaces.project.create(project.Id, "Project", SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
-        var domain = RunDto.toDomain(parent, editor.ToRunInputs(run.Id, "Run", project.Id));
+        var parent = WorkspaceFixtures.Project(project.Id, "Project", SettingsDto.toDomain(hierarchyKind.Branch, settings), []);
+        var domain = RunDto.toDomain(parent.Snapshot(), editor.ToRunInputs(run.Id, "Run", project.Id));
         var sets = RunParameterSets.create(domain);
         Assert.Single(setup ? sets.Setup.Value : sets.Results);
-        var local = project.Editor.ToLocalOverrides();
+        var local = project.Editor.ToLocalSettings();
         var restored = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Restored", family: hierarchyKind.Branch); module.Children.Add(restored);
-        restored.Editor!.LoadOverrides(OverridesDto.fromDomain(OverridesDto.toDomain(hierarchyKind.Branch, local)));
+        restored.Editor!.LoadLocalSettings(ProjectLocalSettingsDto.fromDomain(ProjectLocalSettingsDto.toDomain(SettingsDto.toDomain(hierarchyKind.Branch, project.Editor.ToProjectSettings()), local)));
         Assert.Equal(new[] { "SortableDataFormat" }, (setup ? restored.Editor.ToProjectSettings().setupParameterDefaults : restored.Editor.ToProjectSettings().resultsParameterDefaults).Select(value => value.keyName));
         Assert.False(span.RemoveCommand.CanExecute(null)); span.Values.Clear();
         Assert.Contains("Add at least one value", setup ? editor.SetupParametersError : editor.ResultsParametersError);
@@ -71,7 +71,7 @@ public sealed class DisjointParameterInputsTests
         Exception? failure = null;
         var thread = new Thread(() => {
             try {
-                var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module"); module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
+                var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module"); module.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings());
                 var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
                 var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run"); project.Children.Add(run);
                 var editor = run.Editor!;
@@ -98,7 +98,7 @@ public sealed class DisjointParameterInputsTests
     [Fact]
     public void Project_query_selection_is_available_before_every_child_has_spans()
     {
-        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module"); module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
+        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module"); module.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings());
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project"); module.Children.Add(project);
         var first = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "First"); project.Children.Add(first);
         WorkspaceParameterSetsPreviewTests.AddSpan(first, "ChannelCount", false, "8");

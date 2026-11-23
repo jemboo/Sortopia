@@ -26,32 +26,33 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
         var page = Open();
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         var module = page.Selected!;
-        module.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(branch));
         module.Editor.ResultsDatabaseName = "Cannot define this on module";
         module.Editor.SetupDatabaseName = "Cannot define this on module";
         Assert.False(module.Editor.ShowDatabaseSettings);
-        Assert.False(module.Editor.ResultsDatabaseOverride.CanOverride);
+        Assert.False(module.Editor.ResultsDatabaseField.CanEditValue);
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         Assert.Equal("Results", project.Editor!.ResultsDatabaseName);
-        Assert.True(project.Editor.ResultsDatabaseOverride.CanEditValue);
-        Assert.False(project.Editor.ResultsDatabaseOverride.CanOverride);
+        Assert.True(project.Editor.ResultsDatabaseField.CanEditValue);
+        Assert.Null(project.Editor.ResultsDatabaseField.InheritedSource);
         project.Editor.ResultsDatabaseName = "Project results";
         if (branch) project.Editor.SetupDatabaseName = "Project setup";
         page.AddRunCommand.Execute(null); var run = page.Selected!;
         run.Editor!.ResultsDatabaseName = "Cannot override"; run.Editor.SetupDatabaseName = "Cannot override";
         Assert.Equal("Project results", run.Editor.ResultsDatabaseName);
-        Assert.Same(project.Editor, run.Editor.ResultsDatabaseOverride.InheritedSource);
-        Assert.False(run.Editor.SetupDatabaseOverride.CanOverride);
+        Assert.Same(project.Editor, run.Editor.ResultsDatabaseField.InheritedSource);
+        Assert.False(run.Editor.SetupDatabaseField.CanEditValue);
         if (branch) Assert.Equal("Project setup", run.Editor.SetupDatabaseName);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(page.WorkspaceFolder);
-        var dto = ModuleDto.fromDomain(saved.Modules[0]);
-        Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.configuration), StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.localOverrides), StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.projects[0].runs[0]), StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("Project results", saved.Modules[0].Projects[0].Runs[0].ResultsDatabaseName);
-        if (branch) Assert.Equal("Project setup", saved.Modules[0].Projects[0].Runs[0].SetupDatabaseName.Value);
+        var saved = WorkspaceFileStore.LoadWorkspace(page.WorkspaceFolder);
+        var selected = saved.ResolveRun(run.Id).Run;
+        var dto = saved.CreateEditDocument().Modules[0];
+        Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.Definition.inheritedDefaults), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.Definition.localOverrides), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Database", JsonSerializer.Serialize(dto.Projects[0].Runs[0]), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Project results", selected.ResultsDatabaseName);
+        if (branch) Assert.Equal("Project setup", selected.SetupDatabaseName.Value);
         var reopened = Open();
         var fields = reopened.Roots[0].Children[0].Children[0].Editor!;
         Assert.Equal("Project results", fields.ResultsDatabaseName);
@@ -89,7 +90,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
     public async Task Invalid_names_are_explained_before_saving_and_keep_the_rejected_draft(WorkspaceEntityKind kind)
     {
         var page = Open(); page.AddModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         var node = page.Roots[0].DescendantsAndSelf().Single(value => value.Kind == kind);
@@ -108,7 +109,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
     public void Parameter_validation_names_the_key_and_its_editor_section()
     {
         var page = Open(); page.AddModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(WorkspaceHierarchyTests.EditorSettings(false)); page.AddProjectCommand.Execute(null);
+        page.Selected!.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.EditorSettings(false)); page.AddProjectCommand.Execute(null);
         page.AddRunCommand.Execute(null);
         var editor = page.Selected!.Editor!;
         WorkspaceParameterSetsPreviewTests.AddSpan(page.Selected!, "ChannelCount", false, "not an integer");
@@ -127,7 +128,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
     public void Validation_follows_the_selected_node_without_weakening_workspace_save_checks(WorkspaceEntityKind kind)
     {
         var page = Open(); page.AddModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         Assert.Empty(page.SaveIssues);
@@ -173,7 +174,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
             {
                 var model = Open(); model.AddModuleCommand.Execute(null);
                 var module = model.Selected!;
-                module.Editor!.LoadProject(RunExecutionTests.Settings(false));
+                module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
                 model.AddProjectCommand.Execute(null); var first = model.Selected!;
                 model.Selected = module; model.AddProjectCommand.Execute(null); var second = model.Selected!;
                 var originalName = first.Name; first.NameInput = " ";
@@ -321,11 +322,11 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
     public void Parent_indicators_follow_multiple_errors_and_moves_between_branches()
     {
         var page = Open(); page.AddModuleCommand.Execute(null); var firstModule = page.Selected!;
-        firstModule.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        firstModule.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
         page.AddProjectCommand.Execute(null); var first = page.Selected!;
         page.Selected = firstModule; page.AddProjectCommand.Execute(null); var second = page.Selected!;
         page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null); var otherModule = page.Selected!;
-        otherModule.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        otherModule.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
         var firstName = first.Name;
         first.NameInput = " "; second.NameInput = " ";
         Assert.True(firstModule.HasDescendantIssues); Assert.False(otherModule.NeedsAttention);
@@ -341,7 +342,7 @@ public sealed class WorkspaceSaveValidationTests : IDisposable
     public void Error_navigation_skips_aggregate_warnings_and_visits_descendants_in_tree_order()
     {
         var page = Open(); page.AddModuleCommand.Execute(null); var module = page.Selected!;
-        module.Editor!.LoadProject(RunExecutionTests.Settings(false));
+        module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(false));
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
         page.AddRunCommand.Execute(null); var run = page.Selected!;
         WorkspaceRunExecutionTests.SupplyQuerySpans(page);

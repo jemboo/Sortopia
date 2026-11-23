@@ -26,7 +26,7 @@ public sealed class FileInspectorTests : IDisposable
 
     private string CreateWorkspace()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", []), Token);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", []), Token);
         return WorkspaceDefinitionFiles.Require(Root, "workspace");
     }
     private static InspectorFile Entry(string path) => new(WorkspaceFileInspection.entry(path));
@@ -63,8 +63,8 @@ public sealed class FileInspectorTests : IDisposable
     public async Task References_navigate_to_saved_children_and_refresh_keeps_the_selection()
     {
         var id = Guid.NewGuid();
-        var module = workspaceModule.createInherited(id, "Sorting", ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], []);
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
+        var module = WorkspaceFixtures.InheritedModule(id, "Sorting", ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], []);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
         using var page = new FileInspectorPageViewModel(() => { }, _ => null);
         await page.OpenRootAsync(Root);
         await page.InspectAsync(Entry(WorkspaceDefinitionFiles.Require(Root, "workspace")));
@@ -119,7 +119,7 @@ public sealed class FileInspectorTests : IDisposable
             Assert.Same(editor, shell.CurrentPage);
             Assert.True(editor.HasUnsavedChanges);
             Assert.Equal("Unsaved title", editor.WorkspaceName);
-            Assert.Equal("Research", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
+            Assert.Equal("Research", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
             Assert.True(SpinWait.SpinUntil(() => !inspector.IsBrowsing && !inspector.IsInspecting, TimeSpan.FromSeconds(5)));
         });
     }
@@ -131,8 +131,8 @@ public sealed class FileInspectorTests : IDisposable
             description = "Create reusable binary tests", resultsFunctionName = "sortable-tests.standard",
             resultsParameterDefaults = [new() { keyName = "ChannelCount", valueType = 1, value = "16" }, new() { keyName = "SortableDataFormat", valueType = 0, value = "Bools" }]
         });
-        var module = workspaceModule.createInherited(Guid.NewGuid(), "StandardTests", ModuleDefaults.configuration(false), local, [], []);
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
+        var module = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "StandardTests", ModuleDefaults.configuration(false), local, [], []);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [module]), Token);
         var folder = Path.Combine(Root, "StandardTests");
         var path = WorkspaceDefinitionFiles.Require(folder, "module");
         using var model = new FileInspectorPageViewModel(() => { }, _ => null);

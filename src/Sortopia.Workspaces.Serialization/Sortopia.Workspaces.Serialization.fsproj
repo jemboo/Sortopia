@@ -3,7 +3,9 @@
     <Compile Include="ParameterBindingDto.fs" />
     <Compile Include="WorkspaceDto.fs" />
     <Compile Include="WorkspaceDefinitionCodec.fs" />
+    <Compile Include="WorkspaceDefinitionResolution.fs" />
     <Compile Include="WorkspaceDocument.fs" />
+    <Compile Include="WorkspaceNavigation.fs" />
     <Compile Include="WorkspaceRunDocument.fs" />
   </ItemGroup>
   <ItemGroup>

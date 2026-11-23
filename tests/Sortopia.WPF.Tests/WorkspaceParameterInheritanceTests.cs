@@ -90,14 +90,14 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         }
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0];
+        var saved = WorkspaceDefinitionResolution.moduleConfiguration(null!, WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Modules[0].Modules[0].Modules[0].Definition);
         Assert.Equal(new[] { "ChannelCount", "Repl" }, saved.ResultsParameterDefaults.Select(value => value.KeyName));
         Assert.Equal(new[] { "20", "1" }, saved.ResultsParameterDefaults.Select(value => value.FormattedValue));
-        var overrides = ModuleOverridesDto.fromDomain(saved.LocalOverrides);
+        var overrides = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Modules[0].Modules[0].Modules[0].Definition.localOverrides;
         Assert.Equal("Repl", Assert.Single(overrides.resultsParameterDefaults).keyName);
         if (branch)
         {
-            var settings = ModuleSettingsDto.fromDomain(saved.Configuration);
+            var settings = ModuleSettingsDto.fromDomain(saved);
             Assert.Equal(new[] { "32", "2" }, settings.setupParameterDefaults.Select(value => value.value));
             Assert.Equal("Repl", Assert.Single(overrides.setupParameterDefaults).keyName);
         }
@@ -110,9 +110,9 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         child.Editor.ResultsParameterDefaults.Single().RemoveCommand.Execute(null);
         await reopened.SaveWorkspaceAsync();
         Assert.Empty(reopened.Error);
-        saved = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0].Modules[0].Modules[0];
+        saved = WorkspaceDefinitionResolution.moduleConfiguration(null!, WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Modules[0].Modules[0].Modules[0].Definition);
         Assert.Equal("24", Assert.Single(saved.ResultsParameterDefaults).FormattedValue);
-        Assert.Empty(ModuleOverridesDto.fromDomain(saved.LocalOverrides).resultsParameterDefaults);
+        Assert.Empty(WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Modules[0].Modules[0].Modules[0].Definition.localOverrides.resultsParameterDefaults);
     }
 
     [Theory]
@@ -148,7 +148,7 @@ public sealed class WorkspaceParameterInheritanceTests : IDisposable
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
         var inherited = ListModule.OfArray(new[] { ParameterBinding.create(ParamKeys.channelCountKey, 16) });
         var local = ListModule.OfArray(new[] { ParameterBinding.create(ParamKeys.channelCountKey, 8), ParameterBinding.create(ParamKeys.channelCountKey, 4) });
-        Assert.Throws<ArgumentException>(() => Defaults.mergeParameterDefaults(inherited, local));
+        Assert.Throws<ArgumentException>(() => ConfigurationInheritance.mergeParameterDefaults(inherited, local));
         duplicate.RemoveCommand.Execute(null);
         Assert.Empty(child.Editor.ResultsParameterDefaultsError);
         Assert.True(page.SaveWorkspaceCommand.CanExecute(null));

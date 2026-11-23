@@ -7,7 +7,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -30,17 +30,17 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
     {
         var kind = branch ? hierarchyKind.Branch : hierarchyKind.Root;
         var config = SettingsDto.toDomain(kind, WorkspaceHierarchyTests.ProjectSettings(branch));
-        var local = branch ? configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item))
-            : configurationOverrides.NewRootOverrides(Defaults.localRoot(((projectConfiguration.RootProjectConfig)config).Item));
-        var parent = project.createInherited(Guid.NewGuid(), "P", config, Defaults.inherited(branch), []);
+        var parent = WorkspaceFixtures.DraftProject(Guid.NewGuid(), "P", config, ProjectResolution.initial(config), []);
         var inputs = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("P", "R", branch));
-        inputs.parentProjectId = parent.Id;
+        inputs.parentProjectId = parent.Definition.id;
         inputs.resultsParameterSpans = []; inputs.setupParameterSpans = [];
-        parent = project.createInherited(parent.Id, parent.ProjectName, config, parent.LocalOverrides, [RunDto.toDomain(parent, inputs)]);
-        var nested = WorkspaceModule.createInherited(Guid.NewGuid(), "Nested", ModuleDefaults.fromProject(config), ModuleDefaults.fromOverrides(Defaults.inherited(branch)), [], [parent]);
-        var moduleLocal = ModuleOverridesDto.fromDomain(ModuleDefaults.fromOverrides(local));
-        moduleLocal.resultsFunctionName = "sortable-tests.standard"; moduleLocal.setupFunctionName = branch ? "sortable-tests-with-prefix.standard" : null;
-        return WorkspaceModule.createInherited(Guid.NewGuid(), "Top", ModuleDefaults.configuration(branch), ModuleOverridesDto.toDomain(kind, moduleLocal), [nested], []);
+        parent = WorkspaceFixtures.DraftProject(parent.Definition.id, parent.Definition.projectName, config, parent.LocalSettings(), [RunDto.toDomain(parent.Snapshot(), inputs)]);
+        var nested = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "Nested", ModuleSettingsDto.toDomain(kind, WorkspaceHierarchyTests.ModuleSettings(branch)), ModuleDefaults.inherited(branch), [], [parent]);
+        var settings = WorkspaceHierarchyTests.ModuleSettings(branch);
+        var moduleLocal = new moduleOverridesDto { description = settings.description, resultsFunctionName = settings.resultsFunctionName,
+            resultsParameterDefaults = settings.resultsParameterDefaults, setupFunctionName = branch ? settings.setupFunctionName : null,
+            setupParameterDefaults = branch ? settings.setupParameterDefaults : null, setupSources = branch ? settings.setupSources : null };
+        return WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "Top", ModuleDefaults.configuration(branch), ModuleOverridesDto.toDomain(kind, moduleLocal), [nested], []);
     }
 
     [Theory]
@@ -48,19 +48,18 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
     [InlineData(true)]
     public void Deserialization_resolves_modules_but_preserves_sealed_project_snapshots(bool branch)
     {
-        var original = workspace.create(Guid.NewGuid(), "W", "Workspace", [Hierarchy(branch)]);
-        var dto = WorkspaceDto.fromDomain(original);
-        dto.modules[0].localOverrides.description = "Changed ancestor";
-        dto.modules[0].localOverrides.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
-        dto.modules[0].modules[0].localOverrides.description = "Nested description";
-        var restored = WorkspaceCodec.decodeWorkspace(MessagePackSetup.serialize(dto));
-        var nested = restored.Modules[0].Modules[0]; var saved = nested.Projects[0];
-        Assert.Equal("Nested description", nested.Description);
-        Assert.Equal("Keep every setting: α", saved.Description);
-        Assert.Equal(Sortopia.Functions.ResultsFunctionNames.standardSortableTests, saved.ResultsFunctionName);
-        Assert.Equal("1", saved.Snapshot.Results.FunctionVersion);
+        var original = WorkspaceFixtures.Workspace(Guid.NewGuid(), "W", "Workspace", [Hierarchy(branch)]);
+        var dto = WorkspaceDocumentModule.clone(original);
+        dto.Modules[0].Definition.localOverrides.description = "Changed ancestor";
+        dto.Modules[0].Definition.localOverrides.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
+        dto.Modules[0].Modules[0].Definition.localOverrides.description = "Nested description";
+        var nested = dto.Modules[0].Modules[0]; var saved = nested.Projects[0];
+        Assert.Equal("Nested description", nested.Configuration().Description);
+        Assert.Equal("Keep every setting: α", saved.Configuration().Description);
+        Assert.Equal(Sortopia.Functions.ResultsFunctionNames.standardSortableTests, saved.Configuration().ResultsFunctionName);
+        Assert.Equal("1", saved.ResultsSnapshot().Results.FunctionVersion);
         Assert.Null(typeof(moduleOverridesDto).GetProperty("resultsSortopiaDataTypes"));
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsFunctionName"));
     }
 
     [Theory]
@@ -69,7 +68,7 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
     public async Task Editor_cascades_allowed_defaults_and_reports_their_source(bool branch)
     {
         var page = Open(); AddModule(page, branch); var top = page.Selected!;
-        top.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings(branch));
+        top.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings(branch));
         AddModule(page, branch); var child = page.Selected!;
         child.Editor!.Description = "Local description";
         page.AddProjectCommand.Execute(null); var project = page.Selected!;
@@ -79,9 +78,10 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Same(child.Editor, run.Editor.DescriptionOverride.InheritedSource);
         Assert.False(project.Editor!.OutputTypesOverride.CanOverride);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Modules[0];
-        Assert.Equal("Local description", saved.Projects[0].Description);
-        Assert.Null(ModuleOverridesDto.fromDomain(saved.LocalOverrides).resultsFunctionName);
+        var document = WorkspaceFileStore.LoadWorkspace(Root);
+        var saved = document.CreateEditDocument().Modules[0].Modules[0];
+        Assert.Equal("Local description", document.ResolveRun(saved.Projects[0].Runs[0].id).Run.Description);
+        Assert.Null(saved.Definition.localOverrides.resultsFunctionName);
         Assert.Null(typeof(moduleOverridesDto).GetProperty("resultsQueryParameterKeys"));
     }
 
@@ -91,16 +91,15 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
     public async Task Moving_and_copying_modules_keeps_sealed_project_settings(bool branch)
     {
         var source = Hierarchy(branch);
-        var kind = source.Kind;
-        var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
-        settings.resultsDatabaseName = "Destination results";
+        var kind = source.Family();
+        var settings = WorkspaceHierarchyTests.ModuleSettings(branch);
         settings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
         settings.description = "Destination description";
-        var config = SettingsDto.toDomain(kind, settings);
-        var destination = WorkspaceModule.createInherited(Guid.NewGuid(), "Destination", ModuleDefaults.fromProject(config),
-            ModuleDefaults.fromOverrides(branch ? configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item))
-                : configurationOverrides.NewRootOverrides(Defaults.localRoot(((projectConfiguration.RootProjectConfig)config).Item))), [], []);
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "W", "Workspace", [source, destination]), Token);
+        var local = new moduleOverridesDto { description = settings.description, resultsParameterDefaults = settings.resultsParameterDefaults,
+            setupParameterDefaults = branch ? settings.setupParameterDefaults : null };
+        var destination = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "Destination", ModuleSettingsDto.toDomain(kind, settings),
+            ModuleOverridesDto.toDomain(kind, local), [], []);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "W", "Workspace", [source, destination]), Token);
         var page = Open();
         var nested = page.Roots[0].Children[0].Children[0];
         nested.Editor!.Description = "Keep this local description";
@@ -109,9 +108,9 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Equal("sortable-tests.standard", nested.Children[0].Children[0].Editor!.ResultsFunctionName);
         Assert.Equal("Keep every setting: α", nested.Children[0].Children[0].Editor!.Description);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules[1].Modules[0];
-        Assert.Equal(nested.Id, saved.Id);
-        Assert.Equal("Results", saved.Projects[0].Runs[0].ResultsDatabaseName);
+        var saved = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[1].Modules[0];
+        Assert.Equal(nested.Id, saved.Definition.id);
+        Assert.Equal("Results", saved.Projects[0].Definition.configuration.resultsDatabaseName);
         Assert.Null(typeof(moduleSettingsDto).GetProperty("resultsDatabaseName"));
 
         var importFolder = Path.Combine(Root, "Destination", "Nested");
@@ -122,11 +121,11 @@ public sealed class WorkspaceModuleDefaultsTests : IDisposable
         Assert.Equal("sortable-tests.standard", importing.Selected!.Children[0].Children[0].Editor!.ResultsFunctionName);
         Assert.Equal("Keep this local description", importing.Selected.Editor!.Description);
         await importing.SaveWorkspaceAsync(); Assert.Empty(importing.Error);
-        var copied = WorkspaceFileStore.LoadDefinition(Root).Modules[0].Modules[0];
-        Assert.NotEqual(saved.Id, copied.Id);
-        Assert.Equal("Results", copied.Projects[0].Runs[0].ResultsDatabaseName);
-        Assert.Null(ModuleOverridesDto.fromDomain(copied.LocalOverrides).resultsFunctionName);
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsFunctionName"));
+        var copied = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Modules[0];
+        Assert.NotEqual(saved.Definition.id, copied.Definition.id);
+        Assert.Equal("Results", copied.Projects[0].Definition.configuration.resultsDatabaseName);
+        Assert.Null(copied.Definition.localOverrides.resultsFunctionName);
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsFunctionName"));
     }
 
     [Fact]

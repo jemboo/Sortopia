@@ -8,6 +8,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <ProjectReference Include="../../src/Sortopia.Cli/Sortopia.Cli.fsproj" />
     <PackageReference Include="xunit.v3" Version="4.0.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />

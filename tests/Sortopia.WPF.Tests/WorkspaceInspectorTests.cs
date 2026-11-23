@@ -13,7 +13,7 @@ public sealed class WorkspaceInspectorTests : IDisposable
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(temporary.FullName);
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(branch));
         return page;
     }
     [Theory]

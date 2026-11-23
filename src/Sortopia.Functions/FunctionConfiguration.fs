@@ -69,7 +69,7 @@ module FunctionConfiguration =
         value.Sgd |> Option.iter (fun controls ->
             SgdRun.validate controls |> ignore
             if not results.SupportsEvolutionReporting then invalidArg "sgd" "Only SGD runs support snapshot controls.")
-        let config = match value with run.RootRun r -> r.ProjectConfiguration.Results | run.BranchRun r -> r.ProjectConfiguration.Results
+        let config = value.ProjectConfiguration.Results
         if executable && not (config.FunctionName = ResultsFunctionNames.standardMsuf4SimpleSgd && config.FunctionVersion = "6") then
             version (string config.FunctionName) config.FunctionVersion results.Version
         let results = if executable then ResultsFunctionCatalog.requireVersion config.FunctionName config.FunctionVersion else results
@@ -77,30 +77,31 @@ module FunctionConfiguration =
             invalidArg "sgd" "Set SnapshotInterval and SnapshotCount on the SGD run."
         if config.FunctionVersion = results.Version then
             FunctionValidation.validateInputs results value.ResultsQueryParameterKeys value.ResultsParameterDefaults value.ResultsParameterSpans
-        match value with
-        | run.RootRun _ ->
+        match value.Setup with
+        | None ->
             if executable && not results.SourceDataTypes.IsEmpty then invalidArg "resultsFunctionName" "This results function requires a branch run with setup data."
-        | run.BranchRun branch ->
-            let setup = SetupFunctionCatalog.require branch.SetupFunctionName
-            if executable then version (string branch.SetupFunctionName) branch.ProjectConfiguration.Setup.FunctionVersion setup.Version
-            if branch.ProjectConfiguration.Setup.FunctionVersion = setup.Version then
+        | Some settings ->
+            let spans = value.SetupParameterSpans.Value
+            let setup = SetupFunctionCatalog.require settings.FunctionName
+            if executable then version (string settings.FunctionName) settings.FunctionVersion setup.Version
+            if settings.FunctionVersion = setup.Version then
                 let setup =
                     if not setup.ParametersFromSources then setup else
-                    let resolved = setup.SourceDataTypes |> List.forall (fun dataType -> Map.containsKey dataType branch.ResolvedSources)
+                    let resolved = setup.SourceDataTypes |> List.forall (fun dataType -> Map.containsKey dataType value.ResolvedSources)
                     if executable && not resolved then invalidArg "sourceProjectId" "Resolve both source projects before executing the copy setup."
                     let contract =
                         if resolved then
-                            branch.SetupDataTypes |> List.map (fun entry ->
-                                let contract = SourceContracts.resolve branch.ResolvedSources[entry.DataType].Results.DataTypes[entry.DataType]
+                            settings.Outputs |> List.map (fun entry ->
+                                let contract = SourceContracts.resolve value.ResolvedSources[entry.DataType].Results.DataTypes[entry.DataType]
                                 let outside = SourceContracts.missingQueryKeys entry.QueryParameterKeys contract
                                 let outsideNames = System.String.Join(", ", outside)
                                 if not outside.IsEmpty then invalidArg "queryParameterKeys" $"Setup query keys for '{entry.DataType}' must be a subset of its source results query keys. Unsupported keys: {outsideNames}."
                                 contract) |> SourceContracts.combine
-                        else (branch.SetupParameterDefaults |> List.map _.KeyName) @ (branch.SetupParameterSpans |> List.map _.KeyName)
+                        else (settings.ParameterDefaults |> List.map _.KeyName) @ (spans |> List.map _.KeyName)
                              |> SourceContracts.resolve
                     { setup with RequiredParameters = SourceContracts.requireParameters contract }
                 FunctionValidation.validateInputs setup
-                    (branch.SetupDataTypes |> List.collect (fun output -> output.QueryParameterKeys)) branch.SetupParameterDefaults branch.SetupParameterSpans
+                    (settings.Outputs |> List.collect (fun output -> output.QueryParameterKeys)) settings.ParameterDefaults spans
             if executable && results.SourceDataTypes |> List.exists (fun input -> not (List.contains input setup.SortopiaDataTypes)) then
                 invalidArg "functions" "The setup function does not provide all data types required by the results function."
     let validateRunInputs value = validateInputs true value

@@ -24,7 +24,7 @@ public sealed class WorkspaceShortLayoutTests : IDisposable
     public async Task Folder_edits_and_paste_reject_cross_type_case_insensitive_collisions()
     {
         var page = Open(); page.AddModuleCommand.Execute(null); var parent = page.Selected!;
-        parent.Name = "Parent"; parent.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
+        parent.Name = "Parent"; parent.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings());
         page.AddModuleCommand.Execute(null); var module = page.Selected!; module.Name = "Shared";
         page.Selected = parent; page.AddProjectCommand.Execute(null); var project = page.Selected!;
         project.Name = "sHaReD";
@@ -32,7 +32,7 @@ public sealed class WorkspaceShortLayoutTests : IDisposable
         project.Name = "Project"; Assert.Empty(project.NameError);
         Assert.Equal(Path.Combine(Root, "Parent", "Project"), page.SelectedFolderPath);
         page.Selected = page.Roots[0]; page.AddModuleCommand.Execute(null); var other = page.Selected!; other.Name = "Other";
-        other.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
+        other.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings());
         page.AddProjectCommand.Execute(null); page.Selected!.Name = "Shared";
         Assert.True(page.CutCommand.CanExecute(null)); page.CutCommand.Execute(null); page.Selected = parent;
         await page.PasteAsync(); Assert.Contains("module and project children", page.Error);

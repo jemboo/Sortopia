@@ -56,7 +56,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
                 page.SelectConfigurationItem("setupFunction");
             }
         }
-        module.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(branch));
         foreach (var node in new[] { project, run })
         {
             page.Selected = node;
@@ -114,10 +114,10 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
         var preview = setup ? run.Editor.SetupParameterSetsPreview : run.Editor.ResultsParameterSetsPreview;
         Assert.Single(preview.Rows);
         Assert.DoesNotContain(preview.Columns, column => column.Key == "Repl");
-        Assert.Empty(setup ? project.Editor.ToLocalOverrides().setupParameterDefaults : project.Editor.ToLocalOverrides().resultsParameterDefaults);
+        Assert.Empty(setup ? project.Editor.ToLocalSettings().setupParameterDefaults : project.Editor.ToLocalSettings().resultsParameterDefaults);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(folder.FullName).Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRun(folder.FullName, document => document.Modules[0].Projects[0].Runs[0]);
         var sets = RunParameterSets.create(saved);
         Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, (setup ? sets.Setup.Value : sets.Results).Single().ParamMap.Keys.Order());
     }
@@ -128,7 +128,7 @@ public sealed class ProjectRunFunctionEditorTests : IDisposable
     public async Task Sealed_projects_and_runs_keep_their_function_contract_after_module_changes(bool branch)
     {
         var page = Open(); (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(branch));
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null); WorkspaceRunExecutionTests.SupplyQuerySpans(page);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
         var module = page.Roots[0].Children[0]; var project = module.Children[0]; var run = project.Children[0];

@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.Collections.Concurrent;
 using Microsoft.FSharp.Core;
 using Sortopia.FileDb;
@@ -12,7 +13,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         return prepared.WorkItemIds.Select(id => Path.Combine(folder, "runParameters", id + ".msgpack")).ToArray();
     }
 

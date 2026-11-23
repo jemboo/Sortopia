@@ -98,12 +98,10 @@ public sealed partial class WorkspaceConfigurationViewModel
         });
         NotifyChanged();
     }
-    private void LoadParameterPolicy(projectOverridesDto value)
+    private void LoadDefaultExclusions(string[]? results, string[]? setup)
     {
-        excludedResultsDefaults.Clear(); excludedResultsDefaults.UnionWith(value.excludedResultsDefaults ?? []);
-        excludedSetupDefaults.Clear(); if (IsBranch) excludedSetupDefaults.UnionWith(value.excludedSetupDefaults ?? []);
-        resultsQueries = IsProject ? value.resultsQueries ?? [] : [];
-        setupQueries = IsProject && IsBranch ? value.setupQueries ?? [] : [];
+        excludedResultsDefaults.Clear(); excludedResultsDefaults.UnionWith(results ?? []);
+        excludedSetupDefaults.Clear(); if (IsBranch) excludedSetupDefaults.UnionWith(setup ?? []);
     }
     private string[] SelectedQueryKeys(sortopiaDataTypeDto type, bool setup) => IsProject
         ? (setup ? setupQueries : resultsQueries).FirstOrDefault(entry => SameType(entry.dataType, type))?.queryParameterKeys ?? [] : [];

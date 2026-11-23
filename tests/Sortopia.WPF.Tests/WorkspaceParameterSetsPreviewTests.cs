@@ -46,7 +46,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         var editor = run.Editor!;
         if (run.Parent?.Editor is { IsEditable: true } project)
         {
-            var overrides = project.ToLocalOverrides();
+            var overrides = project.ToLocalSettings();
             if (setup) {
                 overrides.excludedSetupDefaults = (overrides.excludedSetupDefaults ?? []).Append(key).Distinct().ToArray();
                 overrides.setupParameterDefaults = overrides.setupParameterDefaults?.Where(value => value.keyName != key).ToArray();
@@ -54,7 +54,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
                 overrides.excludedResultsDefaults = (overrides.excludedResultsDefaults ?? []).Append(key).Distinct().ToArray();
                 overrides.resultsParameterDefaults = overrides.resultsParameterDefaults?.Where(value => value.keyName != key).ToArray();
             }
-            project.LoadOverrides(overrides);
+            project.LoadLocalSettings(overrides);
             foreach (var choice in (setup ? project.SetupQueryOutputs : project.ResultsQueryOutputs).SelectMany(output => output.Keys).Where(choice => choice.Key == key).ToArray())
                 choice.Selected = true;
         }
@@ -111,7 +111,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
         else Assert.False(setup.HasRows);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Modules[0].Modules[0].Modules[0].Projects[0].Runs[0];
+        var saved = WorkspaceTestFiles.LoadRun(Root, document => document.Modules[0].Modules[0].Modules[0].Modules[0].Projects[0].Runs[0]);
         var generated = RunParameterSets.create(saved);
         Assert.Equal(generated.Results, results.Rows.Select(row => row.ParameterSet));
         if (branch) Assert.Equal(generated.Setup.Value, setup.Rows.Select(row => row.ParameterSet));
@@ -137,7 +137,7 @@ public sealed class WorkspaceParameterSetsPreviewTests : IDisposable
     public void Default_only_preview_is_valid_until_query_spans_are_selected()
     {
         var page = Open(); page.AddModuleCommand.Execute(null); var module = page.Selected!;
-        module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings());
+        module.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings());
         var run = AddRun(page, false); var editor = run.Editor!;
         Assert.Single(editor.ResultsParameterSetsPreview.Rows);
         Assert.Empty(editor.ResultsParameterSetsPreview.Error);

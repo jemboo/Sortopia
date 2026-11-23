@@ -23,7 +23,7 @@ public sealed partial class WorkspacePageViewModel
         ResetGeneratedFilesCommand = new RelayCommand(async () => await ResetGeneratedFilesAsync(), () => CanResetGeneratedFiles);
     }
     private bool CanResetGeneratedFiles => CanModifyWorkspace && !resolvingNavigation && !HasUnsavedChanges
-        && !isResultsExecutionBusy() && !HasStructuralErrors && savedDocument is not null && Selected is not null && savedNodeIds.Contains(Selected.Id);
+        && !isResultsExecutionBusy() && !HasStructuralErrors && savedWorkspace is not null && Selected is not null && savedNodeIds.Contains(Selected.Id);
     internal void NotifyResetAvailability()
     {
         ResetGeneratedFilesCommand.RaiseCanExecuteChanged();
@@ -45,15 +45,15 @@ public sealed partial class WorkspacePageViewModel
         var request = new WorkspaceResetRequest(SelectedConfigurationPath, node.IsRun,
             nodes.Count(n => n.IsProject), nodes.Count(n => n.IsRun));
         if (!confirmReset(request)) return;
-        var previous = savedDocument!;
+        var previous = savedWorkspace!;
         await RunAsync(async token =>
         {
             Status = $"Resetting generated files for '{request.Path}'…";
-            var result = await Task.Run(() => WorkspaceFileStore.ResetGeneratedFiles(WorkspaceFolder, previous,
+            var result = await Task.Run(() => WorkspaceFileStore.ResetGeneratedFiles(previous,
                 node.Kind.ToString().ToLowerInvariant(), node.Id, token), token);
             // Remove cached file rows and generation statuses along with their files.
             foreach (var run in nodes.Where(n => n.IsRun)) executions.Remove(run.Id);
-            AcceptSavedDocument(result.Definition);
+            ReplaceDraftFromSavedWorkspace(result.Workspace);
             Selected = Roots.SelectMany(root => root.DescendantsAndSelf()).Single(n => n.Kind == node.Kind && n.Id == node.Id);
             Error = string.Join(Environment.NewLine, result.CleanupWarnings);
             Status = $"Reset generated files for '{request.Path}'. Projects and modules with no remaining descendant parameter files are editable.";

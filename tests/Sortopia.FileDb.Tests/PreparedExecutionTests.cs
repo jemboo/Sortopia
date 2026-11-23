@@ -22,7 +22,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         Bind("RngType", "SplitMix64", parameterValueType.Text)];
     private static resultsConfig Results(string name, parameterBinding[] defaults) => new("Results", name, ResultsFunctionCatalog.require(name).Version, ResultsFunctionCatalog.outputs(name), ListModule.OfArray(defaults));
 
-    private static project Project(string name, projectConfiguration configuration, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
+    private static ProjectDocument Project(string name, projectConfiguration configuration, parameterSpanDto[]? results = null, parameterSpanDto[]? setup = null)
     {
 
         parameterSpanDto[] Spans(IEnumerable<string> keys, IEnumerable<parameterBinding> defaults, parameterSpanDto[]? supplied)
@@ -37,21 +37,21 @@ public sealed partial class PreparedExecutionTests : IDisposable
         setup = Spans(settings.setupDataTypes.SelectMany(output => output.queryParameterKeys), settings.setupParameterDefaults.Select(ParameterBindingDto.toDomain), setup);
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
         settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
-        var config = SettingsDto.toDomain(configuration.IsBranchProjectConfig ? hierarchyKind.Branch : hierarchyKind.Root, settings);
+        var config = SettingsDto.toDomain(configuration.HasSetup ? hierarchyKind.Branch : hierarchyKind.Root, settings);
         // Legacy SGD fixtures model an already sealed version-6 project.
         var parent = settings.resultsFunctionName == ResultsFunctionNames.standardMsuf4SimpleSgd && settings.resultsFunctionVersion == "6"
-            ? project.restore(Guid.NewGuid(), name, config, configurationOverrides.NewBranchOverrides(Defaults.localBranch(((projectConfiguration.BranchProjectConfig)config).Item)), true, [])
-            : project.create(Guid.NewGuid(), name, config, []);
-        var run = RunDto.toDomain(parent, new runDto
+            ? WorkspaceFixtures.RestoreProject(Guid.NewGuid(), name, config, ProjectResolution.local(config), true, [])
+            : WorkspaceFixtures.Project(Guid.NewGuid(), name, config, []);
+        var run = RunDto.toDomain(parent.Snapshot(), new runDto
         {
-            schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial", runKind = parent.IsBranchProject ? "branch" : "root",
-            resultsParameterSpans = Spans(parent.ResultsQueryParameterKeys, parent.ResultsParameterDefaults, results),
-            setupParameterSpans = parent is project.BranchProject branch ? Spans(branch.Item.SetupDataTypes.SelectMany(output => output.QueryParameterKeys), branch.Item.SetupParameterDefaults, setup) : []
+            schemaVersion = RunDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Definition.id, runName = "Trial", runKind = parent.Configuration().HasSetup ? "branch" : "root",
+            resultsParameterSpans = Spans(parent.Configuration().ResultsQueryParameterKeys, parent.Configuration().ResultsParameterDefaults, results),
+            setupParameterSpans = parent.Configuration().HasSetup ? Spans(parent.Configuration().Setup.Value.Outputs.SelectMany(output => output.QueryParameterKeys), parent.Configuration().Setup.Value.ParameterDefaults, setup) : []
         });
-        return project.withRuns(parent, [run]);
+        return WorkspaceFixtures.WithRuns(parent, [run]);
     }
 
-    private (workspace World, project Project) Create(bool branch, bool invalidSecondSetup = false, bool multipleOutputs = false, string model = "mssi", string family = "Simple")
+    private (WorkspaceDocument World, ProjectDocument Project) Create(bool branch, bool invalidSecondSetup = false, bool multipleOutputs = false, string model = "mssi", string family = "Simple")
     {
         var width = model == "msuf6" ? 12 : 4;
         var models = Models.Select(binding => binding.KeyName == "ChannelCount" ? ParameterBinding.create(ParamKeys.channelCountKey, width) : binding).ToArray();
@@ -64,31 +64,31 @@ public sealed partial class PreparedExecutionTests : IDisposable
             "SimpleR" => [Bind("AMax", "2"), Bind("AInitial", "-1")],
             "SimpleS" => [Bind("ActivationProbability", "0.5", parameterValueType.Floating)],
             _ => [] };
-        var source = Project("Source", projectConfiguration.NewRootProjectConfig(new("Source", branch || multipleOutputs
+        var source = Project("Source", new projectConfiguration("Source", branch || multipleOutputs
             ? Results($"sorter-eval-inputs.standard.{model}.{suffix}", [.. models, .. activators, format])
-            : Results(ResultsFunctionNames.mergeSortableTests, [merge, format]))),
+            : Results(ResultsFunctionNames.mergeSortableTests, [merge, format]), null),
             branch ? [new() { keyName = "Repl", values = ["0", "1"] }] : null);
         var target = source;
         if (branch)
         {
             var definition = SetupFunctionCatalog.functions[setupName];
-            var outputs = ListModule.OfSeq(source.Snapshot.Results.DataTypes.Select(entry => new setupDataTypeConfig(entry.Key, source.Id, entry.Value)));
+            var outputs = ListModule.OfSeq(source.ResultsSnapshot().Results.DataTypes.Select(entry => new setupDataTypeConfig(entry.Key, source.Definition.id, entry.Value)));
             var setup = new setupConfig("Setup", setupName, definition.Version, outputs, ListModule.OfArray<parameterBinding>([.. models, .. activators, format]));
             var results = Results(ResultsFunctionNames.sorterEval, [Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean)]);
-            target = Project("Consumer", projectConfiguration.NewBranchProjectConfig(new("Consumer", results, setup)),
+            target = Project("Consumer", new projectConfiguration("Consumer", results, FSharpOption<setupConfig>.Some(setup)),
                 [new() { keyName = "CollectSortableTests", values = ["false", "true"] }],
                 invalidSecondSetup ? [new() { keyName = "SortableDataFormat", values = ["Bools", "Ints"] }]
                     : [new() { keyName = "Repl", values = ["0", "1"] }]);
         }
-        workspaceModule Module(project p) => workspaceModule.createInherited(Guid.NewGuid(), p.ProjectName,
-            ModuleDefaults.configuration(p.IsBranchProject), ModuleOverridesDto.toDomain(p.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
-                new moduleOverridesDto { resultsFunctionName = p.ResultsFunctionName, setupFunctionName = p.IsBranchProject ? setupName : null }), [], [p]);
-        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", branch ? [Module(source), Module(target)] : [Module(source)]);
+        ModuleDocument Module(ProjectDocument p) => WorkspaceFixtures.InheritedModule(Guid.NewGuid(), p.Definition.projectName,
+            ModuleDefaults.configuration(p.Configuration().HasSetup), ModuleOverridesDto.toDomain(p.Configuration().HasSetup ? hierarchyKind.Branch : hierarchyKind.Root,
+                new moduleOverridesDto { resultsFunctionName = p.Configuration().ResultsFunctionName, setupFunctionName = p.Configuration().HasSetup ? setupName : null }), [], [p]);
+        var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", branch ? [Module(source), Module(target)] : [Module(source)]);
         Directory.CreateDirectory(Root);
-        WorkspaceFileStore.CreateWorkspace(Root, world, Token);
-        world = WorkspaceFileStore.LoadDefinition(Root);
-        if (branch) Completed(FileRunExecution.execute(world, Root, world.ProjectIndex[source.Id].Runs[0], null!, Token));
-        return (world, world.ProjectIndex[target.Id]);
+        WorkspaceFileStore.CreateDocument(Root, world, Token);
+        world = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument();
+        if (branch) Completed(FileRunExecution.executeInScope(WorkspaceRunDocument.resolveByRunId(world, source.Runs[0].id), Root, null!, Token));
+        return (world, new WorkspaceDocumentIndex(world).TryFindRun(target.Runs[0].id).Value.Parent.Document);
     }
     [Fact]
     public void Configurable_projections_reuse_outputs_with_disjoint_defaults_and_spans()
@@ -104,23 +104,23 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var results = new resultsConfig("Results", ResultsFunctionNames.sorterEval, ResultsFunctionCatalog.require(ResultsFunctionNames.sorterEval).Version,
             ListModule.OfArray(new[] { new resultsDataTypeConfig(evalType, ListModule.Singleton("CollectSortableTests")) }),
             ListModule.OfArray(new[] { Bind("SorterEvalType", "V1", parameterValueType.Text), Bind("CollectSortableTests", "false", parameterValueType.Boolean) }));
-        var target = Project("Subsets", projectConfiguration.NewBranchProjectConfig(new("Subsets", results, setup)),
+        var target = Project("Subsets", new projectConfiguration("Subsets", results, FSharpOption<setupConfig>.Some(setup)),
             [new() { keyName = "CollectSortableTests", values = ["false", "true"] }], [new() { keyName = "Repl", values = ["0", "1"] }]);
-        var module = workspaceModule.createInherited(Guid.NewGuid(), "Module", ModuleDefaults.configuration(true),
+        var module = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "Module", ModuleDefaults.configuration(true),
             ModuleOverridesDto.toDomain(hierarchyKind.Branch, new moduleOverridesDto { setupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple, resultsFunctionName = ResultsFunctionNames.sorterEval }), [], [target]);
-        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [module]);
-        Directory.CreateDirectory(Root); WorkspaceFileStore.CreateWorkspace(Root, world, Token);
-        world = WorkspaceFileStore.LoadDefinition(Root);
-        var value = world.ProjectIndex[target.Id].Runs[0];
+        var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", [module]);
+        Directory.CreateDirectory(Root); WorkspaceFileStore.CreateDocument(Root, world, Token);
+        world = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument();
+        var value = new WorkspaceDocumentIndex(world).TryFindRun(target.Runs[0].id).Value.Parent.Document.ResolvedRuns()[0];
         Assert.DoesNotContain(value.ResultsParameterDefaults, binding => binding.KeyName == "CollectSortableTests");
         Assert.DoesNotContain(value.SetupParameterDefaults.Value, binding => binding.KeyName == "Repl");
-        var report = FileRunExecution.execute(world, Root, value, null!, Token);
+        var report = FileRunExecution.executeInScope(WorkspaceRunDocument.resolveByRunId(world, (value).Id), Root, null!, Token);
         Completed(report);
         var folder = Path.Combine(Root, "Module", "Subsets");
         Assert.Single(Directory.GetFiles(Path.Combine(folder, "data", "setup", "SortableTests"), "*.msgpack"));
         Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "data", "setup", "SorterModelSet"), "*.msgpack").Length);
         Assert.Equal(4, Directory.GetFiles(Path.Combine(folder, "data", "results", "SorterSetEval"), "*.msgpack").Length);
-        var generation = RunParameterExecution.generate(world, Root, value, null!, Token);
+        var generation = RunParameterExecution.generateInScope(WorkspaceRunDocument.resolveByRunId(world, (value).Id), Root, null!, Token);
         Completed(generation.Execution);
         var copied = Isolate(folder);
         var rerun = RunParameterExecution.executeFolder(Path.Combine(copied, "runParameters"), null!, null!, Token);
@@ -131,8 +131,8 @@ public sealed partial class PreparedExecutionTests : IDisposable
     private static void Completed(runExecutionReport report) => Assert.True(report.Status == runExecutionStatus.Completed, report.Error);
     private static string[] DataFiles(string folder, string phase) => Directory.Exists(Path.Combine(folder, "data", phase))
         ? Directory.GetFiles(Path.Combine(folder, "data", phase), "*.msgpack", SearchOption.AllDirectories) : [];
-    private runParameterGenerationReport Prepare(workspace world, project project, IProgress<runExecutionProgress>? progress = null, CancellationToken? token = null) =>
-        RunParameterExecution.generate(world, Root, project.Runs[0], progress!, token ?? Token);
+    private runParameterGenerationReport Prepare(WorkspaceDocument world, ProjectDocument project, IProgress<runExecutionProgress>? progress = null, CancellationToken? token = null) =>
+        RunParameterExecution.generateInScope(WorkspaceRunDocument.resolveByRunId(world, (project.ResolvedRuns()[0]).Id), Root, progress!, token ?? Token);
     private string Isolate(string folder)
     {
         var copy = Directory.CreateDirectory(Path.Combine(temporary.FullName, "Cloud project")).FullName;
@@ -154,7 +154,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     public void Copied_project_executes_without_workspace_or_sources_and_retries_reuse_data(bool branch)
     {
         var (world, project) = Create(branch);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
         var ready = prepared;
         Assert.Equal(branch ? 4 : 1, ready.WorkItemIds.Length);
@@ -191,7 +191,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     public void Failed_setup_keeps_data_but_never_publishes_a_preparation_or_results()
     {
         var (world, project) = Create(true, invalidSecondSetup: true);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var prepared = Prepare(world, project);
         Assert.Empty(prepared.WorkItemIds);
         Assert.Equal(runExecutionStatus.Failed, prepared.Execution.Status);
@@ -211,7 +211,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(branch, multipleOutputs: !branch, model: "msuf6", family: family);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var copied = Isolate(folder);
         var report = RunParameterExecution.executeFolder(Path.Combine(copied, "runParameters"), null!, null!, Token); Completed(report);
         var phase = branch ? "setup" : "results";
@@ -219,7 +219,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         Assert.Equal(branch ? 2 : 1, Directory.GetFiles(Path.Combine(copied, "data", phase, "SorterModelSet"), "*.msgpack").Length);
         if (branch) Assert.Equal(4, Directory.GetFiles(Path.Combine(copied, "data", "results", "SorterSetEval"), "*.msgpack").Length);
         var calls = branch ? prepared.Execution.Setup : report.Results;
-        ISortopiaDb database = new SortopiaFileDb(copied, project.Id);
+        ISortopiaDb database = new SortopiaFileDb(copied, project.Definition.id);
         foreach (var call in calls)
         {
             Assert.IsType<parameterValue.Seed6WeightsValue>(call.Parameters.TryFind("Seed6Weights").Value.Value);
@@ -255,7 +255,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var paths = prepared.WorkItemIds.Select(id => Path.Combine(folder, "runParameters", id + ".msgpack")).ToArray();
         File.WriteAllBytes(paths[1], [1, 2, 3]);
         var events = new List<workItemExecutionProgress>();
@@ -275,7 +275,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(false);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var path = Path.Combine(folder, "runParameters", prepared.WorkItemIds[0] + ".msgpack");
         Assert.Contains("at least one", RunParameterExecution.executeFiles([], null!, Token).Error);
         Assert.Contains("only once", RunParameterExecution.executeFiles([path, path], null!, Token).Error);
@@ -294,7 +294,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var paths = prepared.WorkItemIds.Select(id => Path.Combine(folder, "runParameters", id + ".msgpack")).ToArray();
         foreach (var retry in new[] { false, true })
         {
@@ -312,10 +312,10 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var paths = prepared.WorkItemIds.Select(id => Path.Combine(folder, "runParameters", id + ".msgpack")).ToArray();
         var first = RunParameterFiles.loadFile(paths[0]);
-        File.Delete(new SortopiaFileDb(folder, project.Id).GetPath(first.SetupInputs[0]));
+        File.Delete(new SortopiaFileDb(folder, project.Definition.id).GetPath(first.SetupInputs[0]));
         var events = new List<workItemExecutionProgress>();
         var report = RunParameterExecution.executeFilesWithStatus(paths, null!, new ItemProgress(events.Add), Token);
         Assert.Equal(runExecutionStatus.Failed, report.Status); Assert.Empty(report.Results); Assert.Empty(DataFiles(folder, "results"));
@@ -328,7 +328,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(false);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var path = Path.Combine(folder, "runParameters", prepared.WorkItemIds[0] + ".msgpack");
         using var cancellation = new CancellationTokenSource();
         var events = new List<workItemExecutionProgress>();
@@ -345,7 +345,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     public void Cancelled_generation_leaves_published_work_items_executable_and_can_be_retried()
     {
         var (world, project) = Create(true);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         using var cancellation = new CancellationTokenSource();
         var progress = new Progress(update => { if (update.Message == "Saving results work item 2") cancellation.Cancel(); });
         var prepared = Prepare(world, project, progress, cancellation.Token);
@@ -367,12 +367,12 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
         var ready = prepared;
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, project.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder));
         var path = damaged switch
         {
             "input" => DataFiles(folder, "setup").Last(),
             "parameters" => Path.Combine(folder, "runParameters", ready.WorkItemIds.Last() + ".msgpack"),
-            _ => Path.Combine(folder, project.Id + ".msgpack")
+            _ => Path.Combine(folder, project.Definition.id + ".msgpack")
         };
         if (damaged == "project") File.Delete(path); else File.WriteAllBytes(path, [1, 2, 3]);
         var report = RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token);
@@ -387,7 +387,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
         var ready = prepared;
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, project.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder));
         Assert.Equal(0, Sortopia.Cli.Program.main(["execute-results", "--parameters", Path.Combine(folder, "runParameters", ready.WorkItemIds[0] + ".msgpack")]));
         Assert.Single(DataFiles(folder, "results"));
         Assert.Equal(0, Sortopia.Cli.Program.main(["execute-results", "--parameters-folder", Path.Combine(folder, "runParameters")]));
@@ -402,7 +402,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
         var ready = prepared;
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, project.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder));
         using var cancellation = new CancellationTokenSource();
         var progress = new Progress(update => { if (update.Completed == 1) cancellation.Cancel(); });
         var stopped = RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, progress, cancellation.Token);
@@ -420,7 +420,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(false);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var item = RunParameterFiles.loadWorkItem(folder, prepared.WorkItemIds[0]);
         var old = new resultsConfig(item.Results.DatabaseName, item.Results.FunctionName, "old", item.Results.Outputs, item.Results.ParameterDefaults);
         var error = Assert.Throws<InvalidOperationException>(() => FileResultsHost.create(folder, item.ProjectId, old, item.Parameters, ListModule.Empty<storedOutput>(), Token));
@@ -433,7 +433,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(false, multipleOutputs: true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var ready = prepared;
         var files = Directory.GetFiles(folder, "*", SearchOption.AllDirectories);
         var pending = Assert.Single(RunParameterExecution.inspectFolder(Path.Combine(folder, "runParameters"), null!, Token)).Outputs;
@@ -464,7 +464,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(false, multipleOutputs: true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var ready = prepared;
         Completed(RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token));
         var file = DataFiles(folder, "results")[0];
@@ -492,7 +492,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, project.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder));
         var ready = prepared;
         Completed(RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token));
         foreach (var file in DataFiles(folder, "setup")) File.Delete(file);
@@ -509,7 +509,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(true);
         var prepared = Prepare(world, project); Completed(prepared.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var ready = prepared;
         var first = RunParameterFiles.loadWorkItem(folder, ready.WorkItemIds[0]);
         var other = RunParameterFiles.loadWorkItem(folder, ready.WorkItemIds[2]);
@@ -530,7 +530,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         var reports = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(() => Prepare(world, project), Token)));
         Assert.All(reports, report => Completed(report.Execution));
         Assert.Single(reports.Select(report => string.Join(",", report.WorkItemIds)).Distinct());
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         Assert.Single(RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token));
         Assert.False(Directory.Exists(Path.Combine(folder, "executions")));
     }
@@ -539,20 +539,20 @@ public sealed partial class PreparedExecutionTests : IDisposable
     public void Each_output_uses_only_its_declared_dependencies_and_saving_cannot_change_them()
     {
         var (world, project) = Create(true);
-        var value = project.Runs[0];
-        var config = ((run.BranchRun)value).Item.ProjectConfiguration.Setup;
+        var value = project.ResolvedRuns()[0];
+        var config = value.ProjectConfiguration.Setup.Value;
         var definition = SetupFunctionCatalog.require(config.FunctionName);
         var parameters = RunParameterSets.create(value).Setup.Value[0];
-        var host = new FileRunHost(world, Root, value, Token).ForSetup(parameters);
+        var host = new FileRunHost(WorkspaceRunDocument.resolveByRunId(world, (value).Id), Root, Token).ForSetup(parameters);
         var source = config.Outputs.Single(output => output.DataType.IsSortableTests);
         var reference = host.Database.Find(source.SourceProjectId, source.DataType, parameters);
         var models = sortopiaDataType.NewSorterModelSet("");
         var modelSource = config.Outputs.Single(output => output.DataType.IsSorterModelSet);
         var modelReference = host.Database.Find(modelSource.SourceProjectId, modelSource.DataType, parameters);
         var changed = new storedDataReference(reference.ProjectId, Guid.NewGuid(), reference.QueryId, reference.Phase, reference.DataType);
-        var first = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
+        var first = OutputPlan.create(project.Definition.id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
             definition.Outputs, config.DataTypes, parameters, ListModule.OfArray(new[] { reference, modelReference }));
-        var second = OutputPlan.create(project.Id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
+        var second = OutputPlan.create(project.Definition.id, config.DatabaseName, true, config.FunctionName, config.FunctionVersion,
             definition.Outputs, config.DataTypes, parameters, ListModule.OfArray(new[] { changed, modelReference }));
         Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, models)).Value.Key.Id, second.Single(pair => Equals(pair.Key.DataType, models)).Value.Key.Id);
         Assert.Equal(first.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.QueryId, second.Single(pair => Equals(pair.Key.DataType, source.DataType)).Value.Key.QueryId);
@@ -568,17 +568,15 @@ public sealed partial class PreparedExecutionTests : IDisposable
     {
         var (world, project) = Create(false);
         var first = Prepare(world, project); Completed(first.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var original = first;
-        var dto = RunDto.fromDomain(project.Runs[0]);
+        var dto = RunDto.fromDomain(project.ResolvedRuns()[0]);
         dto.resultsParameterSpans.Single(span => span.keyName == "SortableDataFormat").values = ["Bools", "Ints"];
-        var changed = RunDto.toDomain(project, dto);
-        var parent = Sortopia.Workspaces.project.withRuns(project, [changed]);
+        var changed = RunDto.toDomain(project.Snapshot(), dto);
+        var parent = WorkspaceFixtures.WithRuns(project, [changed]);
         // A saved definition can be reconstructed without changing the project's sealed configuration.
-        var module = world.Modules[0];
-        var updated = workspace.create(world.Id, world.WorkspaceName, world.FolderName,
-            [workspaceModule.createInherited(module.Id, module.ModuleName,
-                ModuleDefaults.configuration(false), module.LocalOverrides, [], [parent])]);
+        var selected = new WorkspaceDocumentIndex(world).FindProject(parent.Definition.id).Document;
+        var updated = WorkspaceNavigation.replaceProject(WorkspaceDocumentModule.withRuns(selected, [dto]), world);
         var second = Prepare(updated, parent); Completed(second.Execution);
         Assert.All(original.WorkItemIds, id => Assert.Contains(id, second.WorkItemIds));
         Assert.Equal(2, RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token).Length);
@@ -588,23 +586,23 @@ public sealed partial class PreparedExecutionTests : IDisposable
     public void Folder_execution_filters_by_run_and_ignores_nonparameter_and_temporary_files()
     {
         var (world, project) = Create(false);
+        var saved = WorkspaceFileStore.LoadWorkspace(Root);
         var first = Prepare(world, project); Completed(first.Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
-        var dto = RunDto.fromDomain(project.Runs[0]); dto.id = Guid.NewGuid(); dto.runName = "Second";
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
+        var dto = RunDto.fromDomain(project.ResolvedRuns()[0]); dto.id = Guid.NewGuid(); dto.runName = "Second";
         dto.resultsParameterSpans.Single(span => span.keyName == "SortableDataFormat").values = ["Ints"];
-        var secondRun = RunDto.toDomain(project, dto);
-        var snapshot = WorkspaceDto.fromDomain(world);
-        snapshot.modules[0].projects[0].runs = [.. snapshot.modules[0].projects[0].runs, dto];
-        var updated = WorkspaceDto.toDomain(snapshot);
-        WorkspaceFileStore.SaveWorkspace(Root, updated, world, Token);
-        var generated = RunParameterExecution.generate(updated, Root, updated.ProjectIndex[project.Id].Runs.Single(run => run.Id == secondRun.Id), null!, Token); Completed(generated.Execution);
+        var secondRun = RunDto.toDomain(project.Snapshot(), dto);
+        var snapshot = WorkspaceDocumentModule.clone(world);
+        snapshot.Modules[0].Projects[0] = WorkspaceDocumentModule.withRuns(snapshot.Modules[0].Projects[0], [.. snapshot.Modules[0].Projects[0].Runs, dto]);
+        var updated = WorkspaceFileStore.SaveDocument(snapshot, saved, Token).Workspace;
+        var generated = RunParameterExecution.generateInScope(updated.ResolveRun(secondRun.Id), Root, null!, Token); Completed(generated.Execution);
         var parameters = Path.Combine(folder, "runParameters");
         File.WriteAllText(Path.Combine(parameters, "notes.txt"), "Ignore me");
         File.WriteAllBytes(Path.Combine(parameters, Guid.NewGuid() + ".msgpack.interrupted.tmp"), [1, 2]);
         Assert.Equal(2, RunParameterFiles.listWorkItems(parameters, Token).Length);
         Assert.Equal(0, Sortopia.Cli.Program.main(["execute-results", "--parameters-folder", parameters, "--run", secondRun.Id.ToString()]));
         var states = RunParameterExecution.inspectFolder(parameters, null!, Token);
-        Assert.Equal(outputState.Pending, states.Single(item => item.RunId == project.Runs[0].Id).Outputs.State);
+        Assert.Equal(outputState.Pending, states.Single(item => item.RunId == project.Runs[0].id).Outputs.State);
         Assert.Equal(outputState.Complete, states.Single(item => item.RunId == secondRun.Id).Outputs.State);
         Assert.Equal(0, Sortopia.Cli.Program.main(["list-parameters", "--parameters-folder", parameters]));
         Completed(RunParameterExecution.executeFolder(parameters, null!, null!, Token));
@@ -616,7 +614,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
     public void Empty_invalid_and_mixed_project_folders_are_rejected_without_results()
     {
         var (world, project) = Create(false);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var parameters = Directory.CreateDirectory(Path.Combine(folder, "runParameters")).FullName;
         Assert.Contains("No parameter files", RunParameterExecution.executeFolder(parameters, null!, null!, Token).Error);
         Completed(Prepare(world, project).Execution);

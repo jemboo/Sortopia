@@ -11,65 +11,36 @@ open Sortopia.Runs
 open WorkspaceFileSystem
 
 module internal WorkspaceProjectState =
-    let rec projects folder (modules: ModuleDocument array) = seq {
-        for m in modules do
-            let folder = Path.Combine(folder, m.Definition.moduleName)
-            for p in m.Projects do yield p, Path.Combine(folder, p.Definition.projectName)
-            yield! projects folder m.Modules }
-
     let find id (value: WorkspaceDocument) =
-        projects "" value.Modules |> Seq.tryFind (fun (p, _) -> p.Definition.id = id)
-        |> Option.defaultWith (fun () -> invalidOp "The saved project was not found. Save or reopen the workspace first.")
+        let entry = (WorkspaceDocumentIndex value).FindProject id
+        entry.Document, entry.RelativeFolder
 
-    let replace id update (value: WorkspaceDocument) =
-        let rec visit (m: ModuleDocument) =
-            { m with Modules = Array.map visit m.Modules
-                     Projects = m.Projects |> Array.map (fun p -> if p.Definition.id = id then update p else p) }
-        { value with Modules = Array.map visit value.Modules }
+    let seal (parent: projectSnapshot) value =
+        WorkspaceNavigation.updateProject (UMX.untag parent.Id) (fun p ->
+            // The selected scope omits sibling draft runs; the document keeps all of them.
+            { p with Definition = { p.Definition with state = ProjectLifecycle.seal (SettingsDto.fromDomain parent.Configuration) p.Definition.state } }) value
 
-    let seal (parent: project) value =
-        replace (UMX.untag parent.Id) (fun p ->
-            let definition = WorkspaceDefinitionCodec.projectWithOrigin Unchecked.defaultof<_> (project.seal parent)
-            // A selected-run scope deliberately omits sibling runs, including drafts.
-            { p with Definition = { definition with runs = p.Definition.runs; localOverrides = p.Definition.localOverrides } }) value
+    let validateLockedModules (generated: WorkspaceGeneratedFiles) (previous: WorkspaceDocumentIndex) (next: WorkspaceDocumentIndex) =
+        for id in generated.LockedModuleIds do
+            match previous.TryFindModule id, next.TryFindModule id with
+            | Some before, Some after when before.Document.Definition.moduleName <> after.Document.Definition.moduleName
+                                        || MessagePackSetup.serialize before.Document.Definition.localOverrides <> MessagePackSetup.serialize after.Document.Definition.localOverrides ->
+                invalidOp $"Module '{before.Document.Definition.moduleName}' has descendant generated run parameter files. Remove them before editing its properties."
+            | _ -> ()
 
-    let hasRunParameters root folder =
-        let rec hasFiles path =
-            WorkspaceFolderMove.CheckPath(root, path)
-            File.Exists(path) || (Directory.Exists(path) && Directory.EnumerateFileSystemEntries(path) |> Seq.exists hasFiles)
-        hasFiles (Path.Combine(root, folder, "runParameters"))
-
-    let validateLockedModules root (previous: WorkspaceDocument) (next: WorkspaceDocument) =
-        let rec modules (values: ModuleDocument array) = seq {
-            for m in values do
-                yield m.Definition.id, m.Definition
-                yield! modules m.Modules }
-        let current = modules next.Modules |> Map.ofSeq
-        let rec visit folder (m: ModuleDocument) =
-            let folder = Path.Combine(folder, m.Definition.moduleName)
-            let children = m.Modules |> Array.map (visit folder)
-            let locked = (children |> Array.contains true) || (m.Projects |> Array.exists (fun p -> hasRunParameters root (Path.Combine(folder, p.Definition.projectName))))
-            if locked then
-                match Map.tryFind m.Definition.id current with
-                | Some value when value.moduleName <> m.Definition.moduleName
-                                  || MessagePackSetup.serialize value.localOverrides <> MessagePackSetup.serialize m.Definition.localOverrides ->
-                    invalidOp $"Module '{m.Definition.moduleName}' has descendant generated run parameter files. Remove them before editing its properties."
-                | _ -> ()
-            locked
-        previous.Modules |> Array.iter (fun m -> visit "" m |> ignore)
-
-    let validateLockedRuns root (previous: WorkspaceDocument) (next: WorkspaceDocument) token =
-        let nextRuns = projects "" next.Modules |> Seq.collect (fun (p, _) -> p.Runs) |> Seq.map (fun r -> r.id, r) |> Map.ofSeq
-        for project, folder in projects "" previous.Modules do
+    let validateLockedRuns (generated: WorkspaceGeneratedFiles) (previous: WorkspaceDocumentIndex) (next: WorkspaceDocumentIndex) =
+        for entry in previous.Projects do
+            let project = entry.Document
             let changed = project.Runs |> Array.choose (fun before ->
-                match Map.tryFind before.id nextRuns with
-                | Some after when before.sgd <> after.sgd -> Some (before, after)
+                match next.TryFindRun before.id with
+                | Some after when before.sgd <> after.Document.sgd -> Some (before, after.Document)
                 | _ -> None)
-            let parameters = Path.Combine(root, folder, "runParameters")
-            if changed.Length > 0 && Directory.Exists parameters then
-                let generated = RunParameterFiles.listWorkItems parameters token |> Array.map (fun item -> UMX.untag item.RunId) |> Set.ofArray
+            if changed.Length > 0 then
+                let files = generated.Projects |> Array.find (fun p -> p.ProjectId = project.Definition.id)
+                if files.ReadError <> "" then invalidOp files.ReadError
+                let runs = Set.ofArray files.RunIds
                 for before, after in changed do
-                    if Set.contains before.id generated then
+                    if Set.contains before.id runs then
                         match before.sgd, after.sgd with
                         | Some old, Some value -> SgdRun.validateExtension old value
                         | None, None -> ()
@@ -78,33 +49,29 @@ module internal WorkspaceProjectState =
     let resumeReason root value id =
         let selected, folder = find id value
         if not selected.Definition.isSealed then "This project is already editable."
-        elif hasRunParameters root folder then
+        elif WorkspaceGeneratedFiles.hasFiles root (Path.Combine(root, folder)) System.Threading.CancellationToken.None then
             "This project has generated run parameter files. Remove them from all its runs to edit its settings."
         else ""
 
     let resume value id =
-        let rec owner (modules: ModuleDocument array) =
-            modules |> Array.tryPick (fun m ->
-                if m.Projects |> Array.exists (fun p -> p.Definition.id = id) then Some m.Definition
-                else owner m.Modules)
-        let parent = owner value.Modules |> Option.get
+        let parent = (WorkspaceDocumentIndex value).FindProject(id).Parent.Definition
         let inherited =
             try
-                (WorkspaceDefinitionCodec.moduleHeader None parent).Configuration
+                WorkspaceDefinitionResolution.moduleConfiguration None parent
                 |> ModuleDefaults.toProject |> SettingsDto.fromDomain
             with error -> invalidOp $"Module '{parent.moduleName}' has invalid inherited settings. Correct those settings before resuming project editing. {error.Message}"
         let orEmpty values = if isNull values then [||] else values
         let exclusions (inherited: parameterBindingDto array) (local: parameterBindingDto array) (saved: parameterBindingDto array) spans =
             Seq.append (Seq.append (orEmpty inherited) (orEmpty local) |> Seq.map _.keyName) spans
             |> Seq.except (saved |> Seq.map _.keyName) |> Seq.distinct |> Seq.toArray
-        replace id (fun p ->
-            let header = WorkspaceDefinitionCodec.projectHeader None p.Definition
-            let local = if isNull (box p.Definition.localOverrides) then OverridesDto.fromDomain header.LocalOverrides else p.Definition.localOverrides
+        WorkspaceNavigation.updateProject id (fun p ->
+            let header = WorkspaceDefinitionResolution.projectSnapshot p.Definition
+            let local = if isNull (box p.Definition.localSettings) then ProjectLocalSettingsDto.fromDomain (ProjectResolution.local header.Configuration) else p.Definition.localSettings
             let settings = p.Definition.configuration
             // Reopening must not reintroduce inherited defaults that this project's
             // snapshot excluded, especially keys already supplied by run spans.
             let local =
-                if not (isNull (box p.Definition.localOverrides)) then local
+                if not (isNull (box p.Definition.localSettings)) then local
                 else
                     { local with
                         excludedResultsDefaults = exclusions parent.inheritedDefaults.resultsParameterDefaults parent.localOverrides.resultsParameterDefaults settings.resultsParameterDefaults
@@ -112,10 +79,6 @@ module internal WorkspaceProjectState =
                         excludedSetupDefaults = exclusions parent.inheritedDefaults.setupParameterDefaults parent.localOverrides.setupParameterDefaults settings.setupParameterDefaults
                             (p.Runs |> Seq.collect _.setupParameterSpans |> Seq.map _.keyName) }
             let definition =
-                { p.Definition with
-                    isSealed = false
-                    configuration = Unchecked.defaultof<_>
-                    localOverrides = local
-                    inheritedDefaults = inherited }
+                { p.Definition with state = Draft(local, inherited, { moduleId = parent.id; moduleName = parent.moduleName }) }
             { p with Definition = definition }) value
         |> WorkspaceDocument.withOrigins

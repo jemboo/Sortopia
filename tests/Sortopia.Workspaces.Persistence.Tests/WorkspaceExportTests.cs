@@ -12,17 +12,13 @@ public sealed class WorkspaceExportTests : IDisposable
 
     private void CreateWorkspace()
     {
-        var root = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample());
-        var branch = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample(true)).Modules[0];
+        var root = WorkspacePersistenceTests.Sample();
+        var branch = WorkspacePersistenceTests.Sample(true).Modules[0];
         branch.Definition.moduleName = "branch";
-        var nested = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample()).Modules[0];
+        var nested = WorkspacePersistenceTests.Sample().Modules[0];
         // Include nested modules and saved, incomplete project drafts.
-        nested.Projects[0].Definition.isSealed = false;
-        nested.Projects[0].Definition.inheritedDefaults = nested.Projects[0].Definition.configuration;
-        nested.Projects[0].Definition.localOverrides = new();
+        nested.Projects[0].Definition.state = projectStateDto.NewDraft(new(), nested.Projects[0].Definition.configuration, null!);
         root.Modules[0] = new(root.Modules[0].Definition, [nested], root.Modules[0].Projects);
-        root.Modules[0].Definition.modules = [new() { id = nested.Definition.id, name = nested.Definition.moduleName }];
-        root.Definition.modules = [.. root.Definition.modules, new() { id = branch.Definition.id, name = branch.Definition.moduleName }];
         root = new(root.Definition, [root.Modules[0], branch]);
         WorkspaceFileStore.CreateDocument(Root, root, Token);
         var project = Path.Combine(Root, "sorting", "search");
@@ -52,11 +48,11 @@ public sealed class WorkspaceExportTests : IDisposable
             Assert.Equal(File.GetLastWriteTimeUtc(Path.Combine(Root, path)), File.GetLastWriteTimeUtc(Path.Combine(Destination, path)));
         }
         Assert.True(Directory.Exists(Path.Combine(Destination, "sorting", "search", "data", "results", "empty")));
-        var source = WorkspaceFileStore.LoadDocument(Root);
-        var copy = WorkspaceFileStore.LoadDocument(Destination);
-        Assert.Equal(source.Definition.id, copy.Definition.id);
-        Assert.Equal(source.Modules[0].Projects[0].Runs[0].id, copy.Modules[0].Projects[0].Runs[0].id);
-        Assert.Single(copy.Modules[0].Modules[0].Projects[0].Runs);
+        var source = WorkspaceFileStore.LoadWorkspace(Root);
+        var copy = WorkspaceFileStore.LoadWorkspace(Destination);
+        Assert.Equal(source.CreateEditDocument().Definition.id, copy.CreateEditDocument().Definition.id);
+        Assert.Equal(source.CreateEditDocument().Modules[0].Projects[0].Runs[0].id, copy.CreateEditDocument().Modules[0].Projects[0].Runs[0].id);
+        Assert.Single(copy.CreateEditDocument().Modules[0].Modules[0].Projects[0].Runs);
         Assert.Empty(Directory.GetDirectories(Destination, ".sortopia-*"));
     }
 

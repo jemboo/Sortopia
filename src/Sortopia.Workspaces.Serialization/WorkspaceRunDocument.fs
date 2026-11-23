@@ -1,20 +1,12 @@
 namespace Sortopia.Workspaces.Serialization
 
-open System.IO
 open FSharp.UMX
 open Sortopia.Runs
 open Sortopia.Workspaces
 
 /// Resolve a single saved run without parsing unrelated configuration or sibling runs.
 module WorkspaceRunDocument =
-    let rec private projects folder path (modules: ModuleDocument array) = seq {
-        for m in modules do
-            let folder = Path.Combine(folder, m.Definition.moduleName)
-            let path = path @ [m.Definition]
-            for p in m.Projects do yield p.Definition.id, (p, Path.Combine(folder, p.Definition.projectName), path)
-            yield! projects folder path m.Modules }
-
-    let private validateFunctions (path: moduleDefinitionDto list) (project: projectDefinitionDto) =
+    let private validateFunctions (path: ModuleDefinition list) (project: ProjectDefinition) =
         // Existing generated work uses its sealed snapshot, independently of later module edits.
         if not project.isSealed then
             let requireOne phase select =
@@ -26,30 +18,32 @@ module WorkspaceRunDocument =
             requireOne "results" (fun local -> local.resultsFunctionName)
             if project.projectKind = "branch" then requireOne "setup" (fun local -> local.setupFunctionName)
 
-    let resolve (value: WorkspaceDocument) (projectId: System.Guid) (runId: System.Guid) =
-        let index = projects "" [] value.Modules |> Map.ofSeq
-        let find id = index |> Map.tryFind id |> Option.defaultWith (fun () -> invalidOp $"Required project '{id}' was not found in the workspace.")
-        let saved, folder, path = find projectId
-        validateFunctions path saved.Definition
+    let private resolveFrom (index: WorkspaceDocumentIndex) (projectId: System.Guid) (runId: System.Guid) =
+        let find id = index.TryFindProject id |> Option.defaultWith (fun () -> invalidOp $"Required project '{id}' was not found in the workspace.")
+        let entry = find projectId
+        let saved, folder = entry.Document, entry.RelativeFolder
+        validateFunctions (Array.toList entry.ModulePath) saved.Definition
         let requireSealed (p: ProjectDocument) =
             if not p.Definition.isSealed then invalidOp $"Source project '{p.Definition.projectName}' is a draft. Generate its run parameters and execute its results before using it as a source."
         // Resolve drafts into a runtime snapshot without changing the saved document.
         // The generation coordinator persists this snapshot immediately before writes.
-        let parent = WorkspaceDefinitionCodec.projectHeader None saved.Definition |> project.seal
+        let parent = WorkspaceDefinitionResolution.projectSnapshot saved.Definition
         let inputs = saved.Runs |> Array.tryFind (fun r -> r.id = runId) |> Option.defaultWith (fun () -> invalidOp "Save this run before generating its parameter files.")
         let selected = RunDto.toDomain parent inputs
-        let sources = RunWorkspace.sourceIds selected |> List.map (fun id ->
-            let source, folder, _ = find (UMX.untag id)
+        let sources = RunExecutionScope.sourceIds selected |> List.map (fun id ->
+            let entry = find (UMX.untag id)
+            let source, folder = entry.Document, entry.RelativeFolder
             requireSealed source
             try
-                { Snapshot = { ProjectId = id; ProjectName = UMX.tag source.Definition.projectName; IsSealed = true
+                { Snapshot = { ProjectId = id; ProjectName = UMX.tag source.Definition.projectName
                                Results = SettingsDto.resultsToDomain source.Definition.configuration }
                   RelativeFolder = folder }
             with error -> invalidOp $"Source project '{source.Definition.projectName}': {error.Message}")
-        RunWorkspace.create parent selected ({ Snapshot = parent.Snapshot; RelativeFolder = folder } :: sources |> List.toArray)
+        RunExecutionScope.create selected ({ Snapshot = parent.ResultsSnapshot; RelativeFolder = folder } :: sources |> List.toArray)
+
+    let resolve (value: WorkspaceDocument) projectId runId = resolveFrom (WorkspaceDocumentIndex value) projectId runId
 
     let resolveByRunId (value: WorkspaceDocument) (runId: System.Guid) =
-        let projectId = projects "" [] value.Modules |> Seq.tryPick (fun (id, (project, _, _)) ->
-            if project.Runs |> Array.exists (fun r -> r.id = runId) then Some id else None)
-                        |> Option.defaultWith (fun () -> invalidOp "The saved run was not found in this workspace.")
-        resolve value projectId runId
+        let index = WorkspaceDocumentIndex value
+        let run = index.TryFindRun runId |> Option.defaultWith (fun () -> invalidOp "The saved run was not found in this workspace.")
+        resolveFrom index run.Parent.Document.Definition.id runId

@@ -53,7 +53,7 @@ public sealed partial class WorkspacePageViewModel
             if (workspaceFileState == WorkspaceFileState.Conflict) return $"Cannot save in this folder. {workspaceFileIssue}";
             if (SaveIssues.FirstOrDefault(issue => issue.Section is "Name" or "Location") is { } issue) return $"Cannot save: {issue.Location}. {issue.Message}";
             if (WorkspaceNameError.Length > 0) return WorkspaceNameError;
-            if (!ShowNewWorkspace && savedDocument is null) return "The workspace could not be loaded. Review the load error or choose another folder.";
+            if (!ShowNewWorkspace && savedWorkspace is null) return "The workspace could not be loaded. Review the load error or choose another folder.";
             if (!ShowNewWorkspace && !HasUnsavedChanges && !HasMissingComponents) return "All changes are already saved.";
             if (HasSaveIssues) return "Save this draft with its configuration issues. You can close Sortopia and finish it later; invalid runs cannot generate parameter files.";
             return "Save all workspace, module, project and run changes.";

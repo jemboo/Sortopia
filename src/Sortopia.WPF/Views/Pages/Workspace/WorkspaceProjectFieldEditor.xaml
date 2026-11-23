@@ -1,0 +1,17 @@
+<UserControl x:Class="Sortopia.WPF.Views.Pages.Workspace.WorkspaceProjectFieldEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Sortopia.WPF.Views.Pages.Workspace">
+    <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
+    </ResourceDictionary.MergedDictionaries></ResourceDictionary></UserControl.Resources>
+    <StackPanel Margin="0,0,0,14">
+        <Label Content="{Binding Title}" Target="{Binding ElementName=ValueInput}" Padding="0,0,0,4"
+               Foreground="{DynamicResource Workspace.TextPrimary}" FontWeight="SemiBold" />
+        <TextBox x:Name="ValueInput" Text="{Binding EffectiveValue, UpdateSourceTrigger=PropertyChanged}"
+                 IsReadOnly="{Binding ShowPreview}" AutomationProperties.Name="{Binding Title}"
+                 Style="{StaticResource NetworkTextBoxStyle}" />
+        <local:WorkspaceValueSource x:Name="ValueSource" />
+        <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" Margin="0,4,0,0" />
+    </StackPanel>
+</UserControl>

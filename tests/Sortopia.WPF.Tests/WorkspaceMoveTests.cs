@@ -6,7 +6,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -17,16 +17,16 @@ public sealed class WorkspaceMoveTests : IDisposable
     private string? importSource;
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     // These containers leave function definitions to A; moving A beneath B stays valid.
-    private static WorkspaceModule Container(string name, project[] projects) => WorkspaceModule.createInherited(
-        Guid.NewGuid(), name, ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], projects.Select(value => project.seal.Invoke(value)).ToArray());
+    private static WorkspaceModule Container(string name, ProjectDocument[] projects) => WorkspaceFixtures.InheritedModule(
+        Guid.NewGuid(), name, ModuleDefaults.configuration(false), ModuleOverridesDto.toDomain(hierarchyKind.Root, new moduleOverridesDto()), [], projects.Select(value => WorkspaceFixtures.Seal(value)).ToArray());
     private WorkspacePageViewModel Open(bool saved = true)
     {
-        var value = workspace.create(Guid.NewGuid(), "Research", "Workspace", [
+        var value = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [
             WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "A", [Container("Nested", [])],
                 [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", [WorkspaceHierarchyTests.MakeRun("P", "R")])]),
             Container("B", [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "Destination", [])])]);
         Directory.CreateDirectory(Root);
-        if (saved) WorkspaceFileStore.CreateWorkspace(Root, value, Token);
+        if (saved) WorkspaceFileStore.CreateDocument(Root, value, Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
         settings.Save(Root);
         return new(() => { }, _ => null, settings, () => WorkspaceUnsavedChoice.Discard, _ => importSource);
@@ -158,7 +158,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Empty(page.Error);
         Assert.Empty(page.RetainedFolders);
         Assert.Equal(node.Id, Find(page, folder).Id);
-        Assert.Equal(folder, WorkspaceFileStore.LoadModuleFolder(destination, Token).ModuleName);
+        Assert.Equal(folder, WorkspaceFileStore.LoadModuleDocument(destination, Token).Definition.moduleName);
         // Enumerating checks the actual spelling on disk, including a case-only rename.
         Assert.Contains(destination, Directory.GetDirectories(Path.GetDirectoryName(destination)!));
         Assert.DoesNotContain(source, Directory.GetDirectories(Path.GetDirectoryName(source)!));
@@ -354,7 +354,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         await Move(page, "A", "Research");
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal(new[] { "B", "A" }, WorkspaceFileStore.LoadDefinition(Root).Modules.Select(module => module.ModuleName));
+        Assert.Equal(new[] { "B", "A" }, WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules.Select(module => module.Definition.moduleName));
     }
 
     [Fact]
@@ -367,7 +367,7 @@ public sealed class WorkspaceMoveTests : IDisposable
         Assert.Empty(Directory.GetFileSystemEntries(Root));
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal(2, WorkspaceFileStore.LoadDefinition(Root).Modules.Length);
+        Assert.Equal(2, WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules.Length);
     }
 
     [Theory]
@@ -453,10 +453,10 @@ public sealed class WorkspaceMoveTests : IDisposable
         WorkspaceImportTests.WriteModule(importSource);
         var innerFolder = Path.Combine(importSource, "Inner");
         WorkspaceImportTests.WriteModule(innerFolder, defineFunctions: false);
-        var innerDefinition = WorkspaceFileStore.LoadModuleFolder(innerFolder, Token);
+        var innerDefinition = WorkspaceFileStore.LoadModuleDocument(innerFolder, Token);
         var outerFile = WorkspaceDefinitionFiles.Require(importSource, "module");
         var outer = WorkspaceDefinitionCodec.decodeModule(File.ReadAllBytes(outerFile));
-        outer.modules = [.. outer.modules, new childReferenceDto { id = innerDefinition.Id, name = "Inner" }];
+        outer.modules = [.. outer.modules, new childReferenceDto { id = innerDefinition.Definition.id, name = "Inner" }];
         File.WriteAllBytes(outerFile, Sortopia.Core.Serialization.MessagePackSetup.serialize(outer));
         var before = Snapshot(importSource);
         await page.AddExistingAsync(WorkspaceEntityKind.Module);

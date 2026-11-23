@@ -12,9 +12,5 @@ module RunParameterSets =
     /// No spans produces one set containing the defaults, even when that set is empty.
     let create (value: run) : runParameterSets =
         if isNull (box value) then nullArg "value"
-        match value with
-        | run.RootRun root ->
-            { Results = RootRun.makeResultsParameterSets root; Setup = None }
-        | run.BranchRun branch ->
-            { Results = BranchRun.makeResultsParameterSets branch
-              Setup = Some (BranchRun.makeSetupParameterSets branch) }
+        { Results = Run.makeResultsParameterSets value
+          Setup = value.Setup |> Option.map (fun _ -> Run.makeSetupParameterSets value) }

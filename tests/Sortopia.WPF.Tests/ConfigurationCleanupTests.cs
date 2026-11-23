@@ -23,14 +23,14 @@ public sealed class ConfigurationCleanupTests : IDisposable
     public void Selected_unknown_functions_fail_validation_before_execution(bool setup)
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings(true));
+        module.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings(true));
         if (setup) module.Editor.SetupFunctionName = "not-registered";
         else module.Editor.ResultsFunctionName = "not-registered";
         Assert.Contains("Unknown", setup ? module.Editor.SetupFunctionError : module.Editor.ResultsFunctionError);
         var settings = WorkspaceHierarchyTests.ProjectSettings(true);
         if (setup) settings.setupFunctionName = "not-registered";
         else settings.resultsFunctionName = "not-registered";
-        Assert.Contains("Unknown", Assert.Throws<ArgumentException>(() => project.create(Guid.NewGuid(), "P",
+        Assert.Contains("Unknown", Assert.Throws<ArgumentException>(() => WorkspaceFixtures.Project(Guid.NewGuid(), "P",
             SettingsDto.toDomain(hierarchyKind.Branch, settings), [])).Message);
     }
 
@@ -40,28 +40,28 @@ public sealed class ConfigurationCleanupTests : IDisposable
     public void Sealed_versions_round_trip_and_mismatched_execution_fails_before_work(bool setup)
     {
         var run = RunExecutionTests.MakeRun(true);
-        var parent = project.restore(run.ParentProjectId, "Project",
-            projectConfiguration.NewBranchProjectConfig(((run.BranchRun)run).Item.ProjectConfiguration), Defaults.inherited(true), true, [run]);
-        var dto = ProjectDto.fromDomain(parent);
+        var parent = WorkspaceFixtures.RestoreProject(run.ParentProjectId, "Project",
+            run.ProjectConfiguration, ProjectResolution.local(run.ProjectConfiguration), true, [run]);
+        var dto = WorkspaceDocumentModule.cloneProject(parent);
         if (setup)
         {
-            dto.configuration.setupFunctionVersion = "previous";
-            dto.configuration.setupDataTypes[0].dataType.value = "previous output";
+            dto.Definition.configuration.setupFunctionVersion = "previous";
+            dto.Definition.configuration.setupDataTypes[0].dataType.value = "previous output";
         }
         else
         {
-            dto.configuration.resultsFunctionVersion = "previous";
-            dto.configuration.resultsDataTypes[0].dataType.value = "previous output";
+            dto.Definition.configuration.resultsFunctionVersion = "previous";
+            dto.Definition.configuration.resultsDataTypes[0].dataType.value = "previous output";
         }
-        var restored = WorkspaceCodec.decodeProject(Sortopia.Core.Serialization.MessagePackSetup.serialize(dto));
-        var again = WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(restored));
-        var saved = ((run.BranchRun)again.Runs[0]).Item.ProjectConfiguration;
-        Assert.Equal("previous", setup ? saved.Setup.FunctionVersion : saved.Results.FunctionVersion);
-        var report = RunExecution.execute(new CatalogTestHost(again.Runs[0], Token), null!);
+        var restored = dto;
+        var again = WorkspaceDocumentModule.cloneProject(restored);
+        var saved = again.ResolvedRuns()[0].ProjectConfiguration;
+        Assert.Equal("previous", setup ? saved.Setup.Value.FunctionVersion : saved.Results.FunctionVersion);
+        var report = RunExecution.execute(new CatalogTestHost(again.ResolvedRuns()[0], Token), null!);
         Assert.Equal(runExecutionStatus.Failed, report.Status);
         Assert.Contains("fixed at version previous", report.Error);
         Assert.Empty(report.Setup); Assert.Empty(report.Results);
-        var node = WorkspaceTreeNode.FromProject(again);
+        var node = WorkspaceTreeNode.FromProjectDocument(again);
         var editor = node.Editor!;
         Assert.Equal("previous", setup ? editor.ToProjectSettings().setupFunctionVersion : editor.ToProjectSettings().resultsFunctionVersion);
         var runEditor = node.Children.Single().Editor!;
@@ -72,29 +72,40 @@ public sealed class ConfigurationCleanupTests : IDisposable
     public void Source_lookup_uses_the_sealed_version_after_the_catalog_has_changed()
     {
         var value = RunExecutionTests.MakeRun(false, WorkspaceHierarchyTests.ProjectSettings());
-        var parent = project.restore(value.ParentProjectId, "Source",
-            projectConfiguration.NewRootProjectConfig(((run.RootRun)value).Item.ProjectConfiguration), Defaults.inherited(false), true,
+        var parent = WorkspaceFixtures.RestoreProject(value.ParentProjectId, "Source",
+            value.ProjectConfiguration, ProjectResolution.local(value.ProjectConfiguration), true,
             [value]);
-        var dto = ProjectDto.fromDomain(parent); dto.configuration.resultsFunctionVersion = "previous";
-        parent = ProjectDto.toDomain(dto);
-        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root,
-            Guid.NewGuid(), "Sources", [], [parent])]);
-        world = WorkspaceFileStore.CreateWorkspace(temporary.FullName, world, Token).Definition;
-        parent = world.ProjectIndex[parent.Id];
-        var config = parent.Snapshot.Results;
-        var parameters = RunParameterSets.create(parent.Runs[0]).Results[0];
+        var dto = parent; dto.Definition.configuration.resultsFunctionVersion = "previous";
+        parent = dto;
+        var modelSettings = RunExecutionTests.Settings(false);
+        modelSettings.resultsFunctionName = ResultsFunctionNames.uniformMssiSimpleSorterModels;
+        modelSettings.resultsParameterDefaults = RunExecutionTests.UniformModelDefaults(8);
+        var models = RunExecutionTests.MakeProject("Models", false, modelSettings);
+        var consumerSettings = RunExecutionTests.Settings(true);
+        consumerSettings.setupFunctionName = SetupFunctionNames.evaluationSource;
+        consumerSettings.setupParameterDefaults = [.. modelSettings.resultsParameterDefaults, RunExecutionTests.Binding("SortableDataFormat", "Bools")];
+        consumerSettings.setupDataTypes = [new() { dataType = new() { kind = "SortableTests", value = "" }, sourceProjectId = parent.Definition.id, queryParameterKeys = [] },
+            new() { dataType = new() { kind = "SorterModelSet", value = "" }, sourceProjectId = models.Definition.id, queryParameterKeys = [] }];
+        var consumer = RunExecutionTests.MakeProject("Consumer", true, consumerSettings);
+        var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", [
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Sources", [], [parent, models]),
+            WorkspaceHierarchyTests.MakeModule(hierarchyKind.Branch, Guid.NewGuid(), "Consumers", [], [consumer])]);
+        var document = WorkspaceFileStore.CreateDocument(temporary.FullName, world, Token).Workspace;
+        var scope = document.ResolveRun(consumer.Runs[0].id);
+        var config = parent.ResultsSnapshot().Results;
+        var parameters = RunParameterSets.create(parent.ResolvedRuns()[0]).Results[0];
         var dataType = sortopiaDataType.NewSortableTests("");
         var payload = CatalogTestHost.Invoke(false, config.FunctionName, parameters).Head;
-        var store = WorkspaceData.openProject(world, temporary.FullName, parent.Id);
-        var plan = OutputPlan.create(parent.Id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
+        var store = new SortopiaFileDb(WorkspaceData.scopedProjectFolder(scope, temporary.FullName, parent.Definition.id), parent.Definition.id);
+        var plan = OutputPlan.create(parent.Definition.id, config.DatabaseName, false, config.FunctionName, config.FunctionVersion,
             ResultsFunctionCatalog.require(config.FunctionName).Outputs, config.DataTypes, parameters, ListModule.Empty<storedDataReference>());
         var storage = new FileRunDatabase(store, plan, Token);
         var writer = (IRunDatabase)storage;
         writer.Save(storage.Outputs.Output(dataType, ListModule.Empty<storedDataReference>()), FuncConvert.FromFunc<Unit, sortopiaStorageData>(_ => payload));
-        var source = WorkspaceData.loadSource(world, temporary.FullName,
-            new setupDataTypeConfig(dataType, parent.Id, ListModule.Empty<string>()), parameters, Token);
+        var source = WorkspaceData.loadScopedSource(scope, temporary.FullName,
+            new setupDataTypeConfig(dataType, parent.Definition.id, ListModule.Empty<string>()), parameters, Token);
         Assert.Equal(storage.Outputs.Stored.Head.Reference, source.Reference);
-        var currentKey = DataKey.create(parent.Id, config.DatabaseName, false, config.FunctionName,
+        var currentKey = DataKey.create(parent.Definition.id, config.DatabaseName, false, config.FunctionName,
             ResultsFunctionCatalog.require(config.FunctionName).Version, dataType, config.DataTypes[dataType], parameters, ListModule.Empty<storedDataReference>());
         Assert.NotEqual(currentKey.Id, source.Reference.Id);
         Assert.IsType<sortopiaStorageData.SortableTests>(source.Value);
@@ -103,7 +114,7 @@ public sealed class ConfigurationCleanupTests : IDisposable
     [Fact]
     public void Override_contracts_and_parameter_registry_exclude_removed_configuration()
     {
-        foreach (var type in new[] { typeof(rootDefaultOverrides), typeof(branchDefaultOverrides), typeof(rootModuleOverrides), typeof(branchModuleOverrides) })
+        foreach (var type in new[] { typeof(projectLocalSettings), typeof(projectSetupSettings), typeof(moduleOverrides), typeof(moduleSetupOverrides) })
         {
             Assert.Null(type.GetProperty("ResultsSortopiaDataTypes"));
             Assert.Null(type.GetProperty("ResultsQueryParameterKeys"));

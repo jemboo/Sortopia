@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Automation.Peers;
@@ -2435,7 +2436,7 @@ public sealed class RandomNetworkTests
             Assert.Equal(Sortopia.Functions.ResultsFunctionNames.sorterEval, module.Editor.ResultsFunctionName);
             Assert.Contains(vm.InspectorItems, item => item.Key == "resultsDefaults");
             Choose(resultsEditor, Sortopia.Functions.ResultsFunctionNames.mergeSortableTests);
-            module.Editor.LoadProject(RunExecutionTests.Settings(true));
+            module.Editor.LoadFixtureSettings(RunExecutionTests.Settings(true));
             vm.AddProjectCommand.Execute(null);
             var project = vm.Selected!;
             Layout();
@@ -2776,14 +2777,14 @@ public sealed class RandomNetworkTests
         {
             "DescriptionSection" or "DescriptionOverrideEditor" => "description",
             "ResultsSettingsSection" or "ResultsFunctionOverrideEditor" => "resultsFunction",
-            "ResultsDatabaseOverrideEditor" => "resultsDatabase",
+            "ResultsDatabaseFieldEditor" => "resultsDatabase",
             "OutputTypesHeader" or "OutputTypesList" or "AddOutputTypeButton" => "resultsTypes",
             "ResultsQueryKeysList" => "resultsQueryKeys",
             "ResultsDefaultsSection" or "ResultsParameterDefaultsList" or "InheritedResultsParameterDefaultsList" or "AddResultsParameterDefaultButton" or "AddRequiredResultsDefaultsButton" => "resultsDefaults",
             "ResultsSpansSection" or "ResultsParametersList" or "AddRequiredResultsParametersButton" => "resultsSpans",
             "ResultsPreviewSection" or "ResultsSetsPreview" => "execution",
             "SetupSettingsSection" or "SetupFunctionOverrideEditor" => "setupFunction",
-            "SetupDatabaseOverrideEditor" => "setupDatabase",
+            "SetupDatabaseFieldEditor" => "setupDatabase",
             "SetupDataTypesList" or "AddSetupDataTypeButton" => "setupOutputs",
             "SetupDefaultsSection" or "SetupParameterDefaultsList" or "InheritedSetupParameterDefaultsList" or "AddRequiredSetupDefaultsButton" => "setupDefaults",
             "SetupSpansSection" or "SetupParametersList" or "AddRequiredSetupParametersButton" => "setupSpans",
@@ -2898,7 +2899,7 @@ public sealed class RandomNetworkTests
             Assert.False(save.IsEnabled);
             Assert.False(vm.HasUnsavedChanges);
             Assert.Equal(originalPath, fullPath.Text);
-            Assert.Equal("Updated research", WorkspaceFileStore.LoadDefinition(temporary.FullName).WorkspaceName);
+            Assert.Equal("Updated research", WorkspaceFileStore.LoadWorkspace(temporary.FullName).CreateEditDocument().Definition.workspaceName);
             vm.AddModuleCommand.Execute(null);
             LayoutWorkspace();
             Assert.Equal(Visibility.Visible, details.Visibility);
@@ -3007,7 +3008,7 @@ public sealed class RandomNetworkTests
             Assert.Equal("New branch project", ((Button)page.FindName("NewProjectButton")).Content);
             var fields = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceConfigurationEditor)page.FindName("ConfigurationFields");
             var beforeContract = branchModule.Editor!.ToModuleOverrides();
-            branchModule.Editor.LoadProject(FunctionOutputContractTests.Combined(true));
+            branchModule.Editor.LoadFixtureSettings(FunctionOutputContractTests.Combined(true));
             vm.SelectConfigurationItem("setupOutputs");
             foreach (var width in new[] { 1000, 640 })
             {
@@ -3050,9 +3051,9 @@ public sealed class RandomNetworkTests
             ((TextBox)moduleExecuteEditor.FindName("OverrideValueInput")).SetCurrentValue(TextBox.TextProperty, "sortable-tests.standard");
             Assert.Equal("sortable-tests.standard", branchModule.Editor!.ResultsFunctionName);
             var defaultSource = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceValueSource)
-                ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor")).FindName("ValueSource");
-            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor")).Visibility);
-            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "SetupDatabaseOverrideEditor")).Visibility);
+                ((Sortopia.WPF.Views.Pages.Workspace.WorkspaceProjectFieldEditor)FindWorkspaceField(fields, "ResultsDatabaseFieldEditor")).FindName("ValueSource");
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "ResultsDatabaseFieldEditor")).Visibility);
+            Assert.Equal(Visibility.Collapsed, ((FrameworkElement)FindWorkspaceField(fields, "SetupDatabaseFieldEditor")).Visibility);
             Assert.Equal(Visibility.Collapsed, ((TextBlock)defaultSource.FindName("SourceLinkText")).Visibility);
             RenderWorkspaceState("branch-module-defaults");
             RenderWorkspaceState("module-defaults-narrow", 640, 800);
@@ -3091,10 +3092,10 @@ public sealed class RandomNetworkTests
             vm.Selected!.Name = "Evolution";
             LayoutWorkspace();
             Assert.Equal("New branch run", ((Button)page.FindName("NewRunButton")).Content);
-            var projectDatabase = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsDatabaseOverrideEditor");
+            var projectDatabase = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceProjectFieldEditor)FindWorkspaceField(fields, "ResultsDatabaseFieldEditor");
             Assert.Equal(Visibility.Visible, projectDatabase.Visibility);
-            Assert.Equal(Visibility.Collapsed, ((CheckBox)projectDatabase.FindName("OverrideToggle")).Visibility);
-            Assert.False(((TextBox)projectDatabase.FindName("OverrideValueInput")).IsReadOnly);
+            Assert.Null(projectDatabase.FindName("OverrideToggle"));
+            Assert.False(((TextBox)projectDatabase.FindName("ValueInput")).IsReadOnly);
             Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("NewProjectButton")).Visibility);
             var executeEditor = (Sortopia.WPF.Views.Pages.Workspace.WorkspaceOverrideEditor)FindWorkspaceField(fields, "ResultsFunctionOverrideEditor");
             var executeInput = (TextBox)executeEditor.FindName("OverrideValueInput");
@@ -3110,11 +3111,11 @@ public sealed class RandomNetworkTests
             RenderWorkspaceState("branch-project-defaults");
             var branchProject = vm.Selected;
             // Project settings are constrained by the inherited catalog functions.
-            branchModule.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
+            branchModule.Editor!.LoadFixtureSettings(FunctionOutputContractTests.Combined(true));
             branchModule.Editor.SetupFunctionName = Sortopia.Functions.SetupFunctionNames.evaluationSource;
             branchModule.Editor.SetupParameterDefaults.Single(row => row.Key == "ChannelCount").Value.Text = "8";
             branchModule.Editor.AddRequiredSetupDefaultsCommand.Execute(null);
-            branchProject!.Editor!.LoadProject(new Sortopia.Workspaces.Serialization.projectSettingsDto());
+            branchProject!.Editor!.LoadFixtureSettings(new Sortopia.Workspaces.Serialization.projectSettingsDto());
             LayoutWorkspace();
             Assert.True(branchProject.Editor.FunctionsReady);
             Assert.False(branchProject.Editor.ResultsFunctionOverride.ShowCatalogPicker);
@@ -3129,7 +3130,7 @@ public sealed class RandomNetworkTests
             sourceSettings.resultsFunctionName = Sortopia.Functions.ResultsFunctionNames.standardMssiSimpleEvaluationInputs;
             sourceSettings.resultsParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(8), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
             sourceSettings.resultsDataTypes = [];
-            sourceModule.Editor!.LoadProject(sourceSettings);
+            sourceModule.Editor!.LoadFixtureSettings(sourceSettings);
             var setupSource = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Tests source", family: Sortopia.Workspaces.hierarchyKind.Branch);
             sourceModule.Children.Add(setupSource);
             setupSource.Children.Add(new(WorkspaceEntityKind.Run, "Source run", family: Sortopia.Workspaces.hierarchyKind.Branch));

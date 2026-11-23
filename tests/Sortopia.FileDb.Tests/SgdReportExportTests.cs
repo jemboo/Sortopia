@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.FSharp.Core;
@@ -17,7 +18,7 @@ public sealed partial class PreparedExecutionTests
             new() { keyName = "OrthoRate", values = ["1", "2"] },
             new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }]);
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parametersFolder = Path.Combine(folder, "runParameters");
         Completed(RunParameterExecution.executeFolder(parametersFolder, null!, null!, Token));
         var files = Directory.GetFiles(parametersFolder, "*.msgpack");
@@ -26,7 +27,7 @@ public sealed partial class PreparedExecutionTests
         var original = Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
             .ToDictionary(path => path, path => SHA256.HashData(File.ReadAllBytes(path)));
         var destination = Path.Combine(temporary.FullName, "Sweep report");
-        var export = SorterEvalReportExport.exportFolder(parametersFolder, FSharpOption<Guid>.Some(consumer.Runs[0].Id), destination, Token);
+        var export = SorterEvalReportExport.exportFolder(parametersFolder, FSharpOption<Guid>.Some(consumer.Runs[0].id), destination, Token);
         Assert.Equal(4, export.SummaryRows); Assert.Equal(8, export.DetailRows);
         var details = TypedReportTests.ReadCsv(export.DetailsPath);
         Assert.Equal(8, details.Length);
@@ -61,7 +62,7 @@ public sealed partial class PreparedExecutionTests
                 Assert.Equal(v1.StageCrossingsCount.ToString(CultureInfo.InvariantCulture), row["StageCrossingsCount"]);
                 Assert.Equal(v1.ReflectiveCount.ToString(CultureInfo.InvariantCulture), row["ReflectiveCount"]);
                 Assert.Equal(ResultsFunctionNames.standardMsuf4SimpleSgd, row["ResultsFunction"]);
-                Assert.Equal(consumer.Runs[0].Id.ToString(), row["RunId"]);
+                Assert.Equal(consumer.Runs[0].id.ToString(), row["RunId"]);
                 Assert.Equal(reference.Id.ToString(), row["ResultsDataId"]);
                 Assert.Equal(store.GetPath(reference), row["ResultsFile"]);
                 Assert.Equal(saved.TestsId.ToString(), row["SortableTestsId"]);
@@ -75,7 +76,7 @@ public sealed partial class PreparedExecutionTests
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterModelSet")));
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterSetEval")));
         var cliDestination = Path.Combine(temporary.FullName, "CLI sweep report");
-        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].Id.ToString(), "--output", cliDestination]));
+        Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].id.ToString(), "--output", cliDestination]));
         Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(cliDestination, "Details.csv")));
         Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([files[0], files[0]], Path.Combine(temporary.FullName, "Duplicate"), Token));
         Assert.False(Directory.Exists(Path.Combine(temporary.FullName, "Duplicate")));

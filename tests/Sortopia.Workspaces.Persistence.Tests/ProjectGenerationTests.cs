@@ -12,10 +12,10 @@ public sealed class ProjectGenerationTests : IDisposable
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static WorkspaceDocument Clone(WorkspaceDocument value) => MessagePackSetup.deserialize<WorkspaceDocument>(MessagePackSetup.serialize(value));
-    private WorkspaceDocument Create(bool branch = false)
+    private SavedWorkspace Create(bool branch = false)
     {
-        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample(branch)), Token).Definition;
-        return WorkspaceFileStore.ResumeProjectEditing(Root, saved, saved.Modules[0].Projects[0].Definition.id, Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspacePersistenceTests.Sample(branch), Token).Workspace;
+        return WorkspaceFileStore.ResumeProjectEditing(saved, saved.CreateEditDocument().Modules[0].Projects[0].Definition.id, Token).Workspace;
     }
     private string ProjectFolder => Path.Combine(Root, "sorting", "search");
 
@@ -25,22 +25,21 @@ public sealed class ProjectGenerationTests : IDisposable
     public void Generation_seals_only_after_validation_and_keeps_incomplete_sibling_inputs(bool branch)
     {
         var saved = Create(branch);
-        var selected = saved.Modules[0].Projects[0].Runs[0];
+        var selected = saved.CreateEditDocument().Modules[0].Projects[0].Runs[0];
         var sibling = MessagePackSetup.deserialize<runDto>(MessagePackSetup.serialize(selected));
         sibling.id = Guid.NewGuid(); sibling.runName = "Unfinished"; sibling.resultsParameterSpans[0].values = ["unfinished"];
-        var p = saved.Modules[0].Projects[0];
-        p.Definition.runs = [selected.id, sibling.id];
-        var edit = new WorkspaceDocument(saved.Definition, [new ModuleDocument(saved.Modules[0].Definition, [], [new ProjectDocument(p.Definition, [selected, sibling])])]);
-        saved = WorkspaceFileStore.SaveDocument(Root, edit, saved, Token).Definition;
-        Assert.False(saved.Modules[0].Projects[0].Definition.isSealed);
-        var generated = WorkspaceRunGeneration.generate(Root, saved, selected.id, null!, Token);
+        var p = saved.CreateEditDocument().Modules[0].Projects[0];
+        var edit = new WorkspaceDocument(saved.CreateEditDocument().Definition, [new ModuleDocument(saved.CreateEditDocument().Modules[0].Definition, [], [new ProjectDocument(p.Definition, [selected, sibling])])]);
+        saved = WorkspaceFileStore.SaveDocument(edit, saved, Token).Workspace;
+        Assert.False(saved.CreateEditDocument().Modules[0].Projects[0].Definition.isSealed);
+        var generated = WorkspaceRunGeneration.generate(saved, selected.id, null!, Token);
         Assert.Equal(runExecutionStatus.Completed, generated.Report.Execution.Status);
         Assert.NotEmpty(generated.Report.WorkItemIds);
-        var restored = WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0];
+        var restored = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Projects[0];
         Assert.True(restored.Definition.isSealed); Assert.Equal(2, restored.Runs.Length);
         Assert.Equal("unfinished", restored.Runs[1].resultsParameterSpans[0].values[0]);
-        Assert.Contains("generated", WorkspaceFileStore.ResumeProjectEditingReason(Root, generated.Document, restored.Definition.id));
-        Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.ResumeProjectEditing(Root, generated.Document, restored.Definition.id, Token));
+        Assert.Contains("generated", WorkspaceFileStore.ResumeProjectEditingReason(generated.Workspace, restored.Definition.id));
+        Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.ResumeProjectEditing(generated.Workspace, restored.Definition.id, Token));
     }
 
     [Theory]
@@ -49,21 +48,21 @@ public sealed class ProjectGenerationTests : IDisposable
     public void Validation_or_cancellation_before_writes_does_not_seal(bool cancel)
     {
         var saved = Create();
-        var selected = saved.Modules[0].Projects[0].Runs[0];
+        var selected = saved.CreateEditDocument().Modules[0].Projects[0].Runs[0];
         if (!cancel)
         {
-            var edit = Clone(saved); edit.Modules[0].Projects[0].Runs[0].resultsParameterSpans[0].values = ["unfinished"];
-            saved = WorkspaceFileStore.SaveDocument(Root, edit, saved, Token).Definition;
+            var edit = Clone(saved.CreateEditDocument()); edit.Modules[0].Projects[0].Runs[0].resultsParameterSpans[0].values = ["unfinished"];
+            saved = WorkspaceFileStore.SaveDocument(edit, saved, Token).Workspace;
         }
         var before = File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ProjectFolder, "project"));
         using var cancellation = new CancellationTokenSource(); if (cancel) cancellation.Cancel();
         try
         {
-            var result = WorkspaceRunGeneration.generate(Root, saved, selected.id, null!, cancellation.Token);
+            var result = WorkspaceRunGeneration.generate(saved, selected.id, null!, cancellation.Token);
             Assert.NotEqual(runExecutionStatus.Completed, result.Report.Execution.Status);
         }
         catch (ArgumentException) when (!cancel) { }
-        Assert.False(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Definition.isSealed);
+        Assert.False(WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Projects[0].Definition.isSealed);
         Assert.Equal(before, File.ReadAllBytes(WorkspaceDefinitionFiles.Require(ProjectFolder, "project")));
         Assert.False(Directory.Exists(Path.Combine(ProjectFolder, "runParameters")));
         Assert.False(Directory.Exists(Path.Combine(ProjectFolder, "data")));
@@ -72,55 +71,54 @@ public sealed class ProjectGenerationTests : IDisposable
     [Fact]
     public void Failed_sealing_write_generates_no_artifacts_and_can_be_retried()
     {
-        var saved = Create(); var id = saved.Modules[0].Projects[0].Runs[0].id;
+        var saved = Create(); var id = saved.CreateEditDocument().Modules[0].Projects[0].Runs[0].id;
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(ProjectFolder, "project"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
-            var result = WorkspaceRunGeneration.generate(Root, saved, id, null!, Token);
+            var result = WorkspaceRunGeneration.generate(saved, id, null!, Token);
             Assert.Equal(runExecutionStatus.Failed, result.Report.Execution.Status);
-            Assert.False(result.Document.Modules[0].Projects[0].Definition.isSealed);
+            Assert.False(result.Workspace.CreateEditDocument().Modules[0].Projects[0].Definition.isSealed);
             Assert.False(Directory.Exists(Path.Combine(ProjectFolder, "runParameters")));
         }
-        Assert.Equal(runExecutionStatus.Completed, WorkspaceRunGeneration.generate(Root, saved, id, null!, Token).Report.Execution.Status);
+        Assert.Equal(runExecutionStatus.Completed, WorkspaceRunGeneration.generate(saved, id, null!, Token).Report.Execution.Status);
     }
 
     [Theory]
     [InlineData("runParameters/test.msgpack")]
     public void Existing_generated_files_prevent_resume_even_if_unreadable(string relative)
     {
-        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample()), Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspacePersistenceTests.Sample(), Token).Workspace;
         var path = Path.Combine(ProjectFolder, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, "unknown");
-        Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.ResumeProjectEditing(Root, saved, saved.Modules[0].Projects[0].Definition.id, Token));
-        Assert.True(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Definition.isSealed);
+        Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.ResumeProjectEditing(saved, saved.CreateEditDocument().Modules[0].Projects[0].Definition.id, Token));
+        Assert.True(WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Projects[0].Definition.isSealed);
     }
 
     [Fact]
     public void A_source_without_run_parameter_files_can_resume_and_discards_its_data_cache()
     {
-        var document = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample());
+        var document = WorkspacePersistenceTests.Sample();
         var source = document.Modules[0].Projects[0];
-        var consumer = WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample(true)).Modules[0];
+        var consumer = WorkspacePersistenceTests.Sample(true).Modules[0];
         consumer.Definition.moduleName = "consumer";
         consumer.Projects[0].Definition.configuration.setupDataTypes[0].sourceProjectId = source.Definition.id;
-        document.Definition.modules = [document.Definition.modules[0], new() { id = consumer.Definition.id, name = "consumer" }];
         document = new(document.Definition, [document.Modules[0], consumer]);
-        var saved = WorkspaceFileStore.CreateDocument(Root, document, Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(Root, document, Token).Workspace;
         var data = Directory.CreateDirectory(Path.Combine(ProjectFolder, "data", "results")).FullName;
         File.WriteAllText(Path.Combine(data, "stale.msgpack"), "invalid without run parameters");
-        Assert.Empty(WorkspaceFileStore.ResumeProjectEditingReason(Root, saved, source.Definition.id));
-        var resumed = WorkspaceFileStore.ResumeProjectEditing(Root, saved, source.Definition.id, Token).Definition;
-        Assert.False(resumed.Modules[0].Projects[0].Definition.isSealed);
+        Assert.Empty(WorkspaceFileStore.ResumeProjectEditingReason(saved, source.Definition.id));
+        var resumed = WorkspaceFileStore.ResumeProjectEditing(saved, source.Definition.id, Token).Workspace;
+        Assert.False(resumed.CreateEditDocument().Modules[0].Projects[0].Definition.isSealed);
         Assert.False(Directory.Exists(data));
     }
 
     [Fact]
     public void Resuming_recaptures_current_module_functions_instead_of_the_old_sealed_function()
     {
-        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspaceDocumentModule.fromDomain(WorkspacePersistenceTests.Sample()), Token).Definition;
-        var edit = Clone(saved);
+        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspacePersistenceTests.Sample(), Token).Workspace;
+        var edit = Clone(saved.CreateEditDocument());
         edit.Modules[0].Definition.localOverrides.resultsFunctionName = ResultsFunctionNames.mergeSortableTests;
-        saved = WorkspaceFileStore.SaveDocument(Root, edit, saved, Token).Definition;
-        var resumed = WorkspaceFileStore.ResumeProjectEditing(Root, saved, saved.Modules[0].Projects[0].Definition.id, Token).Definition;
-        Assert.Equal(ResultsFunctionNames.mergeSortableTests, resumed.Modules[0].Projects[0].Definition.inheritedDefaults.resultsFunctionName);
+        saved = WorkspaceFileStore.SaveDocument(edit, saved, Token).Workspace;
+        var resumed = WorkspaceFileStore.ResumeProjectEditing(saved, saved.CreateEditDocument().Modules[0].Projects[0].Definition.id, Token).Workspace;
+        Assert.Equal(ResultsFunctionNames.mergeSortableTests, resumed.CreateEditDocument().Modules[0].Projects[0].Definition.inheritedDefaults.resultsFunctionName);
     }
     public void Dispose() => temporary.Delete(true);
 }

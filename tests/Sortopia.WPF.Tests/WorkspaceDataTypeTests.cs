@@ -44,15 +44,15 @@ public sealed class WorkspaceDataTypeTests : IDisposable
     [Fact]
     public void Catalog_outputs_cannot_be_replaced_by_project_overrides()
     {
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsSortopiaDataTypes"));
-        Assert.Null(typeof(projectOverridesDto).GetProperty("resultsQueryParameterKeys"));
-        Assert.Null(typeof(projectOverridesDto).GetProperty("setupDataTypes"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsSortopiaDataTypes"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("resultsQueryParameterKeys"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("setupDataTypes"));
         var value = RunExecutionTests.MakeRun(false);
         Assert.Equal(new[] { sortopiaDataType.NewSortableTests("") }, value.ResultsSortopiaDataTypes);
-        var dto = SettingsDto.fromDomain(projectConfiguration.NewRootProjectConfig(((run.RootRun)value).Item.ProjectConfiguration));
+        var dto = SettingsDto.fromDomain(value.ProjectConfiguration);
         dto.resultsDataTypes[0].dataType.value = "altered";
-        var config = (projectConfiguration.RootProjectConfig)SettingsDto.toDomain(Sortopia.Workspaces.hierarchyKind.Root, dto);
-        Assert.Throws<ArgumentException>(() => Sortopia.Functions.FunctionConfiguration.validateResults(config.Item.Results));
+        var config = SettingsDto.toDomain(Sortopia.Workspaces.hierarchyKind.Root, dto);
+        Assert.Throws<ArgumentException>(() => Sortopia.Functions.FunctionConfiguration.validateResults(config.Results));
     }
     public void Dispose() => temporary.Delete(recursive: true);
 }

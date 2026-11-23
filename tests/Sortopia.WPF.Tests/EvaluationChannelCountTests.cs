@@ -62,14 +62,14 @@ public sealed class EvaluationChannelCountTests
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
         var settings = FunctionOutputContractTests.Combined(true);
         settings.resultsParameterDefaults = [];
-        module.Editor!.LoadProject(settings);
+        module.Editor!.LoadFixtureSettings(settings);
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch);
         module.Children.Add(project);
         foreach (var key in project.Editor!.ResultsQueryOutputs.SelectMany(output => output.Keys).ToArray()) key.Selected = true;
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Full", family: hierarchyKind.Branch);
         project.Children.Add(run);
         run.Editor!.LoadRun(new runDto {
-            schemaVersion = WorkspaceDtoSchema.version, runKind = "branch", resultsParameterSpans = [
+            schemaVersion = RunDtoSchema.version, runKind = "branch", resultsParameterSpans = [
                 new() { keyName = "ChannelCount", values = [] },
                 new() { keyName = "SorterEvalType", values = ["V2"] },
                 new() { keyName = "CollectSortableTests", values = ["False"] }], setupParameterSpans = []

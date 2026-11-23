@@ -4,7 +4,6 @@ using Sortopia.Runs;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.Workspaces.Persistence;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
 
 namespace Sortopia.WPF.ViewModels.Pages.Workspace;
 
@@ -87,8 +86,6 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         }
     }
     public WorkspaceConfigurationViewModel? Editor { get; }
-    private project? sealedProject;
-    private projectOverridesDto? editableProjectOverrides;
     private bool hasGeneratedParameters;
     public bool HasGeneratedParameters => hasGeneratedParameters;
     public bool CanRename => !HasGeneratedParameters;
@@ -100,23 +97,17 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
         OnPropertyChanged(nameof(HasGeneratedParameters)); OnPropertyChanged(nameof(CanRename));
     }
     private Guid? savedParentProjectId;
-    public bool IsSealed => sealedProject is not null;
+    public bool IsSealed => IsProject && Editor!.IsSealed;
     public string ProjectState => IsProject ? IsSealed ? "Sealed · settings fixed for generated work" : "Draft · editable until run parameters are generated" : "";
-    internal void MarkSealed(project snapshot)
+    internal void ApplyProjectState(projectStateDto savedState, bool preserveDraft = false)
     {
-        editableProjectOverrides = Editor!.ToLocalOverrides();
-        sealedProject = project.withRuns(snapshot, []);
-        var settings = SettingsDto.fromDomain(snapshot.Configuration);
-        Editor!.LoadProject(settings);
-        Editor.Freeze(settings);
-        RefreshProjectState();
-    }
-    internal void ResumeEditing(projectDefinitionDto definition)
-    {
-        sealedProject = null;
+        // Generation may proceed with unsaved inheritance choices that leave effective
+        // settings unchanged. Keep those choices in the editor, separate from the saved baseline.
+        var state = preserveDraft && savedState.IsSealed && !IsSealed
+            ? ProjectLifecycle.seal(ProjectLifecycle.configuration(savedState), Editor!.ToProjectState(ParentSettings, ParentOrigin))
+            : savedState;
         SetGeneratedParametersLock(false);
-        editableProjectOverrides = null;
-        Editor!.ResumeEditing(definition.localOverrides);
+        Editor!.ApplyProjectState(state);
         RefreshProjectState();
     }
     private void RefreshProjectState()
@@ -394,69 +385,6 @@ public sealed partial class WorkspaceTreeNode : ViewModelBase
     private void RememberSavedChildren() =>
         savedChildren = Children.Select(child => new SavedChild(child, child.Name)).ToArray();
 
-    internal static WorkspaceTreeNode FromWorkspace(workspace value)
-    {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, value.WorkspaceName, value.Id, workspaceFolderName: value.FolderName);
-        foreach (var child in value.Modules) node.Children.Add(FromModule(child));
-        node.RememberSavedChildren();
-        return node;
-    }
-    internal static WorkspaceTreeNode FromModule(WorkspaceModule value)
-    {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, value.ModuleName, value.Id, value.Kind);
-        node.Editor!.LoadModuleOverrides(ModuleOverridesDto.fromDomain(value.LocalOverrides));
-        foreach (var child in value.Modules) node.Children.Add(FromModule(child));
-        foreach (var child in value.Projects) node.Children.Add(FromProject(child));
-        node.RememberSavedChildren();
-        return node;
-    }
-    internal static WorkspaceTreeNode FromProject(project value)
-    {
-        var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, value.ProjectName, value.Id, value.Kind);
-        node.Editor!.LoadOverrides(OverridesDto.fromDomain(value.LocalOverrides));
-        foreach (var child in value.Runs)
-        {
-            var runNode = new WorkspaceTreeNode(WorkspaceEntityKind.Run, child.RunName, id: child.Id, family: value.Kind);
-            runNode.Editor!.LoadRun(RunDto.fromDomain(child));
-            runNode.savedParentProjectId = child.ParentProjectId;
-            node.Children.Add(runNode);
-        }
-        if (value.IsSealed) { node.sealedProject = project.withRuns(value, []); node.Editor.Freeze(SettingsDto.fromDomain(value.Configuration)); }
-        node.RememberSavedChildren();
-        return node;
-    }
-    internal workspace ToWorkspace()
-    {
-        ValidateChildren();
-        return workspace.create(Id, Name, workspaceFolderName, Children.Select(child => child.ToModule(1)).ToArray());
-    }
-    private WorkspaceModule ToModule(int depth)
-    {
-        CheckDepth(depth);
-        ValidateChildren();
-        return WorkspaceModule.createInherited(Id, Name, ModuleDefaults.fromProject(ParentConfiguration()), ModuleOverridesDto.toDomain(Family, Editor!.ToModuleOverrides()), Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModule(depth + 1)).ToArray(),
-            Children.Where(child => child.Kind == WorkspaceEntityKind.Project).Select(child => child.ToProject(depth + 1)).ToArray());
-    }
-    private project ReadProject()
-    {
-        if (sealedProject is not null) return project.restore(Id, Name, sealedProject.Configuration, sealedProject.LocalOverrides, true, []);
-        return project.createInherited(Id, Name, ParentConfiguration(), OverridesDto.toDomain(Family, Editor!.ToLocalOverrides()), []);
-    }
-    private projectConfiguration ParentConfiguration() => Parent?.Editor is { } editor
-        ? SettingsDto.toDomain(Family, editor.ToProjectSettings()) : Defaults.configuration(IsBranch);
-    private project ToProject(int depth)
-    {
-        CheckDepth(depth);
-        ValidateChildren();
-        var parent = ReadProject();
-        return project.withRuns(parent, Children.Select(child => child.ToRun(parent)).ToArray());
-    }
-    private run ToRun(project parent)
-    {
-        ValidateChildren();
-        if (savedParentProjectId is { } parentId && parentId != parent.Id) throw new ArgumentException("A saved run cannot change its parent project.");
-        return RunDto.toDomain(parent, Editor!.ToRunInputs(Id, Name, parent.Id));
-    }
     private void ValidateChildren()
     {
         if (nameError.Length > 0) throw new ArgumentException(nameError);

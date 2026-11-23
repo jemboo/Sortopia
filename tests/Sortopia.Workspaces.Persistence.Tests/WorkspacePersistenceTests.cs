@@ -1,7 +1,7 @@
 using Sortopia.Runs;
 using Sortopia.Workspaces.Serialization;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.Workspaces.Persistence.Tests;
 
@@ -12,7 +12,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
     private string Library => Path.Combine(temporary.FullName, "Library");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    internal static workspace Sample(bool branch = false)
+    internal static WorkspaceDocument Sample(bool branch = false)
     {
         var kind = branch ? hierarchyKind.Branch : hierarchyKind.Root;
         parameterBindingDto[] defaults = [
@@ -28,21 +28,29 @@ public sealed class WorkspacePersistenceTests : IDisposable
             setupFunctionVersion = branch ? "1" : "", setupParameterDefaults = [],
             setupDataTypes = branch ? [new() { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount", "SortableDataFormat"] }] : []
         };
-        var parent = project.create(Guid.NewGuid(), "search", SettingsDto.toDomain(kind, settings), []);
+        var parent = WorkspaceFixtures.Project(Guid.NewGuid(), "search", SettingsDto.toDomain(kind, settings), []);
         parameterSpanDto[] spans = [new() { keyName = "ChannelCount", values = ["4", "6"] }, new() { keyName = "SortableDataFormat", values = ["Bools"] }];
-        var run = RunDto.toDomain(parent, new runDto
+        var run = RunDto.toDomain(parent.Snapshot(), new runDto
         {
-            schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Id, runName = "Trial",
+            schemaVersion = RunDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Definition.id, runName = "Trial",
             runKind = branch ? "branch" : "root", resultsParameterSpans = spans, setupParameterSpans = branch ? spans : []
         });
-        parent = project.withRuns(parent, [run]);
-        var module = WorkspaceModule.createInherited(Guid.NewGuid(), "sorting", ModuleDefaults.configuration(branch),
+        parent = WorkspaceFixtures.WithRuns(parent, [run]);
+        var module = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "sorting", ModuleDefaults.configuration(branch),
             ModuleOverridesDto.toDomain(kind, new moduleOverridesDto { resultsFunctionName = settings.resultsFunctionName, setupFunctionName = branch ? settings.setupFunctionName : null }), [], [parent]);
-        return workspace.create(Guid.NewGuid(), "Research", "Workspace", [module]);
+        return WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [module]);
     }
 
-    private static workspace Rename(workspace value, string name) => workspace.create(value.Id, name, value.FolderName, value.Modules);
-    private static workspace Add(workspace value, WorkspaceModule module) => workspace.create(value.Id, value.WorkspaceName, value.FolderName, [.. value.Modules, module]);
+    private static WorkspaceDocument Rename(WorkspaceDocument value, string name)
+    {
+        var edited = WorkspaceDocumentModule.clone(value);
+        edited.Definition.workspaceName = name;
+        return edited;
+    }
+    private static WorkspaceDocument Add(WorkspaceDocument value, ModuleDocument module) =>
+        WorkspaceDocumentModule.withModules(value, [.. value.Modules, module]);
+    private static WorkspaceDocument Imported(ModuleDocument module) =>
+        WorkspaceDocumentModule.withModules(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Imported", "Workspace", []), [module]);
     private static Dictionary<string, byte[]> Files(string folder) => Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
         .ToDictionary(path => Path.GetRelativePath(folder, path), File.ReadAllBytes);
     private static void AssertFilesEqual(Dictionary<string, byte[]> expected, string folder)
@@ -57,60 +65,60 @@ public sealed class WorkspacePersistenceTests : IDisposable
     [InlineData(true)]
     public void Definitions_round_trip_with_guid_filenames_and_file_only_runs(bool branch)
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(branch), Token).Definition;
-        var loaded = WorkspaceFileStore.LoadDefinition(Root);
-        Assert.Equal(WorkspaceCodec.encodeWorkspace(saved), WorkspaceCodec.encodeWorkspace(loaded));
-        var module = loaded.Modules.Single();
+        var saved = WorkspaceFileStore.CreateDocument(Root, Sample(branch), Token).Workspace;
+        var loaded = WorkspaceFileStore.LoadWorkspace(Root);
+        Assert.True(WorkspaceDocumentModule.sameContent(saved.CreateEditDocument(), loaded.CreateEditDocument()));
+        var module = loaded.CreateEditDocument().Modules.Single();
         var project = module.Projects.Single();
         var run = project.Runs.Single();
-        var moduleFolder = Path.Combine(Root, module.ModuleName);
-        var projectFolder = Path.Combine(moduleFolder, project.ProjectName);
-        var runFile = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(run.Id));
+        var moduleFolder = Path.Combine(Root, module.Definition.moduleName);
+        var projectFolder = Path.Combine(moduleFolder, project.Definition.projectName);
+        var runFile = Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(run.id));
         Assert.True(File.Exists(runFile));
         Assert.Empty(Directory.GetDirectories(Path.Combine(projectFolder, "runs")));
-        Assert.Equal(run.Id, WorkspaceCodec.decodeRun(project, File.ReadAllBytes(runFile)).Id);
-        Assert.Equal(project.Id, WorkspaceFileStore.LoadProjectFolder(projectFolder, Token).Id);
-        Assert.Equal(module.Id, WorkspaceFileStore.LoadModuleFolder(moduleFolder, Token).Id);
+        Assert.Equal(run.id, RunCodec.decodeRun(WorkspaceDefinitionResolution.projectSnapshot(project.Definition), File.ReadAllBytes(runFile)).Id);
+        Assert.Equal(project.Definition.id, WorkspaceFileStore.LoadProjectDocument(projectFolder, Token).Definition.id);
+        Assert.Equal(module.Definition.id, WorkspaceFileStore.LoadModuleDocument(moduleFolder, Token).Definition.id);
         var paths = Files(Root).Keys.Order().ToArray();
         Assert.Equal(4, paths.Length);
-        Assert.Equal(new[] { saved.Id, module.Id, project.Id, run.Id }.Order(),
+        Assert.Equal(new[] { saved.CreateEditDocument().Definition.id, module.Definition.id, project.Definition.id, run.id }.Order(),
             paths.Select(path => Guid.Parse(Path.GetFileNameWithoutExtension(path))).Order());
-        WorkspaceFileStore.SaveWorkspace(Root, Rename(loaded, "Renamed"), loaded, Token);
+        WorkspaceFileStore.SaveDocument(Rename(loaded.CreateEditDocument(), "Renamed"), loaded, Token);
         Assert.Equal(paths, Files(Root).Keys.Order());
-        Assert.Equal("Renamed", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
+        Assert.Equal("Renamed", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
     }
 
     [Fact]
     public void Stale_saves_and_duplicate_creation_do_not_overwrite_the_workspace()
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token).Definition;
-        WorkspaceFileStore.SaveWorkspace(Root, Rename(saved, "External edit"), saved, Token);
+        var saved = WorkspaceFileStore.CreateDocument(Root, Sample(), Token).Workspace;
+        WorkspaceFileStore.SaveDocument(Rename(saved.CreateEditDocument(), "External edit"), saved, Token);
         var before = Files(Root);
         Assert.Contains("changed since it was loaded", Assert.Throws<IOException>(() =>
-            WorkspaceFileStore.SaveWorkspace(Root, Rename(saved, "Stale edit"), saved, Token)).Message);
-        Assert.Throws<IOException>(() => WorkspaceFileStore.CreateWorkspace(Root, saved, Token));
+            WorkspaceFileStore.SaveDocument(Rename(saved.CreateEditDocument(), "Stale edit"), saved, Token)).Message);
+        Assert.Throws<IOException>(() => WorkspaceFileStore.CreateDocument(Root, saved.CreateEditDocument(), Token));
         AssertFilesEqual(before, Root);
     }
 
     [Fact]
     public void Ambiguous_definitions_are_rejected_without_modifying_files()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         File.Copy(WorkspaceDefinitionFiles.Require(Root, "workspace"), Path.Combine(Root, WorkspaceDefinitionFiles.Name(Guid.NewGuid())));
         var before = Files(Root);
-        Assert.Contains("Multiple workspace definition files", Assert.Throws<IOException>(() => WorkspaceFileStore.LoadDefinition(Root)).Message);
+        Assert.Contains("Multiple workspace definition files", Assert.Throws<IOException>(() => WorkspaceFileStore.LoadWorkspace(Root)).Message);
         AssertFilesEqual(before, Root);
     }
 
     [Fact]
     public void Sealed_project_settings_cannot_be_changed_by_a_non_ui_caller()
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token).Definition;
-        var dto = WorkspaceDto.fromDomain(saved);
-        dto.modules[0].projects[0].configuration.resultsDatabaseName = "Changed";
-        var changed = WorkspaceDto.toDomain(dto);
+        var saved = WorkspaceFileStore.CreateDocument(Root, Sample(), Token).Workspace;
+        var dto = WorkspaceDocumentModule.clone(saved.CreateEditDocument());
+        dto.Modules[0].Projects[0].Definition.configuration.resultsDatabaseName = "Changed";
+        var changed = dto;
         var before = Files(Root);
-        Assert.Contains("sealed", Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.SaveWorkspace(Root, changed, saved, Token)).Message);
+        Assert.Contains("sealed", Assert.Throws<InvalidOperationException>(() => WorkspaceFileStore.SaveDocument(changed, saved, Token)).Message);
         AssertFilesEqual(before, Root);
     }
 
@@ -119,20 +127,21 @@ public sealed class WorkspacePersistenceTests : IDisposable
     [InlineData(true)]
     public void Sealed_project_names_and_folders_can_change_with_stable_ids_and_settings(bool branch)
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(branch), Token).Definition;
-        var original = saved.Modules[0].Projects[0];
+        var saved = WorkspaceFileStore.CreateDocument(Root, Sample(branch), Token).Workspace;
+        var original = saved.CreateEditDocument().Modules[0].Projects[0];
         var source = Path.Combine(Root, "sorting", "search");
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep contents");
-        var dto = WorkspaceDto.fromDomain(saved);
-        dto.modules[0].projects[0].projectName = "Renamed";
+        var dto = WorkspaceDocumentModule.clone(saved.CreateEditDocument());
+        dto.Modules[0].Projects[0].Definition.projectName = "Renamed";
+
 
         var destination = Path.Combine(Root, "sorting", "Renamed");
-        var result = WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token, moves: [new(source, destination)]);
-        var renamed = WorkspaceFileStore.LoadDefinition(Root).ProjectIndex[original.Id];
-        Assert.Equal("Renamed", renamed.ProjectName); Assert.Equal("Renamed", renamed.ProjectName);
-        Assert.True(renamed.IsSealed); Assert.Equal(original.Configuration, renamed.Configuration);
-        Assert.Equal(original.Runs[0].Id, renamed.Runs[0].Id); Assert.Equal(original.Id, renamed.Runs[0].ParentProjectId);
-        Assert.Equal("Renamed", renamed.Runs[0].ProjectName);
+        var result = WorkspaceFileStore.SaveDocument(dto, saved, Token, moves: [new(source, destination)]);
+        var renamed = new WorkspaceDocumentIndex(WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument()).TryFindRun(original.Runs[0].id).Value.Parent.Document;
+        Assert.Equal("Renamed", renamed.Definition.projectName); Assert.Equal("Renamed", renamed.Definition.projectName);
+        Assert.True(renamed.Definition.isSealed); Assert.Equal(SettingsDto.toDomain(renamed.Family(), original.Definition.configuration), renamed.Configuration());
+        Assert.Equal(original.Runs[0].id, renamed.Runs[0].id); Assert.Equal(original.Definition.id, renamed.ResolvedRuns()[0].ParentProjectId);
+        Assert.Equal("Renamed", renamed.ResolvedRuns()[0].ProjectName);
         Assert.Equal("Keep contents", File.ReadAllText(Path.Combine(destination, "notes.txt")));
         Assert.False(Directory.Exists(source)); Assert.Equal(1, result.MovedFolders);
     }
@@ -140,7 +149,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
     [Fact]
     public void Module_import_is_deferred_preserves_new_ids_and_copies_user_data()
     {
-        var original = WorkspaceFileStore.CreateWorkspace(Library, Sample(true), Token).Definition;
+        var original = WorkspaceFileStore.CreateDocument(Library, Sample(true), Token).Workspace;
         var source = Path.Combine(Library, "sorting");
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep this data");
         Directory.CreateDirectory(Path.Combine(source, "empty"));
@@ -149,13 +158,13 @@ public sealed class WorkspacePersistenceTests : IDisposable
         var import = WorkspaceImport.PrepareModule(Root, source, destination, Token);
         Assert.False(Directory.Exists(Root));
         Assert.NotNull(import.Copy);
-        Assert.NotEqual(original.Modules[0].Id, import.Definition.Id);
+        Assert.NotEqual(original.CreateEditDocument().Modules[0].Definition.id, import.Definition.Definition.id);
         var project = import.Definition.Projects.Single();
-        Assert.Equal(project.Id, project.Runs.Single().ParentProjectId);
-        Assert.Equal(original.Modules[0].Projects[0].Id, import.Copy.OriginalIds[project.Id]);
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Imported", "Workspace", [import.Definition]), Token, [import.Copy]);
-        Assert.Equal(import.Definition.Id, saved.Definition.Modules[0].Id);
-        Assert.Equal(project.Runs[0].Id, saved.Definition.Modules[0].Projects[0].Runs[0].Id);
+        Assert.Equal(project.Definition.id, project.Runs.Single().parentProjectId);
+        Assert.Equal(original.CreateEditDocument().Modules[0].Projects[0].Definition.id, import.Copy.OriginalIds[project.Definition.id]);
+        var saved = WorkspaceFileStore.CreateDocument(Root, Imported(import.Definition), Token, [import.Copy]);
+        Assert.Equal(import.Definition.Definition.id, saved.Workspace.CreateEditDocument().Modules[0].Definition.id);
+        Assert.Equal(project.Runs[0].id, saved.Workspace.CreateEditDocument().Modules[0].Projects[0].Runs[0].id);
         Assert.Equal("Keep this data", File.ReadAllText(Path.Combine(destination, "notes.txt")));
         Assert.True(Directory.Exists(Path.Combine(destination, "empty")));
         Assert.Equal(1, saved.CopiedFolders);
@@ -165,16 +174,16 @@ public sealed class WorkspacePersistenceTests : IDisposable
     [Fact]
     public void Project_import_assigns_new_ids_but_attaching_in_place_keeps_ids()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         var source = Path.Combine(Root, "sorting", "search");
         var attached = WorkspaceImport.PrepareProject(Root, source, source, Token);
         Assert.Null(attached.Copy);
         var destination = Path.Combine(Root, "sorting", "copy");
         var copied = WorkspaceImport.PrepareProject(Root, source, destination, Token);
         Assert.NotNull(copied.Copy);
-        Assert.NotEqual(attached.Definition.Id, copied.Definition.Id);
-        Assert.NotEqual(attached.Definition.Runs[0].Id, copied.Definition.Runs[0].Id);
-        Assert.Equal(copied.Definition.Id, copied.Definition.Runs[0].ParentProjectId);
+        Assert.NotEqual(attached.Definition.Definition.id, copied.Definition.Definition.id);
+        Assert.NotEqual(attached.Definition.Runs[0].id, copied.Definition.Runs[0].id);
+        Assert.Equal(copied.Definition.Definition.id, copied.Definition.Runs[0].parentProjectId);
         Assert.False(Directory.Exists(destination));
     }
 
@@ -186,7 +195,7 @@ public sealed class WorkspacePersistenceTests : IDisposable
     [InlineData("remove-empty-folder")]
     public void Changed_import_sources_fail_before_writing_the_destination(string change)
     {
-        WorkspaceFileStore.CreateWorkspace(Library, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Library, Sample(), Token);
         var source = Path.Combine(Library, "sorting");
         var note = Path.Combine(source, "notes.txt");
         File.WriteAllText(note, "Before");
@@ -205,8 +214,8 @@ public sealed class WorkspacePersistenceTests : IDisposable
             case "add-empty-folder": Directory.CreateDirectory(Path.Combine(source, "new-empty")); break;
             case "remove-empty-folder": Directory.Delete(emptyFolder); break;
         }
-        Assert.Contains("source changed", Assert.Throws<IOException>(() => WorkspaceFileStore.CreateWorkspace(Root,
-            workspace.create(Guid.NewGuid(), "Imported", "Workspace", [import.Definition]), Token, [import.Copy!])).Message);
+        Assert.Contains("source changed", Assert.Throws<IOException>(() => WorkspaceFileStore.CreateDocument(Root,
+            Imported(import.Definition), Token, [import.Copy!])).Message);
         Assert.False(Directory.Exists(Path.Combine(Root, "sorting")));
         Assert.Null(WorkspaceDefinitionFiles.Find(Root, "workspace"));
     }
@@ -214,50 +223,50 @@ public sealed class WorkspacePersistenceTests : IDisposable
     [Fact]
     public void Failed_copy_commit_rolls_back_and_can_be_retried()
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Empty", "Workspace", []), Token).Definition;
-        WorkspaceFileStore.CreateWorkspace(Library, Sample(), Token);
+        var saved = WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Empty", "Workspace", []), Token).Workspace;
+        WorkspaceFileStore.CreateDocument(Library, Sample(), Token);
         var destination = Path.Combine(Root, "sorting");
         var import = WorkspaceImport.PrepareModule(Root, Path.Combine(Library, "sorting"), destination, Token);
-        var updated = Add(saved, import.Definition);
+        var updated = Add(saved.CreateEditDocument(), import.Definition);
         var before = Files(Root);
         using (var locked = new FileStream(WorkspaceDefinitionFiles.Require(Root, "workspace"), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
-            var error = Record.Exception(() => WorkspaceFileStore.SaveWorkspace(Root, updated, saved, Token, [import.Copy!]));
+            var error = Record.Exception(() => WorkspaceFileStore.SaveDocument(updated, saved, Token, [import.Copy!]));
             Assert.True(error is IOException or UnauthorizedAccessException, $"Expected a file-lock failure, got {error}");
         }
         Assert.False(Directory.Exists(destination));
         AssertFilesEqual(before, Root);
         Assert.Empty(Directory.GetDirectories(Root, ".sortopia-*"));
-        WorkspaceFileStore.SaveWorkspace(Root, updated, saved, Token, [import.Copy!]);
+        WorkspaceFileStore.SaveDocument(updated, saved, Token, [import.Copy!]);
         Assert.True(Directory.Exists(destination));
     }
 
     [Fact]
     public void Moves_preserve_entity_ids_and_user_files()
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(Root, Sample(), Token).Workspace;
         var source = Path.Combine(Root, "sorting");
         File.WriteAllText(Path.Combine(source, "notes.txt"), "Keep on move");
-        var dto = WorkspaceDto.fromDomain(saved);
-        dto.modules[0].moduleName = "moved";
+        var dto = WorkspaceDocumentModule.clone(saved.CreateEditDocument());
+        dto.Modules[0].Definition.moduleName = "moved";
+
         var destination = Path.Combine(Root, "moved");
-        var result = WorkspaceFileStore.SaveWorkspace(Root, WorkspaceDto.toDomain(dto), saved, Token,
-            moves: [new WorkspaceFolderMove(source, destination)]);
+        var result = WorkspaceFileStore.SaveDocument(dto, saved, Token, moves: [new WorkspaceFolderMove(source, destination)]);
         Assert.Equal(1, result.MovedFolders);
         Assert.False(Directory.Exists(source));
         Assert.Equal("Keep on move", File.ReadAllText(Path.Combine(destination, "notes.txt")));
-        Assert.Equal(saved.Modules[0].Id, WorkspaceFileStore.LoadModuleFolder(destination, Token).Id);
-        Assert.Equal(saved.Modules[0].Projects[0].Runs[0].Id, result.Definition.Modules[0].Projects[0].Runs[0].Id);
+        Assert.Equal(saved.CreateEditDocument().Modules[0].Definition.id, WorkspaceFileStore.LoadModuleDocument(destination, Token).Definition.id);
+        Assert.Equal(saved.CreateEditDocument().Modules[0].Projects[0].Runs[0].id, result.Workspace.CreateEditDocument().Modules[0].Projects[0].Runs[0].id);
     }
 
     [Fact]
     public void Cancelled_saves_leave_all_files_unchanged()
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(Root, Sample(), Token).Workspace;
         var before = Files(Root);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        Assert.Throws<OperationCanceledException>(() => WorkspaceFileStore.SaveWorkspace(Root, Rename(saved, "Cancelled"), saved, cancellation.Token));
+        Assert.Throws<OperationCanceledException>(() => WorkspaceFileStore.SaveDocument(Rename(saved.CreateEditDocument(), "Cancelled"), saved, cancellation.Token));
         AssertFilesEqual(before, Root);
     }
 

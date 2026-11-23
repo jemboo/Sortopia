@@ -5,7 +5,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -16,7 +16,7 @@ public sealed class WorkspaceDiskTests : IDisposable
     private string ModuleFolder => Path.Combine(Root, "sorting");
     private string ProjectFolder => Path.Combine(ModuleFolder, "search");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static workspace Sample() => workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [],
+    private static WorkspaceDocument Sample() => WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [],
         [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
     private WorkspacePageViewModel Open(Func<WorkspaceFolderRequest, string?>? picker = null)
     {
@@ -37,17 +37,17 @@ public sealed class WorkspaceDiskTests : IDisposable
     public void Every_entity_has_a_unique_guid_filename_that_is_stable_when_saved_again()
     {
         var original = Sample();
-        WorkspaceFileStore.CreateWorkspace(Root, original, Token);
+        var saved = WorkspaceFileStore.CreateDocument(Root, original, Token).Workspace;
         var paths = Markers(Root).Order().ToArray();
         Assert.Equal(4, paths.Length);
         var ids = paths.Select(path => Guid.Parse(Path.GetFileNameWithoutExtension(path))).ToArray();
         Assert.Equal(4, ids.Distinct().Count());
-        Assert.Equal(new[] { original.Id, original.Modules.Single().Id, original.Modules.Single().Projects.Single().Id,
-            original.Modules.Single().Projects.Single().Runs.Single().Id }.Order(), ids.Order());
+        Assert.Equal(new[] { original.Definition.id, original.Modules.Single().Definition.id, original.Modules.Single().Projects.Single().Definition.id,
+            original.Modules.Single().Projects.Single().ResolvedRuns().Single().Id }.Order(), ids.Order());
         Assert.All(paths, path => Assert.True(WorkspaceDefinitionFiles.HasGuid(Path.GetFileName(path))));
-        WorkspaceFileStore.SaveWorkspace(Root, workspace.create(original.Id, "Renamed research", "Workspace", original.Modules), original, Token);
+        WorkspaceFileStore.SaveDocument(WorkspaceFixtures.Workspace(original.Definition.id, "Renamed research", "Workspace", original.Modules), saved, Token);
         Assert.Equal(paths, Markers(Root).Order());
-        Assert.Equal("Renamed research", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
+        Assert.Equal("Renamed research", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
     }
 
 
@@ -55,9 +55,9 @@ public sealed class WorkspaceDiskTests : IDisposable
     [Fact]
     public async Task Copying_guid_definitions_assigns_new_filenames_and_does_not_modify_the_source()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         var source = Path.Combine(temporary.FullName, "Library");
-        WorkspaceFileStore.CreateWorkspace(source, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(source, Sample(), Token);
         var sourceProject = Path.Combine(source, "sorting", "search");
         var originalFiles = Files(source);
         var page = Open(_ => sourceProject);
@@ -75,13 +75,13 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Equal(2, Markers(destination).Length);
         Assert.Empty(Markers(sourceProject).Select(Path.GetFileName).Intersect(Markers(destination).Select(Path.GetFileName)));
         AssertFilesEqual(originalFiles, source);
-        Assert.Equal("search", WorkspaceFileStore.LoadProjectFolder(destination, Token).ProjectName);
+        Assert.Equal("search", WorkspaceFileStore.LoadProjectDocument(destination, Token).Definition.projectName);
     }
 
     [Fact]
     public void Ambiguous_definition_files_are_reported_and_never_arbitrarily_selected()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         var first = WorkspaceDefinitionFiles.Require(Root, "workspace");
         var second = Path.Combine(Root, WorkspaceDefinitionFiles.Name(Guid.NewGuid()));
         File.Copy(first, second);
@@ -90,14 +90,14 @@ public sealed class WorkspaceDiskTests : IDisposable
         Assert.Contains("Multiple workspace definition files", page.Error);
         Assert.Contains("Multiple workspace definition files", page.WorkspaceFileStatus);
         Assert.False(page.SaveWorkspaceCommand.CanExecute(null));
-        Assert.Throws<IOException>(() => WorkspaceFileStore.LoadDefinition(Root));
+        Assert.Throws<IOException>(() => WorkspaceFileStore.LoadWorkspace(Root));
         AssertFilesEqual(before, Root);
     }
 
     [Fact]
     public async Task Missing_folders_and_definitions_are_marked_without_dirtying_the_draft_and_save_restores_them()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         var page = Open();
         var module = page.Roots.Single().Children.Single();
         var project = module.Children.Single();
@@ -131,7 +131,7 @@ public sealed class WorkspaceDiskTests : IDisposable
     [Fact]
     public async Task Missing_workspace_definition_keeps_the_loaded_hierarchy_visible_and_can_be_restored()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         var page = Open();
         var originalFile = WorkspaceDefinitionFiles.Require(Root, "workspace");
         File.Delete(originalFile);
@@ -152,7 +152,7 @@ public sealed class WorkspaceDiskTests : IDisposable
     [Fact]
     public void New_items_and_edited_folder_locations_are_not_reported_as_missing_saved_components()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Sample(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Sample(), Token);
         var page = Open();
         page.AddModuleCommand.Execute(null);
         var added = page.Selected!;

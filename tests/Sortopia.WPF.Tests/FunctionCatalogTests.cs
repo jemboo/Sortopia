@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.IO;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
@@ -120,7 +121,7 @@ public sealed class FunctionCatalogTests
             var module = page.Selected!;
             Assert.Equal(branch ? ResultsFunctionCatalog.functions.Keys : ResultsFunctionCatalog.functions.Where(entry => entry.Value.SourceDataTypes.IsEmpty).Select(entry => entry.Key), module.Editor!.ResultsFunctionOverride.Choices);
             Assert.Equal(SetupFunctionCatalog.functions.Keys, module.Editor.SetupFunctionOverride.Choices);
-            Assert.False(module.Editor.ResultsDatabaseOverride.HasChoices);
+            Assert.IsType<WorkspaceProjectField>(module.Editor.ResultsDatabaseField);
             module.Editor.ResultsFunctionOverride.IsOverridden = true;
             module.Editor.ResultsFunctionOverride.EffectiveValue = ResultsFunctionNames.mergeSortableTests;
             if (branch)
@@ -128,7 +129,7 @@ public sealed class FunctionCatalogTests
                 module.Editor.SetupFunctionOverride.IsOverridden = true;
                 module.Editor.SetupFunctionOverride.EffectiveValue = SetupFunctionNames.standardTests;
             }
-            module.Editor.LoadProject(RunExecutionTests.Settings(branch));
+            module.Editor.LoadFixtureSettings(RunExecutionTests.Settings(branch));
             page.AddProjectCommand.Execute(null);
             var project = page.Selected!;
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, project.Editor!.ResultsFunctionName);
@@ -149,7 +150,7 @@ public sealed class FunctionCatalogTests
             WorkspaceRunExecutionTests.SupplyQuerySpans(page);
             await page.SaveWorkspaceAsync();
             Assert.Empty(page.Error);
-            var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(root).Modules[0].Projects[0].Runs[0];
+            var saved = WorkspaceTestFiles.LoadRun(root, document => document.Modules[0].Projects[0].Runs[0]);
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, saved.ResultsFunctionName);
             if (branch) Assert.Equal(SetupFunctionNames.standardTests, saved.SetupFunctionName.Value);
             var reopened = new WorkspacePageViewModel(() => { }, _ => null, settings);
@@ -166,7 +167,7 @@ public sealed class FunctionCatalogTests
             Assert.True(savedModule.Editor.IsReadOnly);
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, savedModule.Editor.ResultsFunctionName);
             await reopened.SaveWorkspaceAsync(); Assert.Empty(reopened.Error);
-            var fixedRun = WorkspaceFileStore.LoadDefinition(root).Modules[0].Projects[0].Runs[0];
+            var fixedRun = WorkspaceTestFiles.LoadRun(root, document => document.Modules[0].Projects[0].Runs[0]);
             Assert.Equal(ResultsFunctionNames.mergeSortableTests, fixedRun.ResultsFunctionName);
             Assert.Contains(fixedRun.ResultsParameterSpans, value => value.KeyName == "MergeLibId");
         }

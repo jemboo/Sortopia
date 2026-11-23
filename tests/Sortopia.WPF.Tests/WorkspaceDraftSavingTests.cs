@@ -79,10 +79,10 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
         var span = WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", setup, "also unfinished");
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.OperationError); Assert.False(page.HasUnsavedChanges); Assert.False(Project(page).IsSealed);
-        var document = WorkspaceFileStore.LoadDocument(Root);
-        var raw = setup ? document.Modules[0].Definition.localOverrides.setupParameterDefaults : document.Modules[0].Definition.localOverrides.resultsParameterDefaults;
+        var document = WorkspaceFileStore.LoadWorkspace(Root);
+        var raw = setup ? document.CreateEditDocument().Modules[0].Definition.localOverrides.setupParameterDefaults : document.CreateEditDocument().Modules[0].Definition.localOverrides.resultsParameterDefaults;
         Assert.Equal("not a number", raw.Single(row => row.keyName == "ChannelCount").value);
-        Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.LoadDefinition(Root));
+        Assert.ThrowsAny<Exception>(() => document.ResolveRun(runId));
 
         var reopened = Open(); run = Run(reopened); reopened.Selected = run;
         Assert.Equal(runId, run.Id); Assert.Equal("Finish this later", run.Editor!.Description);
@@ -160,7 +160,7 @@ public sealed class WorkspaceDraftSavingTests : IDisposable
             Assert.Contains("Could not save", page.OperationError); Assert.Contains("Your edits are still open", page.OperationError);
             Assert.True(page.HasUnsavedChanges); Assert.NotEmpty(page.SaveIssues);
         }
-        Assert.NotEqual("Changed", WorkspaceFileStore.LoadDocument(Root).Definition.workspaceName);
+        Assert.NotEqual("Changed", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
         await page.SaveWorkspaceAsync(); Assert.Empty(page.OperationError); Assert.False(page.HasUnsavedChanges);
     }
 

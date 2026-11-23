@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.IO;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Persistence;
@@ -16,7 +17,7 @@ public sealed class WorkspaceExportTests : IDisposable
 
     private void CreateWorkspace()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Workspace", []), TestContext.Current.CancellationToken);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", []), TestContext.Current.CancellationToken);
         Directory.CreateDirectory(Destination);
         Settings.Save(Root);
     }
@@ -33,7 +34,7 @@ public sealed class WorkspaceExportTests : IDisposable
         await page.ExportWorkspaceAsync();
         Assert.Empty(page.OperationError);
         Assert.Contains(Destination, page.Status);
-        Assert.Equal("Research", WorkspaceFileStore.LoadDocument(Destination).Definition.workspaceName);
+        Assert.Equal("Research", WorkspaceFileStore.LoadWorkspace(Destination).CreateEditDocument().Definition.workspaceName);
         Assert.Equal(Root, page.WorkspaceFolder);
         Assert.Equal(Root, Settings.Load());
         Assert.Same(selected, page.Selected);
@@ -47,7 +48,7 @@ public sealed class WorkspaceExportTests : IDisposable
         Assert.Contains("empty", page.OperationError);
         Assert.Equal("Workspace export failed.", page.Status);
         Assert.True(page.ExportWorkspaceCommand.CanExecute(null));
-        Assert.Equal("Research", WorkspaceFileStore.LoadDocument(Destination).Definition.workspaceName);
+        Assert.Equal("Research", WorkspaceFileStore.LoadWorkspace(Destination).CreateEditDocument().Definition.workspaceName);
     }
 
     [Fact]
@@ -73,7 +74,7 @@ public sealed class WorkspaceExportTests : IDisposable
         await page.ExportWorkspaceAsync();
         Assert.Equal(1, picks);
         Assert.Empty(page.OperationError);
-        Assert.Single(WorkspaceFileStore.LoadDocument(Destination).Modules);
+        Assert.Single(WorkspaceFileStore.LoadWorkspace(Destination).CreateEditDocument().Modules);
     }
 
     public void Dispose() => temporary.Delete(true);

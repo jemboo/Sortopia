@@ -22,7 +22,7 @@ public sealed class WorkspaceRequiredInputsTests
     public void Coverage_distinguishes_defaults_missing_empty_valid_and_conflicting_spans_in_each_phase(bool setup)
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(WorkspaceHierarchyTests.ProjectSettings(true));
+        module.Editor!.LoadFixtureSettings(WorkspaceHierarchyTests.ProjectSettings(true));
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
         var editor = run.Editor!;
@@ -76,7 +76,7 @@ public sealed class WorkspaceRequiredInputsTests
     public void Setup_outputs_select_independent_subsets_without_changing_results_or_defaults()
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Evaluation", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(FunctionOutputContractTests.Combined(true));
+        module.Editor!.LoadFixtureSettings(FunctionOutputContractTests.Combined(true));
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Project", family: hierarchyKind.Branch); module.Children.Add(project);
         var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Run", family: hierarchyKind.Branch); project.Children.Add(run);
         WorkspaceParameterSetsPreviewTests.AddSpan(run, "ChannelCount", true, "4", "8");
@@ -111,8 +111,8 @@ public sealed class WorkspaceRequiredInputsTests
         var settings = editor.ToProjectSettings();
         Assert.Equal(new[] { "PrefixLibId" }, settings.resultsDataTypes.Single().queryParameterKeys);
         Assert.Equal("SortableDataFormat", Assert.Single(settings.resultsParameterDefaults).keyName);
-        var parent = project.create(run.Parent!.Id, "PrefixTests", SettingsDto.toDomain(hierarchyKind.Root, settings), []);
-        var value = RunDto.toDomain(parent, editor.ToRunInputs(run.Id, "cc", run.Parent.Id));
+        var parent = WorkspaceFixtures.Project(run.Parent!.Id, "PrefixTests", SettingsDto.toDomain(hierarchyKind.Root, settings), []);
+        var value = RunDto.toDomain(parent.Snapshot(), editor.ToRunInputs(run.Id, "cc", run.Parent.Id));
         var sets = RunParameterSets.create(value).Results;
         Assert.Equal(2, sets.Length);
         Guid Id(parameterSet parameters, string[] keys) => DataKey.create(value.ParentProjectId, value.ResultsDatabaseName, false,

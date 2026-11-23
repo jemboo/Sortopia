@@ -59,12 +59,12 @@ public sealed partial class PreparedExecutionTests
     {
         string[] counts = sweep ? ["0", "2", "3", "4"] : ["3"];
         var (world, consumer) = SgdWorkspace(resultsSpans: [new() { keyName = "GenerationCount", values = counts }]);
-        var inputs = RunDto.fromDomain(consumer.Runs[0]);
+        var inputs = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
         inputs.reporting = FSharpOption<sgdReportingConfig>.Some(summaries ? new("Constant(1)", "Constant(2)") : new("Constant(2)", "Constant(1)"));
-        var error = Assert.Throws<ArgumentException>(() => RunDto.toDomain(consumer, inputs));
+        var error = Assert.Throws<ArgumentException>(() => RunDto.toDomain(consumer.Snapshot(), inputs));
         Assert.Contains("GenerationCount 3", error.Message);
         Assert.Contains(summaries ? "summary schedule" : "full snapshot schedule", error.Message);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         Assert.Empty(DataFiles(folder, "setup"));
         Assert.Empty(DataFiles(folder, "results"));
         Assert.False(Directory.Exists(Path.Combine(folder, "runParameters")));
@@ -74,10 +74,10 @@ public sealed partial class PreparedExecutionTests
     public void Evolution_reports_replay_cached_results_portably_export_all_samples_and_detect_corruption()
     {
         var (world, consumer) = SgdWorkspace();
-        var runDefinition = RunDto.fromDomain(consumer.Runs[0]);
+        var runDefinition = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
         Assert.Equal(runDefinition, MessagePackSetup.deserialize<runDto>(MessagePackSetup.serialize(runDefinition)));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var original = Assert.Single(RunParameterFiles.listWorkItems(parameters, Token));
         // Adding optional reporting must not rewrite existing invocation bytes or data identities.
@@ -181,7 +181,7 @@ public sealed partial class PreparedExecutionTests
             new() { keyName = "GenerationCount", values = [generations.ToString()] }
         ], reporting: new(schedule, "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var item = Assert.Single(RunParameterFiles.listWorkItems(parameters, Token));
         var path = Path.Combine(parameters, item.Id + ".msgpack");
@@ -249,7 +249,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(reporting: new("Constant(3)", "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var item = Assert.Single(RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token));
         var path = Path.Combine(folder, "runParameters", item.Id + ".msgpack");
         Completed(RunParameterExecution.executeFile(path, null!, Token));
@@ -276,12 +276,12 @@ public sealed partial class PreparedExecutionTests
     public void Direct_execution_honors_saved_run_reporting_and_removal_cleans_up_samples()
     {
         var (world, consumer) = SgdWorkspace(reporting: new("Constant(3)", "Constant(1)"));
-        Completed(FileRunExecution.execute(world, Root, consumer.Runs[0], null!, Token));
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        Completed(FileRunExecution.executeInScope(WorkspaceRunDocument.resolveByRunId(world, (consumer.ResolvedRuns()[0]).Id), Root, null!, Token));
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var item = Assert.Single(RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token));
         Assert.Equal(outputState.Complete, RunOutputFiles.inspect(folder, item, Token).State);
-        var document = WorkspaceFileStore.LoadDocument(Root);
-        WorkspaceFileStore.RemoveRunParameterFiles(Root, document, consumer.Id, consumer.Runs[0].Id, Token);
+        var document = WorkspaceFileStore.LoadWorkspace(Root);
+        WorkspaceFileStore.RemoveRunParameterFiles(document, consumer.Definition.id, consumer.Runs[0].id, Token);
         Assert.All(RunOutputFiles.keys(item), key => Assert.False(File.Exists(new SortopiaFileDb(folder, item.ProjectId).GetPath(key.Reference))));
     }
 
@@ -296,7 +296,7 @@ public sealed partial class PreparedExecutionTests
             new() { keyName = "SorterPoolCount", values = ["2"] }
         ], reporting: new("Constant(1)", interval));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var item = Assert.Single(RunParameterFiles.listWorkItems(parameters, Token));
         var executed = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(executed);

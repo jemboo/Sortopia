@@ -5,7 +5,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -18,7 +18,7 @@ public sealed class WorkspaceImportTests : IDisposable
     {
         var modules = empty ? Array.Empty<WorkspaceModule>() : [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "existing", [],
             [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "parent-project", [WorkspaceHierarchyTests.MakeRun("Parent project", "Trial")])])];
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Research", "Root", modules), Token);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Root", modules), Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), pickExistingFolder: picker);
         page.BrowseWorkspaceFolderCommand.Execute(null);
@@ -30,17 +30,50 @@ public sealed class WorkspaceImportTests : IDisposable
         while (node.Kind != kind) node = node.Children.First();
         return node;
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unfinished_imports_remain_editable_and_save_without_sealing(bool setup)
+    {
+        var family = setup ? hierarchyKind.Branch : hierarchyKind.Root;
+        var source = new WorkspaceTreeNode(WorkspaceEntityKind.Workspace, "Library");
+        var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Draft module", family: family); source.Children.Add(module);
+        module.Editor!.LoadModule(WorkspaceHierarchyTests.ModuleSettings(setup));
+        var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Draft project", family: family); module.Children.Add(project);
+        project.Editor!.ResultsDatabaseName = "Own results";
+        project.Editor.ResultsQueryOutputs.Single().FixedParameters.Single(value => value.Key == "ChannelCount").UseAsQueryKeyCommand.Execute(null);
+        var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "Unfinished", family: family); project.Children.Add(run);
+        run.Editor!.ResultsParameters.Single(value => value.Key == "ChannelCount").AddValueCommand.Execute(null);
+        run.Editor.ResultsParameters.Single().Values.Single().Text = "typing";
+        var library = Path.Combine(temporary.FullName, "Library");
+        WorkspaceFileStore.CreateDocument(library, source.ToDocument(), Token);
+        var page = Open(_ => Path.Combine(library, module.Name), empty: true);
+        await page.AddExistingAsync(WorkspaceEntityKind.Module);
+        Assert.True(page.HasUnsavedChanges);
+        var imported = page.Selected!; var importedProject = imported.Children.Single();
+        Assert.False(importedProject.IsSealed);
+        Assert.NotEqual(project.Id, importedProject.Id);
+        Assert.Equal("Own results", importedProject.Editor!.ResultsDatabaseName);
+        Assert.Equal("typing", importedProject.Children.Single().Editor!.ResultsParameters.Single().Values.Single().Text);
+        await page.SaveWorkspaceAsync();
+        Assert.False(page.HasUnsavedChanges);
+        Assert.Contains("Draft saved with configuration issues", page.Status);
+        var reopened = WorkspaceTreeNode.FromDocument(WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument());
+        Assert.False(reopened.Children[0].Children[0].IsSealed);
+        Assert.Equal("typing", reopened.Children[0].Children[0].Children[0].Editor!.ResultsParameters.Single().Values.Single().Text);
+    }
     internal static void WriteProject(string folder, hierarchyKind family = hierarchyKind.Root)
     {
         var name = Path.GetFileName(folder);
         var run = WorkspaceHierarchyTests.MakeRun(name, "Existing trial", family == hierarchyKind.Branch);
         var value = WorkspaceHierarchyTests.MakeProject(family, Guid.NewGuid(), name, [run]);
-        var inputs = RunDto.fromDomain(value.Runs[0]);
+        var inputs = RunDto.fromDomain(value.ResolvedRuns()[0]);
         inputs.id = Guid.NewGuid();
-        value = project.withRuns(value, [RunDto.toDomain(value, inputs)]);
+        value = WorkspaceFixtures.WithRuns(value, [RunDto.toDomain(value.Snapshot(), inputs)]);
         Directory.CreateDirectory(Path.Combine(folder, "runs"));
-        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeProject(value));
-        File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(value.Runs[0].Id)), WorkspaceCodec.encodeRun(value.Runs[0]));
+        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Definition.id)), Sortopia.Core.Serialization.MessagePackSetup.serialize(WorkspaceDocumentModule.projectFile(value)));
+        File.WriteAllBytes(Path.Combine(folder, "runs", WorkspaceDefinitionFiles.Name(value.Runs[0].id)), RunCodec.encodeRun(value.ResolvedRuns()[0]));
         File.WriteAllText(Path.Combine(folder, "results.txt"), "Keep results");
     }
     internal static void WriteModule(string folder, hierarchyKind family = hierarchyKind.Root, bool defineFunctions = true)
@@ -48,11 +81,11 @@ public sealed class WorkspaceImportTests : IDisposable
         var name = Path.GetFileName(folder);
         Directory.CreateDirectory(folder);
         WriteProject(Path.Combine(folder, "child-project"), family);
-        var child = WorkspaceFileStore.LoadProjectFolder(Path.Combine(folder, "child-project"), Token);
+        var child = WorkspaceFileStore.LoadProjectDocument(Path.Combine(folder, "child-project"), Token);
         var value = defineFunctions ? WorkspaceHierarchyTests.MakeModule(family, Guid.NewGuid(), name, [], [child])
-            : WorkspaceModule.createInherited(Guid.NewGuid(), name, ModuleDefaults.configuration(family == hierarchyKind.Branch),
+            : WorkspaceFixtures.InheritedModule(Guid.NewGuid(), name, ModuleDefaults.configuration(family == hierarchyKind.Branch),
                 ModuleOverridesDto.toDomain(family, new moduleOverridesDto()), [], [child]);
-        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Id)), WorkspaceDefinitionCodec.encodeModule(value));
+        File.WriteAllBytes(Path.Combine(folder, WorkspaceDefinitionFiles.Name(value.Definition.id)), Sortopia.Core.Serialization.MessagePackSetup.serialize(WorkspaceDocumentModule.moduleFile(value)));
     }
 
     [Theory]

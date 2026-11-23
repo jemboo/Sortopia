@@ -1,4 +1,5 @@
 using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Core;
 using Sortopia.Evaluation;
 using Sortopia.FileDb;
 using Sortopia.Functions;
@@ -26,7 +27,7 @@ public sealed partial class PreparedExecutionTests
         Bind("OrthoRate", "4.001", parameterValueType.Floating), Bind("ParaRate", "1.15", parameterValueType.Floating),
         Bind("SelfSymRate", "1.75", parameterValueType.Floating) ];
 
-    private (workspace World, project Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null)
+    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null)
     {
         var prefix = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1));
         var prefixBinding = Bind("PrefixLibId", prefix, parameterValueType.PrefixLibId);
@@ -37,39 +38,36 @@ public sealed partial class PreparedExecutionTests
             Bind("Repl", "0"), Bind("RngType", "LCG", parameterValueType.Text)];
         if (!wrongFamily) generatorParameters = [..generatorParameters,
             Bind("OrthoGenRate", "1", parameterValueType.Floating), Bind("ParaGenRate", "1", parameterValueType.Floating), Bind("SelfSymGenRate", "1", parameterValueType.Floating)];
-        var models = Project("SorterModelSets", projectConfiguration.NewRootProjectConfig(new("Source models",
-            new resultsConfig("Models", sourceName, ResultsFunctionCatalog.require(sourceName).Version,
-                ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("PrefixLibId"))), ListModule.OfArray(generatorParameters)))));
-        var tests = Project("SortableTests", projectConfiguration.NewRootProjectConfig(new("Source tests",
-            new resultsConfig("Tests", ResultsFunctionNames.prefixSortableTests, "1",
+        var models = Project("SorterModelSets", new projectConfiguration("Source models", new resultsConfig("Models", sourceName, ResultsFunctionCatalog.require(sourceName).Version,
+                ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("PrefixLibId"))), ListModule.OfArray(generatorParameters)), null));
+        var tests = Project("SortableTests", new projectConfiguration("Source tests", new resultsConfig("Tests", ResultsFunctionNames.prefixSortableTests, "1",
                 ListModule.Singleton(new resultsDataTypeConfig(testsType, ListModule.Singleton("PrefixLibId"))),
-                ListModule.OfArray(new[] {prefixBinding, Bind("SortableDataFormat", "Bools", parameterValueType.Text)})))));
+                ListModule.OfArray(new[] {prefixBinding, Bind("SortableDataFormat", "Bools", parameterValueType.Text)})), null));
         var setup = new setupConfig("Setup", SetupFunctionNames.evaluationSource, SetupFunctionCatalog.require(SetupFunctionNames.evaluationSource).Version,
             ListModule.OfArray(new[] {
-                new setupDataTypeConfig(modelsType, models.Id, ListModule.Singleton("PrefixLibId")),
-                new setupDataTypeConfig(testsType, tests.Id, ListModule.Singleton("PrefixLibId")) }), ListModule.Singleton(prefixBinding));
+                new setupDataTypeConfig(modelsType, models.Definition.id, ListModule.Singleton("PrefixLibId")),
+                new setupDataTypeConfig(testsType, tests.Definition.id, ListModule.Singleton("PrefixLibId")) }), ListModule.Singleton(prefixBinding));
         var definition = ResultsFunctionCatalog.requireVersion(ResultsFunctionNames.standardMsuf4SimpleSgd, sgd is null ? "6" : "7");
         var queryKeys = (sgd is null ? new[] { "GenerationCount" } : []).Concat(resultsSpans?.Select(span => span.keyName) ?? []).Distinct();
         var outputs = definition.SortopiaDataTypes.Select(type => new resultsDataTypeConfig(type, ListModule.OfSeq(queryKeys)));
-        var consumer = Project("SorterSgd", projectConfiguration.NewBranchProjectConfig(new("Standard SGD",
-            new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, definition.Version, ListModule.OfSeq(outputs), ListModule.OfSeq(SgdParameters.Where(p => sgd is null || p.KeyName != "GenerationCount"))), setup)), resultsSpans);
+        var consumer = Project("SorterSgd", new projectConfiguration("Standard SGD", new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, definition.Version, ListModule.OfSeq(outputs), ListModule.OfSeq(SgdParameters.Where(p => sgd is null || p.KeyName != "GenerationCount"))), FSharpOption<setupConfig>.Some(setup)), resultsSpans);
         if (reporting is not null || sgd is not null)
         {
-            var inputs = RunDto.fromDomain(consumer.Runs[0]);
+            var inputs = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
             inputs.reporting = reporting is null ? null : Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(reporting);
             inputs.sgd = sgd is null ? null : Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(sgd);
-            consumer = project.withRuns(consumer, [RunDto.toDomain(consumer, inputs)]);
+            consumer = WorkspaceFixtures.WithRuns(consumer, [RunDto.toDomain(consumer.Snapshot(), inputs)]);
         }
-        workspaceModule Module(project p) => workspaceModule.createInherited(Guid.NewGuid(), p.ProjectName,
-            ModuleDefaults.configuration(p.IsBranchProject), ModuleOverridesDto.toDomain(p.IsBranchProject ? hierarchyKind.Branch : hierarchyKind.Root,
-                new moduleOverridesDto { resultsFunctionName = p.ResultsFunctionName, setupFunctionName = p.IsBranchProject ? SetupFunctionNames.evaluationSource : null }), [], [p]);
-        var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [Module(models), Module(tests), Module(consumer)]);
+        ModuleDocument Module(ProjectDocument p) => WorkspaceFixtures.InheritedModule(Guid.NewGuid(), p.Definition.projectName,
+            ModuleDefaults.configuration(p.Configuration().HasSetup), ModuleOverridesDto.toDomain(p.Configuration().HasSetup ? hierarchyKind.Branch : hierarchyKind.Root,
+                new moduleOverridesDto { resultsFunctionName = p.Configuration().ResultsFunctionName, setupFunctionName = p.Configuration().HasSetup ? SetupFunctionNames.evaluationSource : null }), [], [p]);
+        var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", [Module(models), Module(tests), Module(consumer)]);
         Directory.CreateDirectory(Root);
-        WorkspaceFileStore.CreateWorkspace(Root, world, Token);
-        world = WorkspaceFileStore.LoadDefinition(Root);
+        WorkspaceFileStore.CreateDocument(Root, world, Token);
+        world = WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument();
         foreach (var source in new[] {models, tests})
-            Completed(FileRunExecution.execute(world, Root, world.ProjectIndex[source.Id].Runs[0], null!, Token));
-        return (world, world.ProjectIndex[consumer.Id]);
+            Completed(FileRunExecution.executeInScope(WorkspaceRunDocument.resolveByRunId(world, source.Runs[0].id), Root, null!, Token));
+        return (world, new WorkspaceDocumentIndex(world).TryFindRun(consumer.Runs[0].id).Value.Parent.Document);
     }
 
     [Fact]
@@ -81,7 +79,7 @@ public sealed partial class PreparedExecutionTests
         Assert.Single(prepared.WorkItemIds);
         Assert.Equal(2, Assert.Single(prepared.Execution.Setup).StoredOutputs.Length);
         foreach (var file in sourceFiles) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var report = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(report);
         var outputs = Assert.Single(report.Results).StoredOutputs;
@@ -90,7 +88,7 @@ public sealed partial class PreparedExecutionTests
         Assert.Single(DataFiles(folder, "results"));
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterModelSet")));
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterSetEval")));
-        var store = new SortopiaFileDb(folder, consumer.Id);
+        var store = new SortopiaFileDb(folder, consumer.Definition.id);
         var pools = Assert.IsType<sortopiaStorageData.SorterPoolSet>(((ISortopiaDb)store).Load(poolsOutput.Reference, Token).ResultValue.Value).Item;
         Assert.Equal(3, pools.Generation);
         Assert.Single(pools.Pools);
@@ -119,7 +117,7 @@ public sealed partial class PreparedExecutionTests
             new() { keyName = "InitialPoolSeed", values = ["0", "1"] },
             new() { keyName = "MutationMod", values = ["0", "15"] }], reporting: new("Constant(100)", "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var items = RunParameterFiles.listWorkItems(parameters, Token);
         Assert.Equal(4, items.Length);
@@ -152,7 +150,7 @@ public sealed partial class PreparedExecutionTests
             new() { keyName = "InitialPoolSeed", values = ["0", "99"] },
             new() { keyName = "MutationMod", values = ["0", "3"] }], reporting: new("Constant(100)", "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
-        var folder = Isolate(WorkspaceData.projectFolder(world, Root, consumer.Id));
+        var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var items = RunParameterFiles.listWorkItems(parameters, Token);
         Completed(RunParameterExecution.executeFolderWithOptions(parameters, null!, new(2), null!, Token));
@@ -173,7 +171,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(wrongFamily: true);
         Completed(Prepare(world, consumer).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, consumer.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var report = RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token);
         Assert.Equal(runExecutionStatus.Failed, report.Status);
         Assert.Contains("Simple MSUF4", report.Error);

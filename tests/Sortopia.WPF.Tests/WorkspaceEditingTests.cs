@@ -5,7 +5,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -14,10 +14,10 @@ public sealed class WorkspaceEditingTests : IDisposable
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-workspace-editing-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private WorkspaceFolderSettings Settings => new(Path.Combine(temporary.FullName, "settings.txt"));
-    private WorkspacePageViewModel Open(workspace? definition = null)
+    private WorkspacePageViewModel Open(WorkspaceDocument? definition = null)
     {
         Directory.CreateDirectory(Root);
-        if (definition is not null) WorkspaceFileStore.CreateWorkspace(Root, definition, TestContext.Current.CancellationToken);
+        if (definition is not null) WorkspaceFileStore.CreateDocument(Root, definition, TestContext.Current.CancellationToken);
         var page = new WorkspacePageViewModel(() => { }, _ => Root, Settings);
         page.BrowseWorkspaceFolderCommand.Execute(null);
         return page;
@@ -34,7 +34,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [InlineData(WorkspaceEntityKind.Project)]
     public async Task Folder_follows_renames_through_failed_saves_successful_saves_and_reopening(WorkspaceEntityKind kind)
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", []));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", []));
         page.AddModuleCommand.Execute(null);
         if (kind == WorkspaceEntityKind.Project)
         {
@@ -99,7 +99,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [InlineData(true, true)]
     public async Task First_module_name_sets_the_location_even_after_saving_the_placeholder(bool branch, bool savePlaceholder)
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", []));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", []));
         (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
         WorkspaceHierarchyTests.ConfigureProject(page.Selected!);
         var node = page.Selected!;
@@ -133,7 +133,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     public async Task Conflicting_module_edits_are_rejected_against_saved_siblings_and_reported_immediately(bool nested)
     {
         WorkspaceModule[] siblings = [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Alpha", [], []), WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Beta", [], [])];
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", nested ? [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "parent", siblings, [])] : siblings));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", nested ? [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "parent", siblings, [])] : siblings));
         var parent = nested ? page.Roots.Single().Children.Single() : page.Roots.Single();
         var beta = parent.Children[1];
         var before = File.ReadAllBytes(WorkspaceTestFiles.DefinitionPath(Root, "workspace"));
@@ -161,7 +161,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [InlineData(true)]
     public async Task Saved_names_stay_reserved_until_removals_or_renames_are_saved(bool remove)
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Alpha", [], []), WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Beta", [], [])]));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Alpha", [], []), WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Beta", [], [])]));
         var parent = page.Roots.Single();
         var alpha = parent.Children[0];
         var beta = parent.Children[1];
@@ -233,7 +233,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Fact]
     public void Automatic_folder_collision_rejects_the_rename_until_a_unique_name_is_chosen()
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "reserved", [], [])]));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "reserved", [], [])]));
         page.AddModuleCommand.Execute(null);
         var node = page.Selected!;
         var original = node.Name;
@@ -250,7 +250,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Fact]
     public void Discard_restores_the_saved_hierarchy_names_folders_and_run_settings_without_writing()
     {
-        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [],
+        var definition = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [],
             [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "search", [WorkspaceHierarchyTests.MakeRun("Search", "Trial")])])]);
         var page = Open(definition);
         var before = Directory.GetFiles(Root, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
@@ -266,7 +266,7 @@ public sealed class WorkspaceEditingTests : IDisposable
         run.Editor!.ResultsParameters.Clear();
         Assert.True(page.DiscardChangesCommand.CanExecute(null));
         page.DiscardChangesCommand.Execute(null);
-        Assert.Equal(WorkspaceCodec.encodeWorkspace(definition), WorkspaceCodec.encodeWorkspace(page.Roots.Single().ToWorkspace()));
+        Assert.True(WorkspaceDocumentModule.sameContent(definition, page.Roots.Single().ToDocument()));
         Assert.Same(page.Roots.Single(), page.Selected);
         Assert.False(page.HasUnsavedChanges);
         Assert.False(page.DiscardChangesCommand.CanExecute(null));
@@ -279,7 +279,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Fact]
     public void Discard_clears_rejected_edits_even_when_the_accepted_definition_has_not_changed()
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "alpha", [], []), WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "beta", [], [])]));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "alpha", [], []), WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "beta", [], [])]));
         page.Roots.Single().Children[1].Name = "Alpha";
         Assert.True(page.HasUnsavedChanges);
         Assert.True(page.HasEditErrors);
@@ -310,7 +310,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Fact]
     public async Task Removing_a_module_deletes_its_folder_on_save()
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [], [])]));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [], [])]));
         page.Selected = page.Roots.Single().Children.Single();
         page.RemoveCommand.Execute(null);
         Assert.Contains("delete", page.Status);
@@ -331,7 +331,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Fact]
     public async Task Adding_is_paused_until_removal_is_saved_and_the_default_name_is_available_again()
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "New module", [], [])]));
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "New module", [], [])]));
         page.Selected = page.Roots.Single().Children.Single();
         page.RemoveCommand.Execute(null);
         Assert.False(page.AddModuleCommand.CanExecute(null));
@@ -353,7 +353,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [InlineData(WorkspaceEntityKind.Run, true)]
     public async Task Pending_removal_keeps_edits_paused_after_failed_save_until_retry_or_discard(WorkspaceEntityKind kind, bool discard)
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace",
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace",
             [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "sorting", [],
                 [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "search", [WorkspaceHierarchyTests.MakeRun("search", "Trial")])])]));
         page.Selected = Entity(page, kind);
@@ -399,7 +399,7 @@ public sealed class WorkspaceEditingTests : IDisposable
     [Fact]
     public void Removal_requires_other_name_errors_to_be_fixed_but_can_remove_the_invalid_item_itself()
     {
-        var page = Open(workspace.create(Guid.NewGuid(), "Research", "Workspace",
+        var page = Open(WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace",
             [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Alpha", [], []),
              WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "Beta", [], [])]));
         var alpha = page.Roots[0].Children[0];

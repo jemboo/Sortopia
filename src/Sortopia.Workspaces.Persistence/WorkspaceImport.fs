@@ -24,9 +24,9 @@ type WorkspaceImport private () =
         result
 
     static member PrepareModule(workspaceRoot: string, source: string, destination: string, token: CancellationToken) =
-        WorkspaceImport.Prepare(workspaceRoot, source, destination, token, WorkspaceDisk.loadModuleFolder,
-            fun value ids -> ModuleDto.fromDomain value |> ids.Reidentify |> ModuleDto.toDomain)
+        WorkspaceImport.Prepare(workspaceRoot, source, destination, token, WorkspaceDisk.loadModuleDocument,
+            fun value ids -> ids.Reidentify value)
 
     static member PrepareProject(workspaceRoot: string, source: string, destination: string, token: CancellationToken) =
-        WorkspaceImport.Prepare(workspaceRoot, source, destination, token, WorkspaceDisk.loadProjectFolder,
-            fun value ids -> ProjectDto.fromDomain value |> ids.Reidentify |> ProjectDto.toDomain)
+        WorkspaceImport.Prepare(workspaceRoot, source, destination, token, WorkspaceDisk.loadProjectDocument,
+            fun value ids -> ids.Reidentify value)

@@ -356,7 +356,7 @@
         </Expander>
         <Expander x:Name="ResultsSettingsSection" Header="Results settings" Tag="{Binding ResultsSettingsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.ResultsSettings, Mode=TwoWay}">
         <StackPanel Margin="4,6,0,0">
-        <StackPanel x:Name="ResultsDatabaseItem"><local:WorkspaceOverrideEditor x:Name="ResultsDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding ResultsDatabaseOverride}" /></StackPanel>
+        <StackPanel x:Name="ResultsDatabaseItem"><local:WorkspaceProjectFieldEditor x:Name="ResultsDatabaseFieldEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding ResultsDatabaseField}" /></StackPanel>
 <StackPanel x:Name="ResultsTypesItem">
         <TextBlock Text="{Binding ResultsContractHint}" Style="{StaticResource Help}" />
         <ContentControl x:Name="OutputTypesHeader" Content="{Binding OutputTypesOverride}" ContentTemplate="{StaticResource ListOverrideHeader}" />
@@ -462,7 +462,7 @@
         <StackPanel x:Name="SetupFields" Visibility="{Binding IsBranch, Converter={StaticResource VisibleWhen}}">
             <Expander x:Name="SetupSettingsSection" Header="Setup settings and sources" Tag="{Binding SetupSettingsError}" Style="{StaticResource EditorSection}" IsExpanded="{Binding Sections.SetupSettings, Mode=TwoWay}">
             <StackPanel Margin="4,6,0,0">
-            <StackPanel x:Name="SetupDatabaseItem"><local:WorkspaceOverrideEditor x:Name="SetupDatabaseOverrideEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding SetupDatabaseOverride}" /></StackPanel>
+            <StackPanel x:Name="SetupDatabaseItem"><local:WorkspaceProjectFieldEditor x:Name="SetupDatabaseFieldEditor" Visibility="{Binding DataContext.ShowDatabaseSettings, RelativeSource={RelativeSource AncestorType={x:Type local:WorkspaceConfigurationEditor}}, Converter={StaticResource VisibleWhen}}" DataContext="{Binding SetupDatabaseField}" /></StackPanel>
 <StackPanel x:Name="SetupOutputsItem">
             <TextBlock Text="{Binding SetupContractHint}" Style="{StaticResource Help}" />
             <TextBlock Text="Each source inherits independently. Check Define to select a source here, or Override to replace an inherited source. Clear its checkbox to inherit again." Style="{StaticResource Help}" Visibility="{Binding CanEditDefaults, Converter={StaticResource VisibleWhen}}" />

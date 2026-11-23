@@ -9,32 +9,33 @@ public sealed class ShortFolderLayoutTests : IDisposable
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-short-layout-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static workspace Mixed(bool branch = false)
+    private static WorkspaceDocument Mixed(bool branch = false)
     {
         var sample = WorkspacePersistenceTests.Sample(branch);
-        var dto = WorkspaceDto.fromDomain(sample);
-        var child = workspaceModule.createInherited(Guid.NewGuid(), "nested",
+        var dto = WorkspaceDocumentModule.clone(sample);
+        var child = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "nested",
             ModuleDefaults.configuration(branch), ModuleOverridesDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, new()), [], []);
-        dto.modules[0].modules = [ModuleDto.fromDomain(child)];
-        return WorkspaceDto.toDomain(dto);
+        dto.Modules[0] = WorkspaceDocumentModule.withModuleChildren(dto.Modules[0], [child], dto.Modules[0].Projects);
+        return dto;
     }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Mixed_children_are_direct_folders_and_names_are_unique_across_both_types(bool branch)
     {
-        var saved = WorkspaceFileStore.CreateWorkspace(Root, Mixed(branch), Token).Definition;
+        var saved = WorkspaceFileStore.CreateDocument(Root, Mixed(branch), Token).Workspace;
         var module = Path.Combine(Root, "sorting");
         Assert.True(Directory.Exists(Path.Combine(module, "nested")));
         Assert.True(Directory.Exists(Path.Combine(module, "search")));
         Assert.False(Directory.Exists(Path.Combine(Root, "modules")));
         Assert.False(Directory.Exists(Path.Combine(module, "projects")));
-        var opened = WorkspaceFileStore.LoadDefinition(Root);
-        Assert.Equal(saved, opened);
-        Assert.Equal(saved.Modules[0].Projects[0].Configuration, WorkspaceFileStore.LoadProjectFolder(Path.Combine(module, "search"), Token).Configuration);
-        var duplicate = WorkspaceDto.fromDomain(saved); duplicate.modules[0].modules[0].moduleName = "SEARCH";
-        Assert.Contains("module and project children", Assert.Throws<ArgumentException>(() => WorkspaceDto.toDomain(duplicate)).Message);
-        var header = WorkspaceDefinitionCodec.moduleWithOrigin(null!, saved.Modules[0]); header.modules[0].name = "SEARCH";
+        var opened = WorkspaceFileStore.LoadWorkspace(Root);
+        Assert.True(WorkspaceDocumentModule.sameContent(saved.CreateEditDocument(), opened.CreateEditDocument()));
+        Assert.True(WorkspaceDocumentModule.sameProjectContent(saved.CreateEditDocument().Modules[0].Projects[0], WorkspaceFileStore.LoadProjectDocument(Path.Combine(module, "search"), Token)));
+        var duplicate = WorkspaceDocumentModule.clone(saved.CreateEditDocument()); duplicate.Modules[0].Modules[0].Definition.moduleName = "SEARCH";
+
+        Assert.Contains("Duplicate folder", Assert.Throws<ArgumentException>(() => WorkspaceDocumentModule.validate(duplicate)).Message);
+        var header = WorkspaceDocumentModule.moduleFile(WorkspaceDocumentModule.clone(saved.CreateEditDocument()).Modules[0]); header.modules[0].name = "SEARCH";
         Assert.Contains("Duplicate folder", Assert.Throws<ArgumentException>(() => WorkspaceDefinitionCodec.decodeModule(MessagePackSetup.serialize(header))).Message);
     }
 
@@ -43,11 +44,11 @@ public sealed class ShortFolderLayoutTests : IDisposable
     [InlineData(16)]
     public void Old_definitions_are_rejected_without_modifying_saved_files(int version)
     {
-        var value = WorkspaceFileStore.CreateWorkspace(Root, Mixed(), Token).Definition;
+        var value = WorkspaceFileStore.CreateDocument(Root, Mixed(), Token).Workspace;
         var path = WorkspaceDefinitionFiles.Require(Root, "workspace");
-        var definition = WorkspaceDefinitionCodec.workspace(value); definition.schemaVersion = version;
+        var definition = WorkspaceDocumentModule.workspaceFile(value.CreateEditDocument()); definition.schemaVersion = version;
         var bytes = MessagePackSetup.serialize(definition); File.WriteAllBytes(path, bytes);
-        Assert.Contains("Unsupported entity definition version", Assert.Throws<ArgumentException>(() => WorkspaceFileStore.LoadDocument(Root)).Message);
+        Assert.Contains("Unsupported entity definition version", Assert.Throws<ArgumentException>(() => WorkspaceFileStore.LoadWorkspace(Root)).Message);
         Assert.Equal(bytes, File.ReadAllBytes(path));
     }
 
@@ -56,7 +57,7 @@ public sealed class ShortFolderLayoutTests : IDisposable
     [InlineData(true)]
     public void Referenced_names_must_match_the_child_definition(bool project)
     {
-        WorkspaceFileStore.CreateWorkspace(Root, Mixed(), Token);
+        WorkspaceFileStore.CreateDocument(Root, Mixed(), Token);
         var parent = project ? Path.Combine(Root, "sorting") : Root;
         var name = project ? "search" : "sorting";
         var folder = Path.Combine(parent, name);
@@ -70,9 +71,9 @@ public sealed class ShortFolderLayoutTests : IDisposable
             File.WriteAllBytes(file, MessagePackSetup.serialize(dto));
         }
         var before = File.ReadAllBytes(file);
-        Assert.Contains("does not match its folder", Assert.Throws<InvalidDataException>(() => WorkspaceFileStore.LoadDocument(Root)).Message);
-        Assert.Throws<InvalidDataException>(() => WorkspaceFileStore.LoadDefinition(Root));
-        Assert.Throws<InvalidDataException>(() => { if (project) WorkspaceFileStore.LoadProjectFolder(folder, Token); else WorkspaceFileStore.LoadModuleFolder(folder, Token); });
+        Assert.Contains("does not match its folder", Assert.Throws<InvalidDataException>(() => WorkspaceFileStore.LoadWorkspace(Root)).Message);
+        Assert.Throws<InvalidDataException>(() => WorkspaceFileStore.LoadWorkspace(Root));
+        Assert.Throws<InvalidDataException>(() => { if (project) WorkspaceFileStore.LoadProjectDocument(folder, Token); else WorkspaceFileStore.LoadModuleDocument(folder, Token); });
         Assert.Equal(before, File.ReadAllBytes(file));
     }
     public void Dispose() => temporary.Delete(true);

@@ -16,11 +16,11 @@ public sealed partial class WorkspacePageViewModel
     }
 
     private bool CanExportWorkspace => CanEdit && !resolvingNavigation && !isResultsExecutionBusy()
-        && savedDocument is not null && HasSavedWorkspace && !HasUnsavedChanges && !HasStructuralErrors && !HasMissingComponents;
+        && savedWorkspace is not null && HasSavedWorkspace && !HasUnsavedChanges && !HasStructuralErrors && !HasMissingComponents;
 
     public string ExportWorkspaceHint => IsBusy || isResultsExecutionBusy()
         ? "Wait for the current operation to finish before exporting."
-        : savedDocument is null || !HasSavedWorkspace || HasUnsavedChanges || HasStructuralErrors || HasMissingComponents
+        : savedWorkspace is null || !HasSavedWorkspace || HasUnsavedChanges || HasStructuralErrors || HasMissingComponents
         ? "Save workspace changes and restore any missing files before exporting."
         : "Copy all modules, projects, runs, and generated files to an empty folder.";
 

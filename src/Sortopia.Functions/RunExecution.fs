@@ -45,17 +45,14 @@ module RunExecution =
             cancellation.ThrowIfCancellationRequested()
             FunctionConfiguration.validateRunInputs value
             // Resolve both names before generating data or calling either function.
-            let config = match value with run.RootRun r -> r.ProjectConfiguration.Results | run.BranchRun r -> r.ProjectConfiguration.Results
+            let config = value.ProjectConfiguration.Results
             let resultsFunction = ResultsFunctionCatalog.requireVersion value.ResultsFunctionName config.FunctionVersion
             let setupFunction = value.SetupFunctionName |> Option.map (fun name ->
                 SetupFunctionCatalog.functions |> Map.tryFind name
                 |> Option.defaultWith (fun () -> invalidOp $"Unknown setup function '{name}'."))
             let sets = RunParameterSets.create value
-            match value with
-            | run.RootRun root -> FunctionConfiguration.validateResults root.ProjectConfiguration.Results
-            | run.BranchRun branch ->
-                FunctionConfiguration.validateResults branch.ProjectConfiguration.Results
-                FunctionConfiguration.validateSetup true branch.ProjectConfiguration.Setup
+            FunctionConfiguration.validateResults config
+            value.Setup |> Option.iter (FunctionConfiguration.validateSetup true)
             // Validate both phases before generating or reusing any data.
             for i = 0 to sets.Results.Length - 1 do
                 context <- $"Validating results set {i + 1} · {value.ResultsFunctionName}"
@@ -90,8 +87,7 @@ module RunExecution =
                 cancellation.ThrowIfCancellationRequested()
             match setupFunction, sets.Setup with
             | Some functionValue, Some setupSets ->
-                let branch = match value with run.BranchRun branch -> branch | _ -> invalidOp "Expected a branch run."
-                let sources = branch.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType functionValue.SourceDataTypes)
+                let sources = value.SourceProjectIds |> Map.filter (fun dataType _ -> List.contains dataType functionValue.SourceDataTypes)
                 for i = 0 to setupSets.Length - 1 do
                     invoke runExecutionPhase.Setup (UMX.untag value.SetupFunctionName.Value) None (i + 1) setupSets[i]
                         (fun () -> factory.ForSetup setupSets[i]) (fun host -> functionValue.Execute host sources) setup

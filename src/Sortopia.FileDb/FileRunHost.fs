@@ -146,38 +146,36 @@ module FileResultsHost =
 
 /// Binds a saved run to setup/results storage and read-only source access, much
 /// like GeneSort's runHost/runStorage/workflowSources, without catalog registration.
-type FileRunHost(scope: runWorkspace, workspaceRoot: string, token: CancellationToken) =
+type FileRunHost(scope: RunExecutionScope, workspaceRoot: string, token: CancellationToken) =
     let value = scope.Run
     let parent = scope.Parent
     let folder = WorkspaceData.scopedProjectFolder scope workspaceRoot parent.Id
     let store = SortopiaFileDb(folder, parent.Id) :> ISortopiaDb
-    new(workspace: workspace, workspaceRoot: string, value: run, token: CancellationToken) =
-        FileRunHost(RunWorkspace.fromWorkspace workspace value, workspaceRoot, token)
     member _.Run = value
     member _.ProjectFolder = folder
     member _.CancellationToken = token
     member _.ForSetup parameters =
-        match value with
-        | run.RootRun _ -> invalidOp "A root run has no setup database."
-        | run.BranchRun branch ->
-            let entries = branch.SetupDataTypes |> List.filter (fun entry -> FunctionConfiguration.requiresSource branch.SetupFunctionName entry.DataType)
+        match value.Setup with
+        | None -> invalidOp "A root run has no setup database."
+        | Some setup ->
+            let entries = setup.Outputs |> List.filter (fun entry -> FunctionConfiguration.requiresSource setup.FunctionName entry.DataType)
             let findSource (projectId, dataType, parameters) =
                 token.ThrowIfCancellationRequested()
                 let entry = entries |> List.tryFind (fun entry -> entry.SourceProjectId = projectId && entry.DataType = dataType)
                             |> Option.defaultWith (fun () -> invalidArg "sourceProjectId" "This project and data type are not configured as a source for this setup function.")
                 WorkspaceData.loadScopedSource scope workspaceRoot entry parameters token
-            let definition = SetupFunctionCatalog.require branch.SetupFunctionName
+            let definition = SetupFunctionCatalog.require setup.FunctionName
             let sources = entries |> List.map (fun entry -> findSource (entry.SourceProjectId, entry.DataType, parameters))
             let inputs = sources |> List.map _.Reference
-            let plan = OutputPlan.create parent.Id (string branch.SetupDatabaseName) true (string branch.SetupFunctionName)
-                                        branch.ProjectConfiguration.Setup.FunctionVersion definition.Outputs
-                                        branch.ProjectConfiguration.Setup.DataTypes parameters inputs
+            let plan = OutputPlan.create parent.Id (string setup.DatabaseName) true (string setup.FunctionName)
+                                        setup.FunctionVersion definition.Outputs
+                                        setup.DataTypes parameters inputs
             let reads = sources |> List.map (fun data -> data.Reference, fun () -> data.Value) |> Map.ofList
             let database = FileRunDatabase(store, plan, token, reads, findSource)
             { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; Reporting = None; PreparationCache = None
               Database = database; Outputs = database.Outputs; GenerationProgress = None; Sgd = None; ResumeSnapshot = None }
     member _.ForResults(parameters, setupOutputs) =
-        FileResultsHost.createWithPreparedInputs Environment.ProcessorCount folder parent.Id parent.Snapshot.Results parameters setupOutputs Map.empty value.Reporting value.Sgd token
+        FileResultsHost.createWithPreparedInputs Environment.ProcessorCount folder parent.Id parent.Configuration.Results parameters setupOutputs Map.empty value.Reporting value.Sgd token
     interface IRunHostFactory with
         member this.Run = this.Run
         member this.CancellationToken = this.CancellationToken

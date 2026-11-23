@@ -127,7 +127,7 @@ public sealed class LibraryParameterTests
             var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(root);
             var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null); var ancestor = page.Selected!;
-            ancestor.Editor!.LoadProject(RunExecutionTests.Settings(branch));
+            ancestor.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(branch));
             (branch ? page.AddBranchModuleCommand : page.AddModuleCommand).Execute(null);
             if (onProject) page.AddProjectCommand.Execute(null); var editor = page.Selected!.Editor!;
             editor.AddResultsParameterDefaultCommand.Execute(null); var local = editor.ResultsParameterDefaults.Last();
@@ -138,7 +138,7 @@ public sealed class LibraryParameterTests
             var run = page.Selected!; WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, false); if (branch) WorkspaceParameterSetsPreviewTests.ConfigureExplicitInputs(run, true);
             Assert.True(run.Editor!.ResultsParameters.Single(row => row.Key == "MergeLibId").Values[0].IsLibraryId);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
-            var savedRun = WorkspaceTestFiles.LoadRuntimeSnapshot(root).Modules[0].Modules[0].Projects[0].Runs[0];
+            var savedRun = WorkspaceTestFiles.LoadRun(root, document => document.Modules[0].Modules[0].Projects[0].Runs[0]);
             Assert.IsType<parameterValue.MergeLibIdValue>(RunParameterSets.create(savedRun).Results[0].TryFind("MergeLibId").Value.Value);
         }
         finally { temporary.Delete(true); }

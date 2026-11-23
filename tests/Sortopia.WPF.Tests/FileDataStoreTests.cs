@@ -184,15 +184,15 @@ public sealed class FileDataStoreTests : IDisposable
         settings.setupFunctionName = SetupFunctionNames.evaluationStandardMssiSimple;
         settings.setupDataTypes = [];
         settings.setupParameterDefaults = [.. RunExecutionTests.UniformModelDefaults(), RunExecutionTests.Binding("SortableDataFormat", "Bools")];
-        var branch = ((run.BranchRun)RunExecutionTests.MakeRun(true, settings)).Item;
+        var branch = RunExecutionTests.MakeRun(true, settings);
         var store = new SortopiaFileDb(temporary.FullName, branch.ParentProjectId);
         var testCalls = 0; var modelCalls = 0;
         foreach (var stage in new[] { 3, 4, 4 })
         {
-            var parameters = BranchRun.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.replKey, stage));
-            var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName : branch.ResultsDatabaseName,
-                setup, setup ? branch.SetupFunctionName : ResultsFunctionNames.standardMssiSimpleEvaluationInputs, "1",
-                SetupFunctionCatalog.require(branch.SetupFunctionName).Outputs, branch.ProjectConfiguration.Setup.DataTypes,
+            var parameters = Run.makeSetupParameterSets(branch).Single().WithBinding(ParameterBinding.create(ParamKeys.replKey, stage));
+            var plan = OutputPlan.create(branch.ParentProjectId, setup ? branch.SetupDatabaseName.Value : branch.ResultsDatabaseName,
+                setup, setup ? branch.SetupFunctionName.Value : ResultsFunctionNames.standardMssiSimpleEvaluationInputs, "1",
+                SetupFunctionCatalog.require(branch.SetupFunctionName.Value).Outputs, branch.ProjectConfiguration.Setup.Value.DataTypes,
                 parameters, List<storedDataReference>());
             var storage = new FileRunDatabase(store, plan, Token);
             IRunDatabase context = storage;

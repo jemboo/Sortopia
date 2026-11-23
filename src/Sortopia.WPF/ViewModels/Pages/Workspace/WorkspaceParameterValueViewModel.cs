@@ -129,6 +129,7 @@ public sealed class WorkspaceParameterBinding : WorkspaceFormItem
 
 public sealed record WorkspaceParameterValueSource(string SourceLabel, WorkspaceConfigurationViewModel? InheritedSource, bool IsOverridden = false)
 {
+    public bool IsLocal => IsOverridden;
     public bool HasInheritedSource => InheritedSource is not null;
 }
 

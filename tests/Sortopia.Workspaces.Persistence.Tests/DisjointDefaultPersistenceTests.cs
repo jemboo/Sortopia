@@ -14,21 +14,23 @@ public sealed class DisjointDefaultPersistenceTests
         var family = branch ? hierarchyKind.Branch : hierarchyKind.Root;
         parameterBindingDto[] defaults = [new() { keyName = "ChannelCount", valueType = (int)parameterValueType.Integer, value = "unfinished" },
             new() { keyName = "SortableDataFormat", valueType = (int)parameterValueType.Text, value = "Bools" }];
-        var local = new projectOverridesDto {
+        var local = new projectLocalSettingsDto {
             resultsParameterDefaults = defaults, excludedResultsDefaults = ["ChannelCount"],
             setupParameterDefaults = branch ? defaults : null, excludedSetupDefaults = branch ? ["ChannelCount"] : [] };
-        var runtime = OverridesDto.fromDomain(OverridesDto.toDomain(family, local));
+        var parent = ProjectResolution.configuration(branch);
+        var runtime = ProjectLocalSettingsDto.fromDomain(ProjectLocalSettingsDto.toDomain(parent, local));
         Assert.Equal("SortableDataFormat", Assert.Single(runtime.resultsParameterDefaults).keyName);
         if (branch) Assert.Equal("SortableDataFormat", Assert.Single(runtime.setupParameterDefaults).keyName);
-        var module = ModuleOverridesDto.fromProjectOverrides(local);
+        var module = new moduleOverridesDto { resultsParameterDefaults = defaults, excludedResultsDefaults = ["ChannelCount"],
+            setupParameterDefaults = branch ? defaults : null, excludedSetupDefaults = branch ? ["ChannelCount"] : [] };
         Assert.Equal("SortableDataFormat", Assert.Single(ModuleOverridesDto.fromDomain(ModuleOverridesDto.toDomain(family, module)).resultsParameterDefaults).keyName);
         Assert.Equal("unfinished", local.resultsParameterDefaults[0].value);
         local.excludedResultsDefaults = [];
-        Assert.Throws<ArgumentException>(() => OverridesDto.toDomain(family, local));
+        Assert.Throws<ArgumentException>(() => ProjectLocalSettingsDto.toDomain(parent, local));
         if (branch)
         {
             local.excludedResultsDefaults = ["ChannelCount"]; local.excludedSetupDefaults = [];
-            Assert.Throws<ArgumentException>(() => OverridesDto.toDomain(family, local));
+            Assert.Throws<ArgumentException>(() => ProjectLocalSettingsDto.toDomain(parent, local));
         }
     }
 
@@ -49,24 +51,24 @@ public sealed class DisjointDefaultPersistenceTests
             var local = ModuleOverridesDto.toDomain(family, new moduleOverridesDto { excludedResultsDefaults = ["ChannelCount"], excludedSetupDefaults = branch ? ["ChannelCount"] : [] });
             var effective = ModuleDefaults.resolve(inherited, local);
             var query = new resultsDataTypeConfigDto { dataType = new() { kind = "SortableTests", value = "" }, queryParameterKeys = ["ChannelCount"] };
-            var project = Sortopia.Workspaces.project.createInherited(Guid.NewGuid(), "Project", ModuleDefaults.toProject(effective),
-                OverridesDto.toDomain(family, new projectOverridesDto { resultsQueries = [query], setupQueries = branch ? [query] : null }), []);
-            var module = workspaceModule.createInherited(Guid.NewGuid(), "Detached", inherited, local, [], [project]);
-            var parentModule = workspaceModule.createInherited(Guid.NewGuid(), "Parent", ModuleDefaults.configuration(branch), parentOverrides, [module], []);
-            var world = workspace.create(Guid.NewGuid(), "Workspace", "Workspace", [parentModule]);
+            var project = WorkspaceFixtures.DraftProject(Guid.NewGuid(), "Project", ModuleDefaults.toProject(effective),
+                ProjectLocalSettingsDto.toDomain(ModuleDefaults.toProject(effective), new projectLocalSettingsDto { resultsQueries = [query], setupQueries = branch ? [query] : null }), []);
+            var module = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "Detached", inherited, local, [], [project]);
+            var parentModule = WorkspaceFixtures.InheritedModule(Guid.NewGuid(), "Parent", ModuleDefaults.configuration(branch), parentOverrides, [module], []);
+            var world = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Workspace", "Workspace", [parentModule]);
             var root = Path.Combine(temporary.FullName, "Workspace"); Directory.CreateDirectory(root);
-            WorkspaceFileStore.CreateWorkspace(root, world, TestContext.Current.CancellationToken);
-            var loaded = WorkspaceFileStore.LoadModuleFolder(Path.Combine(root, "Parent", "Detached"), TestContext.Current.CancellationToken);
-            Assert.Equal(new[] { "ChannelCount" }, ModuleOverridesDto.fromDomain(loaded.LocalOverrides).excludedResultsDefaults);
-            Assert.Equal(new[] { "SortableDataFormat" }, loaded.ResultsParameterDefaults.Select(binding => binding.KeyName));
+            WorkspaceFileStore.CreateDocument(root, world, TestContext.Current.CancellationToken);
+            var loaded = WorkspaceFileStore.LoadModuleDocument(Path.Combine(root, "Parent", "Detached"), TestContext.Current.CancellationToken);
+            Assert.Equal(new[] { "ChannelCount" }, ModuleOverridesDto.fromDomain(loaded.LocalOverrides()).excludedResultsDefaults);
+            Assert.Equal(new[] { "SortableDataFormat" }, loaded.Configuration().ResultsParameterDefaults.Select(binding => binding.KeyName));
             var saved = loaded.Projects.Single();
-            Assert.Equal(new[] { "ChannelCount" }, saved.ResultsQueryParameterKeys);
-            Assert.Equal(new[] { "SortableDataFormat" }, saved.ResultsParameterDefaults.Select(binding => binding.KeyName));
-            var inputs = new runDto { schemaVersion = WorkspaceDtoSchema.version, id = Guid.NewGuid(), parentProjectId = saved.Id, runName = "Trial", runKind = branch ? "branch" : "root",
+            Assert.Equal(new[] { "ChannelCount" }, saved.Configuration().ResultsQueryParameterKeys);
+            Assert.Equal(new[] { "SortableDataFormat" }, saved.Configuration().ResultsParameterDefaults.Select(binding => binding.KeyName));
+            var inputs = new runDto { schemaVersion = RunDtoSchema.version, id = Guid.NewGuid(), parentProjectId = saved.Definition.id, runName = "Trial", runKind = branch ? "branch" : "root",
                 resultsParameterSpans = [new() { keyName = "ChannelCount", values = ["8", "16"] }], setupParameterSpans = branch ? [new() { keyName = "ChannelCount", values = ["8", "16"] }] : [] };
-            var run = RunDto.toDomain(saved, inputs);
+            var run = RunDto.toDomain(saved.Snapshot(), inputs);
             var sets = RunParameterSets.create(run); Assert.Equal(2, sets.Results.Length);
-            if (branch) { Assert.Equal(2, sets.Setup.Value.Length); Assert.Equal(new[] { "ChannelCount" }, ModuleOverridesDto.fromDomain(loaded.LocalOverrides).excludedSetupDefaults); }
+            if (branch) { Assert.Equal(2, sets.Setup.Value.Length); Assert.Equal(new[] { "ChannelCount" }, ModuleOverridesDto.fromDomain(loaded.LocalOverrides()).excludedSetupDefaults); }
         }
         finally { temporary.Delete(true); }
     }

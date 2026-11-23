@@ -18,7 +18,7 @@ public sealed class WorkspaceFixedSpanTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => null, Settings);
         if (page.HasSavedWorkspace) return page;
         page.AddBranchModuleCommand.Execute(null);
-        page.Selected!.Editor!.LoadProject(RunExecutionTests.Settings(true));
+        page.Selected!.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
         page.AddProjectCommand.Execute(null); page.AddRunCommand.Execute(null);
         return page;
     }
@@ -34,7 +34,7 @@ public sealed class WorkspaceFixedSpanTests : IDisposable
         project.Editor.ResultsQueryOutputs.Single().FixedParameters.Single(row => row.Key == "SortableDataFormat").UseAsQueryKeyCommand.Execute(null);
         var span = Assert.Single(run.Editor!.DeclaredResultsParameters);
         Assert.Empty(span.Values); Assert.Empty(project.Editor.EditableResultsParameterDefaults);
-        Assert.Equal("Ints", project.Editor.ToLocalOverrides().resultsParameterDefaults.Single().value);
+        Assert.Equal("Ints", project.Editor.ToLocalSettings().resultsParameterDefaults.Single().value);
         Assert.DoesNotContain(project.Editor.ToProjectSettings().resultsParameterDefaults, row => row.keyName == span.Key);
         Assert.False(span.RemoveCommand.CanExecute(null));
         span.RemoveCommand.Execute(null); Assert.Same(span, Assert.Single(run.Editor.DeclaredResultsParameters));
@@ -66,7 +66,7 @@ public sealed class WorkspaceFixedSpanTests : IDisposable
         var span = Assert.Single(run.Editor!.DeclaredSetupParameters); span.AddValueCommand.Execute(null); span.Values[0].Text = "4";
         await page.SaveWorkspaceAsync(); Assert.True(page.Error.Length == 0, page.Error);
         page = Open(); WorkspaceRunExecutionTests.SelectRun(page); run = page.Selected!; project = run.Parent!;
-        Assert.Equal("unfinished", project.Editor!.ToLocalOverrides().setupParameterDefaults.Single().value);
+        Assert.Equal("unfinished", project.Editor!.ToLocalSettings().setupParameterDefaults.Single().value);
         Assert.True(page.GenerateRunParametersCommand.CanExecute(null), page.GenerationHint);
         project.Editor.SetupQueryOutputs.Single().Keys.Single(row => row.Key == "ChannelCount").Selected = false;
         project.Editor.InheritedSetupDefaults.Single(row => row.Key == "SortableDataFormat").OverrideCommand!.Execute(null);

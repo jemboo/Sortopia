@@ -9,7 +9,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -18,40 +18,40 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-project-inheritance-");
     private string Root => Path.Combine(temporary.FullName, "Workspace");
     private static CancellationToken Token => TestContext.Current.CancellationToken;
-    private static project Parent(bool branch, string name = "P", string description = "Project description")
+    private static ProjectDocument Parent(bool branch, string name = "P", string description = "Project description")
     {
         var settings = WorkspaceHierarchyTests.ProjectSettings(branch);
         settings.description = description;
         settings.resultsParameterDefaults = []; settings.setupParameterDefaults = [];
         foreach (var output in settings.resultsDataTypes) output.queryParameterKeys = ["ChannelCount", "SortableDataFormat"];
         foreach (var output in settings.setupDataTypes) output.queryParameterKeys = ["ChannelCount", "SortableDataFormat"];
-        return project.create(Guid.NewGuid(), name, ProjectDto.settingsToDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
+        return WorkspaceFixtures.Project(Guid.NewGuid(), name, SettingsDto.toDomain(branch ? hierarchyKind.Branch : hierarchyKind.Root, settings), []);
     }
-    private static runDto Inputs(project parent, string name = "R")
+    private static runDto Inputs(ProjectDocument parent, string name = "R")
     {
-        var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun(parent.ProjectName, name, parent.Kind == hierarchyKind.Branch));
+        var dto = RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun(parent.Definition.projectName, name, parent.Family() == hierarchyKind.Branch));
         dto.id = Guid.NewGuid();
-        dto.parentProjectId = parent.Id;
+        dto.parentProjectId = parent.Definition.id;
         return dto;
     }
-    private static project WithRuns(project parent, params runDto[] inputs) =>
-        project.create(parent.Id, parent.ProjectName, parent.Configuration, inputs.Select(input => RunDto.toDomain(parent, input)).ToArray());
+    private static ProjectDocument WithRuns(ProjectDocument parent, params runDto[] inputs) =>
+        WorkspaceFixtures.Project(parent.Definition.id, parent.Definition.projectName, parent.Configuration(), inputs.Select(input => RunDto.toDomain(parent.Snapshot(), input)).ToArray());
 
     [Fact]
     public void Root_run_constructor_accepts_its_parent_and_only_run_inputs()
     {
-        var parent = rootProject.seal(((project.RootProject)Parent(false)).Item);
-        var spans = ((run.RootRun)WorkspaceHierarchyTests.MakeRun("P", "R")).Item.ResultsParameterSpans;
+        var parent = WorkspaceFixtures.Seal(Parent(false));
+        var spans = WorkspaceHierarchyTests.MakeRun("P", "R").ResultsParameterSpans;
         var id = Guid.NewGuid();
-        var inherited = RootRun.create(parent, new rootRunConfig(id, "Inherited", parent.Id, null, spans, null, null));
+        var inherited = Run.create(parent.Snapshot(), new runConfig(id, "Inherited", parent.Definition.id, null, spans, null, null, null));
         Assert.Equal("Project description", inherited.Description);
-        Assert.Equal(parent.ResultsDatabaseName, inherited.ResultsDatabaseName);
-        Assert.Equal(parent.ResultsFunctionName, inherited.ResultsFunctionName);
-        Assert.Equal(parent.ResultsSortopiaDataTypes, inherited.ResultsSortopiaDataTypes);
-        Assert.Equal(parent.ResultsQueryParameterKeys, inherited.ResultsQueryParameterKeys);
+        Assert.Equal(parent.Configuration().ResultsDatabaseName, inherited.ResultsDatabaseName);
+        Assert.Equal(parent.Configuration().ResultsFunctionName, inherited.ResultsFunctionName);
+        Assert.Equal(parent.Configuration().ResultsSortopiaDataTypes, inherited.ResultsSortopiaDataTypes);
+        Assert.Equal(parent.Configuration().ResultsQueryParameterKeys, inherited.ResultsQueryParameterKeys);
         Assert.Null(inherited.Configuration.DescriptionOverride);
         Assert.Equal(id, inherited.Id);
-        var blank = RootRun.create(parent, new rootRunConfig(Guid.NewGuid(), "Blank", parent.Id, FSharpOption<string>.Some(""), spans, null, null));
+        var blank = Run.create(parent.Snapshot(), new runConfig(Guid.NewGuid(), "Blank", parent.Definition.id, FSharpOption<string>.Some(""), spans, null, null, null));
         Assert.Equal("", blank.Description);
         Assert.NotNull(blank.Configuration.DescriptionOverride);
     }
@@ -59,21 +59,21 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     [Fact]
     public void Branch_run_constructor_fixes_setup_function_and_allows_description_override()
     {
-        var parent = branchProject.seal(((project.BranchProject)Parent(true)).Item);
-        var template = ((run.BranchRun)WorkspaceHierarchyTests.MakeRun("P", "R", true)).Item;
-        var inherited = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Inherited", parent.Id, null,
+        var parent = WorkspaceFixtures.Seal(Parent(true));
+        var template = WorkspaceHierarchyTests.MakeRun("P", "R", true);
+        var inherited = Run.create(parent.Snapshot(), new runConfig(Guid.NewGuid(), "Inherited", parent.Definition.id, null,
             template.ResultsParameterSpans, template.SetupParameterSpans, null, null));
-        Assert.Equal(parent.Description, inherited.Description);
-        Assert.Equal(parent.SetupDatabaseName, inherited.SetupDatabaseName);
-        Assert.Equal(parent.SetupFunctionName, inherited.SetupFunctionName);
-        Assert.Equal(parent.SetupSortopiaDataTypes, inherited.SetupSortopiaDataTypes);
-        Assert.Equal(parent.SetupQueryParameterKeys, inherited.SetupQueryParameterKeys);
-        var descriptionOverride = BranchRun.create(parent, new branchRunConfig(Guid.NewGuid(), "Override description", parent.Id, FSharpOption<string>.Some("Custom description"),
+        Assert.Equal(parent.Configuration().Description, inherited.Description);
+        Assert.Equal(parent.Configuration().Setup.Value.DatabaseName, inherited.SetupDatabaseName.Value);
+        Assert.Equal(parent.Configuration().Setup.Value.FunctionName, inherited.SetupFunctionName.Value);
+        Assert.Equal(parent.Configuration().Setup.Value.SortopiaDataTypes, inherited.SetupSortopiaDataTypes.Value);
+        Assert.Equal(parent.Configuration().Setup.Value.QueryParameterKeys, inherited.SetupQueryParameterKeys.Value);
+        var descriptionOverride = Run.create(parent.Snapshot(), new runConfig(Guid.NewGuid(), "Override description", parent.Definition.id, FSharpOption<string>.Some("Custom description"),
             template.ResultsParameterSpans, template.SetupParameterSpans, null, null));
-        Assert.Equal("Setup", descriptionOverride.SetupDatabaseName);
-        Assert.Equal("sortable-tests-with-prefix.standard", descriptionOverride.SetupFunctionName);
+        Assert.Equal("Setup", descriptionOverride.SetupDatabaseName.Value);
+        Assert.Equal("sortable-tests-with-prefix.standard", descriptionOverride.SetupFunctionName.Value);
         Assert.Equal("Custom description", descriptionOverride.Description);
-        Assert.Null(typeof(branchRunConfig).GetProperty("SetupFunctionNameOverride"));
+        Assert.Null(typeof(runConfig).GetProperty("SetupFunctionNameOverride"));
     }
 
     [Theory]
@@ -87,41 +87,42 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         explicitValues.descriptionOverride = "";
         Assert.Null(typeof(runDto).GetProperty("setupFunctionNameOverride"));
         parent = WithRuns(parent, inherited, explicitValues);
-        var dto = ProjectDto.fromDomain(WorkspaceCodec.decodeProject(WorkspaceCodec.encodeProject(parent)));
-        Assert.Null(dto.runs[0].descriptionOverride);
-        Assert.Equal("", dto.runs[1].descriptionOverride);
+        var dto = WorkspaceDocumentModule.cloneProject(parent);
+        Assert.Null(dto.Runs[0].descriptionOverride);
+        Assert.Equal("", dto.Runs[1].descriptionOverride);
         Assert.Null(typeof(runDto).GetProperty("setupDatabaseNameOverride"));
-        dto.localOverrides.description = "New project description";
-        dto.localOverrides.resultsDatabaseName = "New results";
-        if (branch) { dto.localOverrides.setupDatabaseName = "New setup"; }
-        var updated = ProjectDto.toDomain(dto);
-        Assert.Equal("Project description", updated.Runs[0].Description);
-        Assert.Equal("", updated.Runs[1].Description);
-        Assert.All(updated.Runs, item => Assert.Equal("Results", item.ResultsDatabaseName));
-        Assert.All(updated.Runs, item => Assert.Equal("sortable-tests.standard", item.ResultsFunctionName));
-        Assert.Equal(parent.Runs.Select(item => item.Id), updated.Runs.Select(item => item.Id));
+        dto.Definition.state = projectStateDto.NewSealed(dto.Definition.configuration, Microsoft.FSharp.Core.FSharpOption<projectLocalSettingsDto>.Some(ProjectLocalSettingsDto.fromDomain(parent.LocalSettings())));
+        dto.Definition.localSettings.description = "New project description";
+        dto.Definition.localSettings.resultsDatabaseName = "New results";
+        if (branch) { dto.Definition.localSettings.setupDatabaseName = "New setup"; }
+        var updated = dto;
+        Assert.Equal("Project description", updated.ResolvedRuns()[0].Description);
+        Assert.Equal("", updated.ResolvedRuns()[1].Description);
+        Assert.All(updated.ResolvedRuns(), item => Assert.Equal("Results", item.ResultsDatabaseName));
+        Assert.All(updated.ResolvedRuns(), item => Assert.Equal("sortable-tests.standard", item.ResultsFunctionName));
+        Assert.Equal(parent.Runs.Select(item => item.id), updated.Runs.Select(item => item.id));
         if (branch)
         {
-            Assert.Equal("Setup", updated.Runs[0].SetupDatabaseName.Value);
-            Assert.Equal("sortable-tests-with-prefix.standard", updated.Runs[0].SetupFunctionName.Value);
-            Assert.Equal("Setup", updated.Runs[1].SetupDatabaseName.Value);
-            Assert.Equal("sortable-tests-with-prefix.standard", updated.Runs[1].SetupFunctionName.Value);
+            Assert.Equal("Setup", updated.ResolvedRuns()[0].SetupDatabaseName.Value);
+            Assert.Equal("sortable-tests-with-prefix.standard", updated.ResolvedRuns()[0].SetupFunctionName.Value);
+            Assert.Equal("Setup", updated.ResolvedRuns()[1].SetupDatabaseName.Value);
+            Assert.Equal("sortable-tests-with-prefix.standard", updated.ResolvedRuns()[1].SetupFunctionName.Value);
         }
-        var fileJson = JsonSerializer.SerializeToNode(RunDto.fromDomain(updated.Runs[0]))!.AsObject();
+        var fileJson = JsonSerializer.SerializeToNode(RunDto.fromDomain(updated.ResolvedRuns()[0]))!.AsObject();
         Assert.False(fileJson.ContainsKey("resultsDatabaseName"));
         Assert.False(fileJson.ContainsKey("resultsFunctionName"));
         Assert.False(fileJson.ContainsKey("resultsSortopiaDataTypes"));
         Assert.False(fileJson.ContainsKey("setupSortopiaDataTypes"));
-        Assert.Equal(updated.Runs[0].Description, WorkspaceCodec.decodeRun(updated, WorkspaceCodec.encodeRun(updated.Runs[0])).Description);
+        Assert.Equal(updated.ResolvedRuns()[0].Description, RunCodec.decodeRun(updated.Snapshot(), RunCodec.encodeRun(updated.ResolvedRuns()[0])).Description);
     }
 
     [Fact]
     public void Each_setup_output_uses_its_own_query_keys()
     {
-        var value = (run.BranchRun)RunExecutionTests.MakeRun(true, FunctionOutputContractTests.Combined(true));
-        var parameters = BranchRun.makeSetupParameterSets(value.Item)[0];
-        var tests = QueryParams.forSetup(value.Item, sortopiaDataType.NewSortableTests(""), parameters);
-        var models = QueryParams.forSetup(value.Item, sortopiaDataType.NewSorterModelSet(""), parameters);
+        var value = RunExecutionTests.MakeRun(true, FunctionOutputContractTests.Combined(true));
+        var parameters = Run.makeSetupParameterSets(value)[0];
+        var tests = QueryParams.forSetup(value, sortopiaDataType.NewSortableTests(""), parameters);
+        var models = QueryParams.forSetup(value, sortopiaDataType.NewSorterModelSet(""), parameters);
         Assert.Equal(new[] { "ChannelCount", "SortableDataFormat" }, tests.Properties.Keys);
         Assert.Contains("Repl", models.Properties.Keys); Assert.DoesNotContain("Repl", tests.Properties.Keys);
         Assert.NotEqual(tests.Id, models.Id);
@@ -131,11 +132,11 @@ public sealed class WorkspaceInheritanceTests : IDisposable
     public void Run_parameters_must_satisfy_parent_query_keys_and_blank_setup_overrides_are_rejected()
     {
         var parent = Parent(true); var inputs = Inputs(parent); inputs.resultsParameterSpans = [];
-        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
+        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), inputs)).Message);
         inputs = Inputs(parent); inputs.setupParameterSpans = [];
-        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent, inputs)).Message);
+        Assert.Contains("ChannelCount", Assert.Throws<ArgumentException>(() => RunDto.toDomain(parent.Snapshot(), inputs)).Message);
         Assert.Null(typeof(runDto).GetProperty("setupFunctionNameOverride"));
-        Assert.Null(typeof(projectOverridesDto).GetProperty("setupDataTypes"));
+        Assert.Null(typeof(projectLocalSettingsDto).GetProperty("setupDataTypes"));
     }
 
     [Theory]
@@ -148,12 +149,12 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         var overridden = Inputs(source, "Overridden");
         overridden.descriptionOverride = "Explicit description";
         source = WithRuns(source, inherited, overridden);
-        var destinationDto = ProjectDto.fromDomain(Parent(branch, "Destination", "Destination description"));
-        destinationDto.localOverrides.resultsDatabaseName = "Destination results";
-        if (branch) destinationDto.localOverrides.setupDatabaseName = "Destination setup";
-        var destination = ProjectDto.toDomain(destinationDto);
-        var module = WorkspaceHierarchyTests.MakeModule(source.Kind, Guid.NewGuid(), "M", [], [source, destination]);
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "W", "Workspace", [module]), Token);
+        var destinationDto = Parent(branch, "Destination", "Destination description");
+        destinationDto.Definition.localSettings.resultsDatabaseName = "Destination results";
+        if (branch) destinationDto.Definition.localSettings.setupDatabaseName = "Destination setup";
+        var destination = destinationDto;
+        var module = WorkspaceHierarchyTests.MakeModule(source.Family(), Guid.NewGuid(), "M", [], [source, destination]);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "W", "Workspace", [module]), Token);
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt"));
         settings.Save(Root);
         var page = new WorkspacePageViewModel(() => { }, _ => null, settings);
@@ -165,9 +166,9 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         await page.PasteAsync();
         Assert.Contains("parent project", page.Error);
         Assert.Same(nodes[0], originalRun.Parent);
-        var saved = WorkspaceFileStore.LoadDefinition(Root).Modules.Single().Projects[0];
-        Assert.Equal(source.Id, saved.Runs[0].ParentProjectId);
-        Assert.Equal("Source description", saved.Runs[0].Description);
+        var saved = WorkspaceTestFiles.LoadRun(Root, document => document.Modules.Single().Projects[0].Runs[0]);
+        Assert.Equal(source.Definition.id, saved.ParentProjectId);
+        Assert.Equal("Source description", saved.Description);
     }
 
     [Fact]
@@ -193,7 +194,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         Assert.Equal("Edited project description", run.Editor.DescriptionOverride.EffectiveValue);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal("Edited project description", WorkspaceTestFiles.LoadRuntimeSnapshot(Root).Modules[0].Projects[0].Runs[0].Description);
+        Assert.Equal("Edited project description", WorkspaceTestFiles.LoadRun(Root, document => document.Modules[0].Projects[0].Runs[0]).Description);
         var file = WorkspaceDefinitionFiles.Require(Root, "workspace");
         var before = File.ReadAllBytes(file);
         run = page.Roots[0].Children[0].Children[0].Children[0];
@@ -204,7 +205,7 @@ public sealed class WorkspaceInheritanceTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Contains("ChannelCount", page.Error);
         Assert.Empty(page.OperationError); Assert.False(page.HasUnsavedChanges);
-        Assert.All(WorkspaceFileStore.LoadDocument(Root).Modules[0].Projects[0].Runs[0].resultsParameterSpans, span => Assert.Empty(span.values));
+        Assert.All(WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Modules[0].Projects[0].Runs[0].resultsParameterSpans, span => Assert.Empty(span.values));
         Assert.Equal(before, File.ReadAllBytes(file));
     }
 

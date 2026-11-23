@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using Sortopia.WPF.Settings;
 using Sortopia.Workspaces.Persistence;
 using Sortopia.Workspaces;
+using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.ViewModels;
 using Sortopia.WPF.ViewModels.Pages.Home;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
@@ -43,7 +44,7 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.False(page.ShowNewWorkspace);
         Assert.Contains("Saved workspace file", page.WorkspaceFileStatus);
         Assert.Contains("Sorting research", page.Status);
-        Assert.Equal("Sorting research", WorkspaceFileStore.LoadDefinition(first).WorkspaceName);
+        Assert.Equal("Sorting research", WorkspaceFileStore.LoadWorkspace(first).CreateEditDocument().Definition.workspaceName);
         Assert.False(page.DiscardChangesCommand.CanExecute(null));
         Assert.True(new WorkspacePageViewModel(() => { }, _ => null, Settings).HasSavedWorkspace);
 
@@ -98,23 +99,23 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.False(reopened.HasUnsavedChanges);
         Assert.False(reopened.SaveWorkspaceCommand.CanExecute(null));
         Assert.DoesNotContain("Unsaved changes", reopened.WorkspaceFileStatus);
-        var saved = WorkspaceTestFiles.LoadRuntimeSnapshot(folder);
-        Assert.Equal("Research: updated", saved.WorkspaceName);
-        Assert.Equal("Root", saved.FolderName);
-        Assert.Equal("Sorting updated", saved.Modules.Single().ModuleName);
-        var project = saved.Modules.Single().Projects.Single();
-        Assert.Equal("Search updated", project.ProjectName);
-        Assert.Equal("Search updated", project.Runs.Single().ProjectName);
-        Assert.Equal("Trial: renamed", project.Runs.Single().RunName);
-        Assert.Equal(runId, project.Runs.Single().Id);
+        var saved = WorkspaceFileStore.LoadWorkspace(folder);
+        Assert.Equal("Research: updated", saved.CreateEditDocument().Definition.workspaceName);
+        Assert.Equal("Root", saved.CreateEditDocument().Definition.folderName);
+        Assert.Equal("Sorting updated", saved.CreateEditDocument().Modules.Single().Definition.moduleName);
+        var project = new WorkspaceDocumentIndex(saved.CreateEditDocument()).TryFindRun(runId).Value.Parent.Document;
+        Assert.Equal("Search updated", project.Definition.projectName);
+        Assert.Equal("Search updated", project.ResolvedRuns().Single().ProjectName);
+        Assert.Equal("Trial: renamed", project.ResolvedRuns().Single().RunName);
+        Assert.Equal(runId, project.ResolvedRuns().Single().Id);
         var expectedDto = Sortopia.Workspaces.Serialization.RunDto.fromDomain(WorkspaceHierarchyTests.MakeRun("Search", "Trial: renamed", branch));
         expectedDto.id = runId;
-        expectedDto.parentProjectId = project.Id;
+        expectedDto.parentProjectId = project.Definition.id;
         var expectedRun = WorkspaceHierarchyTests.FromRunDto(expectedDto);
         Assert.False(Directory.Exists(projectFolder));
         projectFolder = Path.Combine(folder, "Sorting updated", "Search updated");
         output = Path.Combine(projectFolder, "results.txt");
-        Assert.Equal(Sortopia.Workspaces.Serialization.WorkspaceCodec.encodeRun(expectedRun),
+        Assert.Equal(Sortopia.Workspaces.Serialization.RunCodec.encodeRun(expectedRun),
             File.ReadAllBytes(Path.Combine(projectFolder, "runs", WorkspaceDefinitionFiles.Name(runId))));
         Assert.Equal("Keep results", File.ReadAllText(output));
         Assert.Single(Directory.GetDirectories(folder));
@@ -154,7 +155,7 @@ public sealed class WorkspacePageTests : IDisposable
         Assert.NotEqual(first.Id, second.Id);
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal(2, WorkspaceTestFiles.LoadRuntimeSnapshot(folder).Modules.Single().Projects.Single().Runs.Length);
+        Assert.Equal(2, WorkspaceFileStore.LoadWorkspace(folder).CreateEditDocument().Modules.Single().Projects.Single().Runs.Length);
     }
 
     [Fact]
@@ -171,18 +172,18 @@ public sealed class WorkspacePageTests : IDisposable
             Assert.NotEmpty(page.Error);
             Assert.True(page.HasUnsavedChanges);
             Assert.True(page.SaveWorkspaceCommand.CanExecute(null));
-            Assert.Equal("Root", WorkspaceFileStore.LoadDefinition(folder).WorkspaceName);
+            Assert.Equal("Root", WorkspaceFileStore.LoadWorkspace(folder).CreateEditDocument().Definition.workspaceName);
         }
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
-        Assert.Equal("Updated", WorkspaceFileStore.LoadDefinition(folder).WorkspaceName);
+        Assert.Equal("Updated", WorkspaceFileStore.LoadWorkspace(folder).CreateEditDocument().Definition.workspaceName);
         page.WorkspaceName = "My edit";
-        var external = workspace.create(Guid.NewGuid(), "External edit", "Root", []);
-        WorkspaceFileStore.SaveWorkspace(folder, external, WorkspaceFileStore.LoadDefinition(folder), CancellationToken.None);
+        var external = WorkspaceFixtures.Workspace(Guid.NewGuid(), "External edit", "Root", []);
+        WorkspaceFileStore.SaveDocument(external, WorkspaceFileStore.LoadWorkspace(folder), CancellationToken.None);
         await page.SaveWorkspaceAsync();
         Assert.Contains("changed since it was loaded", page.Error);
         Assert.Equal("My edit", page.WorkspaceName);
-        Assert.Equal("External edit", WorkspaceFileStore.LoadDefinition(folder).WorkspaceName);
+        Assert.Equal("External edit", WorkspaceFileStore.LoadWorkspace(folder).CreateEditDocument().Definition.workspaceName);
         page.DiscardChangesCommand.Execute(null);
         Assert.Equal("Updated", page.WorkspaceName); // Discard restores our saved snapshot without touching disk.
         Assert.False(page.HasUnsavedChanges);
@@ -208,7 +209,7 @@ public sealed class WorkspacePageTests : IDisposable
         await page.SaveWorkspaceAsync();
         Assert.Empty(page.Error);
         Assert.True(page.HasSavedWorkspace);
-        Assert.Equal("sorting", WorkspaceFileStore.LoadDefinition(folder).Modules.Single().ModuleName);
+        Assert.Equal("sorting", WorkspaceFileStore.LoadWorkspace(folder).CreateEditDocument().Modules.Single().Definition.moduleName);
     }
 
     [Fact]
@@ -218,12 +219,12 @@ public sealed class WorkspacePageTests : IDisposable
         var page = new WorkspacePageViewModel(() => { }, _ => folder, Settings);
         page.BrowseWorkspaceFolderCommand.Execute(null);
         page.WorkspaceName = "My draft";
-        WorkspaceFileStore.CreateWorkspace(folder, workspace.create(Guid.NewGuid(), "Already saved", "Root", []), CancellationToken.None);
+        WorkspaceFileStore.CreateDocument(folder, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Already saved", "Root", []), CancellationToken.None);
         await page.SaveWorkspaceAsync();
         Assert.Contains("already exists", page.Error);
         Assert.True(page.HasSavedWorkspace);
         Assert.False(page.ShowNewWorkspace);
-        Assert.Equal("Already saved", WorkspaceFileStore.LoadDefinition(folder).WorkspaceName);
+        Assert.Equal("Already saved", WorkspaceFileStore.LoadWorkspace(folder).CreateEditDocument().Definition.workspaceName);
     }
 
     [Fact]

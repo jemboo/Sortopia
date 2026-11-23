@@ -70,26 +70,26 @@ public sealed class WorkspaceSourceOverridesTests
         }
         Assert.Equal("SortableTests", Assert.Single(tree.Tests.Editor!.ToModuleOverrides().setupSources).dataType.kind);
         Assert.Equal("SorterModelSet", Assert.Single(tree.Models.Editor!.ToModuleOverrides().setupSources).dataType.kind);
-        Assert.Null(tree.Project.Editor!.ToLocalOverrides().setupSources);
+        Assert.Null(tree.Project.Editor!.ToLocalSettings().setupSources);
         var replacement = Guid.NewGuid(); Set(tree.Project, "SortableTests", replacement);
         var projectRow = Source(tree.Project, "SortableTests");
         Assert.Equal(models, Effective(tree.Run, "SorterModelSet")); Assert.Equal(replacement, Effective(tree.Run, "SortableTests"));
         var changed = Guid.NewGuid(); Set(tree.Tests, "SortableTests", changed);
         Assert.Equal(replacement, Effective(tree.Run, "SortableTests"));
         projectRow.SourceOverride!.IsOverridden = false;
-        Assert.Equal(changed, Effective(tree.Run, "SortableTests")); Assert.Null(tree.Project.Editor.ToLocalOverrides().setupSources);
+        Assert.Equal(changed, Effective(tree.Run, "SortableTests")); Assert.Null(tree.Project.Editor.ToLocalSettings().setupSources);
         Assert.Same(tree.Tests.Editor, projectRow.SourceOverride.InheritedSource);
         projectRow.SourceOverride.IsOverridden = true;
         Assert.Equal(replacement, Effective(tree.Run, "SortableTests")); // Restore this row's editing draft.
         projectRow.SourceProjectId = Guid.Empty;
         Assert.Equal(Guid.Empty, Effective(tree.Run, "SortableTests")); Assert.Equal(models, Effective(tree.Run, "SorterModelSet"));
-        Assert.Equal(Guid.Empty, Assert.Single(tree.Project.Editor.ToLocalOverrides().setupSources).sourceProjectId);
+        Assert.Equal(Guid.Empty, Assert.Single(tree.Project.Editor.ToLocalSettings().setupSources).sourceProjectId);
         Assert.Contains("Choose a source", tree.Project.Editor.InheritedSetupDataTypes.Single(row => row.DataType.Kind == "SortableTests").Error);
 
         // Domain resolution agrees with the editor, including an explicitly blank source.
         var inherited = SettingsDto.toDomain(hierarchyKind.Branch, tree.Models.Editor.ToProjectSettings());
-        var local = OverridesDto.toDomain(hierarchyKind.Branch, tree.Project.Editor.ToLocalOverrides());
-        var resolved = SettingsDto.fromDomain(Defaults.resolve(inherited, local));
+        var local = ProjectLocalSettingsDto.toDomain(inherited, tree.Project.Editor.ToLocalSettings());
+        var resolved = SettingsDto.fromDomain(ProjectResolution.resolve(inherited, local));
         Assert.Equal(models, resolved.setupDataTypes.Single(row => row.dataType.kind == "SorterModelSet").sourceProjectId);
         Assert.Equal(Guid.Empty, resolved.setupDataTypes.Single(row => row.dataType.kind == "SortableTests").sourceProjectId);
         tree.Project.Editor.Freeze(); Set(tree.Tests, "SortableTests", Guid.NewGuid());
@@ -188,15 +188,15 @@ public sealed class WorkspaceSourceOverridesTests
             WorkspaceFileStore.CreateDocument(path, tree.Root.ToDocument(), TestContext.Current.CancellationToken);
             var payload = Path.Combine(path, "Tests owner", "Models owner", "Project", "data", "snapshot.bin");
             Directory.CreateDirectory(Path.GetDirectoryName(payload)!); File.WriteAllBytes(payload, [1, 3, 5, 7]);
-            var loaded = WorkspaceFileStore.LoadDocument(path);
-            var reopened = WorkspaceTreeNode.FromDocument(loaded);
+            var loaded = WorkspaceFileStore.LoadWorkspace(path);
+            var reopened = WorkspaceTreeNode.FromDocument(loaded.CreateEditDocument());
             var top = reopened.Children.Single(); var child = top.Children.Single(); var project = child.Children.Single();
             Assert.Equal(tests, Effective(project, "SortableTests")); Assert.Equal(models, Effective(project, "SorterModelSet"));
             Assert.False(Source(child, "SortableTests").SourceOverride!.IsOverridden);
             Assert.False(Source(project, "SorterModelSet").SourceOverride!.IsOverridden);
             var changed = Guid.NewGuid(); Set(top, "SortableTests", changed); Set(project, "SorterModelSet", Guid.Empty);
-            WorkspaceFileStore.SaveDocument(path, reopened.ToDocument(), loaded, TestContext.Current.CancellationToken);
-            reopened = WorkspaceTreeNode.FromDocument(WorkspaceFileStore.LoadDocument(path));
+            WorkspaceFileStore.SaveDocument(reopened.ToDocument(), loaded, TestContext.Current.CancellationToken);
+            reopened = WorkspaceTreeNode.FromDocument(WorkspaceFileStore.LoadWorkspace(path).CreateEditDocument());
             project = reopened.Children.Single().Children.Single().Children.Single();
             Assert.Equal(changed, Effective(project, "SortableTests")); Assert.Equal(Guid.Empty, Effective(project, "SorterModelSet"));
             Assert.Equal(new byte[] { 1, 3, 5, 7 }, File.ReadAllBytes(payload));
@@ -208,52 +208,25 @@ public sealed class WorkspaceSourceOverridesTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Legacy_whole_list_overrides_keep_missing_types_blank_when_decoded(bool project)
+    public void Previous_module_and_project_formats_are_rejected(bool project)
     {
-        var tree = Tree(); var tests = Guid.NewGuid(); var models = Guid.NewGuid();
-        Set(tree.Tests, "SortableTests", tests); Set(tree.Tests, "SorterModelSet", Guid.NewGuid());
-        Set(tree.Models, "SorterModelSet", models);
-        var document = tree.Root.ToDocument();
-        if (project)
+        var document = Tree().Root.ToDocument();
+        foreach (var version in new[] { 18, 19 })
         {
-            var dto = document.Modules.Single().Modules.Single().Projects.Single().Definition;
-            dto.schemaVersion = 18;
-            dto.localOverrides.setupSources = [new() { dataType = new() { kind = "SorterModelSet", value = "" }, sourceProjectId = models }];
-            var decoded = WorkspaceDefinitionCodec.decodeProject(MessagePackSetup.serialize(dto));
-            Assert.Equal(19, decoded.schemaVersion);
-            Assert.Equal(2, decoded.localOverrides.setupSources.Length);
-            var settings = SettingsDto.fromDomain(Defaults.resolve(SettingsDto.toDomain(hierarchyKind.Branch, decoded.inheritedDefaults),
-                OverridesDto.toDomain(hierarchyKind.Branch, decoded.localOverrides)));
-            Assert.Equal(models, settings.setupDataTypes.Single(row => row.dataType.kind == "SorterModelSet").sourceProjectId);
-            Assert.Equal(Guid.Empty, settings.setupDataTypes.Single(row => row.dataType.kind == "SortableTests").sourceProjectId);
-            // Sealed configurations remain byte-for-byte equivalent; saved editable overrides still migrate.
-            dto.isSealed = true; dto.configuration = tree.Project.Editor!.ToProjectSettings();
-            var snapshot = MessagePackSetup.serialize(dto.configuration);
-            decoded = WorkspaceDefinitionCodec.decodeProject(MessagePackSetup.serialize(dto));
-            Assert.Equal(snapshot, MessagePackSetup.serialize(decoded.configuration));
-            Assert.Equal(2, decoded.localOverrides.setupSources.Length);
-            dto.localOverrides.setupSources = null;
-            Assert.Null(WorkspaceDefinitionCodec.decodeProject(MessagePackSetup.serialize(dto)).localOverrides.setupSources);
-        }
-        else
-        {
-            var dto = document.Modules.Single().Modules.Single().Definition;
-            dto.schemaVersion = 18;
-            var decoded = WorkspaceDefinitionCodec.decodeModule(MessagePackSetup.serialize(dto));
-            Assert.Equal(19, decoded.schemaVersion); Assert.Equal(2, decoded.localOverrides.setupSources.Length);
-            var settings = ModuleSettingsDto.fromDomain(WorkspaceDefinitionCodec.moduleHeader(null!, decoded).Configuration);
-            Assert.Equal(models, settings.setupDataTypes.Single(row => row.dataType.kind == "SorterModelSet").sourceProjectId);
-            Assert.Equal(Guid.Empty, settings.setupDataTypes.Single(row => row.dataType.kind == "SortableTests").sourceProjectId);
-            var aggregate = ModuleDto.fromDomain(WorkspaceDefinitionCodec.moduleHeader(null!, dto));
-            aggregate.schemaVersion = 15;
-            var migrated = ModuleSettingsDto.fromDomain(ModuleDto.toDomain(aggregate).Configuration);
-            Assert.Equal(models, migrated.setupDataTypes.Single(row => row.dataType.kind == "SorterModelSet").sourceProjectId);
-            Assert.Equal(Guid.Empty, migrated.setupDataTypes.Single(row => row.dataType.kind == "SortableTests").sourceProjectId);
-            dto.localOverrides.setupSources = [];
-            decoded = WorkspaceDefinitionCodec.decodeModule(MessagePackSetup.serialize(dto));
-            Assert.All(decoded.localOverrides.setupSources, row => Assert.Equal(Guid.Empty, row.sourceProjectId));
-            dto.localOverrides.setupSources = null;
-            Assert.Null(WorkspaceDefinitionCodec.decodeModule(MessagePackSetup.serialize(dto)).localOverrides.setupSources);
+            if (project)
+            {
+                var dto = WorkspaceDocumentModule.projectFile(document.Modules.Single().Modules.Single().Projects.Single());
+                dto.schemaVersion = version;
+                Assert.Equal("schemaVersion", Assert.Throws<ArgumentException>(() =>
+                    WorkspaceDefinitionCodec.decodeProject(MessagePackSetup.serialize(dto))).ParamName);
+            }
+            else
+            {
+                var dto = WorkspaceDocumentModule.moduleFile(document.Modules.Single().Modules.Single());
+                dto.schemaVersion = version;
+                Assert.Equal("schemaVersion", Assert.Throws<ArgumentException>(() =>
+                    WorkspaceDefinitionCodec.decodeModule(MessagePackSetup.serialize(dto))).ParamName);
+            }
         }
     }
 }

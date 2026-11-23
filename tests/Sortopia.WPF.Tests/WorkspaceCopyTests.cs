@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.IO;
 using System.Security.Cryptography;
 using Sortopia.Workspaces;
@@ -5,7 +6,7 @@ using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -19,9 +20,9 @@ public sealed class WorkspaceCopyTests : IDisposable
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private WorkspacePageViewModel Open()
     {
-        var definition = workspace.create(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "parent-module", [],
+        var definition = WorkspaceFixtures.Workspace(Guid.NewGuid(), "Research", "Workspace", [WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.NewGuid(), "parent-module", [],
             [WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "parent-project", [])])]);
-        WorkspaceFileStore.CreateWorkspace(Root, definition, Token);
+        WorkspaceFileStore.CreateDocument(Root, definition, Token);
         var page = new WorkspacePageViewModel(() => { }, _ => Root,
             new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")), () => WorkspaceUnsavedChoice.Discard,
             value => { request = value; return selection; });

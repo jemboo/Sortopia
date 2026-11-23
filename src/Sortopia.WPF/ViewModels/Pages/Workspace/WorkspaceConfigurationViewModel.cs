@@ -97,12 +97,12 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     private readonly Func<WorkspaceConfigurationViewModel?> inheritedSource;
     private readonly string ownerKind;
     private bool isOverridden, hasDraft;
-    protected WorkspaceOverrideState(string title, string ownerKind, Func<WorkspaceConfigurationViewModel?> inheritedSource, bool canOverride = true, bool projectValue = false)
+    protected WorkspaceOverrideState(string title, string ownerKind, Func<WorkspaceConfigurationViewModel?> inheritedSource, bool canOverride = true)
     {
-        Title = title; this.ownerKind = ownerKind; this.inheritedSource = inheritedSource; this.canOverride = canOverride; IsProjectValue = projectValue;
+        Title = title; this.ownerKind = ownerKind; this.inheritedSource = inheritedSource; this.canOverride = canOverride;
         UseInheritedFunctionCommand = new RelayCommand(() => IsOverridden = false, () => CanClearFunctionDefinition);
     }
-    public bool IsProjectValue { get; }
+    public bool IsLocal => IsOverridden;
     public string Title { get; }
     private readonly bool canOverride;
     internal Func<bool>? FixedByFunction { get; set; }
@@ -111,7 +111,7 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     public IReadOnlyList<WorkspaceFunctionDefinitionSource> DescendantFunctionDefinitions { get; private set; } = [];
     public bool HasDescendantFunctionDefinitions => DescendantFunctionDefinitions.Count > 0;
     public bool IsReadOnly { get; internal set; }
-    public bool ShowOverrideToggle => canOverride && !IsReadOnly && !IsProjectValue && FixedByFunction?.Invoke() != true;
+    public bool ShowOverrideToggle => canOverride && !IsReadOnly && FixedByFunction?.Invoke() != true;
     private WorkspaceConfigurationViewModel? ParentFunctionDefinition => IsFunctionDefinition && ownerKind == "module" ? inheritedSource() : null;
     public bool CanOverride => ShowOverrideToggle && ParentFunctionDefinition is null && !HasDescendantFunctionDefinitions;
     public bool CanClearFunctionDefinition => ShowOverrideToggle && IsOverridden && (ParentFunctionDefinition is not null || HasDescendantFunctionDefinitions);
@@ -142,7 +142,7 @@ public abstract class WorkspaceOverrideState : WorkspaceFormItem
     public bool ShowPreview => !CanEditValue;
     public WorkspaceConfigurationViewModel? InheritedSource => ParentFunctionDefinition ?? (IsInherited || FixedByFunction?.Invoke() == true ? inheritedSource() : null);
     public bool HasInheritedSource => InheritedSource is not null;
-    public string SourceLabel => IsReadOnly ? "Locked while generated run parameter files exist" : ParentFunctionDefinition is { } definition ? $"{(IsOverridden ? "Also defined on" : "Defined on")} {definition.Name}" : FixedByFunction?.Invoke() == true ? "Defined by the selected function" : IsProjectValue ? "Defined on this project" : IsOverridden ? IsFunctionDefinition ? "Defined on this module" : ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
+    public string SourceLabel => IsReadOnly ? "Locked while generated run parameter files exist" : ParentFunctionDefinition is { } definition ? $"{(IsOverridden ? "Also defined on" : "Defined on")} {definition.Name}" : FixedByFunction?.Invoke() == true ? "Defined by the selected function" : IsOverridden ? IsFunctionDefinition ? "Defined on this module" : ownerKind == "run" ? "Overridden for this run" : $"Local override on this {ownerKind}"
         : InheritedSource is { } source ? $"Inherited from {source.Name}" : HasDescendantFunctionDefinitions ? "This module leaves the function to its descendants." : IsFunctionDefinition ? "Not defined on the module path" : "Default value · no ancestor override";
     protected abstract void SeedOverride();
     internal void MarkLocal() { isOverridden = hasDraft = true; RefreshInherited(); }
@@ -160,7 +160,7 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
     private readonly bool required, requireInherited;
     private string value = "";
     public WorkspaceOverrideField(string title, bool required, Func<string> inherited, Func<WorkspaceConfigurationViewModel?> source,
-        string ownerKind, bool canOverride = true, bool requireInherited = true, string[]? choices = null, bool projectValue = false) : base(title, ownerKind, source, canOverride, projectValue)
+        string ownerKind, bool canOverride = true, bool requireInherited = true, string[]? choices = null) : base(title, ownerKind, source, canOverride)
     { this.required = required; this.requireInherited = requireInherited; this.inherited = inherited; catalogChoices = choices ?? []; }
     private readonly string[] catalogChoices;
     internal Func<string[]>? AvailableChoices { get; set; }
@@ -190,7 +190,6 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
         {
             if (!required || !(IsOverridden || requireInherited) || !string.IsNullOrWhiteSpace(EffectiveValue)) return "";
             var section = HasChoices ? Title : Title.StartsWith("Setup", StringComparison.Ordinal) ? "Setup settings" : "Results settings";
-            if (IsProjectValue) return $"Enter a {Title.ToLowerInvariant()} name in {section}. Database names are defined on this project.";
             var action = HasChoices ? $"choose a {Title.ToLowerInvariant()} from the catalog" : $"enter a {Title.ToLowerInvariant()}";
             if (IsOverridden) return $"{Title} is empty. In {section}, {action}."
                 + (!string.IsNullOrWhiteSpace(inherited()) ? $" You can also clear ‘{OverrideCaption}’ to use the inherited value." : "");
@@ -203,7 +202,7 @@ public sealed class WorkspaceOverrideField : WorkspaceOverrideState
     internal void SetLocal(string input)
     {
         if (EmptyMeansInherited && string.IsNullOrWhiteSpace(input) && ShowOverrideToggle) { Load(null); NotifyChanged(); return; }
-        if (IsReadOnly || (!CanOverride && !IsProjectValue)) return;
+        if (IsReadOnly || !CanOverride) return;
         value = input; MarkLocal(); NotifyChanged();
     }
 }
@@ -223,7 +222,13 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private readonly Func<WorkspaceConfigurationViewModel?> parent;
     private readonly Func<string> name;
     private bool loading;
-    private projectSettingsDto? frozenSettings;
+    // The sealed state owns both the execution snapshot and the original editing choices.
+    // Draft state is materialized from the live form when producing a document.
+    private projectStateDto? sealedState;
+    private projectSettingsDto? frozenSettings => sealedState is null ? null : ProjectLifecycle.configuration(sealedState);
+    internal bool IsSealed => sealedState is not null;
+    internal projectStateDto ToProjectState(projectSettingsDto inherited, inheritedFromDto? origin) =>
+        sealedState ?? projectStateDto.NewDraft(ToLocalSettings(), inherited, origin!);
     private WorkspaceParameterSetsPreview? resultsPreview, setupPreview;
     private WorkspaceParameterBinding[] activeResultsDefaults = [], activeSetupDefaults = [];
     public WorkspaceEditorSections Sections { get; } = new();
@@ -292,13 +297,30 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         foreach (var state in properties.Values) state.IsReadOnly = IsReadOnly;
         RefreshInherited();
     }
-    internal void Freeze(projectSettingsDto? snapshot = null) { frozenSettings = snapshot ?? ToProjectSettings(); ResultsFunctionOverride.Load(frozenSettings.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? frozenSettings.setupFunctionName : null); foreach (var state in properties.Values) state.IsReadOnly = true; RefreshInherited(); }
-    internal void ResumeEditing(projectOverridesDto overrides)
+    internal void Freeze(projectSettingsDto? snapshot = null) => LockProjectState(ProjectLifecycle.seal(
+        snapshot ?? ToProjectSettings(), ToProjectState(Parent?.ToProjectSettings()!, null)));
+    private void LockProjectState(projectStateDto state)
     {
-        frozenSettings = null; generatedParametersLock = false;
-        foreach (var state in properties.Values) state.IsReadOnly = false;
+        sealedState = state;
+        var snapshot = ProjectLifecycle.configuration(state);
+        ResultsFunctionOverride.Load(snapshot.resultsFunctionName);
+        SetupFunctionOverride.Load(IsBranch ? snapshot.setupFunctionName : null);
+        foreach (var property in properties.Values) property.IsReadOnly = true;
+        RefreshInherited();
+    }
+    internal void ApplyProjectState(projectStateDto state)
+    {
+        if (!IsProject) throw new InvalidOperationException("Project state belongs to a project.");
+        sealedState = null; generatedParametersLock = false;
+        foreach (var property in properties.Values) property.IsReadOnly = false;
         ResultsFunctionOverride.Load(null); SetupFunctionOverride.Load(null);
-        LoadOverrides(overrides); RefreshInherited();
+        if (state.IsSealed)
+        {
+            var snapshot = ProjectLifecycle.configuration(state);
+            LoadProject(snapshot);
+            LockProjectState(state);
+        }
+        else { LoadLocalSettings(ProjectLifecycle.localSettings(state)); RefreshInherited(); }
     }
     private readonly Dictionary<string, WorkspaceOverrideState> properties = [];
     public WorkspaceConfigurationViewModel(WorkspaceEntityKind kind, bool isBranch, Func<WorkspaceConfigurationViewModel?> parent, Func<string> name, Func<IEnumerable<WorkspaceSourceProject>>? sources = null, Func<IEnumerable<WorkspaceConfigurationViewModel>>? childEditors = null)
@@ -310,17 +332,18 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         SnapshotReporting = new("Full snapshots", "100", () => IsEditable, NotifyChanged);
         SummaryReporting = new("Pool summaries", "1", () => IsEditable, NotifyChanged);
         var owner = kind.ToString().ToLowerInvariant();
-        WorkspaceOverrideField Field(string key, string title, bool required, Func<string> inherited, bool canOverride = true, string[]? choices = null, bool projectValue = false)
+        WorkspaceOverrideField Field(string key, string title, bool required, Func<string> inherited, bool canOverride = true, string[]? choices = null)
         {
-            var field = new WorkspaceOverrideField(title, required, inherited, () => Parent?.ValueSource(key), owner, canOverride, !IsModule, choices, projectValue);
+            var field = new WorkspaceOverrideField(title, required, inherited, () => Parent?.ValueSource(key), owner, canOverride, !IsModule, choices);
             properties.Add(key, field); field.Changed += NotifyChanged; return field;
         }
         DescriptionOverride = Field(nameof(Description), "Description", false, () => Parent?.Description ?? "");
-        ResultsDatabaseOverride = Field(nameof(ResultsDatabaseName), "Results database", !IsModule, () => IsRun ? Parent?.ResultsDatabaseName ?? "" : "Results", false, projectValue: IsProject);
+        ResultsDatabaseField = new("Results database", "Results", this, () => Parent?.ResultsDatabaseName ?? "", () => Parent);
+        ResultsDatabaseField.Changed += NotifyChanged;
         ResultsFunctionOverride = Field(nameof(ResultsFunctionName), "Results function", !IsModule, () => Parent?.ResultsFunctionName ?? "", IsModule,
             ResultsFunctionCatalog.functions.Keys.ToArray());
-        SetupDatabaseOverride = Field(nameof(SetupDatabaseName), "Setup database", !IsModule, () => IsRun ? Parent?.SetupDatabaseName ?? "" : "Setup", false, projectValue: IsProject);
-        if (IsProject) { ResultsDatabaseOverride.Load("Results"); if (IsBranch) SetupDatabaseOverride.Load("Setup"); }
+        SetupDatabaseField = new("Setup database", "Setup", this, () => Parent?.SetupDatabaseName ?? "", () => Parent);
+        SetupDatabaseField.Changed += NotifyChanged;
         SetupFunctionOverride = Field(nameof(SetupFunctionName), "Setup function", !IsModule, () => Parent?.SetupFunctionName ?? "", IsModule, choices:
             SetupFunctionCatalog.functions.Keys.ToArray());
         ResultsFunctionOverride.EmptyMeansInherited = SetupFunctionOverride.EmptyMeansInherited = true;
@@ -374,9 +397,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         ? "Parameter defaults inherit by key. Setup source choices inherit independently by data type. Each local override replaces only its matching inherited value."
         : "Functions and defaults come from the parent project. Supply spans for exactly its query keys; other required parameters use fixed defaults.";
     public string Description { get => DescriptionOverride.EffectiveValue; set => DescriptionOverride.SetLocal(value); }
-    public string ResultsDatabaseName { get => ResultsDatabaseOverride.EffectiveValue; set { if (IsProject) ResultsDatabaseOverride.SetLocal(value); } }
+    public string ResultsDatabaseName { get => ResultsDatabaseField.EffectiveValue; set => ResultsDatabaseField.EffectiveValue = value; }
     public string ResultsFunctionName { get => frozenSettings?.resultsFunctionName ?? ResultsFunctionOverride.EffectiveValue; set { if (IsModule) ResultsFunctionOverride.SetLocal(value); } }
-    public string SetupDatabaseName { get => SetupDatabaseOverride.EffectiveValue; set { if (IsProject) SetupDatabaseOverride.SetLocal(value); } }
+    public string SetupDatabaseName { get => SetupDatabaseField.EffectiveValue; set => SetupDatabaseField.EffectiveValue = value; }
     public string SetupFunctionName { get => frozenSettings?.setupFunctionName ?? SetupFunctionOverride.EffectiveValue; set { if (IsModule) SetupFunctionOverride.SetLocal(value); } }
 
     private paramKeyDescriptor[]? Requirements(bool setup) => !PhaseVersionCurrent(setup) ? null : setup
@@ -403,9 +426,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         return required is null ? inherited : inherited.Where(value => required.Any(key => key.Name == value.keyName)).ToArray();
     }
     public WorkspaceOverrideField DescriptionOverride { get; }
-    public WorkspaceOverrideField ResultsDatabaseOverride { get; }
+    public WorkspaceProjectField ResultsDatabaseField { get; }
     public WorkspaceOverrideField ResultsFunctionOverride { get; }
-    public WorkspaceOverrideField SetupDatabaseOverride { get; }
+    public WorkspaceProjectField SetupDatabaseField { get; }
     public WorkspaceOverrideField SetupFunctionOverride { get; }
     public WorkspaceListOverride OutputTypesOverride { get; }
     public WorkspaceListOverride ResultsParameterDefaultsOverride { get; }
@@ -595,9 +618,9 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private sourceQueryContract SourceSetupContract => SourceContracts.combine(EffectiveSetupDataTypes.Where(row => NeedsSource(row.dataType)).Select(SourceContractFor));
     private string[] SourceSetupKeys => SourceSetupContract.QueryKeys.ToArray();
     private string[] RequiredSetupKeys => EffectiveSetupKeys.Concat(SourceSetupKeys).Distinct(StringComparer.Ordinal).ToArray();
-    public string ResultsDatabaseError => ResultsDatabaseOverride.Error;
+    public string ResultsDatabaseError => ResultsDatabaseField.Error;
     public string ResultsFunctionError => FirstError(FunctionDefinitionError(false), ResultsFunctionOverride.Error, ResultsFunctionName.Length > 0 && !HasResultsContract ? $"Unknown results function ‘{ResultsFunctionName}’. Choose a registered function on the module." : "", FunctionCompatibilityError);
-    public string SetupDatabaseError => SetupDatabaseOverride.Error;
+    public string SetupDatabaseError => SetupDatabaseField.Error;
     public string SetupFunctionError => FirstError(FunctionDefinitionError(true), SetupFunctionOverride.Error, SetupFunctionName.Length > 0 && !HasSetupContract ? $"Unknown setup function ‘{SetupFunctionName}’. Choose a registered function on the module." : "");
     private static string KeysError(string[] values) => values.Any(string.IsNullOrWhiteSpace) ? "Enter a name for each query key, or remove its row."
         : values.Distinct(StringComparer.Ordinal).Count() != values.Length ? "Query keys must be unique." : "";
@@ -660,6 +683,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         SynchronizeQuerySpans();
         foreach (var state in setupSourceOverrides.Values) { state.IsReadOnly = IsReadOnly; state.RefreshInherited(); }
         foreach (var field in properties.Values) field.RefreshInherited();
+        ResultsDatabaseField.RefreshInherited(); SetupDatabaseField.RefreshInherited();
         foreach (var span in ResultsParameters.Concat(SetupParameters)) span.RefreshInherited();
         foreach (var row in SetupDataTypes) row.RefreshSources();
         foreach (var row in ResultsParameterDefaults.Concat(SetupParameterDefaults)) row.RefreshSource();
@@ -706,8 +730,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     { rows.Clear(); foreach (var value in values) AddDefault(rows, value); }
     public void LoadProject(projectSettingsDto value)
     {
-        if (IsModule) Quietly(() => { ResultsFunctionOverride.Load(value.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? value.setupFunctionName : null); });
-        LoadOverrides(new projectOverridesDto {
+        if (!IsProject) throw new InvalidOperationException("Project settings belong to a project.");
+        LoadLocalSettings(new projectLocalSettingsDto {
         description = value.description, resultsDatabaseName = value.resultsDatabaseName, resultsParameterDefaults = value.resultsParameterDefaults,
         resultsQueries = IsProject ? value.resultsDataTypes : null, setupQueries = IsProject && IsBranch ? (value.setupDataTypes ?? []).Select(row => new resultsDataTypeConfigDto { dataType = row.dataType, queryParameterKeys = row.queryParameterKeys }).ToArray() : null,
         setupDatabaseName = IsBranch ? value.setupDatabaseName : null, setupParameterDefaults = IsBranch ? value.setupParameterDefaults : null,
@@ -716,21 +740,44 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     }
     public void LoadModuleOverrides(moduleOverridesDto value)
     {
-        Quietly(() => { ResultsFunctionOverride.Load(value.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? value.setupFunctionName : null); });
-        LoadOverrides(ModuleOverridesDto.toProjectOverrides(value));
-    }
-    public void LoadOverrides(projectOverridesDto value)
-    {
-        LoadParameterPolicy(value);
-        if (IsReadOnly) throw new InvalidOperationException("Create a new project version to change sealed settings.");
-        if (!IsDefaults) throw new InvalidOperationException("Defaults belong to a module or project.");
+        RequireEditableDefaults(IsModule, "Module overrides belong to a module.");
         Quietly(() =>
         {
-            DescriptionOverride.Load(value.description); ResultsDatabaseOverride.Load(IsProject ? value.resultsDatabaseName ?? "Results" : null);
-            SetupDatabaseOverride.Load(IsProject && IsBranch ? value.setupDatabaseName ?? "Setup" : null);
-            LoadSetupSources(value.setupSources);
-            LoadDefaults(ResultsParameterDefaults, value.resultsParameterDefaults ?? []); LoadDefaults(SetupParameterDefaults, value.setupParameterDefaults ?? []);
-            ResultsParameterDefaultsOverride.Load(value.resultsParameterDefaults is not null); SetupParameterDefaultsOverride.Load(IsBranch && value.setupParameterDefaults is not null);
+            ResultsFunctionOverride.Load(value.resultsFunctionName); SetupFunctionOverride.Load(IsBranch ? value.setupFunctionName : null);
+            LoadDefaultValues(value.description, value.resultsParameterDefaults, value.setupParameterDefaults, value.setupSources,
+                value.excludedResultsDefaults, value.excludedSetupDefaults);
+        });
+        NotifyChanged();
+    }
+    public void LoadModule(moduleSettingsDto value) => LoadModuleOverrides(new moduleOverridesDto {
+        description = value.description, resultsFunctionName = value.resultsFunctionName, resultsParameterDefaults = value.resultsParameterDefaults,
+        setupFunctionName = IsBranch ? value.setupFunctionName : null, setupParameterDefaults = IsBranch ? value.setupParameterDefaults : null,
+        setupSources = IsBranch ? value.setupSources : null
+    });
+    private void RequireEditableDefaults(bool correctOwner, string message)
+    {
+        if (!correctOwner) throw new InvalidOperationException(message);
+        if (IsReadOnly) throw new InvalidOperationException("Settings are locked while generated run parameter files exist.");
+    }
+    private void LoadDefaultValues(string? description, parameterBindingDto[]? resultsDefaults, parameterBindingDto[]? setupDefaults,
+        setupSourceConfigDto[]? sources, string[]? resultsExclusions, string[]? setupExclusions)
+    {
+        DescriptionOverride.Load(description);
+        LoadDefaultExclusions(resultsExclusions, setupExclusions);
+        LoadSetupSources(sources);
+        LoadDefaults(ResultsParameterDefaults, resultsDefaults ?? []); LoadDefaults(SetupParameterDefaults, setupDefaults ?? []);
+        ResultsParameterDefaultsOverride.Load(resultsDefaults is not null); SetupParameterDefaultsOverride.Load(IsBranch && setupDefaults is not null);
+    }
+    public void LoadLocalSettings(projectLocalSettingsDto value)
+    {
+        RequireEditableDefaults(IsProject, "Project settings belong to a project.");
+        Quietly(() =>
+        {
+            ResultsDatabaseField.Load(value.resultsDatabaseName ?? "Results");
+            SetupDatabaseField.Load(IsBranch ? value.setupDatabaseName ?? "Setup" : null);
+            resultsQueries = value.resultsQueries ?? []; setupQueries = IsBranch ? value.setupQueries ?? [] : [];
+            LoadDefaultValues(value.description, value.resultsParameterDefaults, value.setupParameterDefaults, value.setupSources,
+                value.excludedResultsDefaults, value.excludedSetupDefaults);
         });
         NotifyChanged();
     }
@@ -769,22 +816,37 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         setupDatabaseName = IsBranch ? SetupDatabaseName : "", setupFunctionName = IsBranch ? SetupFunctionName : "", setupFunctionVersion = IsBranch ? SetupFunctionVersion : "",
         setupDataTypes = IsBranch ? EffectiveSetupDataTypes : []
     };
-    internal projectOverridesDto ToLocalOverrides() => new()
+    internal moduleSettingsDto ToModuleSettings() => new()
     {
-        description = DescriptionOverride.OverrideValue, resultsDatabaseName = IsProject ? ResultsDatabaseName : null,
-        resultsQueries = IsProject ? EffectiveResultsDataTypes : null, setupQueries = IsProject && IsBranch ? EffectiveSetupDataTypes.Select(row => new resultsDataTypeConfigDto { dataType = row.dataType, queryParameterKeys = row.queryParameterKeys }).ToArray() : null,
-        excludedResultsDefaults = excludedResultsDefaults.ToArray(), excludedSetupDefaults = IsBranch ? excludedSetupDefaults.ToArray() : [],
-        resultsParameterDefaults = ResultsParameterDefaultsOverride.IsOverridden ? LocalResultsParameterDefaults.Select(row => row.ToDto()).ToArray() : null,
-        setupParameterDefaults = IsBranch && SetupParameterDefaultsOverride.IsOverridden ? LocalSetupParameterDefaults.Select(row => row.ToDto()).ToArray() : null,
-        setupDatabaseName = IsProject && IsBranch ? SetupDatabaseName : null,
-        setupSources = IsBranch && LocalSetupSources.Length > 0 ? LocalSetupSources : null
+        description = Description, resultsFunctionName = ResultsFunctionName, resultsParameterDefaults = EffectiveOutputDefaults,
+        setupFunctionName = IsBranch ? SetupFunctionName : "", setupParameterDefaults = IsBranch ? EffectiveSetupDefaults : [],
+        setupSources = IsBranch ? EffectiveSetupDataTypes.Where(row => NeedsSource(row.dataType))
+            .Select(row => new setupSourceConfigDto { dataType = row.dataType, sourceProjectId = row.sourceProjectId }).ToArray() : []
     };
+    private parameterBindingDto[]? SaveDefaults(bool setup) => (setup ? SetupParameterDefaultsOverride : ResultsParameterDefaultsOverride).IsOverridden
+        ? (setup ? LocalSetupParameterDefaults : LocalResultsParameterDefaults).Select(row => row.ToDto()).ToArray() : null;
+    private string[] SaveExclusions(bool setup) => setup && !IsBranch ? [] : (setup ? excludedSetupDefaults : excludedResultsDefaults).ToArray();
+    private setupSourceConfigDto[]? SaveSources() => IsBranch && LocalSetupSources.Length > 0 ? LocalSetupSources : null;
+    internal projectLocalSettingsDto ToLocalSettings()
+    {
+        if (!IsProject) throw new InvalidOperationException("Project settings belong to a project.");
+        return new() {
+            description = DescriptionOverride.OverrideValue, resultsDatabaseName = ResultsDatabaseName,
+            resultsQueries = EffectiveResultsDataTypes, setupQueries = IsBranch ? EffectiveSetupDataTypes.Select(row => new resultsDataTypeConfigDto { dataType = row.dataType, queryParameterKeys = row.queryParameterKeys }).ToArray() : null,
+            excludedResultsDefaults = SaveExclusions(false), excludedSetupDefaults = SaveExclusions(true),
+            resultsParameterDefaults = SaveDefaults(false), setupParameterDefaults = IsBranch ? SaveDefaults(true) : null,
+            setupDatabaseName = IsBranch ? SetupDatabaseName : null, setupSources = SaveSources()
+        };
+    }
     internal moduleOverridesDto ToModuleOverrides()
     {
-        var value = ModuleOverridesDto.fromProjectOverrides(ToLocalOverrides());
-        value.resultsFunctionName = ResultsFunctionOverride.OverrideValue;
-        value.setupFunctionName = IsBranch ? SetupFunctionOverride.OverrideValue : null;
-        return value;
+        if (!IsModule) throw new InvalidOperationException("Module overrides belong to a module.");
+        return new() {
+            description = DescriptionOverride.OverrideValue, resultsFunctionName = ResultsFunctionOverride.OverrideValue,
+            setupFunctionName = IsBranch ? SetupFunctionOverride.OverrideValue : null,
+            resultsParameterDefaults = SaveDefaults(false), setupParameterDefaults = IsBranch ? SaveDefaults(true) : null,
+            excludedResultsDefaults = SaveExclusions(false), excludedSetupDefaults = SaveExclusions(true), setupSources = SaveSources()
+        };
     }
     private bool PhaseVersionCurrent(bool setup) => setup
         ? !SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) || definition.Version == SetupFunctionVersion
@@ -796,7 +858,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
         ?? (SetupFunctionCatalog.functions.TryGetValue(SetupFunctionName, out var definition) ? definition.Version : "");
     internal runDto ToRunInputs(Guid id, string name, Guid parentProjectId) => new()
     {
-        schemaVersion = WorkspaceDtoSchema.version, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
+        schemaVersion = RunDtoSchema.version, id = id, parentProjectId = parentProjectId, runName = name, runKind = IsBranch ? "branch" : "root",
         descriptionOverride = DescriptionOverride.OverrideValue, resultsParameterSpans = ResultsParameters.Select(span => span.ToDto()).ToArray(),
         setupParameterSpans = IsBranch ? SetupParameters.Select(span => span.ToDto()).ToArray() : [],
         reporting = ReportingEnabled ? Microsoft.FSharp.Core.FSharpOption<sgdReportingConfig>.Some(new(UsesSnapshotControls ? $"Constant({SnapshotControls().SnapshotInterval})" : SnapshotReporting.Schedule, SummaryReporting.Schedule)) : null,

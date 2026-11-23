@@ -49,17 +49,9 @@ public sealed partial class WorkspacePageViewModel
     public Task RemoveRunParameterFilesAsync() => !RemoveRunParameterFilesCommand.CanExecute(null) ? Task.CompletedTask : RunAsync(async token =>
     {
         var node = Selected!;
-        var previous = savedDocument!;
-        var updated = await Task.Run(() => WorkspaceFileStore.RemoveRunParameterFiles(WorkspaceFolder, previous, node.Parent!.Id, node.Id, token));
-        // Apply the persisted unlocks without replacing unsaved editors.
-        if (!ReferenceEquals(updated, previous))
-        {
-            var dirty = HasUnsavedChanges;
-            static IEnumerable<Sortopia.Workspaces.Serialization.ProjectDocument> Projects(Sortopia.Workspaces.Serialization.ModuleDocument module) => module.Projects.Concat(module.Modules.SelectMany(Projects));
-            foreach (var project in updated.Modules.SelectMany(Projects).Where(p => !p.Definition.isSealed))
-                Roots.SelectMany(root => root.DescendantsAndSelf()).FirstOrDefault(n => n.Id == project.Definition.id && n.IsSealed)?.ResumeEditing(project.Definition);
-            savedDocument = updated; ClearRunScope(); HasUnsavedChanges = dirty;
-        }
+        var previous = savedWorkspace!;
+        var updated = await Task.Run(() => WorkspaceFileStore.RemoveRunParameterFiles(previous, node.Parent!.Id, node.Id, token));
+        ApplySavedLifecycleChanges(updated);
         SelectedExecution!.Files.ForgetRemovedFiles();
         await SelectedExecution.Files.RefreshAsync(RunParametersFolder, node.Parent!.Id, node.Id);
         Status = $"Removed parameter files for '{node.Name}' and generated data no longer used by remaining files. Ancestors unlock when no descendant run has parameter files.";
@@ -69,7 +61,7 @@ public sealed partial class WorkspacePageViewModel
         get
         {
             // Prepared work is independent of the editable configuration's validity.
-            if (Selected?.IsRun != true || savedDocument is null) return "";
+            if (Selected?.IsRun != true || savedWorkspace is null) return "";
             var file = Roots.SelectMany(root => root.DescendantsAndSelf())
                 .FirstOrDefault(node => node.IsRun && node.Id == Selected.Id)?.SavedFolderPath;
             return file is null ? "" : Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(file))!, "runParameters");
@@ -91,9 +83,8 @@ public sealed partial class WorkspacePageViewModel
         if (!CanGenerateRunParameters) return Task.CompletedTask;
         var scope = savedRunScope!;
         var value = scope.Run;
-        var root = WorkspaceFolder;
         var state = SelectedExecution!;
-        var saved = savedDocument!;
+        var saved = savedWorkspace!;
         var filesFolder = RunParametersFolder;
         var fileState = state.Files;
         return RunAsync(async token =>
@@ -108,16 +99,8 @@ public sealed partial class WorkspacePageViewModel
             }));
             try
             {
-                var generated = await Task.Run(() => WorkspaceRunGeneration.generate(root, saved, value.Id, progress, token));
-                if (!ReferenceEquals(saved, generated.Document))
-                {
-                    var dirty = HasUnsavedChanges;
-                    savedDocument = generated.Document;
-                    ClearRunScope();
-                    Roots.SelectMany(node => node.DescendantsAndSelf()).Single(node => node.IsProject && node.Id == scope.Parent.Id).MarkSealed(generated.Scope.Parent);
-                    HasUnsavedChanges = dirty;
-                    NotifyDraftProperties();
-                }
+                var generated = await Task.Run(() => WorkspaceRunGeneration.generate(saved, value.Id, progress, token));
+                ApplySavedLifecycleChanges(generated.Workspace);
                 var report = generated.Report;
                 generatedIds = report.WorkItemIds;
                 acceptingProgress = false;

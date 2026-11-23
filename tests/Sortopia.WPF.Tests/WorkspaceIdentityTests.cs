@@ -5,7 +5,7 @@ using Sortopia.Workspaces;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Models;
 using Xunit;
-using WorkspaceModule = Sortopia.Workspaces.workspaceModule;
+using WorkspaceModule = Sortopia.Workspaces.Serialization.ModuleDocument;
 
 namespace Sortopia.WPF.Tests;
 
@@ -17,7 +17,7 @@ public sealed class WorkspaceIdentityTests : IDisposable
     [Fact]
     public void Empty_ids_and_duplicate_run_ids_are_rejected()
     {
-        Assert.Throws<ArgumentException>(() => workspace.create(Guid.Empty, "W", "W", []));
+        Assert.Throws<ArgumentException>(() => WorkspaceFixtures.Workspace(Guid.Empty, "W", "W", []));
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeModule(hierarchyKind.Root, Guid.Empty, "M", [], []));
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.Empty, "P", []));
         foreach (var branch in new[] { false, true })
@@ -27,7 +27,7 @@ public sealed class WorkspaceIdentityTests : IDisposable
             Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.FromRunDto(dto));
         }
         var first = WorkspaceHierarchyTests.MakeRun("P", "A");
-        var second = WorkspaceRun.withNames("P", "B", first);
+        var second = Run.withNames("P", "B", first);
         Assert.Throws<ArgumentException>(() => WorkspaceHierarchyTests.MakeProject(hierarchyKind.Root, Guid.NewGuid(), "P", [first, second]));
     }
 

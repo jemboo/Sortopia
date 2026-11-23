@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using Sortopia.FileDb;
 using Xunit;
 
@@ -54,10 +55,10 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, project) = Create(true);
         Completed(Prepare(world, project).Execution);
-        var folder = WorkspaceData.projectFolder(world, Root, project.Id);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var parameters = Path.Combine(folder, "runParameters");
         var item = RunParameterFiles.listWorkItems(parameters, Token).First();
-        var store = new SortopiaFileDb(folder, project.Id);
+        var store = new SortopiaFileDb(folder, project.Definition.id);
         var locks = new List<FileStream>();
         var progress = new ItemProgress(value => {
             if (value.State == workItemExecutionState.Running)

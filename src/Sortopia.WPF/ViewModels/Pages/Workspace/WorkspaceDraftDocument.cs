@@ -29,7 +29,7 @@ public sealed partial class WorkspaceTreeNode
         return node;
     }
 
-    private static WorkspaceTreeNode FromModuleDocument(ModuleDocument value)
+    internal static WorkspaceTreeNode FromModuleDocument(ModuleDocument value)
     {
         var dto = value.Definition;
         var node = new WorkspaceTreeNode(WorkspaceEntityKind.Module, dto.moduleName, dto.id, WorkspaceDefinitionCodec.kind(dto.moduleKind));
@@ -40,24 +40,18 @@ public sealed partial class WorkspaceTreeNode
         return node;
     }
 
-    private static WorkspaceTreeNode FromProjectDocument(ProjectDocument value)
+    internal static WorkspaceTreeNode FromProjectDocument(ProjectDocument value)
     {
         var dto = value.Definition;
         var node = new WorkspaceTreeNode(WorkspaceEntityKind.Project, dto.projectName, dto.id, WorkspaceDefinitionCodec.kind(dto.projectKind));
-        if (dto.isSealed) node.Editor!.LoadProject(dto.configuration);
-        else node.Editor!.LoadOverrides(dto.localOverrides);
+        if (dto.isSealed) _ = WorkspaceDefinitionResolution.projectSnapshot(dto);
+        node.Editor!.ApplyProjectState(dto.state);
         foreach (var child in value.Runs)
         {
             var run = new WorkspaceTreeNode(WorkspaceEntityKind.Run, child.runName, id: child.id, family: node.Family);
             run.Editor!.LoadRun(child);
             run.savedParentProjectId = child.parentProjectId;
             node.Children.Add(run);
-        }
-        if (dto.isSealed)
-        {
-            node.editableProjectOverrides = dto.localOverrides;
-            node.sealedProject = WorkspaceDefinitionCodec.projectHeader(null!, dto);
-            node.Editor!.Freeze(dto.configuration);
         }
         node.RememberSavedChildren();
         return node;
@@ -67,27 +61,24 @@ public sealed partial class WorkspaceTreeNode
     {
         ValidateChildren();
         var modules = Children.Select(child => child.ToModuleDocument(1)).ToArray();
-        return WorkspaceDocumentModule.validate(new(new workspaceDefinitionDto {
-            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, workspaceName = Name, folderName = workspaceFolderName,
-            modules = modules.Select(module => Reference(module.Definition.id, module.Definition.moduleName)).ToArray()
+        return WorkspaceDocumentModule.validate(new(new WorkspaceDefinition {
+            id = Id, workspaceName = Name, folderName = workspaceFolderName
         }, modules));
     }
 
-    private static childReferenceDto Reference(Guid id, string name) => new() { id = id, name = name };
     private inheritedFromDto? ParentOrigin => Parent is { IsWorkspace: false } ? new() { moduleId = Parent.Id, moduleName = Parent.Name } : null;
-    private projectSettingsDto ParentSettings => Parent?.Editor?.ToProjectSettings() ?? SettingsDto.fromDomain(Defaults.configuration(IsBranch));
+    private projectSettingsDto ParentSettings => Parent?.Editor?.ToProjectSettings() ?? SettingsDto.fromDomain(ProjectResolution.configuration(IsBranch));
+    private moduleSettingsDto ParentModuleSettings => Parent?.Editor?.ToModuleSettings() ?? ModuleSettingsDto.fromDomain(ModuleDefaults.configuration(IsBranch));
 
     private ModuleDocument ToModuleDocument(int depth)
     {
         CheckDepth(depth); ValidateChildren();
         var modules = Children.Where(child => child.Kind == WorkspaceEntityKind.Module).Select(child => child.ToModuleDocument(depth + 1)).ToArray();
         var projects = Children.Where(child => child.IsProject).Select(child => child.ToProjectDocument(depth + 1)).ToArray();
-        return new(new moduleDefinitionDto {
-            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, moduleName = Name,
+        return new(new ModuleDefinition {
+            id = Id, moduleName = Name,
             moduleKind = IsBranch ? "branch" : "root", localOverrides = Editor!.ToModuleOverrides(),
-            inheritedDefaults = ModuleSettingsDto.fromProjectSettings(ParentSettings), inheritedFrom = ParentOrigin,
-            modules = modules.Select(module => Reference(module.Definition.id, module.Definition.moduleName)).ToArray(),
-            projects = projects.Select(project => Reference(project.Definition.id, project.Definition.projectName)).ToArray()
+            inheritedDefaults = ParentModuleSettings, inheritedFrom = ParentOrigin
         }, modules, projects);
     }
 
@@ -100,13 +91,9 @@ public sealed partial class WorkspaceTreeNode
             if (child.savedParentProjectId is { } parent && parent != Id) throw new ArgumentException("A saved run cannot change its parent project.");
             return child.Editor!.ToRunInputs(child.Id, child.Name, Id);
         }).ToArray();
-        return new(new projectDefinitionDto {
-            schemaVersion = WorkspaceDefinitionCodec.schemaVersion, id = Id, projectName = Name,
-            projectKind = IsBranch ? "branch" : "root", isSealed = IsSealed,
-            configuration = IsSealed ? SettingsDto.fromDomain(sealedProject!.Configuration) : null,
-            localOverrides = IsSealed ? editableProjectOverrides : Editor!.ToLocalOverrides(),
-            inheritedDefaults = IsSealed ? null : ParentSettings, inheritedFrom = IsSealed ? null : ParentOrigin,
-            runs = runs.Select(run => run.id).ToArray()
+        return new(new ProjectDefinition {
+            id = Id, projectName = Name,
+            projectKind = IsBranch ? "branch" : "root", state = Editor!.ToProjectState(ParentSettings, ParentOrigin)
         }, runs);
     }
 }

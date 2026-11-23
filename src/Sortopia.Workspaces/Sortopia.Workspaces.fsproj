@@ -1,9 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <Compile Include="Defaults.fs" />
+    <Compile Include="ConfigurationInheritance.fs" />
+    <Compile Include="ProjectResolution.fs" />
     <Compile Include="ModuleDefaults.fs" />
-    <Compile Include="Workspace.fs" />
-    <Compile Include="RunWorkspace.fs" />
+    <Compile Include="WorkspaceIdentity.fs" />
+    <Compile Include="RunExecutionScope.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Runs/Sortopia.Runs.fsproj" />

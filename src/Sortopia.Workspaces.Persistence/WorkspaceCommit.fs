@@ -94,7 +94,8 @@ module internal WorkspaceCommit =
                     applied.Add(write)
                     if not samePath && not (isNull write.OriginalPath) then File.Delete(write.OriginalPath)
                 committed <- true
-                WorkspaceDocumentSaveResult(plan.Definition, plan.Copies.Length, plan.RetainedFolders, plan.Moves.Length, cleanupWarnings)
+                { Definition = plan.Definition; CopiedFolders = plan.Copies.Length; RetainedFolders = plan.RetainedFolders
+                  MovedFolders = plan.Moves.Length; CleanupWarnings = cleanupWarnings }
             with failure ->
                 let errors = ResizeArray<Exception>([| failure |])
                 let recover action = try action () with rollback -> errors.Add(rollback)

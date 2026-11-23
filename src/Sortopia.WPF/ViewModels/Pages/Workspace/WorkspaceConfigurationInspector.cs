@@ -9,9 +9,12 @@ public sealed partial class WorkspaceConfigurationViewModel
     {
         static string State(WorkspaceOverrideState state) => state.IsReadOnly ? "Locked · generated parameters"
             : state.FixedByFunction?.Invoke() == true ? "Defined by function"
-            : state.HasInheritedSource ? "Inherited" : state.IsOverridden || state.IsProjectValue ? "Local" : "Default";
+            : state.HasInheritedSource ? "Inherited" : state.IsOverridden ? "Local" : "Default";
         WorkspaceItemSnapshot Field(string key, string group, WorkspaceOverrideField field) =>
             new(key, group, field.Title, field.IsOverridden && field.EffectiveValue.Length == 0 ? "(empty)" : field.EffectiveValue, State(field), field.Error, field.InheritedSource);
+        WorkspaceItemSnapshot ProjectField(string key, string group, WorkspaceProjectField field) =>
+            new(key, group, field.Title, field.EffectiveValue.Length == 0 ? "(empty)" : field.EffectiveValue,
+                IsReadOnly ? "Locked · generated parameters" : IsRun ? "Inherited" : "Local", field.Error, field.InheritedSource);
         WorkspaceItemSnapshot List(string key, string group, WorkspaceListOverride state, string value, string error) =>
             new(key, group, state.Title, value, State(state), error, state.InheritedSource);
         WorkspaceItemSnapshot Defaults(bool setup)
@@ -29,8 +32,8 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (IsBranch) yield return Field("setupFunction", "Setup", SetupFunctionOverride) with { Error = SetupFunctionError };
         yield return Field("resultsFunction", IsBranch ? "Results" : "Functions", ResultsFunctionOverride) with { Error = ResultsFunctionError };
         yield return Field("description", "General", DescriptionOverride);
-        if (!IsModule) yield return Field("resultsDatabase", "Results", ResultsDatabaseOverride);
-        if (!IsModule && IsBranch) yield return Field("setupDatabase", "Setup", SetupDatabaseOverride);
+        if (!IsModule) yield return ProjectField("resultsDatabase", "Results", ResultsDatabaseField);
+        if (!IsModule && IsBranch) yield return ProjectField("setupDatabase", "Setup", SetupDatabaseField);
         if (ShowReportingConfiguration)
             yield return new("evolutionReporting", "Reporting", "Evolution reporting",
                 UsesSnapshotControls ? $"SnapshotInterval: {SnapshotInterval}; SnapshotCount: {SnapshotCount}; {SnapshotTargetText} Pool summaries: {SummaryReporting.Schedule}"

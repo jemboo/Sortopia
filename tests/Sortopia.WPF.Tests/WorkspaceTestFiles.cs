@@ -7,19 +7,10 @@ namespace Sortopia.WPF.Tests;
 
 internal static class WorkspaceTestFiles
 {
-    // For typed round-trip assertions on saved drafts. Resolve validated snapshots
-    // in memory only; saving a draft must not seal the file on disk.
-    internal static workspace LoadRuntimeSnapshot(string root)
+    internal static Sortopia.Runs.run LoadRun(string root, Func<WorkspaceDocument, runDto> select)
     {
-        var document = WorkspaceFileStore.LoadDocument(root);
-        static ModuleDocument Snapshot(ModuleDocument module) => new(module.Definition,
-            module.Modules.Select(Snapshot).ToArray(), module.Projects.Select(value => {
-                var parent = project.seal.Invoke(WorkspaceDefinitionCodec.projectHeader(null!, value.Definition));
-                var definition = WorkspaceDefinitionCodec.projectWithOrigin(null!, parent);
-                definition.runs = value.Definition.runs;
-                return new ProjectDocument(definition, value.Runs);
-            }).ToArray());
-        return WorkspaceDocumentModule.toDomain(new(document.Definition, document.Modules.Select(Snapshot).ToArray()));
+        var document = WorkspaceFileStore.LoadWorkspace(root);
+        return document.ResolveRun(select(document.CreateEditDocument()).id).Run;
     }
     internal static Guid Id(string name) => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(name)));
 

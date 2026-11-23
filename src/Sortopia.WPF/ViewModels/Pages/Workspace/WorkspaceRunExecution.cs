@@ -35,19 +35,18 @@ public sealed partial class WorkspacePageViewModel
         }
     }
 
-    private (Guid Project, Guid Run)? savedScopeKey;
-    private runWorkspace? savedRunScope;
+    private (SavedWorkspace Workspace, Guid Project, Guid Run)? savedScopeKey;
+    private RunExecutionScope? savedRunScope;
     private string savedScopeError = "";
-    private void ClearRunScope() { savedScopeKey = null; savedRunScope = null; savedScopeError = ""; }
     private WorkspaceTreeNode? SelectedRunNode => Selected?.IsRun == true
         ? Roots.SelectMany(root => root.DescendantsAndSelf()).FirstOrDefault(node => node.IsRun && node.Id == Selected.Id) : null;
 
-    private runWorkspace? ResolveRunScope(WorkspaceTreeNode node)
+    private RunExecutionScope? ResolveRunScope(WorkspaceTreeNode node)
     {
-        var key = (node.Parent!.Id, node.Id);
+        var key = (Workspace: savedWorkspace!, Project: node.Parent!.Id, Run: node.Id);
         if (savedScopeKey == key) return savedRunScope;
-        ClearRunScope(); savedScopeKey = key;
-        try { savedRunScope = WorkspaceRunDocument.resolve(savedDocument!, key.Item1, key.Item2); }
+        savedScopeKey = key; savedRunScope = null; savedScopeError = "";
+        try { savedRunScope = key.Workspace.ResolveRun(key.Project, key.Run); }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or FormatException or OverflowException)
         { savedScopeError = error.GetBaseException().Message; }
         return savedRunScope;
@@ -55,7 +54,7 @@ public sealed partial class WorkspacePageViewModel
 
     // A sealed project's settings are independent of later edits to its ancestors.
     // Only relevant locations and the selected run's own unsaved inputs matter here.
-    private string ScopeLocationError(runWorkspace scope, WorkspaceTreeNode runNode)
+    private string ScopeLocationError(RunExecutionScope scope, WorkspaceTreeNode runNode)
     {
         var nodes = Roots.SelectMany(root => root.DescendantsAndSelf()).ToArray();
         foreach (var location in scope.ProjectLocations)
@@ -81,7 +80,7 @@ public sealed partial class WorkspacePageViewModel
             if (Selected?.IsRun != true) return "Select a run to generate its parameter files.";
             if (IsBusy) return "Wait for the current operation, or cancel it below.";
             if (HasPendingRemoval) return PendingRemovalMessage;
-            if (savedDocument is null || !HasSavedWorkspace || SelectedRunNode is not { Parent: not null } node)
+            if (savedWorkspace is null || !HasSavedWorkspace || SelectedRunNode is not { Parent: not null } node)
                 return "Save this run and its project before generating parameter files.";
             if (node.NameError.Length > 0) return $"Run name: {node.NameError}";
             if (node.Editor!.ValidationError is { Length: > 0 } issue) return $"Run '{node.Name}': {issue}";
@@ -93,7 +92,7 @@ public sealed partial class WorkspacePageViewModel
                     !SettingsDto.toDomain(node.Parent.Family, node.Parent.Editor!.ToProjectSettings()).Equals(scope.Parent.Configuration))
                     return $"Save the changes to project '{node.Parent.Name}' and its inherited settings before generating run parameters.";
                 var current = RunDto.toDomain(scope.Parent, node.Editor.ToRunInputs(node.Id, node.Name, node.Parent.Id));
-                if (!WorkspaceCodec.encodeRun(current).SequenceEqual(WorkspaceCodec.encodeRun(scope.Run)))
+                if (!RunCodec.encodeRun(current).SequenceEqual(RunCodec.encodeRun(scope.Run)))
                     return $"Save the changes to run '{node.Name}' before generating its parameter files.";
                 return ScopeLocationError(scope, node);
             }

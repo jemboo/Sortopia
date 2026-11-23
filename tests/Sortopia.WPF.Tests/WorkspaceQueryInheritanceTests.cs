@@ -13,7 +13,7 @@ public sealed class WorkspaceQueryInheritanceTests
     public void Runs_inherit_project_projections_and_cannot_change_them(bool setup)
     {
         var module = new WorkspaceTreeNode(WorkspaceEntityKind.Module, "Module", family: hierarchyKind.Branch);
-        module.Editor!.LoadProject(RunExecutionTests.Settings(true));
+        module.Editor!.LoadFixtureSettings(RunExecutionTests.Settings(true));
         var project = new WorkspaceTreeNode(WorkspaceEntityKind.Project, "Shared queries", family: hierarchyKind.Branch);
         module.Children.Add(project);
         var first = new WorkspaceTreeNode(WorkspaceEntityKind.Run, "First", family: hierarchyKind.Branch);

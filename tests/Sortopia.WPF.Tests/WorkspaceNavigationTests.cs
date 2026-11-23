@@ -1,3 +1,4 @@
+using Sortopia.Workspaces.Serialization;
 using System.IO;
 using Sortopia.Workspaces;
 using Sortopia.Workspaces.Persistence;
@@ -15,7 +16,7 @@ public sealed class WorkspaceNavigationTests : IDisposable
     private WorkspaceFolderSettings Settings => new(Path.Combine(temporary.FullName, "settings.txt"));
     private void CreateSavedRoot()
     {
-        WorkspaceFileStore.CreateWorkspace(Root, workspace.create(Guid.NewGuid(), "Original", "Root", []), TestContext.Current.CancellationToken);
+        WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Original", "Root", []), TestContext.Current.CancellationToken);
         Directory.CreateDirectory(Other);
         Settings.Save(Root);
     }
@@ -34,7 +35,7 @@ public sealed class WorkspaceNavigationTests : IDisposable
         Assert.Equal(choice != WorkspaceUnsavedChoice.Cancel, await page.ReturnHomeAsync());
         Assert.Equal(1, prompts);
         Assert.Equal(choice != WorkspaceUnsavedChoice.Cancel, left);
-        Assert.Equal(choice == WorkspaceUnsavedChoice.Save ? "Edited" : "Original", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
+        Assert.Equal(choice == WorkspaceUnsavedChoice.Save ? "Edited" : "Original", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
         Assert.Equal(choice == WorkspaceUnsavedChoice.Discard ? "Original" : "Edited", page.WorkspaceName);
         Assert.Equal(choice == WorkspaceUnsavedChoice.Cancel, page.HasUnsavedChanges);
     }
@@ -54,7 +55,7 @@ public sealed class WorkspaceNavigationTests : IDisposable
         var expected = choice == WorkspaceUnsavedChoice.Cancel ? Root : Other;
         Assert.Equal(expected, page.WorkspaceFolder);
         Assert.Equal(expected, Settings.Load());
-        Assert.Equal(choice == WorkspaceUnsavedChoice.Save ? "Edited" : "Original", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
+        Assert.Equal(choice == WorkspaceUnsavedChoice.Save ? "Edited" : "Original", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
         Assert.False(File.Exists(WorkspaceTestFiles.DefinitionPath(Other, "workspace")));
         Assert.Equal(choice == WorkspaceUnsavedChoice.Cancel, page.HasUnsavedChanges);
     }
@@ -105,7 +106,7 @@ public sealed class WorkspaceNavigationTests : IDisposable
         }
         Assert.True(await page.ReturnHomeAsync());
         Assert.True(left);
-        Assert.Equal("Edited", WorkspaceFileStore.LoadDefinition(Root).WorkspaceName);
+        Assert.Equal("Edited", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
     }
 
     [Fact]

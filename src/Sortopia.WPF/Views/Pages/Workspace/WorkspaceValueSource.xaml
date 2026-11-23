@@ -7,7 +7,7 @@
             <TextBlock.Style><Style TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{DynamicResource Workspace.Accent}" />
                 <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsOverridden}" Value="True"><Setter Property="Foreground" Value="#D8B4FE" /></DataTrigger>
+                    <DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Foreground" Value="#D8B4FE" /></DataTrigger>
                     <DataTrigger Binding="{Binding HasInheritedSource}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
                 </Style.Triggers>
             </Style></TextBlock.Style>

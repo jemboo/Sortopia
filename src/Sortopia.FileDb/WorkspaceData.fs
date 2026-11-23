@@ -1,33 +1,14 @@
 namespace Sortopia.FileDb
 
-open System
 open System.IO
-open FSharp.UMX
 open System.Threading
 open Sortopia.Runs
-open Sortopia.Functions
 open Sortopia.Workspaces
 
 module WorkspaceData =
-    /// Resolve identity using the workspace API; use the hierarchy only for its path.
-    let projectFolder (workspace: workspace) workspaceRoot projectId =
-        let project = workspace.FindProject projectId
-                      |> Option.defaultWith (fun () -> invalidOp $"Project '{projectId}' was not found in the workspace.")
-        let rec find parent (items: workspaceModule array) =
-            items |> Array.tryPick (fun item ->
-                let folder = Path.Combine(parent, (UMX.untag item.ModuleName))
-                if item.Projects |> Array.exists (fun value -> value.Id = project.Id) then
-                    Some (Path.Combine(folder, (UMX.untag project.ProjectName)))
-                else find folder item.Modules)
-        find (Path.GetFullPath workspaceRoot) workspace.Modules |> Option.defaultWith (fun () -> invalidOp "Project folder was not found.")
-
-    let openProject workspace workspaceRoot projectId =
-        SortopiaFileDb(projectFolder workspace workspaceRoot projectId, projectId) :> ISortopiaDb
-
     /// Resolve upstream results using the producer's configuration, not the
     /// consumer's setup projection. Multiple dependency variants are ambiguous.
     let private loadSourceAt folder (source: sourceProjectSnapshot) (entry: setupDataTypeConfig) parameters token =
-        if not source.IsSealed then invalidOp $"Source project '{source.ProjectName}' must be sealed."
         if not (Map.containsKey entry.DataType source.Results.DataTypes) then
             invalidOp $"Source project '{source.ProjectName}' does not provide '{entry.DataType}'."
         let settings = source.Results
@@ -41,17 +22,12 @@ module WorkspaceData =
         | Ok [] -> invalidOp $"Source data '{entry.DataType}' is missing from project '{source.ProjectName}' for the requested parameters. Execute the source run first."
         | Ok _ -> invalidOp $"Source data '{entry.DataType}' is ambiguous in project '{source.ProjectName}': different setup inputs produced matching results. Use more specific results query keys."
 
-    let loadSource (workspace: workspace) workspaceRoot (entry: setupDataTypeConfig) parameters token =
-        let source = workspace.FindProject entry.SourceProjectId
-                     |> Option.defaultWith (fun () -> invalidOp $"Source project '{entry.SourceProjectId}' was not found.")
-        loadSourceAt (projectFolder workspace workspaceRoot source.Id) source.Snapshot entry parameters token
-
-    let scopedProjectFolder (scope: runWorkspace) workspaceRoot projectId =
+    let scopedProjectFolder (scope: RunExecutionScope) workspaceRoot projectId =
         let location = scope.FindProject projectId
                        |> Option.defaultWith (fun () -> invalidOp $"Required project '{projectId}' was not found.")
         Path.Combine(Path.GetFullPath workspaceRoot, location.RelativeFolder)
 
-    let loadScopedSource (scope: runWorkspace) workspaceRoot (entry: setupDataTypeConfig) parameters token =
+    let loadScopedSource (scope: RunExecutionScope) workspaceRoot (entry: setupDataTypeConfig) parameters token =
         let source = scope.FindProject entry.SourceProjectId
                      |> Option.defaultWith (fun () -> invalidOp $"Source project '{entry.SourceProjectId}' was not found.")
         loadSourceAt (scopedProjectFolder scope workspaceRoot entry.SourceProjectId) source.Snapshot entry parameters token
