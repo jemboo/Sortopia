@@ -89,17 +89,15 @@ module FileResultsHost =
 
     let planForRun projectId (config: resultsConfig) parameters inputs reporting sgd =
         let ordinary = plan projectId config parameters inputs
-        match reporting, sgd with
-        | None, None -> ordinary
-        | _ ->
-            if not (ResultsFunctionCatalog.require config.FunctionName).SupportsEvolutionReporting then
+        if not (ResultsFunctionCatalog.require config.FunctionName).SupportsEvolutionReporting then
+            if Option.isSome reporting || Option.isSome sgd then
                 invalidArg "reporting" "The selected results function does not support evolution reporting."
+            ordinary
+        else
             let final = ordinary |> Map.toList |> List.map fst |> List.find (fun output -> output.DataType = sortopiaDataType.SorterPoolSet "")
             let samples = EvolutionSampling.planForRun parameters final reporting sgd |> EvolutionSampling.outputs parameters
             let sampled = OutputPlan.bind projectId (string config.DatabaseName) false (string config.FunctionName) config.FunctionVersion samples
-            if sgd.IsSome then sampled else sampled |> Map.fold (fun outputs descriptor output -> Map.add descriptor output outputs) ordinary
-
-    let planWithReporting projectId config parameters inputs reporting = planForRun projectId config parameters inputs reporting None
+            sampled
 
     let private resumeSnapshot (store: ISortopiaDb) (plan: Map<runDataOutput, plannedOutput>) sgd token =
         if Option.isNone sgd then None else

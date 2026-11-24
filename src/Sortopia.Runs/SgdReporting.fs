@@ -83,23 +83,3 @@ module SgdReporting =
                     produced <- produced + 1
                 if produced = count then yield! generate main next }
         generate (parse text) 0L |> Seq.distinct
-
-    let validateGenerationCount reporting generationCount =
-        validate reporting |> ignore
-        if generationCount < 0 then invalidArg "generationCount" "GenerationCount must be nonnegative."
-        for label, schedule in ["full snapshot", reporting.SnapshotSchedule; "summary", reporting.SummarySchedule] do
-            let scheduled =
-                match parse schedule with
-                | Constant step -> generationCount % step = 0
-                | _ -> samples schedule generationCount |> Seq.contains generationCount
-            if not scheduled then
-                invalidArg "generationCount" $"GenerationCount {generationCount} is not on the {label} schedule {schedule}. Choose a scheduled generation or change the {label} schedule."
-
-    /// Check just this input, rather than expanding the complete parameter sweep.
-    let validateGenerationCounts reporting (values: string seq) =
-        let values = values |> Seq.distinct |> Seq.toArray
-        if values.Length = 0 then invalidArg "generationCount" "Provide GenerationCount to validate the snapshot and summary schedules."
-        for text in values do
-            let count = ParamKeys.generationCountKey.TryParse text
-                        |> Option.defaultWith (fun () -> invalidArg "generationCount" "GenerationCount must be an integer.")
-            validateGenerationCount reporting count

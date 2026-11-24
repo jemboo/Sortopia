@@ -15,6 +15,7 @@
     <Compile Include="EvaluationInputs.fs" />
     <Compile Include="SetupFunctions.fs" />
     <Compile Include="ResultsFunctions.fs" />
+    <Compile Include="SgdParameterContract.fs" />
     <Compile Include="SgdFunctions.fs" />
     <Compile Include="SetupFunctionCatalog.fs" />
     <Compile Include="ResultsFunctionCatalog.fs" />

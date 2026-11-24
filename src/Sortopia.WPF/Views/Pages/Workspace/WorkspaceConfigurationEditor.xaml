@@ -416,11 +416,8 @@
                         <TextBlock Text="Number of snapshots after generation zero. Increase and save to extend the run; execute its parameter files to continue from the latest checkpoint." Style="{StaticResource Help}" />
                         <TextBlock Text="{Binding SnapshotTargetText}" Style="{StaticResource Help}" />
                     </StackPanel>
-                    <StackPanel Visibility="{Binding ShowLegacyReporting, Converter={StaticResource VisibleWhen}}" IsEnabled="{Binding IsEditable}">
-                        <CheckBox Content="Save evolution snapshots and summaries" IsChecked="{Binding ReportingEnabled}" Foreground="{DynamicResource Workspace.TextPrimary}" />
-                        <TextBlock Text="Legacy run: GenerationCount must fall on both reporting schedules." Style="{StaticResource Help}" />
-                        <ContentControl Content="{Binding SnapshotReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
-                    </StackPanel>
+                    <TextBlock Text="This saved SGD version is not supported. Create a new project version to configure snapshot controls."
+                               Visibility="{Binding ShowUnsupportedReporting, Converter={StaticResource VisibleWhen}}" Style="{StaticResource Help}" />
                     <StackPanel IsEnabled="{Binding IsEditable}" Visibility="{Binding ReportingEnabled, Converter={StaticResource VisibleWhen}}">
                         <ContentControl Content="{Binding SummaryReporting}" ContentTemplate="{StaticResource ReportingSchedule}" />
                     </StackPanel>

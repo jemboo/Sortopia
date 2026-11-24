@@ -14,9 +14,8 @@ public sealed partial class PreparedExecutionTests
     public void Sgd_sweep_reports_combine_all_saved_networks_with_exact_V1_statistics_and_parameter_values()
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
-            new() { keyName = "GenerationCount", values = ["0"] },
             new() { keyName = "OrthoRate", values = ["1", "2"] },
-            new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }]);
+            new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }], sgd: new(1, 0));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parametersFolder = Path.Combine(folder, "runParameters");
@@ -38,7 +37,7 @@ public sealed partial class PreparedExecutionTests
         {
             var item = RunParameterFiles.loadFile(file);
             var store = new SortopiaFileDb(folder, item.ProjectId);
-            var reference = Assert.Single(RunParameterExecution.inspectFile(file, Token).Outputs.Available).Reference;
+            var reference = Assert.Single(RunParameterExecution.inspectFile(file, Token).Outputs.Available, output => output.Reference.DataType.IsSorterPoolSet).Reference;
             Assert.True(reference.DataType.IsSorterPoolSet);
             var saved = Assert.IsType<sortopiaStorageData.SorterPoolSet>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
             var evaluations = saved.Pools.SelectMany(pool => pool.Members).Select(member => member.Evaluation).DistinctBy(SorterEval.getSorterId).ToArray();

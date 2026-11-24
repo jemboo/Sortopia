@@ -12,6 +12,35 @@ namespace Sortopia.FileDb.Tests;
 public sealed partial class PreparedExecutionTests
 {
     [Fact]
+    public void Version_six_is_rejected_by_the_catalog()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ResultsFunctionCatalog.requireVersion(ResultsFunctionNames.standardMsuf4SimpleSgd, "6"));
+        Assert.Contains("requires version 6", error.Message);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Prepared_SGD_rejects_version_six_and_current_files_without_snapshot_controls_before_writing_results(bool legacy)
+    {
+        var (world, consumer) = SgdWorkspace();
+        Completed(Prepare(world, consumer).Execution);
+        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
+        var item = Assert.Single(RunParameterFiles.listWorkItems(Path.Combine(folder, "runParameters"), Token));
+        var config = new resultsConfig(item.Results.DatabaseName, item.Results.FunctionName,
+            legacy ? "6" : item.Results.FunctionVersion, item.Results.Outputs, item.Results.ParameterDefaults);
+        var parameters = legacy ? item.Parameters.WithBinding(ParameterBinding.create(ParamKeys.generationCountKey, 3)) : item.Parameters;
+        var unsupported = new runParameters(item.Id, item.ProjectId, item.RunId, config, parameters,
+            item.SetupInputs, item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, null, null);
+        var id = RunParameterFiles.saveWorkItem(folder, unsupported, Token);
+        var report = RunParameterExecution.executeFile(Path.Combine(folder, "runParameters", id + ".msgpack"), null!, Token);
+        Assert.Equal(runExecutionStatus.Failed, report.Status);
+        Assert.Contains(legacy ? "requires version 6" : "SnapshotInterval and SnapshotCount", report.Error);
+        Assert.Empty(DataFiles(folder, "results"));
+    }
+
+    [Fact]
     public void Resolving_a_saved_run_does_not_expose_its_snapshot_or_reporting_controls()
     {
         var (_, consumer) = SgdWorkspace(sgd: new(2, 2), reporting: new("Constant(2)", "Constant(1)"));

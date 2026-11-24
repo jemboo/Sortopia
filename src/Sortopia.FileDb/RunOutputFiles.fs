@@ -54,7 +54,7 @@ module RunOutputFiles =
             match database.Load key.Reference with
             | sortopiaStorageData.SorterPoolSummarySet summary -> summary.Rows
             | _ -> invalidOp "Expected a pool summary set.")
-        { Generation = EvolutionSampling.target item.Parameters item.Sgd
+        { Generation = EvolutionSampling.target item.Sgd
           Snapshots = samples.Snapshots |> Array.map fst
           SummaryGenerations = samples.Summaries |> Array.collect fst
           PoolCount = FunctionParameters.required ParamKeys.sorterPoolCountKey item.Parameters }, rows

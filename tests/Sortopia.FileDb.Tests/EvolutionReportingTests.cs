@@ -14,6 +14,14 @@ namespace Sortopia.FileDb.Tests;
 
 public sealed partial class PreparedExecutionTests
 {
+    private static void CopyRunDefinition(string folder, Guid source, Guid destination, sgdRunConfig controls)
+    {
+        var run = MessagePackSetup.deserialize<runDto>(File.ReadAllBytes(Path.Combine(folder, "runs", source + ".msgpack")));
+        run.id = destination;
+        run.sgd = FSharpOption<sgdRunConfig>.Some(controls);
+        File.WriteAllBytes(Path.Combine(folder, "runs", destination + ".msgpack"), MessagePackSetup.serialize(run));
+    }
+
     [Theory]
     [InlineData("Constant(100)", 100, new[] { 0, 100 })]
     [InlineData("Constant(2)", 5, new[] { 0, 2, 4 })]
@@ -24,19 +32,9 @@ public sealed partial class PreparedExecutionTests
     [InlineData("Prefixed(3, Constant(100), Constant(1))", 8, new[] { 0 })]
     [InlineData("Prefixed(3, Constant(1), Constant(4))", 10, new[] { 0, 1, 2, 3, 7 })]
     [InlineData("Constant(2147483647)", int.MaxValue, new[] { 0, int.MaxValue })]
-    public void Reporting_schedules_use_only_scheduled_points_and_require_an_aligned_final_generation(string schedule, int final, int[] expected)
+    public void Reporting_schedules_use_only_scheduled_points(string schedule, int final, int[] expected)
     {
         Assert.Equal(expected, SgdReporting.samples(schedule, final));
-        foreach (var reporting in new[] { new sgdReportingConfig(schedule, "Constant(1)"), new sgdReportingConfig("Constant(1)", schedule) })
-        {
-            if (expected.Contains(final)) SgdReporting.validateGenerationCount(reporting, final);
-            else
-            {
-                var error = Assert.Throws<ArgumentException>(() => SgdReporting.validateGenerationCount(reporting, final));
-                Assert.Contains($"GenerationCount {final}", error.Message);
-                Assert.Contains(reporting.SnapshotSchedule == schedule ? "full snapshot schedule" : "summary schedule", error.Message);
-            }
-        }
     }
 
     [Theory]
@@ -50,28 +48,8 @@ public sealed partial class PreparedExecutionTests
     public void Invalid_reporting_schedules_are_rejected(string schedule)
         => Assert.ThrowsAny<ArgumentException>(() => SgdReporting.parse(schedule));
 
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public void Unaligned_generation_counts_are_rejected_when_resolving_runs_before_any_data_is_written(bool sweep, bool summaries)
-    {
-        string[] counts = sweep ? ["0", "2", "3", "4"] : ["3"];
-        var (world, consumer) = SgdWorkspace(resultsSpans: [new() { keyName = "GenerationCount", values = counts }]);
-        var inputs = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
-        inputs.reporting = FSharpOption<sgdReportingConfig>.Some(summaries ? new("Constant(1)", "Constant(2)") : new("Constant(2)", "Constant(1)"));
-        var error = Assert.Throws<ArgumentException>(() => RunDto.toDomain(consumer.Snapshot(), inputs));
-        Assert.Contains("GenerationCount 3", error.Message);
-        Assert.Contains(summaries ? "summary schedule" : "full snapshot schedule", error.Message);
-        var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
-        Assert.Empty(DataFiles(folder, "setup"));
-        Assert.Empty(DataFiles(folder, "results"));
-        Assert.False(Directory.Exists(Path.Combine(folder, "runParameters")));
-    }
-
     [Fact]
-    public void Evolution_reports_replay_cached_results_portably_export_all_samples_and_detect_corruption()
+    public void Evolution_reports_export_all_samples_portably_repair_missing_checkpoints_and_detect_corruption()
     {
         var (world, consumer) = SgdWorkspace();
         var runDefinition = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
@@ -79,27 +57,10 @@ public sealed partial class PreparedExecutionTests
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
-        var original = Assert.Single(RunParameterFiles.listWorkItems(parameters, Token));
-        // Adding optional reporting must not rewrite existing invocation bytes or data identities.
-        Assert.Equal(MessagePackSetup.serialize(RunParameterCodec.toDto(original)), RunParameterCodec.encode(original));
-        Completed(RunParameterExecution.executeFolder(parameters, null!, null!, Token));
-        var dataBefore = Directory.GetFiles(Path.Combine(folder, "data"), "*.msgpack", SearchOption.AllDirectories)
-            .ToDictionary(path => path, File.ReadAllBytes);
-        var reporting = new sgdReportingConfig("Constant(3)", "Constant(1)");
-        var configured = new runParameters(original.Id, original.ProjectId, original.RunId, original.Results, original.Parameters,
-            original.SetupInputs, original.SetNumber, original.SetupSetNumber, original.SetupSuffixStages, original.ResultsSuffixStages,
-            FSharpOption<sgdReportingConfig>.Some(reporting), null);
-        var id = RunParameterFiles.saveWorkItem(folder, configured, Token);
-        Assert.NotEqual(original.Id, id);
-        var path = Path.Combine(parameters, id + ".msgpack");
-        var item = RunParameterFiles.loadFile(path);
-        Assert.Equal(reporting, item.Reporting.Value);
-        Assert.Equal(outputState.Partial, RunParameterExecution.inspectFile(path, Token).Outputs.State);
+        var item = Assert.Single(RunParameterFiles.listWorkItems(parameters, Token));
+        var path = Path.Combine(parameters, item.Id + ".msgpack");
         var completed = RunParameterExecution.executeFile(path, null!, Token); Completed(completed);
-        var savedOutputs = Assert.Single(completed.Results).StoredOutputs;
-        Assert.True(Assert.Single(savedOutputs, output => Equals(output.Reference.DataType, sortopiaDataType.NewSorterPoolSet(""))).Reused);
-        Assert.All(savedOutputs.Where(output => !Equals(output.Reference.DataType, sortopiaDataType.NewSorterPoolSet(""))), output => Assert.False(output.Reused));
-        foreach (var file in dataBefore) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
+        Assert.All(Assert.Single(completed.Results).StoredOutputs, output => Assert.False(output.Reused));
 
         var loaded = RunOutputFiles.loadSamples(folder, item, Token);
         Assert.Equal(new[] { 0, 3 }, loaded.Item1.Snapshots);
@@ -135,24 +96,22 @@ public sealed partial class PreparedExecutionTests
             item.SetupInputs, 42, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, item.Sgd);
         Assert.Equal(keys.Select(key => key.Id), RunOutputFiles.keys(equivalent).Select(key => key.Id));
         Assert.Equal(outputState.Complete, RunOutputFiles.inspect(folder, equivalent, Token).State);
+        CopyRunDefinition(folder, item.RunId, equivalent.RunId, equivalent.Sgd.Value);
         RunParameterFiles.saveWorkItem(folder, equivalent, Token);
         var neverKeep = FuncConvert.FromFunc<storedDataReference, FSharpList<storedDataReference>, bool>((_, _) => false);
         var removedPaths = RunDataCleanup.plan(folder, item.ProjectId, SetModule.Singleton(item.RunId), neverKeep, Token);
         Assert.All(keys, key => Assert.DoesNotContain(store.GetPath(key.Reference), removedPaths));
         var denser = new runParameters(item.Id, item.ProjectId, item.RunId, item.Results, item.Parameters, item.SetupInputs,
-            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, FSharpOption<sgdReportingConfig>.Some(new("Constant(1)", "Constant(1)")), null);
+            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, FSharpOption<sgdRunConfig>.Some(new(1, SgdRun.target(item.Sgd.Value))));
         Assert.All(RunOutputFiles.samples(item).Snapshots, snapshot =>
             Assert.Contains(RunOutputFiles.samples(denser).Snapshots, other => other.Item1 == snapshot.Item1 && other.Item2.Id == snapshot.Item2.Id));
         var different = new runParameters(item.Id, item.ProjectId, item.RunId, item.Results,
             item.Parameters.WithBinding(ParameterBinding.create(ParamKeys.orthoRateKey, 99.0)), item.SetupInputs,
             item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, item.Sgd);
-        // Intermediate samples include all parameters; the final result retains
-        // the project's saved query projection (GenerationCount in this fixture).
-        var finalKey = RunOutputFiles.samples(item).Snapshots.Last().Item2;
-        Assert.Empty(RunOutputFiles.keys(different).Where(key => key.Id != finalKey.Id)
-            .Select(key => key.Id).Intersect(keys.Where(key => key.Id != finalKey.Id).Select(key => key.Id)));
+        // Every checkpoint, including the final one, identifies all algorithm parameters.
+        Assert.Empty(RunOutputFiles.keys(different).Select(key => key.Id).Intersect(keys.Select(key => key.Id)));
         var sliceBytes = keys.Select(key => store.GetPath(key.Reference)).ToDictionary(file => file, File.ReadAllBytes);
-        Assert.All(keys.Where(key => key.Id != finalKey.Id), key => Assert.Contains("GenerationCurrent", store.ReadQueryParameters(key.Reference, Token).Select(binding => binding.KeyName)));
+        Assert.All(keys, key => Assert.Contains("GenerationCurrent", store.ReadQueryParameters(key.Reference, Token).Select(binding => binding.KeyName)));
         Assert.Contains(keys, key => key.Reference.DataType.IsSorterPoolSummarySet);
         Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "evolution")));
         var missingSnapshot = RunOutputFiles.snapshotPath(folder, item, 0);
@@ -170,16 +129,14 @@ public sealed partial class PreparedExecutionTests
     }
 
     [Theory]
-    [InlineData(0, "Constant(2)", new[] { 0 })]
-    [InlineData(3, "Constant(3)", new[] { 0, 3 })]
-    [InlineData(4, "Constant(2)", new[] { 0, 2, 4 })]
-    [InlineData(3, "Exponential(1, 1)", new[] { 0, 1, 3 })]
+    [InlineData(2, 0, new[] { 0 })]
+    [InlineData(3, 1, new[] { 0, 3 })]
+    [InlineData(2, 2, new[] { 0, 2, 4 })]
     public void Final_result_is_the_last_snapshot_and_is_counted_saved_exported_and_cleaned_up_once(
-        int generations, string schedule, int[] snapshotGenerations)
+        int interval, int count, int[] snapshotGenerations)
     {
-        var (world, consumer) = SgdWorkspace(resultsSpans: [
-            new() { keyName = "GenerationCount", values = [generations.ToString()] }
-        ], reporting: new(schedule, "Constant(1)"));
+        var generations = interval * count;
+        var (world, consumer) = SgdWorkspace(sgd: new(interval, count));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
@@ -187,14 +144,15 @@ public sealed partial class PreparedExecutionTests
         var path = Path.Combine(parameters, item.Id + ".msgpack");
         var executed = RunParameterExecution.executeFile(path, null!, Token); Completed(executed);
         var store = new SortopiaFileDb(folder, item.ProjectId);
-        var final = Assert.Single(FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs)).Value.Key;
         var samples = RunOutputFiles.samples(item);
+        var final = samples.Snapshots.Last().Item2;
         var keys = RunOutputFiles.keys(item);
         var finalPath = store.GetPath(final.Reference);
         Assert.Equal(snapshotGenerations, samples.Snapshots.Select(sample => sample.Item1));
         Assert.Equal(final.Reference, samples.Snapshots.Last().Item2.Reference);
         Assert.Equal(finalPath, RunOutputFiles.snapshotPath(folder, item, generations));
-        Assert.Equal(new[] { "GenerationCount" }, store.ReadQueryParameters(final.Reference, Token).Select(binding => binding.KeyName));
+        Assert.Contains("GenerationCurrent", store.ReadQueryParameters(final.Reference, Token).Select(binding => binding.KeyName));
+        Assert.DoesNotContain("GenerationCount", store.ReadQueryParameters(final.Reference, Token).Select(binding => binding.KeyName));
         Assert.Equal(keys.Length, DataFiles(folder, "results").Length);
         Assert.Equal(keys.Length, Assert.Single(executed.Results).StoredOutputs.Length);
         Assert.Equal(snapshotGenerations.Length, Directory.GetFiles(Path.GetDirectoryName(finalPath)!, "*.msgpack").Length);
@@ -219,14 +177,18 @@ public sealed partial class PreparedExecutionTests
         Completed(RunParameterExecution.executeFile(path, null!, Token));
         foreach (var file in bytes) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
 
-        // A surviving invocation without reporting still owns the shared final file.
+        // A surviving invocation with fewer checkpoints still owns shared outputs.
         var plain = new runParameters(Guid.NewGuid(), item.ProjectId, Guid.NewGuid(), item.Results, item.Parameters,
-            item.SetupInputs, item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, null!, null);
+            item.SetupInputs, item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, null,
+            FSharpOption<sgdRunConfig>.Some(new(Math.Max(1, generations), generations == 0 ? 0 : 1)));
+        CopyRunDefinition(folder, item.RunId, plain.RunId, plain.Sgd.Value);
         RunParameterFiles.saveWorkItem(folder, plain, Token);
         var neverKeep = FuncConvert.FromFunc<storedDataReference, FSharpList<storedDataReference>, bool>((_, _) => false);
         var removed = RunDataCleanup.plan(folder, item.ProjectId, SetModule.Singleton(item.RunId), neverKeep, Token);
         Assert.DoesNotContain(finalPath, removed);
-        Assert.All(keys.Where(key => key.Id != final.Id), key => Assert.Contains(store.GetPath(key.Reference), removed));
+        var survivingIds = RunOutputFiles.keys(plain).Select(key => key.Id).ToHashSet();
+        Assert.All(keys.Where(key => !survivingIds.Contains(key.Id)), key => Assert.Contains(store.GetPath(key.Reference), removed));
+        Assert.All(keys.Where(key => survivingIds.Contains(key.Id)), key => Assert.DoesNotContain(store.GetPath(key.Reference), removed));
         var removeAll = RunDataCleanup.plan(folder, item.ProjectId, SetModule.OfSeq(new[] { item.RunId, plain.RunId }), neverKeep, Token);
         Assert.All(keys, key => Assert.Contains(store.GetPath(key.Reference), removeAll));
 
@@ -292,17 +254,15 @@ public sealed partial class PreparedExecutionTests
     public void Summary_sets_are_the_only_history_and_follow_the_selected_interval(string interval, int[] generations)
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
-            new() { keyName = "GenerationCount", values = ["6"] },
             new() { keyName = "SorterPoolCount", values = ["2"] }
-        ], reporting: new("Constant(1)", interval));
+        ], reporting: new("Constant(1)", interval), sgd: new(1, 6));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
         var item = Assert.Single(RunParameterFiles.listWorkItems(parameters, Token));
         var executed = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(executed);
         var store = new SortopiaFileDb(folder, item.ProjectId);
-        var resultReference = Assert.Single(Assert.Single(executed.Results).StoredOutputs,
-            output => output.Reference.DataType.Equals(sortopiaDataType.NewSorterPoolSet(""))).Reference;
+        var resultReference = RunOutputFiles.samples(item).Snapshots.Last().Item2.Reference;
         var final = Assert.IsType<sortopiaStorageData.SorterPoolSet>(((ISortopiaDb)store).Load(resultReference, Token).ResultValue.Value).Item;
         var samples = RunOutputFiles.loadSamples(folder, item, Token);
         Assert.Equal(generations, samples.Item1.SummaryGenerations);

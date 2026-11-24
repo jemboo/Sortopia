@@ -237,8 +237,8 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private bool reportingEnabled;
     private string snapshotInterval = "100", snapshotCount = "1";
     private sgdRunConfig? frozenSnapshotControls;
-    public bool UsesSnapshotControls => SupportsReporting && ResultsFunctionVersion == "7";
-    public bool ShowLegacyReporting => ShowReportingConfiguration && !UsesSnapshotControls;
+    public bool UsesSnapshotControls => SupportsReporting && PhaseVersionCurrent(false);
+    public bool ShowUnsupportedReporting => ShowReportingConfiguration && !UsesSnapshotControls;
     public bool CanEditSnapshotInterval => UsesSnapshotControls && IsEditable && frozenSnapshotControls is null;
     public bool CanEditSnapshotCount => UsesSnapshotControls;
     public string SnapshotInterval { get => snapshotInterval; set { if (CanEditSnapshotInterval && SetProperty(ref snapshotInterval, value)) NotifyChanged(); } }
@@ -281,12 +281,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
                 try { SnapshotControls(); return SummaryReporting.Error; }
                 catch (Exception error) { return error.GetBaseException().Message; }
             }
-            if (SnapshotReporting.Error.Length > 0) return "Full snapshots: " + SnapshotReporting.Error;
-            if (SummaryReporting.Error.Length > 0) return "Summaries: " + SummaryReporting.Error;
-            var counts = EffectiveOutputDefaults.Where(value => value.keyName == "GenerationCount").Select(value => value.value)
-                .Concat(ResultsParameters.Where(row => row.Key == "GenerationCount").SelectMany(row => row.Values.Select(value => value.Text)));
-            try { SgdReporting.validateGenerationCounts(new(SnapshotReporting.Schedule, SummaryReporting.Schedule), counts); return ""; }
-            catch (Exception error) { return error.GetBaseException().Message; }
+            return "This saved SGD version is not supported. Create a new project version with SnapshotInterval and SnapshotCount.";
         }
     }
     public bool IsReadOnly => frozenSettings is not null || generatedParametersLock;

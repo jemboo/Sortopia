@@ -27,9 +27,7 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     public int? TotalGenerations { get; } = GenerationTotal(parameters);
     public int? CompletedGenerations => IsComplete ? TotalGenerations : generation;
     public string GenerationsText => TotalGenerations is { } total ? $"{(CompletedGenerations is { } completed ? completed.ToString("N0") : "—")} / {total:N0}" : "—";
-    private static int? GenerationTotal(runParameters? item) => item?.Sgd is { } controls ? Sortopia.Runs.SgdRun.target(controls.Value) : item is not null
-        && ResultsFunctionCatalog.functions.TryGetValue(item.Results.FunctionName, out var definition) && definition.SupportsEvolutionReporting
-        && int.TryParse(item.Parameters.TryFindText("GenerationCount")?.Value, out var total) && total >= 0 ? total : null;
+    private static int? GenerationTotal(runParameters? item) => item?.Sgd is { } controls ? Sortopia.Runs.SgdRun.target(controls.Value) : null;
     public string Path => path;
     public string FileName => System.IO.Path.GetFileName(path);
     public runParameters? Parameters => parameters;

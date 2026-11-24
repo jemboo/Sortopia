@@ -21,9 +21,8 @@ public sealed partial class PreparedExecutionTests
     public void Generation_progress_identifies_parallel_jobs_and_reports_snapshot_boundaries(bool reporting, int generations)
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
-            new() { keyName = "GenerationCount", values = [generations.ToString()] },
             new() { keyName = "MutationMod", values = ["0", "1"] }],
-            reporting: reporting ? new("Constant(2)", "Constant(1)") : null);
+            reporting: reporting ? new("Constant(2)", "Constant(1)") : null, sgd: new(2, generations / 2));
         Completed(Prepare(world, consumer).Execution);
         var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var paths = Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack");
@@ -42,7 +41,7 @@ public sealed partial class PreparedExecutionTests
             var observed = events.Where(value => value.Id == id).Select(value => value.Generation).ToArray();
             Assert.Equal(0, observed[0]); Assert.Equal(generations, observed[^1]);
             Assert.Equal(observed.Distinct().Order(), observed);
-            if (reporting) Assert.Equal(generations == 0 ? [0] : new[] { 0, 2, 4, 6 }, observed);
+            Assert.Equal(generations == 0 ? [0] : new[] { 0, 2, 4, 6 }, observed);
         }
         events.Clear();
         var reused = Execute(); Completed(reused);
@@ -51,9 +50,9 @@ public sealed partial class PreparedExecutionTests
     }
 
     [Fact]
-    public void Cancellation_keeps_last_generation_and_retry_reports_from_zero()
+    public void Cancellation_keeps_last_generation_and_retry_resumes_from_checkpoint()
     {
-        var (world, consumer) = SgdWorkspace(resultsSpans: [new() { keyName = "GenerationCount", values = ["6"] }],
+        var (world, consumer) = SgdWorkspace(sgd: new(2, 3),
             reporting: new("Constant(2)", "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
         var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
@@ -72,6 +71,6 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(runExecutionStatus.Cancelled, Execute(cancellation.Token).Status);
         Assert.Equal(new[] { 0, 2 }, events);
         events.Clear(); Completed(Execute(Token));
-        Assert.Equal(new[] { 0, 2, 4, 6 }, events);
+        Assert.Equal(new[] { 2, 4, 6 }, events);
     }
 }

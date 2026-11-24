@@ -14,42 +14,38 @@ type evolutionSamplingPlan = {
 
 /// Sampling policy and output descriptions, independent of any storage backend.
 module EvolutionSampling =
-    let target parameters sgd = sgd |> Option.map SgdRun.target |> Option.defaultWith (fun () -> FunctionParameters.required ParamKeys.generationCountKey parameters)
+    let requireControls sgd =
+        sgd |> Option.defaultWith (fun () -> invalidArg "sgd" "Set SnapshotInterval and SnapshotCount on the SGD run.")
+        |> SgdRun.validate
 
-    let planForRun (parameters: parameterSet) (finalOutput: runDataOutput) reporting sgd =
-        let reporting = sgd |> Option.map (fun controls ->
-            { SnapshotSchedule = $"Constant({controls.SnapshotInterval})"
-              SummarySchedule = reporting |> Option.map _.SummarySchedule |> Option.defaultValue "Constant(1)" }) |> Option.orElse reporting
-        match reporting with
-        | None -> { Snapshots = [||]; Summaries = [||] }
-        | Some reporting ->
-            let final = target parameters sgd
-            if sgd.IsNone then SgdReporting.validateGenerationCount reporting final
-            let snapshots = SgdReporting.samples reporting.SnapshotSchedule final |> Seq.toArray
-            let summaries = SgdReporting.samples reporting.SummarySchedule final |> Seq.toArray
-            let output dataType bindings =
-                let query = bindings |> List.fold (fun (p: parameterSet) binding -> p.WithBinding binding) parameters
-                RunDataOutput.create dataType (query.ParamMap |> Map.toList |> List.map fst) query finalOutput.Dependencies
-            let snapshotOutputs = snapshots |> Array.map (fun generation ->
-                generation, if sgd.IsSome then output (sortopiaDataType.SorterPoolSet "") [ParameterBinding.create ParamKeys.generationCurrentKey generation]
-                            elif generation = final then finalOutput
-                            else output (sortopiaDataType.SorterPoolSet "snapshot") [ParameterBinding.create ParamKeys.generationCurrentKey generation])
-            let snapshotSet, summarySet = Set.ofArray snapshots, Set.ofArray summaries
-            let batches = ResizeArray<int array * runDataOutput>()
-            let pending = ResizeArray<int>()
-            for generation in Set.union snapshotSet summarySet do
-                if summarySet.Contains generation then pending.Add generation
-                if pending.Count > 0 && (snapshotSet.Contains generation || pending.Count >= 256) then
-                    let generations = pending.ToArray()
-                    let bindings = [
-                        ParameterBinding.create ParamKeys.generationFirstKey generations[0]
-                        ParameterBinding.create ParamKeys.generationCurrentKey generations[generations.Length - 1]
-                        ParameterBinding.fromText (UMX.tag "SummaryGenerations") parameterValueType.Text (String.Join(",", generations)) ]
-                    batches.Add(generations, output (sortopiaDataType.SorterPoolSummarySet "") bindings)
-                    pending.Clear()
-            { Snapshots = snapshotOutputs; Summaries = batches.ToArray() }
+    let target sgd = requireControls sgd |> SgdRun.target
 
-    let plan parameters finalOutput reporting = planForRun parameters finalOutput reporting None
+    let planForRun (parameters: parameterSet) (basis: runDataOutput) reporting sgd =
+        let controls = requireControls sgd
+        let final = SgdRun.target controls
+        let snapshots = SgdReporting.samples $"Constant({controls.SnapshotInterval})" final |> Seq.toArray
+        let summarySchedule = reporting |> Option.map _.SummarySchedule |> Option.defaultValue "Constant(1)"
+        let summaries = SgdReporting.samples summarySchedule final |> Seq.toArray
+        let output dataType bindings =
+            let query = bindings |> List.fold (fun (p: parameterSet) binding -> p.WithBinding binding) parameters
+            RunDataOutput.create dataType (query.ParamMap |> Map.toList |> List.map fst) query basis.Dependencies
+        // The target is deliberately absent from identities so a run can be extended.
+        let snapshotOutputs = snapshots |> Array.map (fun generation ->
+            generation, output (sortopiaDataType.SorterPoolSet "") [ParameterBinding.create ParamKeys.generationCurrentKey generation])
+        let snapshotSet, summarySet = Set.ofArray snapshots, Set.ofArray summaries
+        let batches = ResizeArray<int array * runDataOutput>()
+        let pending = ResizeArray<int>()
+        for generation in Set.union snapshotSet summarySet do
+            if summarySet.Contains generation then pending.Add generation
+            if pending.Count > 0 && (snapshotSet.Contains generation || pending.Count >= 256) then
+                let generations = pending.ToArray()
+                let bindings = [
+                    ParameterBinding.create ParamKeys.generationFirstKey generations[0]
+                    ParameterBinding.create ParamKeys.generationCurrentKey generations[generations.Length - 1]
+                    ParameterBinding.fromText (UMX.tag "SummaryGenerations") parameterValueType.Text (String.Join(",", generations)) ]
+                batches.Add(generations, output (sortopiaDataType.SorterPoolSummarySet "") bindings)
+                pending.Clear()
+        { Snapshots = snapshotOutputs; Summaries = batches.ToArray() }
 
     let checkSnapshot parameters generation (snapshot: sorterPoolSet) =
         if snapshot.Generation <> generation || snapshot.Pools.Length <> FunctionParameters.required ParamKeys.sorterPoolCountKey parameters then

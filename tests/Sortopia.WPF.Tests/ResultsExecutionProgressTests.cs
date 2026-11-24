@@ -32,8 +32,8 @@ public sealed class ResultsExecutionProgressTests
     }
 
     private static runParameters SgdItem(int generations) => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
-        new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, "6", [], []),
-        parameterSet.fromBindings([ParameterBinding.create(ParamKeys.generationCountKey, generations)]), [], 1, null, null, null, null, null);
+        new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, SgdFunctions.standardMsuf4Simple.Version, [], []),
+        parameterSet.fromBindings([]), [], 1, null, null, null, null, Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(new(1, generations)));
 
     [Theory]
     [InlineData(workItemExecutionState.Complete)]
@@ -74,6 +74,7 @@ public sealed class ResultsExecutionProgressTests
         var item = SgdItem(3);
         var row = new WorkItemStatusRow("test.msgpack", item, null, timeProvider: clock);
         row.UpdateExecution(new(item.Id, workItemExecutionState.Running, ""));
+        row.QueueGeneration(0); row.RefreshGenerationProgress();
         clock.Advance(TimeSpan.FromHours(14)); row.QueueGeneration(1); row.RefreshGenerationProgress();
         Assert.Equal("28:00:00", row.EstimatedRemainingText);
         row.QueueGeneration(3); row.RefreshGenerationProgress();
@@ -87,6 +88,7 @@ public sealed class ResultsExecutionProgressTests
         var huge = SgdItem(int.MaxValue);
         var hugeRow = new WorkItemStatusRow("huge.msgpack", huge, null, timeProvider: clock);
         hugeRow.UpdateExecution(new(huge.Id, workItemExecutionState.Running, ""));
+        hugeRow.QueueGeneration(0); hugeRow.RefreshGenerationProgress();
         clock.Advance(TimeSpan.FromDays(3650)); hugeRow.QueueGeneration(1); hugeRow.RefreshGenerationProgress();
         Assert.Equal("—", hugeRow.EstimatedRemainingText);
     }

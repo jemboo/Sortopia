@@ -38,10 +38,7 @@ public sealed partial class PreparedExecutionTests : IDisposable
         settings.resultsParameterDefaults = settings.resultsParameterDefaults.Where(binding => !results.Any(span => span.keyName == binding.keyName)).ToArray();
         settings.setupParameterDefaults = settings.setupParameterDefaults.Where(binding => !setup.Any(span => span.keyName == binding.keyName)).ToArray();
         var config = SettingsDto.toDomain(configuration.HasSetup ? hierarchyKind.Branch : hierarchyKind.Root, settings);
-        // Legacy SGD fixtures model an already sealed version-6 project.
-        var parent = settings.resultsFunctionName == ResultsFunctionNames.standardMsuf4SimpleSgd && settings.resultsFunctionVersion == "6"
-            ? WorkspaceFixtures.RestoreProject(Guid.NewGuid(), name, config, ProjectResolution.local(config), true, [])
-            : WorkspaceFixtures.Project(Guid.NewGuid(), name, config, []);
+        var parent = WorkspaceFixtures.Project(Guid.NewGuid(), name, config, []);
         var run = RunDto.toDomain(parent.Snapshot(), new runDto
         {
             schemaVersion = RunDtoSchema.version, id = Guid.NewGuid(), parentProjectId = parent.Definition.id, runName = "Trial", runKind = parent.Configuration().HasSetup ? "branch" : "root",

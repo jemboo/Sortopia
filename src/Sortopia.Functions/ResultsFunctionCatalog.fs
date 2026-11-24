@@ -26,6 +26,5 @@ module ResultsFunctionCatalog =
 
     let requireVersion name version =
         let current = require name
-        if name = ResultsFunctionNames.standardMsuf4SimpleSgd && version = "6" then SgdFunctions.legacyStandardMsuf4Simple
-        elif current.Version = version then current
+        if current.Version = version then current
         else invalidOp $"Results function '{name}' requires version {version}; installed version is {current.Version}."
