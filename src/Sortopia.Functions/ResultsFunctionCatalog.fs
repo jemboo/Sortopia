@@ -11,6 +11,7 @@ module ResultsFunctionCatalog =
             ResultsFunctionNames.prefixSortableTests, ResultsFunctions.prefixSortableTests
             ResultsFunctionNames.sorterEval, ResultsFunctions.evaluateSorters
             ResultsFunctionNames.standardMsuf4SimpleSgd, SgdFunctions.standardMsuf4Simple
+            ResultsFunctionNames.standardMsrsSimpleSgd, SgdFunctions.standardMsrsSimple
             ResultsFunctionNames.standardSortableTests, ResultsFunctions.standardSortableTests
             yield! ModelGenerationCatalog.results () |> List.map (fun (name, definition) -> UMX.tag name, definition)
             ResultsFunctionNames.mutantEval, ResultsFunctions.evaluateMutants

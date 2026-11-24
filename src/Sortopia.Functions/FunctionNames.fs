@@ -8,6 +8,7 @@ module ResultsFunctionNames =
     let prefixSortableTests : string<resultsFunctionName> = UMX.tag "sortable-tests.prefix"
     let sorterEval : string<resultsFunctionName> = UMX.tag "sorter-eval.evaluate"
     let standardMsuf4SimpleSgd : string<resultsFunctionName> = UMX.tag "sorter-sgd.standard.msuf4.simple"
+    let standardMsrsSimpleSgd : string<resultsFunctionName> = UMX.tag "sorter-sgd.standard.msrs.simple"
     let standardSortableTests : string<resultsFunctionName> = UMX.tag "sortable-tests.standard"
     let uniformMsceSimpleSorterModels : string<resultsFunctionName> = UMX.tag "sorter-model-set.uniform.msce.simple"
     let uniformMsceSimpleRSorterModels : string<resultsFunctionName> = UMX.tag "sorter-model-set.uniform.msce.simple-r"

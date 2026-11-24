@@ -7,7 +7,7 @@ open Sortopia.Evaluation
 open Sortopia.Evaluation.Sgd
 open FunctionParameters
 
-/// Required inputs, defaults and validation for Standard MSUF4 SGD.
+/// Required inputs, defaults and validation for Standard SGD.
 module internal SgdParameterContract =
     let requiredParameters = [
         // Initial pool construction and parent selection.
@@ -32,6 +32,10 @@ module internal SgdParameterContract =
         ParamKey.describe ParamKeys.orthoRateKey
         ParamKey.describe ParamKeys.paraRateKey
         ParamKey.describe ParamKeys.selfSymRateKey ]
+
+    // MSRS mutates reflection stages directly; it has no unfolding seed.
+    let msrsParameters =
+        requiredParameters |> List.filter (fun key -> key.Name <> (ParamKey.describe ParamKeys.seedModificationRateKey).Name)
 
     let private combinationError defaults spans =
         try
@@ -90,3 +94,12 @@ module internal SgdParameterContract =
         { ParameterDefaults.support with
             Defaults = defaults; EditorRules = ParameterRules.combine [ParameterRules.common; editorRules]
             CombinationError = combinationError }
+
+    let msrsSupport =
+        let rules = Map.ofList [
+            ParameterRules.create ParamKeys.mutatorVariantKey ["V1"; "V2"] "MSRS supports V1 and V2." (fun value -> value = "V1" || value = "V2")
+            for key in [ParamKeys.orthoRateKey; ParamKeys.paraRateKey; ParamKeys.selfSymRateKey] do
+                ParameterRules.create key []
+                    "Finite nonnegative relative mutation weight. OrthoRate, ParaRate, and SelfSymRate are normalized together to choose the mutation action; at least one must be positive. ModificationRate controls the attempt probability."
+                    (fun value -> Double.IsFinite value && value >= 0.) ]
+        { support with EditorRules = ParameterRules.combine [support.EditorRules; rules] }

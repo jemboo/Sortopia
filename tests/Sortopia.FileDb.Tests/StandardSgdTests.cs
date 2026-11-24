@@ -27,16 +27,19 @@ public sealed partial class PreparedExecutionTests
         Bind("OrthoRate", "4.001", parameterValueType.Floating), Bind("ParaRate", "1.15", parameterValueType.Floating),
         Bind("SelfSymRate", "1.75", parameterValueType.Floating) ];
 
-    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null)
+    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null, bool msrs = false)
     {
         var prefix = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1));
         var prefixBinding = Bind("PrefixLibId", prefix, parameterValueType.PrefixLibId);
         var modelsType = sortopiaDataType.NewSorterModelSet("");
         var testsType = sortopiaDataType.NewSortableTests("");
-        var sourceName = wrongFamily ? ResultsFunctionNames.prefixMssiSimpleSorterModels : ResultsFunctionNames.prefixMsuf4SimpleSorterModels;
+        var sourceName = wrongFamily ? ResultsFunctionNames.prefixMssiSimpleSorterModels
+            : msrs ? ResultsFunctionNames.prefixMsrsSimpleSorterModels : ResultsFunctionNames.prefixMsuf4SimpleSorterModels;
         parameterBinding[] generatorParameters = [prefixBinding, Bind("SorterCount", "4"), Bind("SorterSuccessFraction", "50%", parameterValueType.SorterSuccessFraction),
             Bind("Repl", "0"), Bind("RngType", "LCG", parameterValueType.Text)];
-        if (!wrongFamily) generatorParameters = [..generatorParameters,
+        if (msrs && !wrongFamily) generatorParameters = [..generatorParameters,
+            Bind("StageWeights", "1,1,1", parameterValueType.OpsWeights)];
+        else if (!wrongFamily) generatorParameters = [..generatorParameters,
             Bind("OrthoGenRate", "1", parameterValueType.Floating), Bind("ParaGenRate", "1", parameterValueType.Floating), Bind("SelfSymGenRate", "1", parameterValueType.Floating)];
         var models = Project("SorterModelSets", new projectConfiguration("Source models", new resultsConfig("Models", sourceName, ResultsFunctionCatalog.require(sourceName).Version,
                 ListModule.Singleton(new resultsDataTypeConfig(modelsType, ListModule.Singleton("PrefixLibId"))), ListModule.OfArray(generatorParameters)), null));
@@ -47,10 +50,12 @@ public sealed partial class PreparedExecutionTests
             ListModule.OfArray(new[] {
                 new setupDataTypeConfig(modelsType, models.Definition.id, ListModule.Singleton("PrefixLibId")),
                 new setupDataTypeConfig(testsType, tests.Definition.id, ListModule.Singleton("PrefixLibId")) }), ListModule.Singleton(prefixBinding));
-        var definition = ResultsFunctionCatalog.require(ResultsFunctionNames.standardMsuf4SimpleSgd);
+        var functionName = msrs ? ResultsFunctionNames.standardMsrsSimpleSgd : ResultsFunctionNames.standardMsuf4SimpleSgd;
+        var definition = ResultsFunctionCatalog.require(functionName);
         var queryKeys = (resultsSpans?.Select(span => span.keyName) ?? []).Distinct();
         var outputs = definition.SortopiaDataTypes.Select(type => new resultsDataTypeConfig(type, ListModule.OfSeq(queryKeys)));
-        var consumer = Project("SorterSgd", new projectConfiguration("Standard SGD", new resultsConfig("Results", ResultsFunctionNames.standardMsuf4SimpleSgd, definition.Version, ListModule.OfSeq(outputs), ListModule.OfArray(SgdParameters)), FSharpOption<setupConfig>.Some(setup)), resultsSpans);
+        var parameters = SgdParameters.Where(value => !msrs || value.KeyName != "SeedModificationRate");
+        var consumer = Project("SorterSgd", new projectConfiguration("Standard SGD", new resultsConfig("Results", functionName, definition.Version, ListModule.OfSeq(outputs), ListModule.OfSeq(parameters)), FSharpOption<setupConfig>.Some(setup)), resultsSpans);
         var inputs = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
         inputs.reporting = reporting is null ? null : FSharpOption<sgdReportingConfig>.Some(reporting);
         inputs.sgd = FSharpOption<sgdRunConfig>.Some(sgd ?? new(3, 1));
@@ -67,10 +72,12 @@ public sealed partial class PreparedExecutionTests
         return (world, new WorkspaceDocumentIndex(world).TryFindRun(consumer.Runs[0].id).Value.Parent.Document);
     }
 
-    [Fact]
-    public void Standard_SGD_copies_two_sources_and_saves_checkpoints_with_models_and_evaluations()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Standard_SGD_copies_two_sources_and_saves_checkpoints_with_models_and_evaluations(bool msrs)
     {
-        var (world, consumer) = SgdWorkspace();
+        var (world, consumer) = SgdWorkspace(msrs: msrs);
         var sourceFiles = Directory.GetFiles(Root, "*.msgpack", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
         var prepared = Prepare(world, consumer); Completed(prepared.Execution);
         Assert.Single(prepared.WorkItemIds);
@@ -92,7 +99,11 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(3, pools.Generation);
         Assert.Single(pools.Pools);
         Assert.InRange(pools.Pools[0].Members.Length, 1, 2);
-        Assert.All(pools.Pools[0].Members, member => { Assert.NotNull(member.Model); Assert.NotNull(member.Evaluation); });
+        Assert.All(pools.Pools[0].Members, member => {
+            var simple = Assert.IsType<sorterModel.Simple>(member.Model).Item;
+            Assert.True(msrs ? simple.IsMsrs : simple.IsMsuf4);
+            Assert.NotNull(member.Evaluation);
+        });
         var poolsBytes = File.ReadAllBytes(store.GetPath(poolsOutput.Reference));
         var retry = RunParameterExecution.executeFolder(parameters, null!, null!, Token); Completed(retry);
         var retried = Assert.Single(retry.Results).StoredOutputs;
@@ -139,13 +150,15 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(4, rows.Select(row => (row["Results.InitialPoolSeed"], row["Results.MutationMod"])).Distinct().Count());
     }
 
-    [Fact]
-    public void Best_initial_pools_are_shared_across_mutation_and_seed_settings_and_reported()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Best_initial_pools_are_shared_across_mutation_and_seed_settings_and_reported(bool msrs)
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "InitialPoolSelection", values = ["Best"] },
             new() { keyName = "InitialPoolSeed", values = ["0", "99"] },
-            new() { keyName = "MutationMod", values = ["0", "3"] }], reporting: new("Constant(100)", "Constant(1)"), sgd: new(100, 0));
+            new() { keyName = "MutationMod", values = ["0", "3"] }], reporting: new("Constant(100)", "Constant(1)"), sgd: new(100, 0), msrs: msrs);
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
@@ -163,15 +176,17 @@ public sealed partial class PreparedExecutionTests
         Assert.All(TypedReportTests.ReadCsv(report.SummaryPath), row => Assert.Equal("Best", row["Results.InitialPoolSelection"]));
     }
 
-    [Fact]
-    public void Standard_SGD_rejects_other_algorithms_before_saving_any_results()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Standard_SGD_rejects_other_algorithms_before_saving_any_results(bool msrs)
     {
-        var (world, consumer) = SgdWorkspace(wrongFamily: true);
+        var (world, consumer) = SgdWorkspace(wrongFamily: true, msrs: msrs);
         Completed(Prepare(world, consumer).Execution);
         var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var report = RunParameterExecution.executeFolder(Path.Combine(folder, "runParameters"), null!, null!, Token);
         Assert.Equal(runExecutionStatus.Failed, report.Status);
-        Assert.Contains("Simple MSUF4", report.Error);
+        Assert.Contains(msrs ? "Simple MSRS" : "Simple MSUF4", report.Error);
         Assert.Empty(DataFiles(folder, "results"));
     }
 
