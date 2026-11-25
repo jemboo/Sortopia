@@ -1,8 +1,10 @@
 using Sortopia.Workspaces.Serialization;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.FSharp.Core;
 using Sortopia.Evaluation;
+using Sortopia.Evaluation.Sgd;
 using Xunit;
 
 namespace Sortopia.FileDb.Tests;
@@ -55,6 +57,17 @@ public sealed partial class PreparedExecutionTests
             Assert.Contains("channelCount=8", row["Setup.SortableTests.Query.PrefixLibId"]);
             Assert.Equal(item.Parameters.TryFindText("OrthoRate").Value, row["Results.OrthoRate"]);
             Assert.Equal(item.Parameters.TryFindText("SelfSymRate").Value, row["Results.SelfSymRate"]);
+            var stored = Assert.Single(RunOutputFiles.loadSamples(folder, item, Token).Item2);
+            foreach (var successful in new[] { true, false })
+            {
+                var name = successful ? "SuccessfulLengthHistogram" : "UnsuccessfulLengthHistogram";
+                var histogram = successful ? stored.SuccessfulLengthHistogram.Value : stored.UnsuccessfulLengthHistogram.Value;
+                Assert.Equal(histogram, JsonSerializer.Deserialize<sorterLengthHistogramBin[]>(row[name]));
+                Assert.Equal(evaluations.Count(value => SorterEval.getIsSorted(value) == successful), histogram.Sum(bin => bin.Count));
+                foreach (var bin in histogram)
+                    Assert.Equal(evaluations.Count(value => SorterEval.getIsSorted(value) == successful
+                        && SorterEval.getCeLength(value) == bin.CeLength && SorterEval.getStageLength(value) == bin.StageLength), bin.Count);
+            }
         }
         foreach (var file in original) Assert.Equal(file.Value, SHA256.HashData(File.ReadAllBytes(file.Key)));
         var cliDestination = Path.Combine(temporary.FullName, "CLI sweep report");

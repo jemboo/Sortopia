@@ -9,10 +9,12 @@ open System.Threading
 open MessagePack
 open FSharp.UMX
 open Sortopia.Core.Serialization
+open Sortopia.Runs
+open Sortopia.Functions
 
 type dataFileInspection = { Kind: string; Description: string; Json: string }
 
-/// Read-only projections for the file inspector. Never materializes sortopiaStorageData.
+/// Read-only file inspection. Metadata stays lightweight; pool histograms have an explicit payload reader.
 module FileInspection =
     let private json value = JsonSerializer.Serialize(value)
     let private maxMetadataBytes = 4 * 1024 * 1024
@@ -57,6 +59,25 @@ module FileInspection =
                          QueryParameterCount = queryParameterCount; DependencyCount = dependencyCount; First100Dependencies = dependencies
                          Compression = compression; CompressedPayloadBytes = payloadLength; UncompressedPayloadBytes = rawLength
                          PayloadSha256 = Convert.ToHexString(checksum).ToLowerInvariant() |} }
+
+    /// Decode only a selected pool-summary payload using the database's identity, checksum and domain validation.
+    let loadPoolSummary path (token: CancellationToken) =
+        let path = Path.GetFullPath path
+        let header = (DataEnvelope.readHeader path token).Envelope
+        if header.Kind <> "SorterPoolSummarySet" then invalidArg "path" "Select a SorterPoolSummarySet data file."
+        let reference =
+            { ProjectId = UMX.tag header.ProjectId; Id = UMX.tag header.Id; QueryId = UMX.tag header.QueryId
+              Phase = RunExecutionPhase.fromIsSetup header.IsSetup; DataType = sortopiaDataType.SorterPoolSummarySet header.Label }
+        let project = path |> Path.GetDirectoryName |> Path.GetDirectoryName |> Path.GetDirectoryName |> Path.GetDirectoryName
+        let store = SortopiaFileDb(project, reference.ProjectId)
+        if not (String.Equals(store.GetPath reference, path, StringComparison.OrdinalIgnoreCase)) then
+            invalidArg "path" "The summary filename and data folder must match its stored identity."
+        let loaded = (store :> ISortopiaDb).Load(reference, token)
+        token.ThrowIfCancellationRequested()
+        match loaded with
+        | Ok { Value = sortopiaStorageData.SorterPoolSummarySet summary } -> summary
+        | Ok _ -> invalidOp "Expected a pool summary set."
+        | Error message -> invalidOp message
 
     let inspectPrepared path (token: CancellationToken) =
         use stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)

@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Sortopia.Workspaces.Persistence;
 using Sortopia.FileDb;
 using Sortopia.Runs;
+using Sortopia.Evaluation.Sgd;
 
 namespace Sortopia.WPF.ViewModels.Pages.FileInspector;
 
@@ -32,7 +33,7 @@ public sealed record InspectorReference(string Label, string FullPath, bool Exis
 }
 
 internal sealed record InspectionReport(string Kind, string Description, IReadOnlyList<InspectionNode> Details,
-    IReadOnlyList<InspectorReference> References)
+    IReadOnlyList<InspectorReference> References, sorterPoolSummarySet? PoolSummary = null)
 {
     private static string Label(string name) => name switch
     {
@@ -113,7 +114,14 @@ internal sealed record InspectionReport(string Kind, string Description, IReadOn
         else if (Path.GetFileName(Path.GetDirectoryName(folder)) is { } phase
                  && (phase.Equals("setup", StringComparison.OrdinalIgnoreCase) || phase.Equals("results", StringComparison.OrdinalIgnoreCase)))
             data = FileInspection.inspectData(path, token);
-        if (data is not null) return new(data.Kind, data.Description, DecodeDetails(data.Json), []);
+        if (data is not null)
+        {
+            var summary = category.Equals("SorterPoolSummarySet", StringComparison.OrdinalIgnoreCase)
+                ? FileInspection.loadPoolSummary(path, token) : null;
+            return new(data.Kind, summary is null ? data.Description
+                : "Saved pool histograms for the generations in this file. Select a population and generation, or play the sequence. Payload identity, checksum and summary contents validated.",
+                DecodeDetails(data.Json), [], summary);
+        }
         var config = WorkspaceFileInspection.inspectConfiguration(root, path, token);
         var description = config.Description + (config.References.Length > 200 ? $" Showing the first 200 of {config.References.Length:N0} referenced-file links; browse the child folder for the rest." : "");
         return new(config.Kind, description, DecodeDetails(config.Json),

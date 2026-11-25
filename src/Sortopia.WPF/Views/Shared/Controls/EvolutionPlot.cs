@@ -10,6 +10,19 @@ namespace Sortopia.WPF.Views.Shared.Controls;
 
 public sealed class EvolutionPlot : FrameworkElement
 {
+    public static readonly DependencyProperty XAxisTitleProperty = DependencyProperty.Register(
+        nameof(XAxisTitle), typeof(string), typeof(EvolutionPlot), new FrameworkPropertyMetadata("CE count", FrameworkPropertyMetadataOptions.AffectsRender));
+    public string XAxisTitle { get => (string)GetValue(XAxisTitleProperty); set => SetValue(XAxisTitleProperty, value); }
+    public static readonly DependencyProperty YAxisTitleProperty = DependencyProperty.Register(
+        nameof(YAxisTitle), typeof(string), typeof(EvolutionPlot), new FrameworkPropertyMetadata("Stage count", FrameworkPropertyMetadataOptions.AffectsRender));
+    public string YAxisTitle { get => (string)GetValue(YAxisTitleProperty); set => SetValue(YAxisTitleProperty, value); }
+    public static readonly DependencyProperty EmptyMessageProperty = DependencyProperty.Register(
+        nameof(EmptyMessage), typeof(string), typeof(EvolutionPlot), new FrameworkPropertyMetadata("Generated sorters and evaluated children appear here.", FrameworkPropertyMetadataOptions.AffectsRender));
+    public string EmptyMessage { get => (string)GetValue(EmptyMessageProperty); set => SetValue(EmptyMessageProperty, value); }
+    // Zero uses the current frame's range; a positive value fixes a 1..maximum scale across movie frames.
+    public static readonly DependencyProperty FrequencyMaximumProperty = DependencyProperty.Register(
+        nameof(FrequencyMaximum), typeof(long), typeof(EvolutionPlot), new FrameworkPropertyMetadata(0L, FrameworkPropertyMetadataOptions.AffectsRender));
+    public long FrequencyMaximum { get => (long)GetValue(FrequencyMaximumProperty); set => SetValue(FrequencyMaximumProperty, value); }
     public static readonly DependencyProperty VisitsProperty = DependencyProperty.Register(
         nameof(Visits), typeof(EvolutionVisits), typeof(EvolutionPlot),
         new FrameworkPropertyMetadata(EvolutionVisits.Empty, FrameworkPropertyMetadataOptions.AffectsRender, UpdateDomain));
@@ -165,12 +178,12 @@ public sealed class EvolutionPlot : FrameworkElement
         }
         dc.DrawLine(AxisPen, new Point(left, top), new Point(left, bottom));
         dc.DrawLine(AxisPen, new Point(left, bottom), new Point(right, bottom));
-        var xCaption = latticeStep == 1 ? "CE count" : $"CE count   ·   Lattice spacing {latticeStep:N0}";
+        var xCaption = latticeStep == 1 ? XAxisTitle : $"{XAxisTitle}   ·   Lattice spacing {latticeStep:N0}";
         CenterLabel(dc, xCaption, (left + right) / 2, bottom + 31);
         var midY = (top + bottom) / 2;
         var yCaptionX = left - gutter + 8;
         dc.PushTransform(new RotateTransform(-90, yCaptionX, midY));
-        CenterLabel(dc, "Stage count", yCaptionX, midY);
+        CenterLabel(dc, YAxisTitle, yCaptionX, midY);
         dc.Pop();
 
         var visits = Visits;
@@ -179,7 +192,7 @@ public sealed class EvolutionPlot : FrameworkElement
         var knownNetworks = BestKnownNetworks;
         if (visits.Counts.IsEmpty && best is null && SelectedPosition is null && knownNetworks.Count == 0)
         {
-            CenterLabel(dc, "Generated sorters and evaluated children appear here.", (left + right) / 2, midY);
+            CenterLabel(dc, EmptyMessage, (left + right) / 2, midY);
             return;
         }
 
@@ -189,14 +202,15 @@ public sealed class EvolutionPlot : FrameworkElement
             dc.DrawRectangle(fill, outline, new Rect(X(position.X) - size / 2, Y(position.Y) - size / 2, size, size));
         }
         dc.PushClip(new RectangleGeometry(bounds));
-        var minimum = Math.Max(1, visits.Minimum);
+        var minimum = FrequencyMaximum > 0 ? 1 : Math.Max(1, visits.Minimum);
+        var maximum = FrequencyMaximum > 0 ? FrequencyMaximum : Math.Max(1, visits.Maximum);
         var logMinimum = Math.Log(minimum);
-        var logRange = Math.Log(Math.Max(1, visits.Maximum)) - logMinimum;
+        var logRange = Math.Log(maximum) - logMinimum;
         var lastShade = SpectralPalette.Shades.Count - 1;
-        var minimumShade = visits.Maximum == 1 ? lastShade : 0;
+        var minimumShade = maximum == 1 ? lastShade : 0;
         foreach (var (position, count) in visits.Counts)
         {
-            var shade = count == minimum ? minimumShade : count == visits.Maximum ? lastShade
+            var shade = count == minimum ? minimumShade : count >= maximum ? lastShade
                 : Math.Clamp((int)Math.Round(lastShade * (Math.Log(count) - logMinimum) / logRange), 1, lastShade - 1);
             dc.DrawRectangle(SpectralPalette.Shades[shade], null, new Rect(X(position.X - 0.5), Y(position.Y + 0.5), unit, unit));
         }

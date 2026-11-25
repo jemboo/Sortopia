@@ -26,6 +26,21 @@ public sealed class EvolutionVisits
     public bool HasColorRange => Minimum < Maximum;
     public Rect Bounds { get; }
 
+    /// Build a plot from already-counted bins without expanding counts into individual visits.
+    internal static EvolutionVisits FromCounts(IEnumerable<KeyValuePair<Point, long>> bins)
+    {
+        var counts = ImmutableDictionary.CreateBuilder<Point, long>();
+        var bounds = Rect.Empty;
+        foreach (var (point, count) in bins)
+        {
+            if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) || count <= 0)
+                throw new ArgumentException("Histogram coordinates must be finite and counts positive.", nameof(bins));
+            counts[point] = checked(counts.GetValueOrDefault(point) + count);
+            bounds.Union(point);
+        }
+        return counts.Count == 0 ? Empty : new(counts.ToImmutable(), null, counts.Values.Max(), bounds);
+    }
+
     internal EvolutionVisits Recount(Func<Point, long> countAt)
     {
         if (Counts.IsEmpty) return Empty;

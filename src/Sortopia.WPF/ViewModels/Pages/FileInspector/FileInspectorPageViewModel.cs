@@ -1,6 +1,7 @@
 using System.IO;
 using Sortopia.WPF.Commands;
 using Sortopia.Workspaces.Persistence;
+using Sortopia.WPF.ViewModels.Shared.Controls;
 
 namespace Sortopia.WPF.ViewModels.Pages.FileInspector;
 
@@ -14,6 +15,7 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<InspectionNode> details = [], metadata = [];
     private IReadOnlyList<InspectorReference> references = [];
     private InspectorFile? selected;
+    private SorterBinMovieViewModel? binMovie;
     private int offset;
     private string appliedFilter = "";
     private bool hasMore;
@@ -49,6 +51,16 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
     public IReadOnlyList<InspectionNode> Metadata { get => metadata; private set => SetProperty(ref metadata, value); }
     public IReadOnlyList<InspectorReference> References { get => references; private set { SetProperty(ref references, value); OnPropertyChanged(nameof(HasReferences)); } }
     public bool HasReferences => References.Count > 0;
+    public SorterBinMovieViewModel? BinMovie
+    {
+        get => binMovie;
+        private set
+        {
+            binMovie?.Dispose();
+            if (SetProperty(ref binMovie, value)) OnPropertyChanged(nameof(HasBinMovie));
+        }
+    }
+    public bool HasBinMovie => BinMovie is not null;
     public bool IsBrowsing => browseCancellation is not null;
     public bool IsInspecting => inspectionCancellation is not null;
     public bool HasMore => hasMore;
@@ -140,6 +152,7 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
         using var request = new CancellationTokenSource();
         inspectionCancellation = request;
         OnPropertyChanged(nameof(IsInspecting));
+        BinMovie = null;
         Details = []; References = []; Metadata = []; Error = "";
         Kind = file is null ? "No file selected" : "Reading file…";
         Description = file is null ? "Select a file to see its saved contents. Unsaved editor changes are not shown." : "Reading saved file metadata and configuration.";
@@ -154,6 +167,7 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
                 InspectionNode.Leaf("Size", current.IsDirectory ? "Folder" : $"{InspectorFile.FormatSize(current.Length)} ({current.Length:N0} bytes)"),
                 InspectionNode.Leaf("Modified", current.ModifiedUtc.ToLocalTime().ToString("F"))];
             Kind = report.Kind; Description = report.Description; Details = report.Details; References = report.References;
+            if (report.PoolSummary is not null) BinMovie = new SorterBinMovieViewModel(report.PoolSummary);
         }
         catch (OperationCanceledException) { }
         catch (Exception e)
@@ -186,6 +200,6 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
         foreach (var command in new[] { RefreshCommand, UpCommand, RootCommand, OpenFolderCommand, NextCommand, PreviousCommand, FilterCommand })
             command?.RaiseCanExecuteChanged();
     }
-    public void Cancel() { browseCancellation?.Cancel(); inspectionCancellation?.Cancel(); }
-    public void Dispose() => Cancel();
+    public void Cancel() { browseCancellation?.Cancel(); inspectionCancellation?.Cancel(); BinMovie?.Pause(); }
+    public void Dispose() { Cancel(); BinMovie = null; }
 }

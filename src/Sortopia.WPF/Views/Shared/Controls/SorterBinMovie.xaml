@@ -1,0 +1,55 @@
+<UserControl x:Class="Sortopia.WPF.Views.Shared.Controls.SorterBinMovie"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Sortopia.WPF.Views.Shared.Controls"
+             AutomationProperties.Name="Sorter histogram movie">
+    <UserControl.Resources>
+        <ResourceDictionary><ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
+        </ResourceDictionary.MergedDictionaries></ResourceDictionary>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBlock Text="Sorter length histograms" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource Workspace.TextPrimary}" Margin="0,0,0,8" />
+        <WrapPanel>
+            <StackPanel Margin="0,0,12,8">
+                <TextBlock Text="Population" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,0,0,4" />
+                <ComboBox x:Name="HistogramSelector" ItemsSource="{Binding HistogramKinds}" SelectedItem="{Binding SelectedHistogram}" MinWidth="135" AutomationProperties.Name="Histogram population" />
+            </StackPanel>
+            <StackPanel Margin="0,0,12,8">
+                <TextBlock Text="Pools" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,0,0,4" />
+                <ComboBox x:Name="PoolSelector" ItemsSource="{Binding PoolOptions}" SelectedItem="{Binding SelectedPool}" DisplayMemberPath="Label" MinWidth="110" AutomationProperties.Name="Histogram pool" />
+            </StackPanel>
+            <StackPanel Margin="0,0,0,8">
+                <TextBlock Text="Generation" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,0,0,4" />
+                <ComboBox x:Name="GenerationSelector" ItemsSource="{Binding Generations}" SelectedItem="{Binding SelectedGeneration}" MinWidth="100" AutomationProperties.Name="Histogram generation" />
+            </StackPanel>
+        </WrapPanel>
+        <Grid Margin="0,2,0,10">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Button Content="Previous" Command="{Binding PreviousCommand}" Margin="0,0,4,0" AutomationProperties.Name="Previous histogram generation" />
+                <Button x:Name="PlayPauseButton" Content="{Binding PlayPauseLabel}" Command="{Binding PlayPauseCommand}" MinWidth="55" Margin="0,0,4,0" AutomationProperties.Name="Play or pause histogram generations" />
+                <Button Content="Next" Command="{Binding NextCommand}" AutomationProperties.Name="Next histogram generation" />
+            </StackPanel>
+            <Slider x:Name="GenerationSlider" Grid.Column="1" Minimum="0" Maximum="{Binding LastFrameIndex}" Value="{Binding SelectedFrameIndex, Mode=TwoWay}"
+                    IsEnabled="{Binding HasMultipleGenerations}" IsSnapToTickEnabled="True" TickFrequency="1" SmallChange="1" LargeChange="1"
+                    Margin="10,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="Seek histogram generation" />
+        </Grid>
+        <Border Background="{StaticResource Workspace.SurfaceRaised}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="6" Padding="4">
+            <controls:EvolutionPlot x:Name="HistogramPlot" Height="300" HorizontalAlignment="Stretch"
+                    Visits="{Binding Visits}" AllBufferBounds="{Binding AllBounds}" FrequencyMaximum="{Binding FrequencyMaximum}"
+                    XAxisTitle="Stage count" YAxisTitle="CE count" EmptyMessage="{Binding EmptyMessage}"
+                    ShowCurrent="False" SelectedPosition="{Binding SelectedPosition}" SelectPointCommand="{Binding SelectBinCommand}"
+                    AutomationProperties.Name="Stage count by CE count histogram" />
+        </Border>
+        <TextBlock Text="Sorters per bin · logarithmic color scale" Foreground="{StaticResource Workspace.TextSecondary}" FontSize="11" Margin="0,8,0,4" />
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="1" Foreground="{StaticResource Workspace.TextSecondary}" FontSize="11" />
+            <Border Grid.Column="1" Height="10" Margin="8,0" Background="{x:Static controls:EvolutionPlot.FrequencyLegend}" />
+            <TextBlock Grid.Column="2" Text="{Binding FrequencyMaximumLabel}" Foreground="{StaticResource Workspace.TextSecondary}" FontSize="11" />
+        </Grid>
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextPrimary}" Margin="0,8,0,4" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Text="{Binding SelectionText}" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource Workspace.TextSecondary}" />
+    </StackPanel>
+</UserControl>

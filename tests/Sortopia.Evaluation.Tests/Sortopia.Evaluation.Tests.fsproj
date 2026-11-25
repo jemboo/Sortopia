@@ -10,6 +10,7 @@
     <Compile Include="MigrationTests.fs" />
     <Compile Include="ParallelEvaluationTests.fs" />
     <Compile Include="StandardSgdTests.fs" />
+    <Compile Include="EvolutionReportsTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sortopia.Evaluation.Serialization/Sortopia.Evaluation.Serialization.fsproj" />
