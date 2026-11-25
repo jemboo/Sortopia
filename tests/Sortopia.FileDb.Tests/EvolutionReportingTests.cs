@@ -82,13 +82,12 @@ public sealed partial class PreparedExecutionTests
         var destination = Path.Combine(temporary.FullName, "Evolution CSV");
         var exported = SorterEvalReportExport.exportFiles([path], destination, Token);
         Assert.Equal(4, exported.EvolutionSummaryRows);
-        Assert.Equal(loaded.Item2.Where(row => loaded.Item1.Snapshots.Contains(row.Generation)).Sum(row => row.MemberCount), exported.SnapshotRows);
+        Assert.Equal(new[] { "EvolutionSummary.csv" }, Directory.GetFiles(destination).Select(Path.GetFileName));
         var summary = TypedReportTests.ReadCsv(exported.EvolutionSummaryPath.Value);
         Assert.Equal(new[] { "0", "1", "2", "3" }, summary.Select(row => row["Generation"]));
         Assert.All(summary, row => Assert.Contains("channelCount=8", row["Setup.SortableTests.Query.PrefixLibId"]));
-        var snapshots = TypedReportTests.ReadCsv(exported.SnapshotsPath.Value);
-        Assert.Equal(new[] { "0", "3" }, snapshots.Select(row => row["Generation"]).Distinct());
-        Assert.All(snapshots, row => { Assert.Equal("8", row["ChannelCount"]); Assert.NotEmpty(row["ModelId"]); Assert.True(File.Exists(row["SnapshotFile"])); });
+        Assert.Null(exported.SummaryPath);
+        Assert.Null(exported.DetailsPath);
         // Normal typed results are shared by equivalent invocations from different runs.
         var store = new SortopiaFileDb(folder, item.ProjectId);
         var keys = RunOutputFiles.keys(item);
@@ -121,7 +120,8 @@ public sealed partial class PreparedExecutionTests
         Assert.Single(Assert.Single(repaired.Results).StoredOutputs, output => !output.Reused);
         foreach (var file in sliceBytes) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
         Assert.Equal(outputState.Complete, RunParameterExecution.inspectFile(path, Token).Outputs.State);
-        var damaged = sliceBytes.First(); File.WriteAllBytes(damaged.Key, [0]);
+        var damaged = store.GetPath(keys.First(key => key.Reference.DataType.IsSorterPoolSummarySet).Reference);
+        File.WriteAllBytes(damaged, [0]);
         Assert.Equal(outputState.Invalid, RunParameterExecution.inspectFile(path, Token).Outputs.State);
         var failedExport = Path.Combine(temporary.FullName, "Corrupt CSV");
         Assert.ThrowsAny<Exception>(() => SorterEvalReportExport.exportFiles([path], failedExport, Token));
@@ -163,8 +163,8 @@ public sealed partial class PreparedExecutionTests
             Assert.Equal(keys.Length, status.Outputs.Available.Select(output => output.Reference).Distinct().Count());
         }
         var exported = SorterEvalReportExport.exportFiles([path], Path.Combine(temporary.FullName, "Shared final CSV"), Token);
-        Assert.All(TypedReportTests.ReadCsv(exported.SnapshotsPath.Value).Where(row => row["Generation"] == generations.ToString()),
-            row => { Assert.Equal(finalPath, row["SnapshotFile"]); Assert.Equal(finalPath, row["ResultsFile"]); });
+        Assert.All(TypedReportTests.ReadCsv(exported.EvolutionSummaryPath.Value),
+            row => Assert.Equal(finalPath, row["ResultsFile"]));
 
         var bytes = keys.ToDictionary(key => store.GetPath(key.Reference), key => File.ReadAllBytes(store.GetPath(key.Reference)));
         File.Delete(finalPath);

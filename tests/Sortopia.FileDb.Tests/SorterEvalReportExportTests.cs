@@ -21,7 +21,7 @@ public sealed partial class PreparedExecutionTests
         var original = Directory.GetFiles(copy, "*", SearchOption.AllDirectories).ToDictionary(path => path, path => SHA256.HashData(File.ReadAllBytes(path)));
         var export = SorterEvalReportExport.exportFiles(files, Path.Combine(temporary.FullName, "Report"), Token);
         Assert.Equal(2, export.SummaryRows); Assert.Equal(6, export.DetailRows);
-        var summary = TypedReportTests.ReadCsv(export.SummaryPath); var details = TypedReportTests.ReadCsv(export.DetailsPath);
+        var summary = TypedReportTests.ReadCsv(export.SummaryPath.Value); var details = TypedReportTests.ReadCsv(export.DetailsPath.Value);
         Assert.Equal(2, summary.Length); Assert.Equal(6, details.Length);
         foreach (var row in summary)
         {
@@ -51,8 +51,8 @@ public sealed partial class PreparedExecutionTests
         }
         var cliFolder = Path.Combine(temporary.FullName, "CLI report");
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].id.ToString(), "--output", cliFolder]));
-        Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(cliFolder, "Summary.csv")));
-        Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(cliFolder, "Details.csv")));
+        Assert.Equal(File.ReadAllBytes(export.SummaryPath.Value), File.ReadAllBytes(Path.Combine(cliFolder, "Summary.csv")));
+        Assert.Equal(File.ReadAllBytes(export.DetailsPath.Value), File.ReadAllBytes(Path.Combine(cliFolder, "Details.csv")));
         Assert.Equal(2, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0], "--run", consumer.Runs[0].id.ToString(), "--output", "unused"]));
         Assert.Equal(export.Folder, SorterEvalReportExport.exportFiles(files, export.Folder, Token).Folder);
         Assert.Contains("same results file", Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([files[0], files[0]], Path.Combine(temporary.FullName, "Duplicates"), Token)).Message);
@@ -61,8 +61,8 @@ public sealed partial class PreparedExecutionTests
         var reportsFolder = Path.Combine(copy, "data", "results", "reports");
         Assert.Equal(reportsFolder, SorterEvalReportExport.nextOutputFolder(parametersFolder));
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].id.ToString()]));
-        Assert.Equal(File.ReadAllBytes(export.SummaryPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
-        Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")));
+        Assert.Equal(File.ReadAllBytes(export.SummaryPath.Value), File.ReadAllBytes(Path.Combine(reportsFolder, "Summary.csv")));
+        Assert.Equal(File.ReadAllBytes(export.DetailsPath.Value), File.ReadAllBytes(Path.Combine(reportsFolder, "Details.csv")));
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters", files[0]]));
         Assert.Empty(Directory.GetDirectories(reportsFolder));
         Assert.Single(TypedReportTests.ReadCsv(Path.Combine(reportsFolder, "Summary.csv")));
@@ -80,14 +80,14 @@ public sealed partial class PreparedExecutionTests
         var files = Directory.GetFiles(parameters, "*.msgpack");
         var exported = SorterEvalReportExport.exportFiles(files, SorterEvalReportExport.nextOutputFolder(parameters), Token);
         var original = Directory.GetFiles(exported.Folder).ToDictionary(path => path, File.ReadAllBytes);
-        using (var locked = new FileStream(exported.DetailsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var locked = new FileStream(exported.DetailsPath.Value, FileMode.Open, FileAccess.Read, FileShare.None))
             Assert.Throws<IOException>(() => SorterEvalReportExport.exportFiles([files[0]], exported.Folder, Token));
         foreach (var pair in original) Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key));
         File.WriteAllText(Path.Combine(exported.Folder, "Notes.csv"), "keep this");
         File.WriteAllText(Path.Combine(exported.Folder, "EvolutionSummary.csv"), "old export");
         File.WriteAllText(Path.Combine(exported.Folder, "Snapshots.csv"), "old export");
         SorterEvalReportExport.exportFiles([files[0]], exported.Folder, Token);
-        Assert.Single(TypedReportTests.ReadCsv(exported.SummaryPath));
+        Assert.Single(TypedReportTests.ReadCsv(exported.SummaryPath.Value));
         Assert.Equal("keep this", File.ReadAllText(Path.Combine(exported.Folder, "Notes.csv")));
         Assert.False(File.Exists(Path.Combine(exported.Folder, "EvolutionSummary.csv")));
         Assert.False(File.Exists(Path.Combine(exported.Folder, "Snapshots.csv")));

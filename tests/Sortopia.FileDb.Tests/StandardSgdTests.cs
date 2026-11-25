@@ -145,7 +145,7 @@ public sealed partial class PreparedExecutionTests
         }
         Assert.False(samples.First(sample => sample.Seed == "0").Ids.SequenceEqual(samples.First(sample => sample.Seed == "1").Ids));
         var report = SorterEvalReportExport.exportFolder(parameters, null!, Path.Combine(temporary.FullName, "Pool seed report"), Token);
-        var rows = TypedReportTests.ReadCsv(report.SummaryPath);
+        var rows = TypedReportTests.ReadCsv(report.EvolutionSummaryPath.Value);
         Assert.Equal(4, rows.Length);
         Assert.Equal(4, rows.Select(row => (row["Results.InitialPoolSeed"], row["Results.MutationMod"])).Distinct().Count());
     }
@@ -173,7 +173,7 @@ public sealed partial class PreparedExecutionTests
             Assert.All(pool.Members, member => Assert.True(SorterEval.getIsSorted(member.Evaluation)));
         });
         var report = SorterEvalReportExport.exportFolder(parameters, null!, Path.Combine(temporary.FullName, "Best pool report"), Token);
-        Assert.All(TypedReportTests.ReadCsv(report.SummaryPath), row => Assert.Equal("Best", row["Results.InitialPoolSelection"]));
+        Assert.All(TypedReportTests.ReadCsv(report.EvolutionSummaryPath.Value), row => Assert.Equal("Best", row["Results.InitialPoolSelection"]));
     }
 
     [Theory]

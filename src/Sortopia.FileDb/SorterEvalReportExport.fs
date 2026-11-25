@@ -8,19 +8,16 @@ open Sortopia.Runs
 open Sortopia.Functions
 open Sortopia.Evaluation
 open Sortopia.Evaluation.Sgd
-open Sortopia.Models.Sorting
 open Sortopia.Reporting
 
 type sorterEvalReportExport = {
     Folder: string
-    SummaryPath: string
-    DetailsPath: string
+    SummaryPath: string option
+    DetailsPath: string option
     SummaryRows: int
     DetailRows: int64
     EvolutionSummaryPath: string option
-    SnapshotsPath: string option
     EvolutionSummaryRows: int64
-    SnapshotRows: int64
 }
 
 module SorterEvalReportExport =
@@ -31,7 +28,7 @@ module SorterEvalReportExport =
 
     let private isReportOutput (dataType: sortopiaDataType) = dataType.IsSorterSetEval || dataType.IsSorterPoolSet
 
-    /// Report saved evaluations or evaluations embedded in final SGD pools.
+    /// Report saved branch evaluations or sampled SGD population summaries.
     let isSupported (item: runParameters) =
         item.SetupSetNumber.IsSome && not item.SetupInputs.IsEmpty
         && (item.Results.DataTypes |> Map.exists (fun dataType _ -> isReportOutput dataType))
@@ -62,43 +59,20 @@ module SorterEvalReportExport =
 
     type private source = { Database: IRunDatabase; Output: plannedOutput; Metadata: reportRow; ParameterFile: string; Folder: string; Item: runParameters }
 
-    let private snapshotColumns = [|
-        for name in ["Generation"; "PoolIndex"; "MemberIndex"; "Birthday"; "MutationIndex"; "MutationMod"] do
-            { Name = name; ValueType = reportValueType.Integer }
-        for name in ["PoolId"; "MemberId"; "ParentId"; "ModelId"] do
-            { Name = name; ValueType = reportValueType.Identifier }
-        { Name = "SnapshotFile"; ValueType = reportValueType.Text }
-        yield! SorterEvalReports.detailColumns |]
+    let private hasEvolution (source: source) = source.Item.Reporting.IsSome || source.Item.Sgd.IsSome
 
     let private writeEvolution sources columns temporary token =
-        let reporting = sources |> Array.filter (fun source -> source.Item.Reporting.IsSome || source.Item.Sgd.IsSome) |> Array.distinctBy (fun source -> source.Folder, source.Item.Id)
-        let mutable summaryRows, snapshotRows = 0L, 0L
+        let reporting = sources |> Array.filter hasEvolution |> Array.distinctBy (fun source -> source.Folder, source.Item.Id)
+        let mutable summaryRows = 0L
         if reporting.Length > 0 then
             use summaryStream = File.Create(Path.Combine(temporary, "EvolutionSummary.csv"))
-            use snapshotStream = File.Create(Path.Combine(temporary, "Snapshots.csv"))
             use summary = new CsvReportWriter(summaryStream, columns EvolutionReports.columns)
-            use snapshots = new CsvReportWriter(snapshotStream, columns snapshotColumns)
             for source in reporting do
-                let samples, rows = RunOutputFiles.loadSamples source.Folder source.Item token
+                let _, rows = RunOutputFiles.loadSamples source.Folder source.Item token
                 for row in rows do
                     summary.Write(ReportRow.combine source.Metadata (EvolutionReports.row row), token)
                     summaryRows <- summaryRows + 1L
-                for generation in samples.Snapshots do
-                    let snapshot = RunOutputFiles.loadSnapshot source.Folder source.Item generation token
-                    if snapshot.Pools.Length <> samples.PoolCount then invalidOp "Snapshot pool count differs from the execution parameters."
-                    for poolIndex, pool in snapshot.Pools |> Array.indexed do
-                        for memberIndex, memberValue in pool.Members |> Array.indexed do
-                            let metadata = ReportRow.create [
-                                "Generation", integer generation; "PoolIndex", integer poolIndex; "MemberIndex", integer memberIndex
-                                "PoolId", reportValue.Identifier pool.Id; "MemberId", reportValue.Identifier memberValue.Id
-                                "ParentId", memberValue.ParentId |> Option.map reportValue.Identifier |> Option.defaultValue reportValue.Missing
-                                "ModelId", reportValue.Identifier (%SorterModel.getId memberValue.Model)
-                                "Birthday", integer memberValue.Birthday; "MutationIndex", integer memberValue.MutationIndex; "MutationMod", integer memberValue.MutationMod
-                                "SortableTestsId", reportValue.Identifier (%snapshot.TestsId)
-                                "SnapshotFile", reportValue.Text (RunOutputFiles.snapshotPath source.Folder source.Item generation) ]
-                            snapshots.Write(ReportRow.combine source.Metadata (ReportRow.combine metadata (SorterEvalReports.detailRow memberValue.Evaluation)), token)
-                            snapshotRows <- snapshotRows + 1L
-        reporting.Length > 0, summaryRows, snapshotRows
+        reporting.Length > 0, summaryRows
 
     /// Build the selected export before replacing the project's previous report files.
     let exportFiles (parameterFiles: string array) (outputFolder: string) (token: CancellationToken) =
@@ -175,6 +149,7 @@ module SorterEvalReportExport =
         // Put the comparison fields and metrics first; keep full provenance to the right.
         let setupColumns, resultColumns = queryColumns |> Array.partition (fun column -> column.Name.StartsWith("Setup.", StringComparison.Ordinal))
         let columns metrics = Array.concat [setupColumns; resultColumns; metrics; commonColumns; inputColumns]
+        let evaluations = sources |> Array.filter (hasEvolution >> not)
         let parent = Path.GetDirectoryName destination
         if String.IsNullOrEmpty parent then invalidArg "outputFolder" "Choose a new report folder below an existing directory."
         Directory.CreateDirectory parent |> ignore
@@ -184,12 +159,12 @@ module SorterEvalReportExport =
         let mutable detailRows = 0L
         let mutable removeTemporary = true
         try
-            do
+            if evaluations.Length > 0 then
                 use summaryStream = new FileStream(Path.Combine(temporary, "Summary.csv"), FileMode.CreateNew, FileAccess.Write, FileShare.None)
                 use detailsStream = new FileStream(Path.Combine(temporary, "Details.csv"), FileMode.CreateNew, FileAccess.Write, FileShare.None)
                 use summary = new CsvReportWriter(summaryStream, columns SorterEvalReports.summaryColumns)
                 use details = new CsvReportWriter(detailsStream, columns SorterEvalReports.detailColumns)
-                for source in sources do
+                for source in evaluations do
                     token.ThrowIfCancellationRequested()
                     try
                         let saved = source.Database.Load source.Output.Key.Reference
@@ -213,7 +188,7 @@ module SorterEvalReportExport =
                     with
                     | :? OperationCanceledException -> reraise ()
                     | error -> invalidOp $"Cannot report '{source.ParameterFile}': {error.GetBaseException().Message}"
-            let hasEvolution, evolutionRows, snapshotRows = writeEvolution sources columns temporary token
+            let hasEvolution, evolutionRows = writeEvolution sources columns temporary token
             token.ThrowIfCancellationRequested()
             if not (Directory.Exists destination) then Directory.Move(temporary, destination)
             else
@@ -243,11 +218,12 @@ module SorterEvalReportExport =
                         removeTemporary <- false
                         invalidOp $"Export failed: {error.Message}. Restore the previous reports from '{previous}': {recoveryError.Message}"
                     reraise ()
-            { Folder = destination; SummaryPath = Path.Combine(destination, "Summary.csv"); DetailsPath = Path.Combine(destination, "Details.csv")
+            { Folder = destination
+              SummaryPath = if evaluations.Length > 0 then Some (Path.Combine(destination, "Summary.csv")) else None
+              DetailsPath = if evaluations.Length > 0 then Some (Path.Combine(destination, "Details.csv")) else None
               SummaryRows = summaryRows; DetailRows = detailRows
               EvolutionSummaryPath = if hasEvolution then Some (Path.Combine(destination, "EvolutionSummary.csv")) else None
-              SnapshotsPath = if hasEvolution then Some (Path.Combine(destination, "Snapshots.csv")) else None
-              EvolutionSummaryRows = evolutionRows; SnapshotRows = snapshotRows }
+              EvolutionSummaryRows = evolutionRows }
         finally
             if removeTemporary && Directory.Exists temporary then Directory.Delete(temporary, true)
 

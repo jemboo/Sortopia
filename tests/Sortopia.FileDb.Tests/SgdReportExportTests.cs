@@ -3,19 +3,20 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.FSharp.Core;
 using Sortopia.Evaluation;
-using Sortopia.Functions;
 using Xunit;
 
 namespace Sortopia.FileDb.Tests;
 
 public sealed partial class PreparedExecutionTests
 {
-    [Fact]
-    public void Sgd_sweep_reports_combine_all_saved_networks_with_exact_V1_statistics_and_parameter_values()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sgd_sweep_exports_only_evolution_summary_with_pool_statistics_and_saved_parameters(bool msrs)
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "OrthoRate", values = ["1", "2"] },
-            new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }], sgd: new(1, 0));
+            new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }], sgd: new(1, 0), msrs: msrs);
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parametersFolder = Path.Combine(folder, "runParameters");
@@ -27,57 +28,53 @@ public sealed partial class PreparedExecutionTests
             .ToDictionary(path => path, path => SHA256.HashData(File.ReadAllBytes(path)));
         var destination = Path.Combine(temporary.FullName, "Sweep report");
         var export = SorterEvalReportExport.exportFolder(parametersFolder, FSharpOption<Guid>.Some(consumer.Runs[0].id), destination, Token);
-        Assert.Equal(4, export.SummaryRows); Assert.Equal(8, export.DetailRows);
-        var details = TypedReportTests.ReadCsv(export.DetailsPath);
-        Assert.Equal(8, details.Length);
-        Assert.Equal(4, details.Select(row => row["WorkItemId"]).Distinct().Count());
-        Assert.Equal(4, details.Select(row => (row["Results.OrthoRate"], row["Results.SelfSymRate"])).Distinct().Count());
-        Assert.Equal(4, details.GroupBy(row => row["WorkItemId"]).Count(group => group.Count() == 2));
+        Assert.Equal(new[] { "EvolutionSummary.csv" }, Directory.GetFiles(destination).Select(Path.GetFileName));
+        Assert.Null(export.SummaryPath); Assert.Null(export.DetailsPath);
+        Assert.Equal(0, export.SummaryRows); Assert.Equal(0, export.DetailRows);
+        Assert.Equal(4, export.EvolutionSummaryRows);
+        var rows = TypedReportTests.ReadCsv(export.EvolutionSummaryPath.Value);
+        Assert.Equal(4, rows.Length);
+        Assert.Equal(4, rows.Select(row => row["WorkItemId"]).Distinct().Count());
+        Assert.Equal(4, rows.Select(row => (row["Results.OrthoRate"], row["Results.SelfSymRate"])).Distinct().Count());
         foreach (var file in files)
         {
             var item = RunParameterFiles.loadFile(file);
-            var store = new SortopiaFileDb(folder, item.ProjectId);
-            var reference = Assert.Single(RunParameterExecution.inspectFile(file, Token).Outputs.Available, output => output.Reference.DataType.IsSorterPoolSet).Reference;
-            Assert.True(reference.DataType.IsSorterPoolSet);
-            var saved = Assert.IsType<sortopiaStorageData.SorterPoolSet>(((ISortopiaDb)store).Load(reference, Token).ResultValue.Value).Item;
-            var evaluations = saved.Pools.SelectMany(pool => pool.Members).Select(member => member.Evaluation).DistinctBy(SorterEval.getSorterId).ToArray();
-            var summary = Assert.Single(TypedReportTests.ReadCsv(export.SummaryPath), row => row["WorkItemId"] == item.Id.ToString());
-            Assert.Equal(evaluations.Length.ToString(CultureInfo.InvariantCulture), summary["EvaluatedSorterCount"]);
-            Assert.Equal(evaluations.Count(SorterEval.getIsSorted).ToString(CultureInfo.InvariantCulture), summary["SuccessfulSorterCount"]);
-            foreach (var evaluation in evaluations)
-            {
-                var v1 = Assert.IsType<sorterEval.V2>(evaluation).Item.ToV1();
-                var row = Assert.Single(details, row => row["WorkItemId"] == item.Id.ToString() && row["SorterId"] == v1.SorterId.ToString());
-                Assert.Equal("V2", row["EvaluationType"]);
-                Assert.Equal(v1.SortableTestsSubsetId, row["SortableTestsSubsetId"]);
-                Assert.Equal(v1.ChannelCount.ToString(CultureInfo.InvariantCulture), row["ChannelCount"]);
-                Assert.Equal(v1.UnsortedCount.ToString(CultureInfo.InvariantCulture), row["UnsortedCount"]);
-                Assert.Equal(v1.CeLength.ToString(CultureInfo.InvariantCulture), row["CeLength"]);
-                Assert.Equal(v1.StageLength.ToString(CultureInfo.InvariantCulture), row["StageLength"]);
-                Assert.Equal(v1.SequenceHash.ToString(CultureInfo.InvariantCulture), row["SequenceHash"]);
-                Assert.Equal(v1.LastCeIndex.ToString(CultureInfo.InvariantCulture), row["LastCeIndex"]);
-                Assert.Equal(v1.ReflectionSymmetric ? "TRUE" : "FALSE", row["IsReflectionSymmetric"]);
-                Assert.Equal(v1.UnsortedCount == 0 ? "TRUE" : "FALSE", row["IsSorted"]);
-                Assert.Equal(v1.StageCrossingsCount.ToString(CultureInfo.InvariantCulture), row["StageCrossingsCount"]);
-                Assert.Equal(v1.ReflectiveCount.ToString(CultureInfo.InvariantCulture), row["ReflectiveCount"]);
-                Assert.Equal(ResultsFunctionNames.standardMsuf4SimpleSgd, row["ResultsFunction"]);
-                Assert.Equal(consumer.Runs[0].id.ToString(), row["RunId"]);
-                Assert.Equal(reference.Id.ToString(), row["ResultsDataId"]);
-                Assert.Equal(store.GetPath(reference), row["ResultsFile"]);
-                Assert.Equal(saved.TestsId.ToString(), row["SortableTestsId"]);
-                Assert.Empty(row["SorterSetEvalId"]); Assert.Empty(row["SorterSetId"]);
-                Assert.Contains("channelCount=8", row["Setup.SortableTests.Query.PrefixLibId"]);
-                Assert.Equal(item.Parameters.TryFindText("OrthoRate").Value, row["Results.OrthoRate"]);
-                Assert.Equal(item.Parameters.TryFindText("SelfSymRate").Value, row["Results.SelfSymRate"]);
-            }
+            var saved = RunOutputFiles.loadSnapshot(folder, item, 0, Token);
+            var pool = Assert.Single(saved.Pools);
+            var evaluations = pool.Members.Select(member => member.Evaluation).ToArray();
+            var row = Assert.Single(rows, row => row["WorkItemId"] == item.Id.ToString());
+            Assert.Equal("0", row["Generation"]); Assert.Equal("0", row["PoolIndex"]);
+            Assert.Equal(pool.Id.ToString(), row["PoolId"]);
+            Assert.Equal(evaluations.Length.ToString(CultureInfo.InvariantCulture), row["MemberCount"]);
+            Assert.Equal(evaluations.Count(SorterEval.getIsSorted).ToString(CultureInfo.InvariantCulture), row["SuccessfulCount"]);
+            Assert.Equal(evaluations.Average(value => (double)SorterEval.getCeLength(value)), double.Parse(row["MeanCeLength"], CultureInfo.InvariantCulture), 12);
+            Assert.Equal(evaluations.Min(value => (double)SorterEval.getStageLength(value)), double.Parse(row["MinimumStageLength"], CultureInfo.InvariantCulture));
+            Assert.Equal(item.Results.FunctionName, row["ResultsFunction"]);
+            Assert.Equal(consumer.Runs[0].id.ToString(), row["RunId"]);
+            Assert.Equal(RunOutputFiles.snapshotPath(folder, item, 0), row["ResultsFile"]);
+            Assert.Contains("channelCount=8", row["Setup.SortableTests.Query.PrefixLibId"]);
+            Assert.Equal(item.Parameters.TryFindText("OrthoRate").Value, row["Results.OrthoRate"]);
+            Assert.Equal(item.Parameters.TryFindText("SelfSymRate").Value, row["Results.SelfSymRate"]);
         }
         foreach (var file in original) Assert.Equal(file.Value, SHA256.HashData(File.ReadAllBytes(file.Key)));
-        Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterModelSet")));
-        Assert.False(Directory.Exists(Path.Combine(folder, "data", "results", "SorterSetEval")));
         var cliDestination = Path.Combine(temporary.FullName, "CLI sweep report");
         Assert.Equal(0, Sortopia.Cli.Program.main(["export-sorter-eval", "--parameters-folder", parametersFolder, "--run", consumer.Runs[0].id.ToString(), "--output", cliDestination]));
-        Assert.Equal(File.ReadAllBytes(export.DetailsPath), File.ReadAllBytes(Path.Combine(cliDestination, "Details.csv")));
+        Assert.Equal(new[] { "EvolutionSummary.csv" }, Directory.GetFiles(cliDestination).Select(Path.GetFileName));
+        Assert.Equal(File.ReadAllBytes(export.EvolutionSummaryPath.Value), File.ReadAllBytes(Path.Combine(cliDestination, "EvolutionSummary.csv")));
         Assert.Throws<InvalidOperationException>(() => SorterEvalReportExport.exportFiles([files[0], files[0]], Path.Combine(temporary.FullName, "Duplicate"), Token));
         Assert.False(Directory.Exists(Path.Combine(temporary.FullName, "Duplicate")));
+
+        // Re-export removes obsolete CSVs while keeping user files and rolling back on failure.
+        foreach (var name in new[] { "Summary.csv", "Details.csv", "Snapshots.csv" })
+            File.WriteAllText(Path.Combine(destination, name), "old report");
+        File.WriteAllText(Path.Combine(destination, "Notes.csv"), "keep this");
+        var previous = Directory.GetFiles(destination).ToDictionary(path => path, File.ReadAllBytes);
+        using (var locked = new FileStream(Path.Combine(destination, "Snapshots.csv"), FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.Throws<IOException>(() => SorterEvalReportExport.exportFiles([files[0]], destination, Token));
+        foreach (var file in previous) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
+        SorterEvalReportExport.exportFiles([files[0]], destination, Token);
+        Assert.Equal(new[] { "EvolutionSummary.csv", "Notes.csv" }, Directory.GetFiles(destination).Select(Path.GetFileName).Order());
+        Assert.Single(TypedReportTests.ReadCsv(export.EvolutionSummaryPath.Value));
+        Assert.Equal("keep this", File.ReadAllText(Path.Combine(destination, "Notes.csv")));
     }
 }

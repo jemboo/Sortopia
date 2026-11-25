@@ -208,7 +208,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
     }
 
     [Fact]
-    public async Task Evolution_reporting_controls_freeze_schedules_in_parameter_files_and_export_both_levels()
+    public async Task Evolution_reporting_controls_freeze_schedules_in_parameter_files_and_export_only_summary()
     {
         var workspace = await Generate(sgd: true, reporting: true);
         try
@@ -274,15 +274,15 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             var destination = Path.Combine(temporary.FullName, "Evolution reports");
             await execution.ExportReportsAsync(destination); Assert.Empty(execution.Error);
             // Zero generations still records the baseline exactly once for each of four combinations.
-            Assert.Contains("4 evolution summary rows and 4 snapshot network rows", execution.Status);
+            Assert.Contains("4 evolution summary rows", execution.Status);
             Assert.Equal(5, File.ReadAllLines(Path.Combine(destination, "EvolutionSummary.csv")).Length);
-            Assert.Equal(5, File.ReadAllLines(Path.Combine(destination, "Snapshots.csv")).Length);
+            Assert.Equal(new[] { "EvolutionSummary.csv" }, Directory.GetFiles(destination).Select(Path.GetFileName));
         }
         finally { workspace.Cancel(); }
     }
 
     [Fact]
-    public async Task Sgd_sweep_exposes_CSV_export_and_combines_the_selected_final_networks()
+    public async Task Sgd_sweep_exports_only_evolution_summaries_for_the_selected_combinations()
     {
         var workspace = await Generate(sgd: true);
         try
@@ -295,11 +295,14 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.All(model.Rows, row => Assert.True(Assert.Single(row.Parameters!.Results.DataTypes).Key.IsSorterPoolSet));
             var destination = Path.Combine(temporary.FullName, "SGD reports");
             await model.ExportReportsAsync(destination); Assert.Empty(model.Error);
-            Assert.Contains("4 summary rows and 4 detail rows", model.Status);
-            var lines = File.ReadAllLines(Path.Combine(destination, "Details.csv"));
+            Assert.Contains("4 evolution summary rows", model.Status);
+            Assert.DoesNotContain("detail rows", model.Status);
+            Assert.DoesNotContain("snapshot", model.Status);
+            Assert.Equal(new[] { "EvolutionSummary.csv" }, Directory.GetFiles(destination).Select(Path.GetFileName));
+            var lines = File.ReadAllLines(Path.Combine(destination, "EvolutionSummary.csv"));
             Assert.Equal(5, lines.Length);
             Assert.Contains("Results.OrthoRate", lines[0]); Assert.Contains("Setup.SorterModelSet.Query.Repl", lines[0]);
-            Assert.Contains("StageCrossingsCount", lines[0]); Assert.Contains("ReflectiveCount", lines[0]);
+            Assert.Contains("MeanStageCrossings", lines[0]); Assert.Contains("MeanReflectiveFraction", lines[0]);
             Assert.All(lines.Skip(1), line => Assert.Contains(ResultsFunctionNames.standardMsuf4SimpleSgd, line));
             Assert.All(model.Rows, row => { Assert.True(row.IsSelected); Assert.Equal("Complete", row.Status); });
         }

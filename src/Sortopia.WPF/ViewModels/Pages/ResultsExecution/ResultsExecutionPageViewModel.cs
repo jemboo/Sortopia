@@ -455,9 +455,12 @@ public sealed class ResultsExecutionPageViewModel : ViewModelBase, IDisposable
         var exported = await Task.Run(() => SorterEvalReportExport.exportFiles(paths, destination, token), token);
         if (cancellation?.Token == token)
         {
-            Status = $"Exported {exported.SummaryRows:N0} summary rows and {exported.DetailRows:N0} detail rows to {exported.Folder}";
+            var reports = new List<string>();
+            if (exported.SummaryPath is not null)
+                reports.Add($"{exported.SummaryRows:N0} summary rows and {exported.DetailRows:N0} detail rows");
             if (exported.EvolutionSummaryPath is not null)
-                Status += $"; {exported.EvolutionSummaryRows:N0} evolution summary rows and {exported.SnapshotRows:N0} snapshot network rows.";
+                reports.Add($"{exported.EvolutionSummaryRows:N0} evolution summary rows");
+            Status = $"Exported {string.Join("; ", reports)} to {exported.Folder}";
         }
     }) : Task.CompletedTask;
     internal void RefreshElapsedTimes()

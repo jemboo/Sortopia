@@ -24,9 +24,9 @@ Folder execution considers every parameter file present, including older files;
 partial work reuses existing outputs. No manifests or execution receipts are needed.
 Results execution never runs setup. --jobs is a positive maximum concurrent job count (default 1).
 Selected files must own distinct outputs. Failed jobs are reported while other jobs continue.
-Export combines saved branch SorterSetEval outputs or SGD SorterPoolSet results into Summary.csv and Details.csv.
+Export combines saved branch evaluations or sampled SGD population statistics.
 Details includes V1 statistics for each network, results parameters, and inherited setup query metadata.
-All selected evaluations must exist and be valid. Sampled SGD data also exports EvolutionSummary.csv and Snapshots.csv.
+Ordinary evaluations export Summary.csv and Details.csv. SGD runs export only EvolutionSummary.csv from saved population summaries.
 Reports go directly to the project's data/results/reports by default, replacing the previous CSV export.
 Ctrl+C cancels running jobs cooperatively and leaves unstarted files pending.
 Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
@@ -104,9 +104,10 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
                         | Some folder, None -> SorterEvalReportExport.exportFolder folder (runFilter values) (output folder) cancellation.Token
                         | None, Some file when not (Map.containsKey "--run" values) -> SorterEvalReportExport.exportFiles [|file|] (output (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath file))) cancellation.Token
                         | _ -> invalidArg "arguments" "Choose --parameters-folder (optionally --run), or one --parameters file."
-                    printfn "Exported %d summary rows and %d detail rows.\n%s\n%s" exported.SummaryRows exported.DetailRows exported.SummaryPath exported.DetailsPath
+                    if exported.SummaryPath.IsSome then
+                        printfn "Exported %d summary rows and %d detail rows.\n%s\n%s" exported.SummaryRows exported.DetailRows exported.SummaryPath.Value exported.DetailsPath.Value
                     if exported.EvolutionSummaryPath.IsSome then
-                        printfn "Exported %d evolution summary rows and %d snapshot rows.\n%s\n%s" exported.EvolutionSummaryRows exported.SnapshotRows exported.EvolutionSummaryPath.Value exported.SnapshotsPath.Value
+                        printfn "Exported %d evolution summary rows.\n%s" exported.EvolutionSummaryRows exported.EvolutionSummaryPath.Value
                     0
                 | _ -> invalidArg "arguments" "Unknown command. Use --help for syntax."
             with

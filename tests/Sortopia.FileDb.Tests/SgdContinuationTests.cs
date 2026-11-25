@@ -120,7 +120,7 @@ public sealed partial class PreparedExecutionTests
             Assert.Equal(File.ReadAllBytes(expected), File.ReadAllBytes(actual));
         }
         var export = SorterEvalReportExport.exportFiles([path], Path.Combine(temporary.FullName, "Extended report"), Token);
-        Assert.True(export.SummaryRows > 0);
+        Assert.True(export.EvolutionSummaryRows > 0);
         Assert.Equal(5, RunOutputFiles.loadSamples(folder, extended, Token).Item1.Snapshots.Length);
     }
 
