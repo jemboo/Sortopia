@@ -126,6 +126,60 @@ public sealed class SorterBinMovieTests : IDisposable
     }
 
     [Fact]
+    public void Updating_history_preserves_paused_selection_by_generation_through_backfill_and_new_frames() => RunSta(() =>
+    {
+        var complete = Summary();
+        using var movie = new SorterBinMovieViewModel(new(TestsId, complete.Rows.Where(row => row.Generation != 10).ToArray()));
+        var view = new SorterBinMovie { DataContext = movie };
+        void Layout()
+        {
+            view.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+            view.Measure(new Size(700, 600)); view.Arrange(new Rect(0, 0, 700, 600)); view.UpdateLayout();
+        }
+        Layout();
+        movie.SelectedHistogram = "Unsuccessful";
+        movie.SelectedPool = movie.PoolOptions.Single(pool => pool.Index == 0);
+        movie.SelectedGeneration = 40;
+        movie.SelectBinCommand.Execute(new Point(9, 48));
+        var pool = movie.SelectedPool;
+        var extended = new sorterPoolSummarySet(TestsId, [.. complete.Rows, Row(80, 0, [], [new(100, 50, 7)])]);
+        movie.UpdateSummary(extended);
+        Layout();
+        Assert.Equal(new[] { 0, 10, 40, 80 }, movie.Generations);
+        Assert.Equal(40, movie.SelectedGeneration); Assert.Equal(2, movie.SelectedFrameIndex);
+        Assert.Equal("Unsuccessful", movie.SelectedHistogram); Assert.Same(pool, movie.SelectedPool);
+        Assert.False(movie.IsPlaying);
+        Assert.Equal(3, Assert.Single(movie.Visits.Counts).Value);
+        Assert.Equal(new Point(9, 48), movie.SelectedPosition);
+        Assert.Equal(7, movie.FrequencyMaximum); Assert.True(movie.AllBounds.Contains(new Point(50, 100)));
+        Assert.Equal(40, ((ComboBox)view.FindName("GenerationSelector")).SelectedItem);
+        Assert.Same(pool, ((ComboBox)view.FindName("PoolSelector")).SelectedItem);
+        Assert.Equal("Unsuccessful", ((ComboBox)view.FindName("HistogramSelector")).SelectedItem);
+        Assert.Equal(2, ((Slider)view.FindName("GenerationSlider")).Value);
+        movie.UpdateSummary(new(TestsId, complete.Rows.Where(row => row.Generation < 40).ToArray()));
+        Layout();
+        Assert.Equal(10, movie.SelectedGeneration); // Only a removed frame needs a fallback.
+        Assert.Equal("Unsuccessful", movie.SelectedHistogram); Assert.Same(pool, movie.SelectedPool);
+    });
+
+    [Fact]
+    public void Updating_history_keeps_active_playback_and_continues_into_appended_frames() => RunSta(() =>
+    {
+        using var movie = new SorterBinMovieViewModel(Summary());
+        movie.SelectedHistogram = "Unsuccessful";
+        movie.SelectedPool = movie.PoolOptions.Single(pool => pool.Index == 1);
+        movie.SelectedGeneration = 10;
+        movie.PlayPauseCommand.Execute(null);
+        movie.UpdateSummary(new(TestsId, [.. Summary().Rows, Row(80, 1, [], [new(48, 9, 3)])]));
+        Assert.True(movie.IsPlaying); Assert.Equal(10, movie.SelectedGeneration);
+        Assert.Equal("Unsuccessful", movie.SelectedHistogram); Assert.Equal(1, movie.SelectedPool.Index);
+        movie.AdvanceFrame(); Assert.Equal(40, movie.SelectedGeneration); Assert.True(movie.IsPlaying);
+        movie.AdvanceFrame(); Assert.Equal(80, movie.SelectedGeneration); Assert.False(movie.IsPlaying);
+        Assert.Throws<InvalidOperationException>(() => movie.UpdateSummary(new(Guid.NewGuid(), Summary().Rows)));
+        Assert.Equal(80, movie.SelectedGeneration); Assert.Equal(4, movie.Generations.Count);
+    });
+
+    [Fact]
     public void Playback_advances_saved_frames_stops_at_end_and_pauses_on_seek_and_unload() => RunSta(() =>
     {
         using var movie = new SorterBinMovieViewModel(Summary());

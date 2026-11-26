@@ -195,7 +195,7 @@ module internal RunParameterCodec =
             { fromDto id dto.Invocation with Reporting = Some reporting }
         | 4 ->
             let dto = MessagePackSetup.deserialize<sgdRunParametersDto> payload
-            let controls = SgdRun.validate { SnapshotInterval = dto.SnapshotInterval; SnapshotCount = 0 }
+            let controls = SgdRun.validate { SnapshotInterval = dto.SnapshotInterval; SnapshotCount = 0; TempSnapshotInterval = None }
             let reporting = SgdReporting.validate { SnapshotSchedule = $"Constant({dto.SnapshotInterval})"; SummarySchedule = dto.SummarySchedule }
             { fromDto id dto.Invocation with Reporting = Some reporting; Sgd = Some controls }
         | _ -> invalidOp "Unsupported runParameters schema. Regenerate the run parameter files."

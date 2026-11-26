@@ -159,9 +159,10 @@ module CeBlockOpsBitv512 =
         )
 
     let private countFailures options report (blocks: sortBlockBitv512[]) (networks: ceBlock[]) =
-        if SimdBatch.preferNetworks options networks.Length blocks.Length then
-            evaluateNetworks options false report blocks networks
-        else countFailuresByBlocks options report blocks networks
+        EvaluationScheduling.run (max networks.Length blocks.Length) options (fun options ->
+            if SimdBatch.preferNetworks options networks.Length blocks.Length then
+                evaluateNetworks options false report blocks networks
+            else countFailuresByBlocks options report blocks networks)
 
     let evalSimdSortBlocks (simdSortableBlocks: sortBlockBitv512 seq) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) ceBlocks simdSortableBlocks
@@ -313,9 +314,10 @@ module CeBlockOpsBitv512 =
         )
 
     let private collectFailures options (blocks: sortBlockBitv512[]) (networks: ceBlock[]) =
-        if SimdBatch.preferNetworks options networks.Length blocks.Length then
-            evaluateNetworks options true None blocks networks
-        else collectFailuresByBlocks options blocks networks
+        EvaluationScheduling.run (max networks.Length blocks.Length) options (fun options ->
+            if SimdBatch.preferNetworks options networks.Length blocks.Length then
+                evaluateNetworks options true None blocks networks
+            else collectFailuresByBlocks options blocks networks)
 
     let evalAndCollectUniqueFailures (simdSortableBlocks: sortBlockBitv512 seq) (ceBlocks: ceBlock[]) =
         let inputs = SimdBatch.prepareBlocks (fun (block: sortBlockBitv512) -> block.Length) ceBlocks simdSortableBlocks

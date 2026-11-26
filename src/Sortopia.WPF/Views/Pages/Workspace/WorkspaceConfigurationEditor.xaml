@@ -414,6 +414,9 @@
                         <TextBlock Text="SnapshotCount" FontWeight="SemiBold" />
                         <TextBox Text="{Binding SnapshotCount, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditSnapshotCount}" AutomationProperties.Name="SnapshotCount" />
                         <TextBlock Text="Number of snapshots after generation zero. Increase and save to extend the run; execute its parameter files to continue from the latest checkpoint." Style="{StaticResource Help}" />
+                        <TextBlock Text="Temp snapshot" FontWeight="SemiBold" Margin="0,8,0,0" />
+                        <TextBox Text="{Binding TempSnapshotInterval, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding UsesSnapshotControls}" AutomationProperties.Name="Temp snapshot interval" />
+                        <TextBlock Text="Generations between replaceable resume snapshots. Snapshots at SnapshotInterval boundaries are retained. This interval can change after parameter generation." Style="{StaticResource Help}" />
                         <TextBlock Text="{Binding SnapshotTargetText}" Style="{StaticResource Help}" />
                     </StackPanel>
                     <TextBlock Text="This saved SGD version is not supported. Create a new project version to configure snapshot controls."

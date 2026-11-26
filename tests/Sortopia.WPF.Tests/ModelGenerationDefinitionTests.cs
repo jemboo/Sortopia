@@ -102,7 +102,7 @@ public sealed class ModelGenerationDefinitionTests
         var tests = sortopiaDataType.NewSortableTests("");
         var target = new RecordingDatabase([.. modelsCached ? new[] { models } : [], .. testsCached ? new[] { tests } : []]);
         var host = new runHost(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameters,
-            target, target.Outputs, CancellationToken.None, 1, null, null, null, null, null);
+            target, target.Outputs, CancellationToken.None, 1, null, null, null, null, null, null);
         if (setup) SetupFunctionCatalog.require(name).Execute.Invoke(host).Invoke(MapModule.Empty<sortopiaDataType, Guid>());
         else ResultsFunctionCatalog.require(name).Execute.Invoke(host);
         Assert.Equal(new[] { models, tests }, target.Outputs.Stored.Select(output => output.Reference.DataType));
@@ -123,7 +123,7 @@ public sealed class ModelGenerationDefinitionTests
             : ParameterBinding.create(ParamKeys.rngTypeKey, "not-a-generator"));
         var target = new RecordingDatabase([sortopiaDataType.NewSorterModelSet(""), sortopiaDataType.NewSortableTests("")]);
         var host = new runHost(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameters,
-            target, target.Outputs, CancellationToken.None, 1, null, null, null, null, null);
+            target, target.Outputs, CancellationToken.None, 1, null, null, null, null, null, null);
         var error = Assert.Throws<ArgumentException>(() =>
         {
             if (setup) SetupFunctionCatalog.require(name).Execute.Invoke(host).Invoke(MapModule.Empty<sortopiaDataType, Guid>());

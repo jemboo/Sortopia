@@ -213,4 +213,57 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(0, Sortopia.Cli.Program.main(["execute-results", "--parameters", paths[0], "--jobs", "2"]));
         Assert.Equal(0, Sortopia.Cli.Program.main(["execute-results", "--parameters-folder", Path.GetDirectoryName(paths[0])!, "--jobs", "2"]));
     }
+
+    [Fact]
+    public void Cpu_budget_bounds_file_workers_even_when_more_jobs_are_requested()
+    {
+        var paths = ParallelFiles();
+        var active = 0; var peak = 0;
+        var events = new ItemProgress(update =>
+        {
+            if (update.State == workItemExecutionState.Running)
+            {
+                var count = Interlocked.Increment(ref active);
+                Interlocked.Exchange(ref peak, Math.Max(peak, count));
+            }
+            else Interlocked.Decrement(ref active);
+        });
+        Completed(RunParameterExecution.executeFilesWithOptions(paths, new(8, 1, 0), null!, events, Token));
+        Assert.Equal(1, peak); Assert.Equal(0, active);
+    }
+
+    [Fact]
+    public void Cli_batch_preflights_the_entire_selection_then_executes_only_selected_files()
+    {
+        var paths = ParallelFiles();
+        var selection = Path.Combine(temporary.FullName, "selection.json");
+        File.WriteAllText(selection, System.Text.Json.JsonSerializer.Serialize(new[] { paths[0], paths[0] }));
+        Assert.Equal(1, Sortopia.Cli.Program.main(["execute-results", "--parameters-list", selection, "--jobs", "auto"]));
+        Assert.All(RunParameterExecution.inspectFolder(Path.GetDirectoryName(paths[0])!, null!, Token), row => Assert.Equal(outputState.Pending, row.Outputs.State));
+        File.WriteAllText(selection, System.Text.Json.JsonSerializer.Serialize(new[] { paths[1] }));
+        Assert.Equal(0, Sortopia.Cli.Program.main(["execute-results", "--parameters-list", selection, "--jobs", "auto"]));
+        Assert.Equal(outputState.Complete, RunParameterExecution.inspectFile(paths[1], Token).Outputs.State);
+        Assert.Equal(outputState.Pending, RunParameterExecution.inspectFile(paths[0], Token).Outputs.State);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("[null]")]
+    [InlineData("broken")]
+    public void Cli_rejects_invalid_selection_lists(string json)
+    {
+        var selection = Path.Combine(temporary.FullName, "selection.json"); File.WriteAllText(selection, json);
+        Assert.Equal(2, Sortopia.Cli.Program.main(["execute-results", "--parameters-list", selection]));
+    }
+
+    [Theory]
+    [InlineData("0", "50%")]
+    [InlineData("101", "50%")]
+    [InlineData("50", "-1GiB")]
+    [InlineData("50", "101%")]
+    public void Cli_rejects_invalid_resource_limits_before_execution(string cpu, string memory)
+    {
+        Assert.Equal(2, Sortopia.Cli.Program.main(["execute-results", "--parameters", "unused", "--cpu-percent", cpu, "--memory", memory]));
+    }
 }

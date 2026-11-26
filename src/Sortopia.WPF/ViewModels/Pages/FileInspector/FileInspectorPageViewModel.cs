@@ -2,10 +2,11 @@ using System.IO;
 using Sortopia.WPF.Commands;
 using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.ViewModels.Shared.Controls;
+using Sortopia.WPF.ViewModels.Shared;
 
 namespace Sortopia.WPF.ViewModels.Pages.FileInspector;
 
-public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
+public sealed partial class FileInspectorPageViewModel : ViewModelBase, IDisposable
 {
     private Action goBack;
     private CancellationTokenSource? browseCancellation, inspectionCancellation;
@@ -19,9 +20,18 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
     private int offset;
     private string appliedFilter = "";
     private bool hasMore;
+    private IReadOnlyList<InspectorRunContext> producingRuns = [];
+    private InspectorRunContext? producingRun;
+    private readonly Func<ProducingRun, Task>? openRun;
 
-    public FileInspectorPageViewModel(Action goBack, Func<string?, string?> pickFolder)
+    public FileInspectorPageViewModel(Action goBack, Func<string?, string?> pickFolder, Func<ProducingRun, Task>? openRun = null)
     {
+        this.openRun = openRun;
+        OpenRunCommand = new RelayCommand(async () =>
+        {
+            try { if (ProducingRun?.Target is { } target && this.openRun is not null) await this.openRun(target); }
+            catch (Exception e) { Error = $"Cannot open the producing run. {e.GetBaseException().Message}"; }
+        }, () => ProducingRun?.Target is not null && this.openRun is not null);
         this.goBack = goBack;
         ReturnCommand = new RelayCommand(() => { Cancel(); this.goBack(); });
         BrowseCommand = new RelayCommand(async () =>
@@ -50,6 +60,16 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
     public IReadOnlyList<InspectionNode> Details { get => details; private set => SetProperty(ref details, value); }
     public IReadOnlyList<InspectionNode> Metadata { get => metadata; private set => SetProperty(ref metadata, value); }
     public IReadOnlyList<InspectorReference> References { get => references; private set { SetProperty(ref references, value); OnPropertyChanged(nameof(HasReferences)); } }
+    public IReadOnlyList<InspectorRunContext> ProducingRuns { get => producingRuns; private set { SetProperty(ref producingRuns, value); OnPropertyChanged(nameof(HasProducingRuns)); OnPropertyChanged(nameof(RunContextHint)); } }
+    public bool HasProducingRuns => ProducingRuns.Count > 0;
+    public string RunContextHint => ProducingRuns.Count > 1 ? "Several saved runs share this file. Choose a producing run."
+        : ProducingRun?.Target is null ? "The producing run is detached from a workspace or is no longer available." : "";
+    public InspectorRunContext? ProducingRun
+    {
+        get => producingRun;
+        set { if (SetProperty(ref producingRun, value)) { OpenRunCommand.RaiseCanExecuteChanged(); OnPropertyChanged(nameof(RunContextHint)); } }
+    }
+    public RelayCommand OpenRunCommand { get; }
     public bool HasReferences => References.Count > 0;
     public SorterBinMovieViewModel? BinMovie
     {
@@ -98,6 +118,19 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
     }
 
     public Task OpenFolderAsync(string folder) { Filter = ""; return LoadFolderAsync(folder, 0); }
+    public async Task OpenFileAsync(string root, string path)
+    {
+        try
+        {
+            root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+            path = WorkspaceFileInspection.checkedPath(root, path);
+            RootFolder = root;
+            // Keep a directly opened file visible even in folders larger than one page.
+            Filter = Path.GetFileName(path);
+            await LoadFolderAsync(Path.GetDirectoryName(path)!, 0, path);
+        }
+        catch (Exception e) { Error = $"Cannot open '{path}'. {e.GetBaseException().Message}"; }
+    }
     public Task RefreshAsync() => LoadFolderAsync(CurrentFolder, Filter == appliedFilter ? offset : 0, Selected?.FullPath);
 
     private async Task LoadFolderAsync(string folder, int start, string? selectPath = null)
@@ -142,18 +175,20 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            if (ReferenceEquals(browseCancellation, request)) { browseCancellation = null; NotifyCommands(); }
+            if (ReferenceEquals(browseCancellation, request)) { browseCancellation = null; NotifyCommands(); ScheduleHistoryRefresh(); }
         }
     }
 
     public async Task InspectAsync(InspectorFile? file)
     {
+        ClearHistorySource();
         inspectionCancellation?.Cancel();
         using var request = new CancellationTokenSource();
         inspectionCancellation = request;
         OnPropertyChanged(nameof(IsInspecting));
         BinMovie = null;
         Details = []; References = []; Metadata = []; Error = "";
+        ProducingRuns = []; ProducingRun = null;
         Kind = file is null ? "No file selected" : "Reading file…";
         Description = file is null ? "Select a file to see its saved contents. Unsaved editor changes are not shown." : "Reading saved file metadata and configuration.";
         try
@@ -166,8 +201,25 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
             Metadata = [InspectionNode.Leaf("Name", current.Name), InspectionNode.Leaf("Path", current.FullPath),
                 InspectionNode.Leaf("Size", current.IsDirectory ? "Folder" : $"{InspectorFile.FormatSize(current.Length)} ({current.Length:N0} bytes)"),
                 InspectionNode.Leaf("Modified", current.ModifiedUtc.ToLocalTime().ToString("F"))];
-            Kind = report.Kind; Description = report.Description; Details = report.Details; References = report.References;
+            Kind = report.Kind; Description = report.Description; Details = report.Details; References = report.References; Error = report.Error;
             if (report.PoolSummary is not null) BinMovie = new SorterBinMovieViewModel(report.PoolSummary);
+            SetHistorySource(file, report.HistorySource);
+            if (!file.IsDirectory && Path.GetExtension(file.FullPath).Equals(".msgpack", StringComparison.OrdinalIgnoreCase))
+            {
+                // Optional provenance must not hide an otherwise readable file when its run was removed.
+                try
+                {
+                    var contexts = await Task.Run(() => InspectorRunContext.Read(file.FullPath, request.Token), request.Token);
+                    if (request.IsCancellationRequested) return;
+                    ProducingRuns = contexts;
+                    ProducingRun = contexts.Count == 1 ? contexts[0] : null;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception e)
+                {
+                    if (!request.IsCancellationRequested) Details = [.. Details, InspectionNode.Leaf("Run provenance unavailable", e.GetBaseException().Message)];
+                }
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception e)
@@ -180,7 +232,7 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
                 if (file is not null) Metadata = [InspectionNode.Leaf("Path", file.FullPath), InspectionNode.Leaf("Listed size", file.Size)];
             }
         }
-        finally { if (ReferenceEquals(inspectionCancellation, request)) { inspectionCancellation = null; OnPropertyChanged(nameof(IsInspecting)); } }
+        finally { if (ReferenceEquals(inspectionCancellation, request)) { inspectionCancellation = null; OnPropertyChanged(nameof(IsInspecting)); ScheduleHistoryRefresh(); } }
     }
 
     public async Task OpenReferenceAsync(InspectorReference reference)
@@ -200,6 +252,6 @@ public sealed class FileInspectorPageViewModel : ViewModelBase, IDisposable
         foreach (var command in new[] { RefreshCommand, UpCommand, RootCommand, OpenFolderCommand, NextCommand, PreviousCommand, FilterCommand })
             command?.RaiseCanExecuteChanged();
     }
-    public void Cancel() { browseCancellation?.Cancel(); inspectionCancellation?.Cancel(); BinMovie?.Pause(); }
+    public void Cancel() { StopHistoryMonitoring(); browseCancellation?.Cancel(); inspectionCancellation?.Cancel(); BinMovie?.Pause(); }
     public void Dispose() { Cancel(); BinMovie = null; }
 }

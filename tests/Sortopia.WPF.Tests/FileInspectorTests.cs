@@ -148,6 +148,16 @@ public sealed class FileInspectorTests : IDisposable
             Assert.Equal(model.Entries.Count, ((ListView)page.FindName("FileList")).Items.Count);
             Assert.Equal(model.Details.Count, ((TreeView)page.FindName("FileDetails")).Items.Count);
             Assert.True(((ListView)page.FindName("FileList")).ActualWidth > 200);
+            var list = (ListView)page.FindName("FileList");
+            System.Windows.Data.BindingOperations.ClearBinding(list, System.Windows.Controls.Primitives.Selector.SelectedItemProperty);
+            var selected = (ListViewItem)list.ItemContainerGenerator.ContainerFromIndex(0);
+            selected.IsSelected = true;
+            selected.Focus();
+            var tree = (TreeView)page.FindName("FileDetails");
+            ((TreeViewItem)tree.ItemContainerGenerator.ContainerFromIndex(0)).IsSelected = true;
+            page.UpdateLayout();
+            Assert.Equal(Color.FromRgb(0x31, 0x5e, 0x87), ((SolidColorBrush)selected.Background).Color);
+            Assert.Equal(Color.FromRgb(0xf1, 0xf5, 0xf9), ((SolidColorBrush)selected.Foreground).Color);
             if (Environment.GetEnvironmentVariable("SORTOPIA_INSPECTOR_SCREENSHOT") is { Length: > 0 } output)
             {
                 var image = new RenderTargetBitmap(1080, 740, 96, 96, PixelFormats.Pbgra32);

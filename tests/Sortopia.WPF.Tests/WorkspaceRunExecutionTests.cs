@@ -1,5 +1,6 @@
 using System.IO;
 using Sortopia.Functions;
+using Sortopia.FileDb;
 using Sortopia.Runs;
 using Sortopia.Workspaces.Serialization;
 using Sortopia.WPF.Settings;
@@ -87,8 +88,18 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
     {
         await workspace.GenerateRunParametersAsync(); Assert.True(workspace.Error.Length == 0, workspace.Error);
         using var page = await OpenExecutionAsync(workspace);
-        page.SelectAllCommand.Execute(null); await page.ExecuteAsync(); Assert.Empty(page.Error);
-        return page.LastReport!;
+        page.SelectAllCommand.Execute(null);
+        return await ExecuteCheckedFilesAsync(page);
+    }
+
+    // Fixture preparation uses the shared execution backend directly; the desktop view model never executes results.
+    internal static async Task<runExecutionReport> ExecuteCheckedFilesAsync(ResultsExecutionPageViewModel page)
+    {
+        var paths = page.Rows.Where(row => row.IsSelected).Select(row => row.Path).ToArray();
+        var report = await Task.Run(() => RunParameterExecution.executeFiles(paths, null!, TestContext.Current.CancellationToken));
+        await page.RefreshAsync();
+        Assert.Empty(page.Error);
+        return report;
     }
 
     [Theory]
@@ -121,9 +132,9 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         var reopened = new WorkspacePageViewModel(() => { }, _ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
         SelectRun(reopened);
         using var execution = await OpenExecutionAsync(reopened);
-        execution.SelectAllCommand.Execute(null); await execution.ExecuteAsync();
+        execution.SelectAllCommand.Execute(null); var reopenedReport = await ExecuteCheckedFilesAsync(execution);
         Assert.Empty(execution.Error);
-        Assert.Equal(outputs.Select(output => output.Reference.Id), execution.LastReport!.Results.SelectMany(call => call.StoredOutputs).Select(output => output.Reference.Id));
+        Assert.Equal(outputs.Select(output => output.Reference.Id), reopenedReport.Results.SelectMany(call => call.StoredOutputs).Select(output => output.Reference.Id));
         page.Selected = page.Selected!.Parent; Assert.Null(page.SelectedExecution); Assert.Empty(page.RunParametersFolder);
         page.AddRunCommand.Execute(null); Assert.False(page.SelectedExecution!.HasAttempt);
         Assert.False(page.GenerateRunParametersCommand.CanExecute(null));
@@ -164,10 +175,10 @@ public sealed class WorkspaceRunExecutionTests : IDisposable
         await page.OpenExecutePageAsync(); Assert.Equal(1, navigations);
         Assert.Equal(id, execution.SelectedRun!.Id); Assert.Equal(page.RunParametersFolder, execution.Folder);
         Assert.Equal(Sortopia.FileDb.outputState.Pending, Assert.Single(execution.Rows).State);
-        Assert.False(execution.ExecuteCommand.CanExecute(null));
-        execution.SelectAllCommand.Execute(null); Assert.True(execution.ExecuteCommand.CanExecute(null));
-        await execution.ExecuteAsync(); Assert.Empty(execution.Error);
-        Assert.Equal(runExecutionStatus.Completed, execution.LastReport!.Status); Assert.Empty(execution.LastReport.Setup);
+        Assert.False(execution.ExecuteCommandLineCommand.CanExecute(null));
+        execution.SelectAllCommand.Execute(null); Assert.True(execution.ExecuteCommandLineCommand.CanExecute(null));
+        var report = await ExecuteCheckedFilesAsync(execution); Assert.Empty(execution.Error);
+        Assert.Equal(runExecutionStatus.Completed, report.Status); Assert.Empty(report.Setup);
         Assert.Equal(Sortopia.FileDb.outputState.Complete, Assert.Single(execution.Rows).State);
         page.Selected.Editor!.DescriptionOverride.IsOverridden = true; page.Selected.Editor.DescriptionOverride.EffectiveValue = "Draft";
         Assert.False(page.GenerateRunParametersCommand.CanExecute(null)); Assert.True(page.ExecutePageCommand.CanExecute(null));

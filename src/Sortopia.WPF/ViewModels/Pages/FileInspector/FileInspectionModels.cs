@@ -23,7 +23,8 @@ public sealed record InspectorFile(inspectionEntry Entry)
 
 public sealed record InspectionNode(string Name, string Value, IReadOnlyList<InspectionNode> Children)
 {
-    public bool IsExpanded => Name is "Captured inherited defaults" or "Local overrides" or "Fixed project configuration";
+    public bool IsExpanded => Name is "Captured inherited defaults" or "Local overrides" or "Fixed project configuration"
+        or "Results spans" or "Setup spans" or "Invocation parameters" or "Setup query parameters" or "Query Parameters" or "Parameters";
     public static InspectionNode Leaf(string name, string value) => new(name, value, []);
 }
 
@@ -33,7 +34,7 @@ public sealed record InspectorReference(string Label, string FullPath, bool Exis
 }
 
 internal sealed record InspectionReport(string Kind, string Description, IReadOnlyList<InspectionNode> Details,
-    IReadOnlyList<InspectorReference> References, sorterPoolSummarySet? PoolSummary = null)
+    IReadOnlyList<InspectorReference> References, sorterPoolSummarySet? PoolSummary = null, string Error = "", SummaryHistorySource? HistorySource = null)
 {
     private static string Label(string name) => name switch
     {
@@ -55,6 +56,9 @@ internal sealed record InspectionReport(string Kind, string Description, IReadOn
             if (--budget < 0) return InspectionNode.Leaf("Display limit", "Additional content omitted.");
             if (value.ValueKind == JsonValueKind.Object)
             {
+                if (value.TryGetProperty("Key", out var key) && value.TryGetProperty("Value", out var formatted)
+                    && value.TryGetProperty("Type", out var typeName))
+                    return InspectionNode.Leaf(key.GetString()!, $"{formatted.GetString()} ({typeName.GetString()})");
                 var children = new List<InspectionNode>();
                 foreach (var property in value.EnumerateObject())
                 {
@@ -96,6 +100,38 @@ internal sealed record InspectionReport(string Kind, string Description, IReadOn
         return document.RootElement.ValueKind == JsonValueKind.Object ? root.Children : [root];
     }
 
+    private static InspectionReport ReadParameterHistory(string path, dataFileInspection data, CancellationToken token)
+    {
+        var details = DecodeDetails(data.Json);
+        SummaryHistorySource? source = null;
+        try
+        {
+            var item = RunParameterFiles.loadFile(path);
+            if (item.Sgd is null) return new(data.Kind, data.Description, details, []);
+            var project = RunParameterFiles.projectFolder(Path.GetDirectoryName(path)!);
+            var store = new SortopiaFileDb(project, item.ProjectId);
+            source = new(project, RunOutputFiles.samples(item).Summaries.Select(batch => store.GetPath(batch.Item2.Reference))
+                .Append(path).Append(Path.Combine(project, "runs", $"{item.RunId:D}.msgpack")).ToArray());
+            var history = RunOutputFiles.loadSummaryHistory(project, item, token);
+            if (history is null)
+                return new(data.Kind, data.Description + " No pool summary sets have been saved yet. Published summaries appear automatically while this page is open.", details, [], HistorySource: source);
+            var saved = history.Value;
+            var generations = saved.Summary.Rows.Select(row => row.Generation).Distinct().ToArray();
+            var gaps = saved.MissingGenerations.Length == 0 ? "" : $" {saved.MissingGenerations.Length:N0} scheduled generations before the latest sample are missing; playback skips those gaps.";
+            var description = $"Evolution history for this parameter file: {generations.Length:N0} saved generations ({generations[0]:N0}–{generations[^1]:N0}) from {saved.Files.Length:N0} summary sets. Select a population and generation, or play the full sequence. New summaries appear automatically while this page is open." + gaps;
+            var links = saved.Files.Take(200).Select(batch => new InspectorReference(
+                batch.Item1.Length == 1 ? $"Summary · generation {batch.Item1[0]:N0}" : $"Summary · generations {batch.Item1[0]:N0}–{batch.Item1[^1]:N0}", batch.Item2, true)).ToArray();
+            if (saved.Files.Length > links.Length) description += $" Showing the first {links.Length:N0} summary-file links.";
+            return new(data.Kind, description, details, links, saved.Summary, HistorySource: source);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception e)
+        {
+            return new(data.Kind, data.Description + " Evolution history could not be loaded.", details, [],
+                Error: $"Cannot load evolution history: {e.Message}", HistorySource: source);
+        }
+    }
+
     internal static InspectionReport Read(string root, InspectorFile file, CancellationToken token)
     {
         var path = WorkspaceFileInspection.checkedPath(root, file.FullPath);
@@ -111,11 +147,15 @@ internal sealed record InspectionReport(string Kind, string Description, IReadOn
         dataFileInspection? data = null;
         if (category.Equals("runParameters", StringComparison.OrdinalIgnoreCase))
             data = FileInspection.inspectPrepared(path, token);
+        else if (category.Equals("temporarySnapshots", StringComparison.OrdinalIgnoreCase))
+            data = FileInspection.inspectTemporary(path, token);
         else if (Path.GetFileName(Path.GetDirectoryName(folder)) is { } phase
                  && (phase.Equals("setup", StringComparison.OrdinalIgnoreCase) || phase.Equals("results", StringComparison.OrdinalIgnoreCase)))
             data = FileInspection.inspectData(path, token);
         if (data is not null)
         {
+            if (category.Equals("runParameters", StringComparison.OrdinalIgnoreCase) && data.Kind == "Run parameters")
+                return ReadParameterHistory(path, data, token);
             var summary = category.Equals("SorterPoolSummarySet", StringComparison.OrdinalIgnoreCase)
                 ? FileInspection.loadPoolSummary(path, token) : null;
             return new(data.Kind, summary is null ? data.Description

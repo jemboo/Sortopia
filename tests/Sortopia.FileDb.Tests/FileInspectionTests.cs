@@ -42,6 +42,10 @@ public sealed class FileInspectionTests : IDisposable
         Assert.Equal("Tests", json.RootElement.GetProperty("Database").GetString());
         Assert.Equal(128 * 1024 * 1024, json.RootElement.GetProperty("CompressedPayloadBytes").GetInt32());
         Assert.Equal(1, json.RootElement.GetProperty("QueryParameterCount").GetInt32());
+        var queryParameter = Assert.Single(json.RootElement.GetProperty("QueryParameters").EnumerateArray());
+        Assert.Equal("ChannelCount", queryParameter.GetProperty("Key").GetString());
+        Assert.Equal("Integer", queryParameter.GetProperty("Type").GetString());
+        Assert.Equal("16", queryParameter.GetProperty("Value").GetString());
         using (var stream = File.OpenWrite(path)) stream.SetLength(buffer.WrittenCount);
         Assert.ThrowsAny<Exception>(() => FileInspection.inspectData(path, Token));
     }

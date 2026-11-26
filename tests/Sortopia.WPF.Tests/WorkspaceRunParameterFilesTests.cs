@@ -81,7 +81,7 @@ public sealed class WorkspaceRunParameterFilesTests : IDisposable
         });
         using var execution = await WorkspaceRunExecutionTests.OpenExecutionAsync(page);
         execution.Rows[0].IsSelected = true;
-        await execution.ExecuteAsync(); Assert.Empty(execution.Error);
+        await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(execution); Assert.Empty(execution.Error);
         var completedPath = execution.Rows[0].Path;
         // Invalid draft values cannot alter the saved-file parameters or prevent inspection.
         page.Selected!.Editor!.ResultsParameters.Single(row => row.Key == "SortableDataFormat").Values[0].Text = "invalid";

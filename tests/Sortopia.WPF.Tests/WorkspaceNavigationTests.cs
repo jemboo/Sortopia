@@ -4,6 +4,7 @@ using Sortopia.Workspaces;
 using Sortopia.Workspaces.Persistence;
 using Sortopia.WPF.Settings;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
+using Sortopia.WPF.ViewModels.Shared;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;
@@ -19,6 +20,41 @@ public sealed class WorkspaceNavigationTests : IDisposable
         WorkspaceFileStore.CreateDocument(Root, WorkspaceFixtures.Workspace(Guid.NewGuid(), "Original", "Root", []), TestContext.Current.CancellationToken);
         Directory.CreateDirectory(Other);
         Settings.Save(Root);
+    }
+
+    [Theory]
+    [InlineData(WorkspaceUnsavedChoice.Save)]
+    [InlineData(WorkspaceUnsavedChoice.Discard)]
+    [InlineData(WorkspaceUnsavedChoice.Cancel)]
+    public async Task Producing_run_navigation_to_another_workspace_resolves_the_existing_draft(WorkspaceUnsavedChoice choice)
+    {
+        CreateSavedRoot();
+        var generated = WorkspaceRunExecutionTests.Create(Path.Combine(temporary.FullName, "Generated"), false);
+        var run = generated.Selected!;
+        var target = new ProducingRun(generated.WorkspaceFolder, run.Parent!.Id, run.Id);
+        await generated.SaveWorkspaceAsync();
+        Assert.Empty(generated.Error);
+        var prompts = 0;
+        var page = new WorkspacePageViewModel(() => { }, _ => null, Settings, () => { prompts++; return choice; });
+        page.WorkspaceName = "Edited";
+        var previous = page.Roots.Single();
+        Assert.Equal(choice != WorkspaceUnsavedChoice.Cancel, await page.OpenProducingRunAsync(target));
+        Assert.Equal(1, prompts);
+        if (choice == WorkspaceUnsavedChoice.Cancel)
+        {
+            Assert.Same(previous, page.Roots.Single());
+            Assert.True(page.HasUnsavedChanges);
+            Assert.Equal(Root, Settings.Load());
+        }
+        else
+        {
+            Assert.Equal(target.WorkspaceFolder, page.WorkspaceFolder);
+            Assert.Equal(target.RunId, page.Selected!.Id);
+            Assert.Equal(target.ProjectId, page.Selected.Parent!.Id);
+            Assert.True(page.Selected.Parent.IsExpanded);
+        }
+        Assert.Equal(choice == WorkspaceUnsavedChoice.Save ? "Edited" : "Original", WorkspaceFileStore.LoadWorkspace(Root).CreateEditDocument().Definition.workspaceName);
+        page.Cancel(); generated.Cancel();
     }
 
     [Theory]

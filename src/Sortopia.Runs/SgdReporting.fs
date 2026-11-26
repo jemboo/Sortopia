@@ -2,17 +2,20 @@ namespace Sortopia.Runs
 
 /// Run-wide controls, independent of the evolutionary parameter sweep.
 [<CLIMutable>]
-type sgdRunConfig = { SnapshotInterval: int; SnapshotCount: int }
+type sgdRunConfig = { SnapshotInterval: int; SnapshotCount: int; TempSnapshotInterval: int option }
 
 module SgdRun =
     let validate (value: sgdRunConfig) =
         if value.SnapshotInterval < 1 then invalidArg "SnapshotInterval" "SnapshotInterval must be positive."
         if value.SnapshotCount < 0 then invalidArg "SnapshotCount" "SnapshotCount cannot be negative."
+        if value.TempSnapshotInterval |> Option.exists (fun interval -> interval < 1) then
+            invalidArg "TempSnapshotInterval" "Temp snapshot interval must be positive."
         if int64 value.SnapshotInterval * int64 value.SnapshotCount > int64 System.Int32.MaxValue then
             invalidArg "SnapshotCount" "SnapshotInterval × SnapshotCount exceeds the supported generation limit."
         value
     let target value = let value = validate value in value.SnapshotInterval * value.SnapshotCount
-    let defaults = { SnapshotInterval = 100; SnapshotCount = 1 }
+    let tempInterval value = value.TempSnapshotInterval |> Option.defaultValue 10
+    let defaults = { SnapshotInterval = 100; SnapshotCount = 1; TempSnapshotInterval = None }
     let validateExtension before after =
         validate after |> ignore
         if before.SnapshotInterval <> after.SnapshotInterval then

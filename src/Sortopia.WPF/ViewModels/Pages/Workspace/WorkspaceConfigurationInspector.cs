@@ -36,7 +36,7 @@ public sealed partial class WorkspaceConfigurationViewModel
         if (!IsModule && IsBranch) yield return ProjectField("setupDatabase", "Setup", SetupDatabaseField);
         if (ShowReportingConfiguration)
             yield return new("evolutionReporting", "Reporting", "Evolution reporting",
-                UsesSnapshotControls ? $"SnapshotInterval: {SnapshotInterval}; SnapshotCount: {SnapshotCount}; {SnapshotTargetText} Pool summaries: {SummaryReporting.Schedule}"
+                UsesSnapshotControls ? $"SnapshotInterval: {SnapshotInterval}; SnapshotCount: {SnapshotCount}; Temp snapshot: {TempSnapshotInterval}; {SnapshotTargetText} Pool summaries: {SummaryReporting.Schedule}"
                     : ReportingEnabled ? $"Full snapshots: {SnapshotReporting.Schedule}; Pool summaries: {SummaryReporting.Schedule}" : "Disabled",
                 UsesSnapshotControls && !CanEditSnapshotInterval ? "Interval locked · count may increase" : IsReadOnly ? "Locked · generated parameters" : "Run settings", ReportingError);
         if (ShowResultsConfiguration)

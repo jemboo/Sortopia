@@ -27,7 +27,7 @@ public sealed partial class PreparedExecutionTests
         Bind("OrthoRate", "4.001", parameterValueType.Floating), Bind("ParaRate", "1.15", parameterValueType.Floating),
         Bind("SelfSymRate", "1.75", parameterValueType.Floating) ];
 
-    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null, bool msrs = false)
+    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null, bool msrs = false, int sourceCount = 4)
     {
         var prefix = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1));
         var prefixBinding = Bind("PrefixLibId", prefix, parameterValueType.PrefixLibId);
@@ -35,7 +35,7 @@ public sealed partial class PreparedExecutionTests
         var testsType = sortopiaDataType.NewSortableTests("");
         var sourceName = wrongFamily ? ResultsFunctionNames.prefixMssiSimpleSorterModels
             : msrs ? ResultsFunctionNames.prefixMsrsSimpleSorterModels : ResultsFunctionNames.prefixMsuf4SimpleSorterModels;
-        parameterBinding[] generatorParameters = [prefixBinding, Bind("SorterCount", "4"), Bind("SorterSuccessFraction", "50%", parameterValueType.SorterSuccessFraction),
+        parameterBinding[] generatorParameters = [prefixBinding, Bind("SorterCount", sourceCount.ToString()), Bind("SorterSuccessFraction", "50%", parameterValueType.SorterSuccessFraction),
             Bind("Repl", "0"), Bind("RngType", "LCG", parameterValueType.Text)];
         if (msrs && !wrongFamily) generatorParameters = [..generatorParameters,
             Bind("StageWeights", "1,1,1", parameterValueType.OpsWeights)];
@@ -58,7 +58,7 @@ public sealed partial class PreparedExecutionTests
         var consumer = Project("SorterSgd", new projectConfiguration("Standard SGD", new resultsConfig("Results", functionName, definition.Version, ListModule.OfSeq(outputs), ListModule.OfSeq(parameters)), FSharpOption<setupConfig>.Some(setup)), resultsSpans);
         var inputs = RunDto.fromDomain(consumer.ResolvedRuns()[0]);
         inputs.reporting = reporting is null ? null : FSharpOption<sgdReportingConfig>.Some(reporting);
-        inputs.sgd = FSharpOption<sgdRunConfig>.Some(sgd ?? new(3, 1));
+        inputs.sgd = FSharpOption<sgdRunConfig>.Some(sgd ?? new(3, 1, null));
         consumer = WorkspaceFixtures.WithRuns(consumer, [RunDto.toDomain(consumer.Snapshot(), inputs)]);
         ModuleDocument Module(ProjectDocument p) => WorkspaceFixtures.InheritedModule(Guid.NewGuid(), p.Definition.projectName,
             ModuleDefaults.configuration(p.Configuration().HasSetup), ModuleOverridesDto.toDomain(p.Configuration().HasSetup ? hierarchyKind.Branch : hierarchyKind.Root,
@@ -124,7 +124,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "InitialPoolSeed", values = ["0", "1"] },
-            new() { keyName = "MutationMod", values = ["0", "15"] }], reporting: new("Constant(100)", "Constant(1)"), sgd: new(100, 0));
+            new() { keyName = "MutationMod", values = ["0", "15"] }], reporting: new("Constant(100)", "Constant(1)"), sgd: new(100, 0, null));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
@@ -158,7 +158,7 @@ public sealed partial class PreparedExecutionTests
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "InitialPoolSelection", values = ["Best"] },
             new() { keyName = "InitialPoolSeed", values = ["0", "99"] },
-            new() { keyName = "MutationMod", values = ["0", "3"] }], reporting: new("Constant(100)", "Constant(1)"), sgd: new(100, 0), msrs: msrs);
+            new() { keyName = "MutationMod", values = ["0", "3"] }], reporting: new("Constant(100)", "Constant(1)"), sgd: new(100, 0, null), msrs: msrs);
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");

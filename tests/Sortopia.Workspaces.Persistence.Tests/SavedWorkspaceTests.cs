@@ -90,7 +90,7 @@ public sealed class SavedWorkspaceTests : IDisposable
         var unfinished = WorkspaceDocumentModule.cloneProject(project).Runs[0];
         unfinished.id = Guid.NewGuid(); unfinished.runName = "Unfinished";
         unfinished.resultsParameterSpans[0].values = ["still typing"];
-        unfinished.sgd = Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(new(2, 3));
+        unfinished.sgd = Microsoft.FSharp.Core.FSharpOption<sgdRunConfig>.Some(new(2, 3, null));
         input = WorkspaceNavigation.replaceProject(WorkspaceDocumentModule.withRuns(project, [.. project.Runs, unfinished]), input);
         var saved = WorkspaceFileStore.CreateDocument(Root, input, Token).Workspace;
         var original = saved.CreateEditDocument();

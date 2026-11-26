@@ -8,33 +8,24 @@ namespace Sortopia.WPF.ViewModels.Shared.Controls;
 
 public sealed record HistogramPoolOption(int? Index, string Label);
 
-/// <summary>Frames from one saved summary batch, with explicit population and pool selection.</summary>
+/// <summary>Ordered frames from a summary batch or combined evolution history, with population and pool selection.</summary>
 public sealed class SorterBinMovieViewModel : ViewModelBase, IDisposable
 {
     private sealed record Frame(EvolutionVisits Visits, int PoolCount, int MissingPools, long Members);
-    private readonly IGrouping<int, sgdPoolStatistics>[] generations;
+    private IGrouping<int, sgdPoolStatistics>[] generations = [];
+    private Guid testsId;
     private Frame[] frames = [];
     private string selectedHistogram = "Successful";
     private HistogramPoolOption selectedPool;
     private int selectedFrameIndex;
     private Point? selectedPosition;
-    private bool isPlaying, disposed;
+    private bool isPlaying, disposed, updatingSummary;
     private DispatcherTimer? timer;
 
     public SorterBinMovieViewModel(sorterPoolSummarySet summary)
     {
-        SorterPoolSummarySet.validate(summary);
-        generations = summary.Rows.GroupBy(row => row.Generation).OrderBy(group => group.Key).ToArray();
-        Generations = generations.Select(group => group.Key).ToArray();
-        PoolOptions = new[] { new HistogramPoolOption(null, "All pools") }.Concat(summary.Rows.Select(row => row.PoolIndex)
-            .Distinct().Order().Select(index => new HistogramPoolOption(index, $"Pool {index}"))).ToArray();
+        SetSummaryData(summary);
         selectedPool = PoolOptions[0];
-        var bounds = Rect.Empty;
-        foreach (var row in summary.Rows)
-            foreach (var histogram in new[] { row.SuccessfulLengthHistogram, row.UnsuccessfulLengthHistogram })
-                if (histogram is not null)
-                    foreach (var bin in histogram.Value) bounds.Union(new Point(bin.StageLength, bin.CeLength));
-        AllBounds = bounds;
         PreviousCommand = new RelayCommand(() => SelectedFrameIndex--, () => !disposed && SelectedFrameIndex > 0);
         NextCommand = new RelayCommand(() => SelectedFrameIndex++, () => !disposed && SelectedFrameIndex < LastFrameIndex);
         PlayPauseCommand = new RelayCommand(TogglePlayback, () => !disposed && HasMultipleGenerations && frames.Any(frame => frame.MissingPools == 0 && frame.PoolCount > 0));
@@ -50,9 +41,9 @@ public sealed class SorterBinMovieViewModel : ViewModelBase, IDisposable
     }
 
     public IReadOnlyList<string> HistogramKinds { get; } = ["Successful", "Unsuccessful"];
-    public IReadOnlyList<int> Generations { get; }
-    public IReadOnlyList<HistogramPoolOption> PoolOptions { get; }
-    public Rect AllBounds { get; }
+    public IReadOnlyList<int> Generations { get; private set; } = [];
+    public IReadOnlyList<HistogramPoolOption> PoolOptions { get; private set; } = [];
+    public Rect AllBounds { get; private set; }
     public long FrequencyMaximum { get; private set; }
     public string FrequencyMaximumLabel => FrequencyMaximum.ToString("N0");
     public int LastFrameIndex => Generations.Count - 1;
@@ -67,18 +58,19 @@ public sealed class SorterBinMovieViewModel : ViewModelBase, IDisposable
     public string SelectedHistogram
     {
         get => selectedHistogram;
-        set { if (HistogramKinds.Contains(value) && SetProperty(ref selectedHistogram, value)) { Pause(); RebuildFrames(); } }
+        set { if (!updatingSummary && HistogramKinds.Contains(value) && SetProperty(ref selectedHistogram, value)) { Pause(); RebuildFrames(); } }
     }
     public HistogramPoolOption SelectedPool
     {
         get => selectedPool;
-        set { if (value is not null && PoolOptions.Contains(value) && SetProperty(ref selectedPool, value)) { Pause(); RebuildFrames(); } }
+        set { if (!updatingSummary && value is not null && PoolOptions.Contains(value) && SetProperty(ref selectedPool, value)) { Pause(); RebuildFrames(); } }
     }
     public int SelectedFrameIndex
     {
         get => selectedFrameIndex;
         set
         {
+            if (updatingSummary) return;
             var next = Math.Clamp(value, 0, LastFrameIndex);
             if (next == selectedFrameIndex) return;
             Pause(); SetFrame(next);
@@ -105,7 +97,51 @@ public sealed class SorterBinMovieViewModel : ViewModelBase, IDisposable
         ? $"Stage count {point.X:N0} · CE count {point.Y:N0} · {Visits.Counts.GetValueOrDefault(point):N0} sorters"
         : "Select a bin to see its count. Axes stay fixed across generations and populations.";
 
-    private void RebuildFrames()
+    private void SetSummaryData(sorterPoolSummarySet summary)
+    {
+        SorterPoolSummarySet.validate(summary);
+        if (testsId != Guid.Empty && summary.TestsId != testsId)
+            throw new InvalidOperationException("Updated history belongs to a different test set.");
+        var groups = summary.Rows.GroupBy(row => row.Generation).OrderBy(group => group.Key).ToArray();
+        var options = new int?[] { null }.Concat(summary.Rows.Select(row => (int?)row.PoolIndex).Distinct().Order())
+            .Select(index => PoolOptions.FirstOrDefault(pool => pool.Index == index)
+                ?? new HistogramPoolOption(index, index is null ? "All pools" : $"Pool {index}")).ToArray();
+        var bounds = Rect.Empty;
+        foreach (var row in summary.Rows)
+            foreach (var histogram in new[] { row.SuccessfulLengthHistogram, row.UnsuccessfulLengthHistogram })
+                if (histogram is not null)
+                    foreach (var bin in histogram.Value) bounds.Union(new Point(bin.StageLength, bin.CeLength));
+        testsId = summary.TestsId;
+        generations = groups;
+        Generations = groups.Select(group => group.Key).ToArray();
+        PoolOptions = options;
+        AllBounds = bounds;
+    }
+
+    /// Apply a validated history on the UI thread, preserving the position at the time it arrives.
+    public void UpdateSummary(sorterPoolSummarySet summary)
+    {
+        if (disposed) return;
+        var generation = SelectedGeneration;
+        var pool = SelectedPool.Index;
+        updatingSummary = true;
+        try
+        {
+            SetSummaryData(summary);
+            selectedPool = PoolOptions.FirstOrDefault(option => option.Index == pool) ?? PoolOptions[0];
+            // Backfilled batches can change frame indices. Preserve the generation, or the nearest earlier frame if removed.
+            selectedFrameIndex = Math.Max(0, Array.FindLastIndex(generations, group => group.Key <= generation));
+            RebuildFrames(notify: false);
+            foreach (var name in new[] { nameof(Generations), nameof(PoolOptions), nameof(SelectedPool), nameof(AllBounds),
+                nameof(LastFrameIndex), nameof(HasMultipleGenerations), nameof(FrequencyMaximum), nameof(FrequencyMaximumLabel) })
+                OnPropertyChanged(name);
+            NotifyFrame(clearBin: false);
+            if (IsPlaying && !PlayPauseCommand.CanExecute(null)) Pause();
+        }
+        finally { updatingSummary = false; }
+    }
+
+    private void RebuildFrames(bool notify = true)
     {
         var successful = SelectedHistogram == "Successful";
         frames = generations.Select(group =>
@@ -119,6 +155,7 @@ public sealed class SorterBinMovieViewModel : ViewModelBase, IDisposable
             return new Frame(visits, rows.Length, missing, rows.Sum(row => (long)(successful ? row.SuccessfulCount : row.MemberCount - row.SuccessfulCount)));
         }).ToArray();
         FrequencyMaximum = Math.Max(1, frames.Max(frame => frame.Visits.Maximum));
+        if (!notify) return;
         OnPropertyChanged(nameof(FrequencyMaximum)); OnPropertyChanged(nameof(FrequencyMaximumLabel));
         NotifyFrame();
     }
@@ -128,9 +165,9 @@ public sealed class SorterBinMovieViewModel : ViewModelBase, IDisposable
         selectedFrameIndex = index;
         NotifyFrame();
     }
-    private void NotifyFrame()
+    private void NotifyFrame(bool clearBin = true)
     {
-        selectedPosition = null;
+        if (clearBin) selectedPosition = null;
         foreach (var name in new[] { nameof(SelectedFrameIndex), nameof(SelectedGeneration), nameof(Visits), nameof(Status), nameof(EmptyMessage), nameof(SelectedPosition), nameof(SelectionText) })
             OnPropertyChanged(name);
         NotifyCommands();

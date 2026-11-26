@@ -43,7 +43,7 @@ public sealed partial class PreparedExecutionTests
     [Fact]
     public void Resolving_a_saved_run_does_not_expose_its_snapshot_or_reporting_controls()
     {
-        var (_, consumer) = SgdWorkspace(sgd: new(2, 2), reporting: new("Constant(2)", "Constant(1)"));
+        var (_, consumer) = SgdWorkspace(sgd: new(2, 2, null), reporting: new("Constant(2)", "Constant(1)"));
         var saved = WorkspaceFileStore.LoadWorkspace(Root);
         var before = saved.CreateEditDocument();
         var runId = consumer.Runs[0].id;
@@ -61,7 +61,7 @@ public sealed partial class PreparedExecutionTests
     {
         var path = Path.Combine(folder, "runs", runId + ".msgpack");
         var dto = MessagePackSetup.deserialize<runDto>(File.ReadAllBytes(path));
-        dto.sgd = FSharpOption<sgdRunConfig>.Some(new(interval, count));
+        dto.sgd = FSharpOption<sgdRunConfig>.Some(new(interval, count, null));
         File.WriteAllBytes(path, MessagePackSetup.serialize(dto));
     }
 
@@ -77,14 +77,14 @@ public sealed partial class PreparedExecutionTests
     [InlineData("Best")]
     public void Snapshot_count_extension_preserves_files_and_matches_uninterrupted_evolution(string selection)
     {
-        var (world, consumer) = SgdWorkspace(sgd: new(2, 2), reporting: new("Constant(2)", selection == "Best" ? "Constant(3)" : "Constant(1)"),
+        var (world, consumer) = SgdWorkspace(sgd: new(2, 2, null), reporting: new("Constant(2)", selection == "Best" ? "Constant(3)" : "Constant(1)"),
             resultsSpans: [new() { keyName = "InitialPoolSelection", values = [selection] }, new() { keyName = "AdjustCeLengthFrequency", values = ["3"] }]);
         var generated = Prepare(world, consumer); Completed(generated.Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var path = Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
         var item = RunParameterFiles.loadFile(path);
         Assert.Null(item.Parameters.TryFindText("GenerationCount"));
-        Assert.Equal(new sgdRunConfig(2, 2), item.Sgd.Value);
+        Assert.Equal(new sgdRunConfig(2, 2, null), item.Sgd.Value);
         Assert.Equal(new[] { 0, 2, 4 }, RunOutputFiles.samples(item).Snapshots.Select(s => s.Item1));
         var originalParameters = File.ReadAllBytes(path);
         var baseline = Path.Combine(temporary.FullName, "Uninterrupted");
@@ -127,7 +127,7 @@ public sealed partial class PreparedExecutionTests
     [Fact]
     public void Snapshot_count_zero_saves_initial_population_and_cancellation_resumes_at_checkpoint()
     {
-        var (world, consumer) = SgdWorkspace(sgd: new(2, 0));
+        var (world, consumer) = SgdWorkspace(sgd: new(2, 0, null));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var path = Assert.Single(Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack"));
@@ -150,14 +150,14 @@ public sealed partial class PreparedExecutionTests
     [Fact]
     public void Saved_run_locks_interval_and_allows_only_count_increases_after_generation()
     {
-        var (world, consumer) = SgdWorkspace(sgd: new(2, 2));
+        var (world, consumer) = SgdWorkspace(sgd: new(2, 2, null));
         Completed(Prepare(world, consumer).Execution);
         var saved = WorkspaceFileStore.LoadWorkspace(Root);
         WorkspaceDocument Change(int interval, int count)
         {
             var next = MessagePackSetup.deserialize<WorkspaceDocument>(MessagePackSetup.serialize(saved.CreateEditDocument()));
             var run = next.Modules.SelectMany(m => m.Projects).Single(p => p.Definition.id == consumer.Definition.id).Runs[0];
-            run.sgd = FSharpOption<sgdRunConfig>.Some(new(interval, count));
+            run.sgd = FSharpOption<sgdRunConfig>.Some(new(interval, count, null));
             return next;
         }
         Assert.Contains("SnapshotInterval is locked", Assert.ThrowsAny<Exception>(() => WorkspaceFileStore.SaveDocument(Change(3, 2), saved, Token)).Message);

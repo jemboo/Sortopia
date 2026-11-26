@@ -101,7 +101,7 @@ public sealed partial class PreparedExecutionTests
         var removedPaths = RunDataCleanup.plan(folder, item.ProjectId, SetModule.Singleton(item.RunId), neverKeep, Token);
         Assert.All(keys, key => Assert.DoesNotContain(store.GetPath(key.Reference), removedPaths));
         var denser = new runParameters(item.Id, item.ProjectId, item.RunId, item.Results, item.Parameters, item.SetupInputs,
-            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, FSharpOption<sgdRunConfig>.Some(new(1, SgdRun.target(item.Sgd.Value))));
+            item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, item.Reporting, FSharpOption<sgdRunConfig>.Some(new(1, SgdRun.target(item.Sgd.Value), null)));
         Assert.All(RunOutputFiles.samples(item).Snapshots, snapshot =>
             Assert.Contains(RunOutputFiles.samples(denser).Snapshots, other => other.Item1 == snapshot.Item1 && other.Item2.Id == snapshot.Item2.Id));
         var different = new runParameters(item.Id, item.ProjectId, item.RunId, item.Results,
@@ -136,7 +136,7 @@ public sealed partial class PreparedExecutionTests
         int interval, int count, int[] snapshotGenerations)
     {
         var generations = interval * count;
-        var (world, consumer) = SgdWorkspace(sgd: new(interval, count));
+        var (world, consumer) = SgdWorkspace(sgd: new(interval, count, null));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");
@@ -180,7 +180,7 @@ public sealed partial class PreparedExecutionTests
         // A surviving invocation with fewer checkpoints still owns shared outputs.
         var plain = new runParameters(Guid.NewGuid(), item.ProjectId, Guid.NewGuid(), item.Results, item.Parameters,
             item.SetupInputs, item.SetNumber, item.SetupSetNumber, item.SetupSuffixStages, item.ResultsSuffixStages, null,
-            FSharpOption<sgdRunConfig>.Some(new(Math.Max(1, generations), generations == 0 ? 0 : 1)));
+            FSharpOption<sgdRunConfig>.Some(new(Math.Max(1, generations), generations == 0 ? 0 : 1, null)));
         CopyRunDefinition(folder, item.RunId, plain.RunId, plain.Sgd.Value);
         RunParameterFiles.saveWorkItem(folder, plain, Token);
         var neverKeep = FuncConvert.FromFunc<storedDataReference, FSharpList<storedDataReference>, bool>((_, _) => false);
@@ -255,7 +255,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "SorterPoolCount", values = ["2"] }
-        ], reporting: new("Constant(1)", interval), sgd: new(1, 6));
+        ], reporting: new("Constant(1)", interval), sgd: new(1, 6, null));
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parameters = Path.Combine(folder, "runParameters");

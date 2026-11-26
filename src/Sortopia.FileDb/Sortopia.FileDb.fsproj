@@ -9,11 +9,15 @@
     <Compile Include="SortopiaFileDb.fs" />
     <Compile Include="WorkspaceData.fs" />
     <Compile Include="OutputPlan.fs" />
+    <Compile Include="TemporarySnapshots.fs" />
     <Compile Include="FileRunHost.fs" />
     <Compile Include="RunParameterFiles.fs" />
     <Compile Include="RunOutputFiles.fs" />
     <Compile Include="RunDataCleanup.fs" />
     <Compile Include="FileInspection.fs" />
+    <Compile Include="ExecutionResources.fs" />
+    <Compile Include="ExecutionTuning.fs" />
+    <Compile Include="ExecutionCpuBudget.fs" />
     <Compile Include="RunParameterExecution.fs" />
     <Compile Include="FileRunExecution.fs" />
     <Compile Include="SorterEvalReportExport.fs" />

@@ -21,7 +21,7 @@ module ResultsFunctions =
     let private modelsType = sortopiaDataType.SorterModelSet ""
     let private evalType = sortopiaDataType.SorterSetEval ""
     let private evaluationOptions (host: runHost) =
-        ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)
+        EvaluationScheduling.options host.EvaluationParallelism host.EvaluationBudget host.CancellationToken
 
     let private generator version dataType keys make =
         FunctionDefinition.results version keys

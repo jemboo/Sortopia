@@ -4,8 +4,7 @@
  <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries></ResourceDictionary></UserControl.Resources>
  <Grid Background="{StaticResource Workspace.Canvas}" Margin="20">
   <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-   <DockPanel Margin="0,0,0,20"><Button DockPanel.Dock="Right" Content="{Binding ReturnLabel}" Command="{Binding ReturnCommand}" Style="{StaticResource PageReturnButtonStyle}" />
-    <TextBlock Text="Results execution" Foreground="{StaticResource Workspace.TextPrimary}" FontSize="24" FontWeight="SemiBold" /></DockPanel>
+   <Button HorizontalAlignment="Right" Margin="0,0,0,20" Content="{Binding ReturnLabel}" Command="{Binding ReturnCommand}" Style="{StaticResource PageReturnButtonStyle}" />
    <Border Grid.Row="1" Background="{StaticResource Workspace.Surface}" Padding="20" CornerRadius="8"><local:ResultsExecutionPanel x:Name="ExecutionPanel" /></Border>
  </Grid>
 </UserControl>

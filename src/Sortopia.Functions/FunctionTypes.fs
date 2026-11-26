@@ -71,6 +71,17 @@ type IRunDatabase =
     abstract Find: Guid<projectId> * sortopiaDataType * parameterSet -> storedDataReference
     abstract Load: storedDataReference -> sortopiaStorageData
 
+/// A replaceable checkpoint also retains samples waiting for their immutable summary batch.
+type temporaryEvolutionSnapshot = {
+    Snapshot: Sortopia.Evaluation.Sgd.sorterPoolSet
+    PendingSummaries: Sortopia.Evaluation.Sgd.sgdPoolStatistics array
+}
+
+type ITemporaryEvolutionSnapshots =
+    abstract Resume: temporaryEvolutionSnapshot option
+    abstract SaveTemporary: temporaryEvolutionSnapshot -> unit
+    abstract ClearTemporary: completedGeneration: int -> unit
+
 /// Read-only invocation metadata. Successful writes are reported by the database
 /// implementation only after its plan, payload and replay checks have passed.
 type RunOutputs(planned: runDataOutput list, stored: unit -> storedOutput list) =
@@ -107,6 +118,8 @@ type runHost = {
     PreparationCache: RunPreparationCache option
     /// Transient completed-generation notifications; never part of saved data.
     GenerationProgress: (int -> unit) option
+    /// Optional batch allocation; refreshed at each parallel phase boundary.
+    EvaluationBudget: IEvaluationCpuBudget option
 }
 
 type sourceProjects = Map<sortopiaDataType, Guid<projectId>>

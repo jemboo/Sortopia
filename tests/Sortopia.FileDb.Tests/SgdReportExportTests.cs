@@ -18,7 +18,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "OrthoRate", values = ["1", "2"] },
-            new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }], sgd: new(1, 0), msrs: msrs);
+            new() { keyName = "SelfSymRate", values = ["0.025", "0.030"] }], sgd: new(1, 0, null), msrs: msrs);
         Completed(Prepare(world, consumer).Execution);
         var folder = Isolate(Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder));
         var parametersFolder = Path.Combine(folder, "runParameters");

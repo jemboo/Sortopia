@@ -2,27 +2,25 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Windows.Threading;
 using Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 using Sortopia.WPF.Views.Shared;
 namespace Sortopia.WPF.Views.Pages.ResultsExecution;
 public partial class ResultsExecutionPanel : UserControl
 {
     private ResultsExecutionPageViewModel? model;
-    private readonly DispatcherTimer elapsedTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
     public ResultsExecutionPanel()
     {
         InitializeComponent();
-        elapsedTimer.Tick += (_, _) => model?.RefreshElapsedTimes();
         DataContextChanged += (_, _) => Attach();
-        Loaded += (_, _) => { Attach(); elapsedTimer.Start(); };
-        Unloaded += (_, _) => { elapsedTimer.Stop(); if (model is not null) model.PropertyChanged -= Changed; model = null; };
+        Loaded += (_, _) => Attach();
+        Unloaded += (_, _) => { if (model is not null) { model.PropertyChanged -= Changed; model.StopSnapshotMonitoring(); } model = null; };
     }
     private void Attach()
     {
-        if (model is not null) model.PropertyChanged -= Changed;
+        if (model is not null) { model.PropertyChanged -= Changed; model.StopSnapshotMonitoring(); }
         model = DataContext as ResultsExecutionPageViewModel;
         if (model is not null) model.PropertyChanged += Changed;
+        if (IsLoaded) model?.StartSnapshotMonitoring(action => Dispatcher.BeginInvoke(action));
         UpdateColumns();
     }
     private void Changed(object? sender, PropertyChangedEventArgs e)
@@ -37,16 +35,9 @@ public partial class ResultsExecutionPanel : UserControl
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "File name", Binding = new Binding("FileName"), Width = 325, MinWidth = 180 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new Binding("Status"), Width = 90 });
         var generationStyle = new Style(typeof(TextBlock));
-        generationStyle.Setters.Add(new Setter(ToolTipProperty, "Completed generations / target generations (SnapshotInterval × SnapshotCount for SGD). Updates at full snapshot intervals. A dash means no generation has been reported or this function does not evolve."));
+        generationStyle.Setters.Add(new Setter(ToolTipProperty, "Last saved generation / target (SnapshotInterval × SnapshotCount). Updates when temporary or retained snapshots are published; Update progress also reads them on demand. A dash means no snapshot is saved or this function does not evolve."));
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Generations", Binding = new Binding("GenerationsText"), SortMemberPath = "CompletedGenerations",
             Width = 135, ElementStyle = generationStyle });
-        var elapsedStyle = new Style(typeof(TextBlock));
-        elapsedStyle.Setters.Add(new Setter(ToolTipProperty, "Elapsed time for the latest attempt in this folder session (hours:minutes:seconds). Updates while running."));
-        RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Elapsed", Binding = new Binding("ElapsedText"), Width = 110, ElementStyle = elapsedStyle });
-        var remainingStyle = new Style(typeof(TextBlock));
-        remainingStyle.Setters.Add(new Setter(ToolTipProperty, "Estimated remaining time (hours:minutes:seconds): elapsed × remaining generations / completed generations. Uses the latest reported generation count. Available after the first completed generation; a dash means no estimate is available."));
-        RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Est. remaining", Binding = new Binding("EstimatedRemainingText"), SortMemberPath = "EstimatedRemaining",
-            Width = 140, ElementStyle = remainingStyle });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Outputs", Binding = new Binding("OutputSummary"), Width = 100 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Executor", Binding = new Binding("FunctionName"), Width = 230 });
         SetupQueryColumns.Refresh(RunParametersGrid);

@@ -235,7 +235,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     private readonly Func<IEnumerable<WorkspaceSourceProject>> sources;
     private bool generatedParametersLock;
     private bool reportingEnabled;
-    private string snapshotInterval = "100", snapshotCount = "1";
+    private string snapshotInterval = "100", snapshotCount = "1", tempSnapshotInterval = "10";
     private sgdRunConfig? frozenSnapshotControls;
     public bool UsesSnapshotControls => SupportsReporting && PhaseVersionCurrent(false);
     public bool ShowUnsupportedReporting => ShowReportingConfiguration && !UsesSnapshotControls;
@@ -243,11 +243,12 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
     public bool CanEditSnapshotCount => UsesSnapshotControls;
     public string SnapshotInterval { get => snapshotInterval; set { if (CanEditSnapshotInterval && SetProperty(ref snapshotInterval, value)) NotifyChanged(); } }
     public string SnapshotCount { get => snapshotCount; set { if (CanEditSnapshotCount && SetProperty(ref snapshotCount, value)) NotifyChanged(); } }
+    public string TempSnapshotInterval { get => tempSnapshotInterval; set { if (UsesSnapshotControls && SetProperty(ref tempSnapshotInterval, value)) NotifyChanged(); } }
     private sgdRunConfig SnapshotControls()
     {
-        if (!int.TryParse(SnapshotInterval, out var interval) || !int.TryParse(SnapshotCount, out var count))
-            throw new ArgumentException("SnapshotInterval and SnapshotCount must be whole numbers.");
-        var controls = SgdRun.validate(new(interval, count));
+        if (!int.TryParse(SnapshotInterval, out var interval) || !int.TryParse(SnapshotCount, out var count) || !int.TryParse(TempSnapshotInterval, out var temporary))
+            throw new ArgumentException("SnapshotInterval, SnapshotCount and temp snapshot interval must be whole numbers.");
+        var controls = SgdRun.validate(new(interval, count, temporary == 10 ? null : Microsoft.FSharp.Core.FSharpOption<int>.Some(temporary)));
         if (frozenSnapshotControls is not null) SgdRun.validateExtension(frozenSnapshotControls, controls);
         return controls;
     }
@@ -790,6 +791,7 @@ public sealed partial class WorkspaceConfigurationViewModel : ViewModelBase
             reportingEnabled = value.reporting is not null;
             snapshotInterval = (value.sgd?.Value.SnapshotInterval ?? SgdRun.defaults.SnapshotInterval).ToString();
             snapshotCount = (value.sgd?.Value.SnapshotCount ?? SgdRun.defaults.SnapshotCount).ToString();
+            tempSnapshotInterval = SgdRun.tempInterval(value.sgd?.Value ?? SgdRun.defaults).ToString();
             SnapshotReporting.Load(value.reporting?.Value.SnapshotSchedule ?? SgdReporting.defaults.SnapshotSchedule);
             SummaryReporting.Load(value.reporting?.Value.SummarySchedule ?? SgdReporting.defaults.SummarySchedule);
             ResultsParameters.Clear(); foreach (var span in value.resultsParameterSpans) AddSpan(ResultsParameters, span.keyName, span.values, span.valueType is { } type ? (parameterValueType)type : null);

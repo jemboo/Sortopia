@@ -4,6 +4,7 @@
     <Compile Include="CeBlock.fs" />
     <Compile Include="CeUseCounts.fs" />
     <Compile Include="CeBlockEval.fs" />
+    <Compile Include="EvaluationScheduling.fs" />
     <Compile Include="EvaluationParallel.fs" />
     <Compile Include="CeBlockOpsInt.fs" />
     <Compile Include="CeBlockOpsBinary.fs" />

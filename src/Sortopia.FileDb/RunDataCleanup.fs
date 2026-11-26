@@ -13,6 +13,7 @@ module RunDataCleanup =
     let plan folder projectId (removed: Set<Guid<runId>>) keepData (token: CancellationToken) =
         let deleted = ResizeArray<string>()
         let references = Collections.Generic.HashSet<Guid<sortopiaDataId>>()
+        let temporaryReferences = Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
         let check (path: string) =
             if File.GetAttributes(path).HasFlag FileAttributes.ReparsePoint then
                 invalidOp $"Cannot clean up linked run data: {path}"
@@ -28,6 +29,7 @@ module RunDataCleanup =
                     deleted.Add path
                 else
                     for key in RunOutputFiles.keys item do references.Add key.Id |> ignore
+                    if item.Sgd.IsSome then temporaryReferences.Add(RunOutputFiles.temporarySnapshotPath folder item) |> ignore
                     for input in item.SetupInputs do
                         if input.ProjectId = projectId then references.Add input.Id |> ignore
         let data = Path.Combine(folder, "data")
@@ -42,12 +44,15 @@ module RunDataCleanup =
                         for path in Directory.GetFiles(kindFolder, "*.msgpack") do
                             token.ThrowIfCancellationRequested()
                             check path
-                            let header = (DataEnvelope.readHeader path token).Envelope
-                            if header.ProjectId <> UMX.untag projectId then invalidOp $"Data file belongs to another project: {path}"
-                            let dataType = SortopiaDataType.create header.Kind header.Label
-                            let reference = { ProjectId = projectId; Id = UMX.tag header.Id; QueryId = UMX.tag header.QueryId
-                                              Phase = RunExecutionPhase.fromIsSetup header.IsSetup; DataType = dataType }
-                            let dependencies = DataEnvelope.dependencies header
-                            if not (references.Contains reference.Id || keepData reference dependencies) then
-                                deleted.Add path
+                            if Path.GetFileName kindFolder = "temporarySnapshots" then
+                                if not (temporaryReferences.Contains path) then deleted.Add path
+                            else
+                                let header = (DataEnvelope.readHeader path token).Envelope
+                                if header.ProjectId <> UMX.untag projectId then invalidOp $"Data file belongs to another project: {path}"
+                                let dataType = SortopiaDataType.create header.Kind header.Label
+                                let reference = { ProjectId = projectId; Id = UMX.tag header.Id; QueryId = UMX.tag header.QueryId
+                                                  Phase = RunExecutionPhase.fromIsSetup header.IsSetup; DataType = dataType }
+                                let dependencies = DataEnvelope.dependencies header
+                                if not (references.Contains reference.Id || keepData reference dependencies) then
+                                    deleted.Add path
         deleted.ToArray()

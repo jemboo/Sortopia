@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Windows;
@@ -37,12 +38,100 @@ public sealed class ResultsExecutionTests : IDisposable
     }
 
     [Fact]
+    public async Task Command_line_button_launches_the_displayed_selection_independently_and_reports_launch_errors()
+    {
+        var workspace = await GenerateFiles();
+        var invalid = Path.Combine(workspace.RunParametersFolder, Guid.NewGuid() + ".msgpack"); File.WriteAllBytes(invalid, [1, 2, 3]);
+        var launches = new List<(string Command, string Folder)>();
+        var fail = false;
+        using var model = new ResultsExecutionPageViewModel(() => { }, _ => null, launchTerminal: (command, folder) =>
+        {
+            if (fail) throw new IOException("Terminal unavailable");
+            launches.Add((command, folder));
+        });
+        Assert.False(model.ExecuteCommandLineCommand.CanExecute(null));
+        await model.SetFolderAsync(workspace.RunParametersFolder);
+        model.SelectAllCommand.Execute(null);
+        Assert.False(model.ExecuteCommandLineCommand.CanExecute(null));
+        model.ExecuteCommandLineCommand.Execute(null); Assert.Empty(launches);
+        model.ClearSelectionCommand.Execute(null);
+        foreach (var row in model.Rows.Where(row => row.CanExecute).Take(2)) row.IsSelected = true;
+        Assert.True(model.ExecuteCommandLineCommand.CanExecute(null));
+        var displayed = model.CommandLine;
+        model.ExecuteCommandLineCommand.Execute(null);
+        Assert.Equal((displayed, workspace.RunParametersFolder), Assert.Single(launches));
+        Assert.Empty(model.Error); Assert.Contains("separate terminal", model.Status);
+        Assert.False(model.IsBusy);
+        Assert.All(model.Rows.Where(row => row.CanExecute), row => Assert.Equal(outputState.Pending, row.State));
+        model.ClearSelectionCommand.Execute(null);
+        model.ExecuteCommandLineCommand.Execute(null); Assert.Single(launches);
+        model.Rows.First(row => row.CanExecute).IsSelected = true;
+        fail = true;
+        model.ExecuteCommandLineCommand.Execute(null);
+        Assert.Contains("Terminal unavailable", model.Error); Assert.False(model.IsBusy);
+        workspace.Cancel();
+    }
+
+    [Fact]
+    public async Task Terminal_handoff_runs_the_displayed_command_and_progress_changes_only_on_request()
+    {
+        var workspace = await GenerateFiles();
+        Process? terminal = null;
+        using var model = new ResultsExecutionPageViewModel(() => { }, _ => null, launchTerminal: (command, folder) =>
+            ResultsCommandTerminal.Launch(command, folder, start =>
+            {
+                Assert.True(start.UseShellExecute);
+                Assert.Equal(ProcessWindowStyle.Normal, start.WindowStyle);
+                Assert.Contains("-NoExit", start.ArgumentList);
+                // Run the actual PowerShell bootstrap and CLI without opening a test window.
+                start.UseShellExecute = false; start.CreateNoWindow = true; start.WindowStyle = ProcessWindowStyle.Hidden;
+                start.ArgumentList.Remove("-NoExit");
+                start.RedirectStandardOutput = true; start.RedirectStandardError = true;
+                terminal = Process.Start(start);
+            }));
+        try
+        {
+            await model.SetFolderAsync(workspace.RunParametersFolder);
+            model.CpuPercent = "50"; model.MemoryLimit = "0.5GiB"; model.ParallelFiles = "2";
+            var selected = model.Rows.Take(2).ToArray();
+            foreach (var row in selected) row.IsSelected = true;
+            model.ExecuteCommandLineCommand.Execute(null);
+            Assert.Empty(model.Error); Assert.NotNull(terminal); Assert.False(model.IsBusy);
+            var output = terminal.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+            var errors = terminal.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+            model.ClearSelectionCommand.Execute(null); model.Cancel();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            await terminal.WaitForExitAsync(timeout.Token);
+            var terminalOutput = await output + await errors;
+            Assert.True(terminal.ExitCode == 0, terminalOutput);
+            Assert.Contains("Batch limits: 50% CPU, 0.50 GiB", terminalOutput);
+            Assert.Contains("2 results work items processed", terminalOutput);
+            Assert.All(model.Rows, row => Assert.Equal(outputState.Pending, row.State));
+            await model.UpdateProgressAsync();
+            Assert.Empty(model.Error);
+            Assert.All(selected, row => Assert.True(model.Rows.Single(current => current.Path == row.Path).State == outputState.Complete, terminalOutput));
+            Assert.All(model.Rows.Except(selected), row => Assert.Equal(outputState.Pending, row.State));
+            Assert.Equal(0, model.SelectedCount);
+        }
+        finally
+        {
+            if (terminal is not null)
+            {
+                if (!terminal.HasExited) { terminal.Kill(entireProcessTree: true); await terminal.WaitForExitAsync(CancellationToken.None); }
+                terminal.Dispose();
+            }
+            workspace.Cancel();
+        }
+    }
+
+    [Fact]
     public async Task Quick_status_checks_integrity_and_full_validation_checks_payload_contents_before_execution()
     {
         var workspace = await GenerateFiles();
         using var page = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
         page.SelectAllCommand.Execute(null);
-        await page.ExecuteAsync(); Assert.Empty(page.Error);
+        await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(page); Assert.Empty(page.Error);
         var row = page.Rows[0];
         var item = row.Parameters!;
         var key = FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs).Values.Single().Key;
@@ -154,7 +243,7 @@ public sealed class ResultsExecutionTests : IDisposable
         else
         {
             Assert.Equal(3, page.FileCount);
-            Assert.Contains("Cancelled", page.Status);
+            Assert.Contains("cancelled", page.Status);
             await page.RefreshAsync();
             Assert.All(page.Rows, row => Assert.Equal("Pending", row.Status));
         }
@@ -162,71 +251,7 @@ public sealed class ResultsExecutionTests : IDisposable
     }
 
     [Fact]
-    public async Task Parallel_jobs_are_validated_remembered_and_execute_multiple_rows()
-    {
-        var workspace = await GenerateFiles();
-        var settings = new ResultsExecutionSettings(Path.Combine(temporary.FullName, "parallel-jobs.txt"));
-        Assert.Equal(1, settings.Load());
-        using var model = new ResultsExecutionPageViewModel(() => { }, _ => null, settings.Load, settings.Save);
-        await model.SetFolderAsync(workspace.RunParametersFolder);
-        model.SelectAllCommand.Execute(null);
-        foreach (var invalid in new[] { "", "0", "-1", "1.5", "abc" })
-        {
-            model.ParallelJobs = invalid;
-            Assert.NotEmpty(model.ParallelJobsError); Assert.False(model.CanExecute);
-        }
-        model.ParallelJobs = "2";
-        Assert.Empty(model.ParallelJobsError); Assert.True(model.CanExecute); Assert.Equal(2, settings.Load());
-        await model.ExecuteAsync(); Assert.Empty(model.Error);
-        Assert.Equal(3, model.LastReport!.Results.Length);
-        Assert.All(model.Rows, row => Assert.Equal("Complete", row.Status));
-        Assert.All(model.Rows, row => Assert.NotNull(row.Elapsed));
-        Assert.Equal(3, model.ExecutionProgress.Total); Assert.Equal(3, model.ExecutionProgress.Finished);
-        Assert.Equal(0, model.ExecutionProgress.Running); Assert.Equal(100, model.ExecutionProgress.Percent);
-        using var reopened = new ResultsExecutionPageViewModel(() => { }, _ => null, settings.Load, settings.Save);
-        Assert.Equal("2", reopened.ParallelJobs);
-        workspace.Cancel();
-    }
-
-    [Fact]
-    public async Task Successful_timings_survive_refresh_and_only_the_retried_row_resets()
-    {
-        var workspace = await GenerateFiles();
-        var clock = new ResultsExecutionProgressTests.Clock();
-        using var model = new ResultsExecutionPageViewModel(() => { }, _ => null, timeProvider: clock);
-        await model.SetFolderAsync(workspace.RunParametersFolder);
-        Assert.All(model.Rows, row => Assert.Null(row.Elapsed));
-        foreach (var row in model.Rows) row.PropertyChanged += (_, change) => {
-            if (change.PropertyName != nameof(row.Status) || row.Status != "Running") return;
-            Assert.Equal(1, model.ExecutionProgress.Running); Assert.Equal(3, model.ExecutionProgress.Total);
-            clock.Advance(TimeSpan.FromSeconds(3));
-            model.RefreshElapsedTimes();
-            Assert.Equal("00:00:03.0", row.ElapsedText);
-        };
-        model.SelectAllCommand.Execute(null); await model.ExecuteAsync(); Assert.Empty(model.Error);
-        Assert.All(model.Rows, row => Assert.Equal(TimeSpan.FromSeconds(3), row.Elapsed));
-        clock.Advance(TimeSpan.FromHours(1));
-        await model.RefreshAsync();
-        Assert.All(model.Rows, row => Assert.Equal(TimeSpan.FromSeconds(3), row.Elapsed));
-        model.ClearSelectionCommand.Execute(null);
-        var retry = model.Rows[0]; retry.IsSelected = true;
-        retry.PropertyChanged += (_, change) => {
-            if (change.PropertyName != nameof(retry.Status) || retry.Status != "Running") return;
-            Assert.Equal(TimeSpan.Zero, retry.Elapsed); Assert.Equal(1, model.ExecutionProgress.Total);
-            clock.Advance(TimeSpan.FromSeconds(1));
-        };
-        await model.ExecuteAsync(); Assert.Empty(model.Error);
-        Assert.Equal(TimeSpan.FromSeconds(1), model.Rows.Single(row => row.Path == retry.Path).Elapsed);
-        Assert.All(model.Rows.Where(row => row.Path != retry.Path), row => Assert.Equal(TimeSpan.FromSeconds(3), row.Elapsed));
-        await model.SetFolderAsync(Path.Combine(temporary.FullName, "Another", "runParameters"));
-        Assert.False(model.ExecutionProgress.HasWork);
-        await model.SetFolderAsync(workspace.RunParametersFolder);
-        Assert.All(model.Rows, row => { Assert.Equal("Complete", row.Status); Assert.Null(row.Elapsed); });
-        workspace.Cancel();
-    }
-
-    [Fact]
-    public async Task Grid_inspects_files_on_open_and_executes_only_selected_rows_with_inherited_bindings()
+    public async Task Grid_inspects_files_and_preserves_selection_and_inherited_bindings_after_outputs_are_written()
     {
         var workspace = await GenerateFiles();
         var folder = workspace.RunParametersFolder;
@@ -244,227 +269,26 @@ public sealed class ResultsExecutionTests : IDisposable
             Assert.IsType<parameterValue.MergeLibIdValue>(row.Parameters!.Parameters.TryFind("MergeLibId").Value.Value);
             Assert.All(page.ParameterColumns, key => Assert.Equal(row.Parameters.Parameters.TryFind(key).Value.FormattedValue, row.Cells[Array.IndexOf(page.ParameterColumns, key)]));
         }
-        page.SelectAllCommand.Execute(null); Assert.Equal(4, page.SelectedCount); Assert.False(page.CanExecute);
+        page.SelectAllCommand.Execute(null); Assert.Equal(4, page.SelectedCount); Assert.False(page.CanExecuteCommandLine);
         page.ClearSelectionCommand.Execute(null);
         var chosen = page.Rows.Single(row => row.Parameters?.Parameters.TryFindText("SortableDataFormat")?.Value == "Bools");
         chosen.IsSelected = true;
-        Assert.True(page.CanExecute); Assert.Contains(chosen.FileName, page.CommandLine);
+        Assert.True(page.CanExecuteCommandLine); Assert.Contains(chosen.FileName, page.CommandLine);
         Assert.DoesNotContain("--parameters-folder", page.CommandLine);
-        await page.ExecuteAsync(); Assert.Empty(page.Error); Assert.Single(page.LastReport!.Results);
+        var report = await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(page); Assert.Empty(page.Error); Assert.Single(report.Results);
         Assert.Equal(outputState.Complete, page.Rows.Single(row => row.Path == chosen.Path).State);
         Assert.Equal(2, page.Rows.Count(row => row.State == outputState.Pending));
         Assert.Single(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(folder)!, "data", "results", "SortableTests"), "*.msgpack"));
         Assert.Single(page.Rows, row => row.IsSelected);
         page.SelectPendingCommand.Execute(null); Assert.Equal(2, page.SelectedCount);
-        await page.ExecuteAsync(); Assert.Empty(page.Error); Assert.Equal(2, page.LastReport.Results.Length);
+        report = await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(page); Assert.Empty(page.Error); Assert.Equal(2, report.Results.Length);
         Assert.Equal(3, page.Rows.Count(row => row.State == outputState.Complete));
         page.SelectedRun = page.Runs.Single(row => row.Id == workspace.Selected!.Id);
         Assert.Equal(3, page.FileCount); Assert.Equal(0, page.SelectedCount);
-        page.SelectAllCommand.Execute(null); await page.ExecuteAsync(); Assert.Empty(page.Error);
-        Assert.All(page.LastReport.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
+        page.SelectAllCommand.Execute(null); report = await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(page); Assert.Empty(page.Error);
+        Assert.All(report.Results.SelectMany(call => call.StoredOutputs), output => Assert.True(output.Reused));
         await page.SetFolderAsync(Path.Combine(temporary.FullName, "Missing", "runParameters"));
-        Assert.Empty(page.Rows); Assert.Empty(page.ParameterColumns); Assert.False(page.CanExecute);
-        workspace.Cancel();
-    }
-
-    [Fact]
-    public async Task Pending_checks_change_the_live_queue_while_started_checks_stay_locked()
-    {
-        var workspace = await GenerateFiles();
-        using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
-        var first = model.Rows[0]; var removed = model.Rows[1]; var added = model.Rows[2];
-        first.IsSelected = removed.IsSelected = true;
-        var started = new List<WorkItemStatusRow>();
-        foreach (var row in model.Rows) row.PropertyChanged += (_, change) =>
-        {
-            if (change.PropertyName != nameof(row.Status) || row.Status != "Running") return;
-            started.Add(row);
-            Assert.True(model.IsBusy);
-            Assert.False(row.CanChangeSelection);
-            row.IsSelected = false; Assert.True(row.IsSelected);
-            if (row == first)
-            {
-                Assert.True(model.ClearSelectionCommand.CanExecute(null));
-                Assert.True(removed.CanChangeSelection); Assert.True(added.CanChangeSelection);
-                removed.IsSelected = false;
-                Assert.Equal(1, model.ExecutionProgress.Total);
-                added.IsSelected = true;
-                Assert.Equal(2, model.ExecutionProgress.Total);
-            }
-            else
-            {
-                Assert.Equal("Complete", first.Status);
-                Assert.False(first.CanChangeSelection);
-                model.ClearSelectionCommand.Execute(null);
-                Assert.True(first.IsSelected); Assert.True(added.IsSelected);
-            }
-        };
-        await model.ExecuteAsync(); Assert.Empty(model.Error);
-        Assert.Equal(new[] { first, added }, started);
-        Assert.Equal(2, model.LastReport!.Results.Length);
-        Assert.Equal(2, model.ExecutionProgress.Total); Assert.Equal(2, model.ExecutionProgress.Finished);
-        Assert.Equal(0, model.ExecutionProgress.NotStarted); Assert.Equal(100, model.ExecutionProgress.Percent);
-        Assert.Equal("Pending", model.Rows.Single(row => row.Path == removed.Path).Status);
-        Assert.False(model.Rows.Single(row => row.Path == removed.Path).IsSelected);
-        Assert.All(model.Rows, row => Assert.True(row.CanChangeSelection));
-        model.ClearSelectionCommand.Execute(null); Assert.Equal(0, model.SelectedCount);
-        workspace.Cancel();
-    }
-
-    [Fact]
-    public async Task Live_rows_continue_after_failure_and_keep_copyable_errors_until_retry()
-    {
-        var workspace = await GenerateFiles();
-        using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
-        var first = model.Rows[0]; var failing = model.Rows[1]; var unstarted = model.Rows[2];
-        var item = failing.Parameters!;
-        var planned = FileResultsHost.plan(item.ProjectId, item.Results, item.Parameters, item.SetupInputs).Values.Single();
-        var blockedOutput = new SortopiaFileDb(Path.GetDirectoryName(workspace.RunParametersFolder)!, item.ProjectId).GetPath(planned.Key.Reference);
-        Exception? failure = null;
-        var thread = new Thread(() => {
-            try
-            {
-                var view = new ResultsExecutionPage { DataContext = model };
-                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(view.Dispatcher));
-                void Layout() {
-                    view.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
-                    view.Measure(new Size(1100, 850)); view.Arrange(new Rect(0, 0, 1100, 850)); view.UpdateLayout();
-                }
-                void Wait(Task task) {
-                    var deadline = DateTime.UtcNow.AddSeconds(15);
-                    while (!task.IsCompleted && DateTime.UtcNow < deadline) { Layout(); Thread.Sleep(1); }
-                    Assert.True(task.IsCompleted); task.GetAwaiter().GetResult(); Layout();
-                }
-                var updates = new List<(string File, string Status)>();
-                var uiThread = Environment.CurrentManagedThreadId;
-                var timerPanel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
-                timerPanel.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
-                var elapsedTicks = 0;
-                foreach (var row in model.Rows) row.PropertyChanged += (_, change) => {
-                    if (change.PropertyName == nameof(WorkItemStatusRow.ElapsedText) && row.Status == "Running")
-                    { Assert.Equal(uiThread, Environment.CurrentManagedThreadId); elapsedTicks++; }
-                    if (change.PropertyName != nameof(WorkItemStatusRow.Status)) return;
-                    Assert.Equal(uiThread, Environment.CurrentManagedThreadId);
-                    updates.Add((row.FileName, row.Status));
-                    if (row == first && row.Status == "Running")
-                    {
-                        var deadline = DateTime.UtcNow.AddSeconds(3);
-                        while (elapsedTicks == 0 && DateTime.UtcNow < deadline) { Layout(); Thread.Sleep(1); }
-                        Assert.True(elapsedTicks > 0, "Running elapsed time must refresh without another worker event.");
-                        Assert.Contains("1 running", ((TextBlock)timerPanel.FindName("BatchProgressSummary")).Text);
-                    }
-                    if (row == failing && row.Status == "Running") Directory.CreateDirectory(blockedOutput);
-                };
-                Layout(); model.SelectAllCommand.Execute(null); Wait(model.ExecuteAsync());
-                Assert.Equal(runExecutionStatus.Failed, model.LastReport!.Status); Assert.Equal(2, model.LastReport.Results.Length);
-                Assert.Equal(0, model.ExecutionProgress.Running); Assert.Equal(3, model.ExecutionProgress.Finished);
-                Assert.Equal(1, model.ExecutionProgress.Failed); Assert.Equal(100, model.ExecutionProgress.Percent);
-                Assert.Equal(100, ((ProgressBar)timerPanel.FindName("BatchProgressBar")).Value);
-                Assert.Equal(new[] { (first.FileName, "Running"), (first.FileName, "Complete"), (failing.FileName, "Running"), (failing.FileName, "Failed"), (unstarted.FileName, "Running"), (unstarted.FileName, "Complete") }, updates);
-                Assert.Equal("Complete", model.Rows.Single(row => row.Path == first.Path).Status);
-                Assert.Equal("Complete", model.Rows.Single(row => row.Path == unstarted.Path).Status);
-                var failedRow = model.Rows.Single(row => row.Path == failing.Path);
-                Assert.Equal("Failed", failedRow.Status); Assert.Contains(blockedOutput, failedRow.Error); Assert.True(failedRow.HasError);
-                var elapsed = failedRow.Elapsed; Assert.NotNull(elapsed);
-                Wait(model.RefreshAsync());
-                failedRow = model.Rows.Single(row => row.Path == failing.Path);
-                Assert.Equal("Failed", failedRow.Status); Assert.Contains(blockedOutput, failedRow.Error);
-                Assert.Equal(elapsed, failedRow.Elapsed);
-                model.ClearSelectionCommand.Execute(null); failedRow.IsSelected = true; Layout();
-                var panel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
-                var grid = (DataGrid)panel.FindName("RunParametersGrid");
-                grid.SelectedItem = failedRow;
-                var jobs = (TextBox)panel.FindName("ParallelJobsInput");
-                jobs.Text = "0"; Layout(); Assert.False(model.CanExecute); Assert.NotEmpty(model.ParallelJobsError);
-                jobs.Text = "2"; Layout(); Assert.Equal("2", model.ParallelJobs); Assert.Empty(model.ParallelJobsError);
-                grid.ScrollIntoView(failedRow); Layout();
-                var container = (DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(failedRow);
-                var details = Descendants(container).OfType<Expander>().Single(expander => Equals(expander.Header, "Error details"));
-                Assert.Equal(Visibility.Visible, details.Visibility); details.IsExpanded = true; Layout();
-                var error = Descendants(details).OfType<TextBox>().Single();
-                Assert.True(error.IsReadOnly); Assert.Equal(failedRow.Error, error.Text);
-                Assert.InRange(error.ActualWidth, 200, grid.ActualWidth - 24);
-                Assert.InRange(error.ActualHeight, 40, 160); // Long errors wrap within the viewport, rather than disappearing off-screen.
-                if (Environment.GetEnvironmentVariable("SORTOPIA_RESULTS_FAILURE_SCREENSHOT") is { Length: > 0 } path) {
-                    var bitmap = new RenderTargetBitmap(1100, 850, 96, 96, PixelFormats.Pbgra32); bitmap.Render(view);
-                    var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                    using var stream = File.Create(path); encoder.Save(stream);
-                }
-                Directory.Delete(blockedOutput); Wait(model.RefreshAsync());
-                Wait(model.ExecuteAsync()); Assert.Empty(model.Error);
-                var repaired = model.Rows.Single(row => row.Path == failing.Path);
-                Assert.Equal("Complete", repaired.Status); Assert.False(repaired.HasError);
-                Assert.Equal("Complete", model.Rows.Single(row => row.Path == unstarted.Path).Status);
-                timerPanel.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
-            }
-            catch (Exception exception) { failure = exception; }
-        });
-        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
-        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
-        workspace.Cancel();
-    }
-
-    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++) {
-            var child = VisualTreeHelper.GetChild(parent, i); yield return child;
-            foreach (var descendant in Descendants(child)) yield return descendant;
-        }
-    }
-
-    [Fact]
-    public async Task Missing_selected_file_keeps_a_failed_row_and_error_even_after_refresh()
-    {
-        var workspace = await GenerateFiles();
-        using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
-        var missing = model.Rows[1]; var bytes = File.ReadAllBytes(missing.Path); File.Delete(missing.Path);
-        model.SelectAllCommand.Execute(null); await model.ExecuteAsync();
-        Assert.Equal(runExecutionStatus.Failed, model.LastReport!.Status); Assert.Empty(model.LastReport.Results);
-        await model.RefreshAsync();
-        Assert.Equal(3, model.Rows.Count);
-        var failed = model.Rows.Single(row => row.Path == missing.Path);
-        Assert.Equal("Failed", failed.Status); Assert.Contains(missing.FileName, failed.Error); Assert.False(failed.CanExecute);
-        Assert.Null(failed.Elapsed);
-        Assert.Equal(1, model.ExecutionProgress.Finished); Assert.Equal(2, model.ExecutionProgress.NotStarted);
-        Assert.All(model.Rows.Where(row => row != failed), row => Assert.Equal("Pending", row.Status));
-        File.WriteAllBytes(missing.Path, bytes); await model.RefreshAsync();
-        model.ClearSelectionCommand.Execute(null); model.Rows.Single(row => row.Path == missing.Path).IsSelected = true;
-        await model.ExecuteAsync(); Assert.Empty(model.Error);
-        Assert.Equal("Complete", model.Rows.Single(row => row.Path == missing.Path).Status);
-        Assert.Empty(model.Rows.Single(row => row.Path == missing.Path).Error);
-        workspace.Cancel();
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Cancelling_a_running_row_never_leaves_it_running_or_changes_a_new_folder(bool navigate)
-    {
-        var workspace = await GenerateFiles();
-        using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
-        var row = model.Rows[0]; Task navigation = Task.CompletedTask;
-        row.PropertyChanged += (_, change) => {
-            if (change.PropertyName != nameof(WorkItemStatusRow.Status) || row.Status != "Running") return;
-            if (navigate) navigation = model.SetFolderAsync(Path.Combine(temporary.FullName, "Another", "runParameters"));
-            else model.Cancel();
-        };
-        model.SelectAllCommand.Execute(null); await model.ExecuteAsync(); await navigation;
-        if (navigate) {
-            Assert.Empty(model.Rows); Assert.Null(model.LastReport); Assert.Empty(model.Error);
-            Assert.False(model.ExecutionProgress.HasWork); Assert.Equal(0, model.ExecutionProgress.Running);
-        }
-        else {
-            Assert.Equal(runExecutionStatus.Cancelled, model.LastReport!.Status); Assert.Equal("Cancelled", row.Status);
-            Assert.All(model.Rows.Skip(1), other => Assert.Equal("Pending", other.Status));
-            Assert.DoesNotContain(model.Rows, other => other.Status is "Running" or "Failed");
-            Assert.Equal(0, model.ExecutionProgress.Running); Assert.Equal(1, model.ExecutionProgress.Cancelled);
-            Assert.Equal(1, model.ExecutionProgress.Finished); Assert.Equal(2, model.ExecutionProgress.NotStarted);
-            var elapsed = row.Elapsed; Assert.NotNull(elapsed);
-            await model.RefreshAsync(); Assert.Equal("Cancelled", model.Rows.Single(other => other.Path == row.Path).Status);
-            Assert.Equal(elapsed, model.Rows.Single(other => other.Path == row.Path).Elapsed);
-            model.SelectAllCommand.Execute(null); await model.ExecuteAsync(); Assert.Empty(model.Error);
-            Assert.All(model.Rows, other => Assert.Equal("Complete", other.Status));
-        }
+        Assert.Empty(page.Rows); Assert.Empty(page.ParameterColumns); Assert.False(page.CanExecuteCommandLine);
         workspace.Cancel();
     }
 
@@ -482,7 +306,10 @@ public sealed class ResultsExecutionTests : IDisposable
         Assert.Equal(folder, execution.Folder); Assert.Equal(runId, execution.SelectedRun!.Id);
         Assert.Equal(3, execution.Rows.Count); Assert.All(execution.Rows, row => Assert.Equal(outputState.Pending, row.State));
         Assert.Contains("workspace", execution.ReturnLabel);
-        execution.ReturnCommand.Execute(null); Assert.Same(workspace, shell.CurrentPage);
+        execution.SelectedFile = execution.Rows[0];
+        Assert.True(execution.OpenRunCommand.CanExecute(null));
+        execution.OpenRunCommand.Execute(null); Assert.Same(workspace, shell.CurrentPage);
+        Assert.Equal(runId, workspace.Selected!.Id);
         Assert.True(workspace.HasUnsavedChanges); Assert.Equal("Unsaved title", workspace.WorkspaceName);
         generated.Cancel();
     }
@@ -505,9 +332,15 @@ public sealed class ResultsExecutionTests : IDisposable
                 }
                 Layout();
                 var panel = (ResultsExecutionPanel)view.FindName("ExecutionPanel");
+                var terminalButton = (Button)panel.FindName("ExecuteCommandLineButton");
+                Assert.Same(model.ExecuteCommandLineCommand, terminalButton.Command);
+                Assert.Same(model.ExecuteCommandLineCommand, ((Button)panel.FindName("ExecuteSelectedButton")).Command);
+                Assert.Same(model.UpdateProgressCommand, ((Button)panel.FindName("UpdateProgressButton")).Command);
+                Assert.Same(model.OpenEvolutionHistoryCommand, ((Button)panel.FindName("OpenEvolutionHistoryButton")).Command);
+                Assert.False(terminalButton.IsEnabled);
                 var grid = (DataGrid)panel.FindName("RunParametersGrid");
-                Assert.Equal(new[] { "Run", "File name", "Status", "Generations", "Elapsed", "Est. remaining", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
-                Assert.Equal(6, grid.FrozenColumnCount);
+                Assert.Equal(new[] { "Run", "File name", "Status", "Generations", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
+                Assert.Equal(4, grid.FrozenColumnCount);
                 Assert.Equal(24, grid.Items.Count); Assert.True(grid.IsReadOnly); Assert.True(grid.EnableRowVirtualization);
                 Assert.Null(grid.ItemContainerGenerator.ContainerFromItem(model.Rows[^1]));
                 grid.SelectedItems.Add(model.Rows[0]); grid.SelectedItems.Add(model.Rows[^1]); Layout();
@@ -522,6 +355,7 @@ public sealed class ResultsExecutionTests : IDisposable
                 model.Rows[^1].IsSelected = true;
                 Layout(); Assert.Equal(2, model.SelectedCount); Assert.False(model.Rows[1].IsSelected);
                 Assert.True(((Button)panel.FindName("ExecuteSelectedButton")).IsEnabled);
+                Assert.True(terminalButton.IsEnabled);
                 var selectedPaths = model.Rows.Where(row => row.IsSelected).Select(row => row.Path).Order().ToArray();
                 var refresh = model.RefreshAsync();
                 var timeout = DateTime.UtcNow.AddSeconds(10);
@@ -530,34 +364,11 @@ public sealed class ResultsExecutionTests : IDisposable
                 Assert.Equal(selectedPaths, model.Rows.Where(row => row.IsSelected).Select(row => row.Path).Order());
                 grid.SelectAll(); Assert.Equal(2, model.SelectedCount);
                 model.ClearSelectionCommand.Execute(null); Layout(); Assert.Equal(0, model.SelectedCount);
-                Assert.False(model.CanExecute);
+                Assert.False(model.CanExecuteCommandLine);
                 model.SelectAllCommand.Execute(null); Layout(); Assert.Equal(24, model.SelectedCount);
                 grid.UnselectAll(); Layout(); Assert.Equal(24, model.SelectedCount);
                 model.ClearSelectionCommand.Execute(null);
-                var first = model.Rows[0]; first.IsSelected = true;
-                var checkedDuringExecution = false;
-                first.PropertyChanged += (_, change) =>
-                {
-                    if (change.PropertyName != nameof(first.Status) || first.Status != "Running") return;
-                    Assert.True(model.IsBusy); Layout(); Assert.True(grid.IsEnabled);
-                    Assert.False(Check(first).IsEnabled);
-                    var viewport = Descendants(grid).OfType<ScrollViewer>().First();
-                    viewport.ScrollToBottom(); Layout();
-                    Assert.True(viewport.VerticalOffset > 0);
-                    var lastContainer = Assert.IsType<DataGridRow>(grid.ItemContainerGenerator.ContainerFromItem(model.Rows[^1]));
-                    var lastCheck = Descendants(grid.Columns[0].GetCellContent(lastContainer)).OfType<CheckBox>().Single();
-                    Assert.True(lastCheck.IsEnabled);
-                    lastCheck.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
-                    Assert.True(model.Rows[^1].IsSelected);
-                    lastCheck.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false);
-                    Assert.False(model.Rows[^1].IsSelected);
-                    checkedDuringExecution = true;
-                };
-                var execution = model.ExecuteAsync();
-                timeout = DateTime.UtcNow.AddSeconds(15);
-                while (!execution.IsCompleted && DateTime.UtcNow < timeout) { Layout(); Thread.Sleep(1); }
-                Assert.True(execution.IsCompleted); execution.GetAwaiter().GetResult(); Layout();
-                Assert.Empty(model.Error); Assert.True(checkedDuringExecution); Assert.Single(model.LastReport!.Results);
+                model.Rows[0].IsSelected = true;
                 Assert.InRange(grid.ActualHeight, 140, 700); // Constrained viewport keeps the grid virtualized.
                 if (Environment.GetEnvironmentVariable("SORTOPIA_RESULTS_SCREENSHOT") is { Length: > 0 } path)
                 {
@@ -588,16 +399,16 @@ public sealed class ResultsExecutionTests : IDisposable
         Assert.Equal(0, page.FileCount);
         Assert.Contains("folder contains 1 files", page.Status);
         Assert.Contains("choose All runs", page.Status);
-        Assert.False(page.ExecuteCommand.CanExecute(null));
+        Assert.False(page.ExecuteCommandLineCommand.CanExecute(null));
         await page.SetFolderAsync(folder);
         Assert.Equal(1, page.FileCount);
         Assert.Null(page.SelectedRun!.Id);
         Assert.Equal(outputState.Pending, Assert.Single(page.Rows).State);
-        Assert.False(page.CanExecute);
+        Assert.False(page.CanExecuteCommandLine);
         page.SelectAllCommand.Execute(null);
-        await page.ExecuteAsync();
+        var report = await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(page);
         Assert.Empty(page.Error);
-        Assert.Equal(runExecutionStatus.Completed, page.LastReport!.Status);
+        Assert.Equal(runExecutionStatus.Completed, report.Status);
         Assert.Equal(outputState.Complete, Assert.Single(page.Rows).State);
         var project = Path.GetDirectoryName(folder)!;
         Assert.False(Directory.Exists(Path.Combine(project, "preparations")));
@@ -628,5 +439,14 @@ public sealed class ResultsExecutionTests : IDisposable
         if (error is not null) ExceptionDispatchInfo.Capture(error).Throw();
         workspace.Cancel();
     }
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i); yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
+        }
+    }
+
     public void Dispose() => temporary.Delete(true);
 }

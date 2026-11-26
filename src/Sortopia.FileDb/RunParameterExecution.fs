@@ -25,10 +25,15 @@ type workItemExecutionProgress = { Id: Guid<workItemId>; State: workItemExecutio
 type workItemGenerationProgress = { Id: Guid<workItemId>; Generation: int }
 
 /// Machine-local execution settings; never part of saved parameters or data IDs.
-type resultsExecutionOptions = {
-    MaxParallelJobs: int
-} with
-    static member Default = { MaxParallelJobs = 1 }
+type resultsExecutionOptions(maxParallelJobs: int, cpuWorkers: int, memoryBudgetBytes: int64, maxWorkersPerFile: int) =
+    member _.MaxParallelJobs = maxParallelJobs
+    member _.CpuWorkers = cpuWorkers
+    member _.MemoryBudgetBytes = memoryBudgetBytes
+    member _.MaxWorkersPerFile = maxWorkersPerFile
+    new(maxParallelJobs, cpuWorkers, memoryBudgetBytes) =
+        resultsExecutionOptions(maxParallelJobs, cpuWorkers, memoryBudgetBytes, ExecutionTuning.workersPerFile cpuWorkers)
+    new(maxParallelJobs) = resultsExecutionOptions(maxParallelJobs, Environment.ProcessorCount, 0L)
+    static member Default = resultsExecutionOptions(1)
 
 module RunParameterExecution =
     let private report status setup results error : runExecutionReport = { Status = status; Setup = setup; Results = results; Error = error }
@@ -200,6 +205,8 @@ module RunParameterExecution =
         let finish status error = report status [||] (order |> Seq.choose (fun id -> match results.TryGetValue id with true, value -> Some value | _ -> None) |> Seq.toArray) error
         try
             if options.MaxParallelJobs < 1 then invalidArg "options" "Parallel jobs must be a positive whole number."
+            if options.CpuWorkers < 1 || options.MemoryBudgetBytes < 0L then invalidArg "options" "Invalid execution resource budget."
+            if options.MaxWorkersPerFile < 1 || options.MaxWorkersPerFile > options.CpuWorkers then invalidArg "options" "Workers per file must be within the CPU budget."
             if workItems.Length = 0 then invalidArg "workItems" "Select at least one run parameter file."
             if workItems |> Array.distinctBy _.Id |> Array.length <> workItems.Length then
                 invalidArg "workItems" "Select each parameter file only once."
@@ -208,6 +215,9 @@ module RunParameterExecution =
             // Validate all selected work and outputs before writing anything.
             // Complete work does not require its setup payloads to be re-read.
             let database = SortopiaFileDb(folder, workItems[0].ProjectId)
+            let memory = ExecutionMemoryGate(options.MemoryBudgetBytes)
+            let cpu = ExecutionCpuBudget(options.CpuWorkers)
+            let estimates = Collections.Concurrent.ConcurrentDictionary<Guid<workItemId>, int64>()
             let store = database :> ISortopiaDb
             let owners = Collections.Generic.Dictionary<string, Guid<workItemId>>(StringComparer.OrdinalIgnoreCase)
             let checkedInputs = Collections.Generic.HashSet<storedDataReference>()
@@ -230,6 +240,7 @@ module RunParameterExecution =
                 for KeyValue(_, output) in plan do owners.Add(database.GetPath output.Key.Reference, item.Id)
             let validateItem notifyOwner (item: runParameters) =
                 token.ThrowIfCancellationRequested()
+                memory.CheckHeadroom()
                 if item.ProjectId <> workItems[0].ProjectId then invalidOp "Selected parameter files must belong to one project."
                 let plan = planWorkItem item token
                 claimOutputs notifyOwner item plan
@@ -237,8 +248,16 @@ module RunParameterExecution =
                 if inspection.State = outputState.Invalid then invalidOp $"Work item {item.Id}: {inspection.Error}"
                 if inspection.State <> outputState.Complete then
                     pending.Add item.Id |> ignore
+                    if options.MemoryBudgetBytes > 0L then
+                        // Serialized size is a conservative admission hint, not a bound
+                        // on decoded object graphs or future generations. The OS cap
+                        // remains authoritative if a population exceeds its estimate.
+                        let raw = item.SetupInputs |> List.filter (fun reference -> not (Set.contains reference sharedReferences)) |> List.sumBy (fun reference ->
+                            int64 (DataEnvelope.readHeader (database.GetPath reference) token).Envelope.RawLength)
+                        estimates[item.Id] <- max (max (64L * 1024L * 1024L) (raw * 3L)) (ExecutionTuning.populationReservationBytes item.Parameters)
                     let references = item.SetupInputs |> List.filter checkedInputs.Add
                     for reference in references do
+                        memory.CheckHeadroom()
                         let value = (store.Load(reference, token) |> HostStorage.require).Value
                         if Set.contains reference sharedReferences then
                             preparedInputs <- Map.add reference value preparedInputs
@@ -248,16 +267,19 @@ module RunParameterExecution =
                 context <- $"Validating work item {item.Id} · {item.Results.FunctionName}"
                 validateItem true item)
             let preparationCache = RunPreparationCache()
-            // Expensive source preparation runs once per cache key with the full
-            // CPU allowance, before launching mutation workers. The cache keeps
+            // Expensive source preparation runs once per cache key with the tuned
+            // per-file ceiling, before launching mutation workers. The cache keeps
             // selected seed models, not every large source pool.
             let prepareItem (item: runParameters) =
                 if pending.Contains item.Id then
                     token.ThrowIfCancellationRequested()
+                    memory.CheckHeadroom()
                     notify progress $"Preparing shared inputs for work item {item.Id}" 0L (int64 items.Length)
+                    use allocation = cpu.Register()
                     let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
-                    let host = FileResultsHost.createWithPreparedInputs Environment.ProcessorCount folder item.ProjectId item.Results item.Parameters inputs preparedInputs item.Reporting item.Sgd token
-                    (ResultsFunctionCatalog.requireVersion item.Results.FunctionName item.Results.FunctionVersion).Prepare { host with PreparationCache = Some preparationCache }
+                    let host = FileResultsHost.createWithPreparedInputs options.MaxWorkersPerFile folder item.ProjectId item.Results item.Parameters inputs preparedInputs item.Reporting item.Sgd token
+                    (ResultsFunctionCatalog.requireVersion item.Results.FunctionName item.Results.FunctionVersion).Prepare
+                        { host with PreparationCache = Some preparationCache; EvaluationBudget = Some allocation }
             for item, _ in items do
                 currentItem <- Some item.Id
                 context <- $"Preparing shared inputs for work item {item.Id}"
@@ -267,8 +289,8 @@ module RunParameterExecution =
             // ownership starts at dispatch, so unchecked pending files do not
             // reserve outputs against a newly checked replacement.
             if not (isNull nextPath) then owners.Clear()
-            let workers = if isNull nextPath then min options.MaxParallelJobs items.Length else options.MaxParallelJobs
-            let evaluationParallelism = max 1 (Environment.ProcessorCount / workers)
+            let maxWorkers = min options.MaxParallelJobs options.CpuWorkers
+            let workers = if isNull nextPath then min maxWorkers items.Length else maxWorkers
             let mutable next = -1
             let mutable completed = 0
             let progressGate = obj ()
@@ -287,10 +309,19 @@ module RunParameterExecution =
                             label <- $"Skipping complete work item {item.Id} · outputs already available"
                             inspection.Available
                         | _ ->
+                            let estimate = match estimates.TryGetValue item.Id with true, size -> size | _ -> 0L
+                            use admission = memory.Acquire(estimate, token)
+                            use allocation = cpu.Register()
                             let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
-                            let host = FileResultsHost.createWithPreparedInputs evaluationParallelism folder item.ProjectId item.Results item.Parameters inputs preparedInputs item.Reporting item.Sgd token
+                            let host = FileResultsHost.createWithPreparedInputs options.MaxWorkersPerFile folder item.ProjectId item.Results item.Parameters inputs preparedInputs item.Reporting item.Sgd token
                             let host = { host with PreparationCache = Some preparationCache
-                                                   GenerationProgress = if isNull generationProgress then None else Some (fun generation -> generationProgress.Report { Id = item.Id; Generation = generation }) }
+                                                   EvaluationBudget = Some allocation
+                                                   GenerationProgress =
+                                                       if isNull generationProgress && options.MemoryBudgetBytes = 0L then None
+                                                       else Some (fun generation ->
+                                                           // The function publishes checkpoints before this callback.
+                                                           memory.CheckHeadroom()
+                                                           if not (isNull generationProgress) then generationProgress.Report { Id = item.Id; Generation = generation }) }
                             (ResultsFunctionCatalog.requireVersion item.Results.FunctionName item.Results.FunctionVersion).Execute host
                             host.Outputs.Stored
                     results[item.Id] <-

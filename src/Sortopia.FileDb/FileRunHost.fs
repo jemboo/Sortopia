@@ -15,7 +15,8 @@ module internal HostStorage =
 /// Output factories run only on cache misses; input reads never count as saved outputs.
 type FileRunDatabase internal (store: ISortopiaDb, plan: Map<runDataOutput, plannedOutput>, token: CancellationToken,
                                inputs: Map<storedDataReference, unit -> sortopiaStorageData>,
-                               findSource: Guid<projectId> * sortopiaDataType * parameterSet -> storedData) =
+                               findSource: Guid<projectId> * sortopiaDataType * parameterSet -> storedData,
+                               ?temporarySnapshots: ITemporaryEvolutionSnapshots) =
     let saved = ResizeArray<storedOutput>()
     let outputs = RunOutputs(plan |> Map.toList |> List.map fst, fun () -> saved |> Seq.toList)
     let sources = Collections.Generic.Dictionary<storedDataReference, storedData>()
@@ -43,6 +44,10 @@ type FileRunDatabase internal (store: ISortopiaDb, plan: Map<runDataOutput, plan
         if previous.IsNone then saved.Add { Reference = value.Reference; Reused = reused }
     new(store, plan, token) = FileRunDatabase(store, plan, token, Map.empty, fun _ -> HostStorage.noSources ())
     member _.Outputs = outputs
+    interface ITemporaryEvolutionSnapshots with
+        member _.Resume = temporarySnapshots |> Option.bind _.Resume
+        member _.SaveTemporary value = temporarySnapshots |> Option.iter (fun store -> store.SaveTemporary value)
+        member _.ClearTemporary generation = temporarySnapshots |> Option.iter (fun store -> store.ClearTemporary generation)
     interface IRunDatabase with
         member _.Find(output: runDataOutput) = (planned output).Key.Reference
         member _.Find(dataType: sortopiaDataType) =
@@ -100,9 +105,10 @@ module FileResultsHost =
             sampled
 
     let private resumeSnapshot (store: ISortopiaDb) (plan: Map<runDataOutput, plannedOutput>) sgd token =
-        if Option.isNone sgd then None else
+        if Option.isNone sgd then None, None else
         let mutable completePrefix = true
         let mutable latest = None
+        let mutable missing = None
         // A checkpoint is usable once every preceding snapshot and summary batch exists.
         // Missing reporting files therefore cause a replay only of the affected interval.
         let ordered = plan |> Map.toArray |> Array.sortBy (fun (descriptor, _) ->
@@ -111,13 +117,15 @@ module FileResultsHost =
         for descriptor, output in ordered do
             if completePrefix then
                 match store.TryLoad(output.Key, token) |> HostStorage.require with
-                | None -> completePrefix <- false
+                | None ->
+                    completePrefix <- false
+                    missing <- Some (FunctionParameters.required ParamKeys.generationCurrentKey descriptor.QueryParameters)
                 | Some saved ->
                     output.Validate saved.Value
                     match saved.Value with
                     | sortopiaStorageData.SorterPoolSet snapshot -> latest <- Some snapshot
                     | _ -> ()
-        latest
+        latest, missing
 
     let internal createWithPreparedInputs evaluationParallelism folder projectId (config: resultsConfig) parameters (outputs: storedOutput list)
                                          (prepared: Map<storedDataReference, sortopiaStorageData>) reporting sgd (token: CancellationToken) =
@@ -132,9 +140,25 @@ module FileResultsHost =
                 match prepared |> Map.tryFind reference with
                 | Some value -> value
                 | None -> (store.Load(reference, token) |> HostStorage.require).Value) |> Map.ofList
-        let database = FileRunDatabase(store, plan, token, reads, fun _ -> HostStorage.noSources ())
+        let permanent, missing = resumeSnapshot store plan sgd token
+        let temporary =
+            sgd |> Option.map (fun controls ->
+                let basis = plan |> Map.toSeq |> Seq.map fst |> Seq.find (fun output -> output.DataType.IsSorterPoolSet)
+                let samples = EvolutionSampling.planForRun parameters basis reporting sgd
+                let anchor = plan[snd samples.Snapshots[0]].Key
+                let id = TemporarySnapshots.identity anchor reporting
+                let resume =
+                    match TemporarySnapshots.tryGeneration folder id token with
+                    | Some generation when generation <= SgdRun.target controls
+                                           && generation > (permanent |> Option.map _.Generation |> Option.defaultValue -1)
+                                           && (missing |> Option.forall (fun boundary -> generation < boundary)) ->
+                        TemporarySnapshots.load folder id parameters samples token
+                    | _ -> None
+                TemporarySnapshots.create folder id parameters resume token)
+        let resume = temporary |> Option.bind _.Resume |> Option.map _.Snapshot |> Option.orElse permanent
+        let database = FileRunDatabase(store, plan, token, reads, (fun _ -> HostStorage.noSources ()), ?temporarySnapshots = temporary)
         { Phase = runExecutionPhase.Results; Parameters = parameters; CancellationToken = token; EvaluationParallelism = evaluationParallelism; Reporting = reporting; PreparationCache = None
-          Database = database; Outputs = database.Outputs; GenerationProgress = None; Sgd = sgd; ResumeSnapshot = resumeSnapshot store plan sgd token }
+          Database = database; Outputs = database.Outputs; GenerationProgress = None; EvaluationBudget = None; Sgd = sgd; ResumeSnapshot = resume }
 
     let createWithParallelism evaluationParallelism folder projectId config parameters outputs token =
         createWithPreparedInputs evaluationParallelism folder projectId config parameters outputs Map.empty None None token
@@ -171,7 +195,7 @@ type FileRunHost(scope: RunExecutionScope, workspaceRoot: string, token: Cancell
             let reads = sources |> List.map (fun data -> data.Reference, fun () -> data.Value) |> Map.ofList
             let database = FileRunDatabase(store, plan, token, reads, findSource)
             { Phase = runExecutionPhase.Setup; Parameters = parameters; CancellationToken = token; EvaluationParallelism = Environment.ProcessorCount; Reporting = None; PreparationCache = None
-              Database = database; Outputs = database.Outputs; GenerationProgress = None; Sgd = None; ResumeSnapshot = None }
+              Database = database; Outputs = database.Outputs; GenerationProgress = None; EvaluationBudget = None; Sgd = None; ResumeSnapshot = None }
     member _.ForResults(parameters, setupOutputs) =
         FileResultsHost.createWithPreparedInputs Environment.ProcessorCount folder parent.Id parent.Configuration.Results parameters setupOutputs Map.empty value.Reporting value.Sgd token
     interface IRunHostFactory with

@@ -80,7 +80,7 @@ public sealed class FunctionValidationRulesTests
             Assert.Equal(error, definition.InputError.Invoke([]).Invoke([ParameterSpan.fromTexts("BatchWidth", parameterValueType.Integer, ["1", "2"])]));
             Assert.Equal(0, combinations);
             var host = new runHost(setup ? runExecutionPhase.Setup : runExecutionPhase.Results, parameterSet.fromBindings([binding]),
-                null!, null!, CancellationToken.None, 1, null, null, null, null, null);
+                null!, null!, CancellationToken.None, 1, null, null, null, null, null, null);
             Assert.Contains(error, Assert.Throws<ArgumentException>(() => execute(host)).Message);
             Assert.Equal(0, combinations);
             Assert.Equal("Combination rejected.", definition.InputError.Invoke([ParameterBinding.fromText("BatchWidth", parameterValueType.Integer, "3")]).Invoke([]));
@@ -118,7 +118,7 @@ public sealed class FunctionValidationRulesTests
         var fieldError = FunctionParameterSupport.valueError(copy.ParameterSupport, bad.KeyName, bad.ValueType, bad.FormattedValue);
         Assert.NotEmpty(fieldError);
         Assert.Equal(fieldError, copy.InputError.Invoke([bad]).Invoke([]));
-        var host = new runHost(runExecutionPhase.Setup, parameterSet.fromBindings([bad]), null!, null!, CancellationToken.None, 1, null, null, null, null, null);
+        var host = new runHost(runExecutionPhase.Setup, parameterSet.fromBindings([bad]), null!, null!, CancellationToken.None, 1, null, null, null, null, null, null);
         Assert.Contains(fieldError, Assert.Throws<ArgumentException>(() => copy.Execute.Invoke(host)
             .Invoke(MapModule.OfSeq(copy.SourceDataTypes.Select(type => Tuple.Create(type, Guid.NewGuid()))))).Message);
     }

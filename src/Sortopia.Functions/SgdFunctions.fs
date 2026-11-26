@@ -4,6 +4,7 @@ open System.Threading.Tasks
 open FSharp.UMX
 open Sortopia.Core
 open Sortopia.Runs
+open Sortopia.Runs
 open Sortopia.Sorting.Inputs
 open Sortopia.Models.Sorting
 open Sortopia.Models.Sorting.Simple
@@ -56,7 +57,7 @@ module SgdFunctions =
             if models.SorterModels |> Array.exists (accepts family >> not) then
                 invalidArg "models" $"Standard {familyName family} SGD requires Simple {familyName family} source models."
             StandardSgd.prepareInitialPopulation
-                (ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)) settings models tests
+                (EvaluationScheduling.options host.EvaluationParallelism host.EvaluationBudget host.CancellationToken) settings models tests
         match settings.InitialPoolSelection, host.PreparationCache with
         | initialPoolSelection.Best, Some cache ->
             // Ranking depends on the sources and pool settings, not on mutation parameters.
@@ -99,9 +100,9 @@ module SgdFunctions =
         let observe (snapshot: sorterPoolSet) =
             sampler.Observe snapshot
             // Publish checkpoints before notifying callers, which may cancel at a boundary.
-            if Set.contains snapshot.Generation snapshotGenerations then
+            if Set.contains snapshot.Generation snapshotGenerations || snapshot.Generation % SgdRun.tempInterval (EvolutionSampling.requireControls host.Sgd) = 0 then
                 host.GenerationProgress |> Option.iter (fun report -> report snapshot.Generation)
-        let options = ParallelOptions(MaxDegreeOfParallelism = host.EvaluationParallelism, CancellationToken = host.CancellationToken)
+        let options = EvaluationScheduling.options host.EvaluationParallelism host.EvaluationBudget host.CancellationToken
         match host.ResumeSnapshot with
         | Some snapshot -> StandardSgd.resumeObserved observe options configuration mutator snapshot tests
         | None -> StandardSgd.runObservedPrepared observe options configuration mutator (initialPopulation family host configuration tests) tests
@@ -110,7 +111,8 @@ module SgdFunctions =
         let basis = host.Outputs.Planned |> List.find (fun output -> output.DataType = poolType)
         let plan = EvolutionSampling.planForRun host.Parameters basis host.Reporting host.Sgd
         let sampler = EvolutionSampler(host.Parameters, plan, host.Database, host.CancellationToken,
-                                       ?resumeGeneration = (host.ResumeSnapshot |> Option.map _.Generation))
+                                       ?resumeGeneration = (host.ResumeSnapshot |> Option.map _.Generation),
+                                       tempSnapshotInterval = SgdRun.tempInterval (EvolutionSampling.requireControls host.Sgd))
         evolve family host sampler plan |> sampler.Complete
 
     let private definition family version parameters support =
@@ -128,6 +130,7 @@ module SgdFunctions =
             "Fixed prefixes are retained in metrics with -1 CE usage markers."
             "SnapshotInterval and SnapshotCount are run properties: the target is their product, with generation zero saved separately."
             "SnapshotInterval is fixed after parameter generation; increase SnapshotCount to continue from the latest complete checkpoint."
+            "Temp snapshot controls the interval of replaceable resume checkpoints, including pending pool summaries; its default is 10 generations."
             "Pool summaries use an independent schedule." ])
 
     // Persisted contract versions participate in output identities.

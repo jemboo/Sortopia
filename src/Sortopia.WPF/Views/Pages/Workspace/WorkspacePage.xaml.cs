@@ -89,7 +89,12 @@ public partial class WorkspacePage : UserControl
     public WorkspacePage()
     {
         InitializeComponent();
-        diskStatusTimer.Tick += async (_, _) => { RefreshDiskStatus(); await RefreshExecutionProgressAsync(); };
+        WorkspaceTree.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler((_, e) =>
+        {
+            if (e.OriginalSource is TreeViewItem item)
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => item.BringIntoView()));
+        }));
+        diskStatusTimer.Tick += (_, _) => RefreshDiskStatus();
         Loaded += async (_, _) =>
         {
             executionProgressCancellation?.Cancel();

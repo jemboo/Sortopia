@@ -81,6 +81,41 @@ module ParallelEvaluationTests =
         Assert.True((before = values))
 
     [<Fact>]
+    let ``leased workers preserve evaluation results and are released after cancellation`` () =
+        let values = Array.init 1103 (fun n -> Array.init 6 (fun c -> (n >>> c) &&& 1))
+        for inputs in formats values 2 do
+            for count in [1; 32] do
+                let networks = Array.init count (fun _ -> block [|ce.create 0 1; ce.create 2 5|])
+                let mutable held = false
+                let mutable acquired = 0
+                use cancellation = new CancellationTokenSource()
+                let mutable cancelOnAcquire = false
+                use budget = { new IEvaluationCpuBudget with
+                    member _.Acquire(requested, _) =
+                        Assert.False(held)
+                        held <- true
+                        acquired <- acquired + 1
+                        if cancelOnAcquire then cancellation.Cancel()
+                        { new IEvaluationCpuLease with
+                            member _.WorkerCount = min requested 2
+                            member _.Dispose() = held <- false }
+                    member _.Dispose() = () }
+                let options = EvaluationScheduling.options 16 (Some budget) cancellation.Token
+                for collect in [false; true] do
+                    let expected = CeBlockOps.evalWithSorterTestsWithOptions (ParallelOptions(MaxDegreeOfParallelism = 1)) inputs networks (UMX.tag collect)
+                    let actual = CeBlockOps.evalWithSorterTestsWithOptions options inputs networks (UMX.tag collect)
+                    Assert.False(held)
+                    for a, b in Array.zip expected actual do
+                        Assert.Equal<int>(a.UseCountArray, b.UseCountArray)
+                        Assert.Equal(a.UnsortedCount, b.UnsortedCount)
+                        Assert.True(failures a.SortableTests = failures b.SortableTests)
+                Assert.Equal(2, acquired)
+                cancelOnAcquire <- true
+                Assert.ThrowsAny<OperationCanceledException>(fun () ->
+                    CeBlockOps.evalWithSorterTestsWithOptions options inputs networks (UMX.tag false) |> ignore) |> ignore
+                Assert.False(held)
+
+    [<Fact>]
     let ``empty batches empty tests and cancellation preserve all format contracts`` () =
         for inputs in formats [||] 2 do
             let options = ParallelOptions(MaxDegreeOfParallelism = 16)

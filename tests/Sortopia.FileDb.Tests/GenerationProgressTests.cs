@@ -22,7 +22,7 @@ public sealed partial class PreparedExecutionTests
     {
         var (world, consumer) = SgdWorkspace(resultsSpans: [
             new() { keyName = "MutationMod", values = ["0", "1"] }],
-            reporting: reporting ? new("Constant(2)", "Constant(1)") : null, sgd: new(2, generations / 2));
+            reporting: reporting ? new("Constant(2)", "Constant(1)") : null, sgd: new(2, generations / 2, null));
         Completed(Prepare(world, consumer).Execution);
         var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);
         var paths = Directory.GetFiles(Path.Combine(folder, "runParameters"), "*.msgpack");
@@ -52,7 +52,7 @@ public sealed partial class PreparedExecutionTests
     [Fact]
     public void Cancellation_keeps_last_generation_and_retry_resumes_from_checkpoint()
     {
-        var (world, consumer) = SgdWorkspace(sgd: new(2, 3),
+        var (world, consumer) = SgdWorkspace(sgd: new(2, 3, null),
             reporting: new("Constant(2)", "Constant(1)"));
         Completed(Prepare(world, consumer).Execution);
         var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(consumer.Definition.id).RelativeFolder);

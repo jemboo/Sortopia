@@ -68,16 +68,18 @@ module EvolutionSampling =
                                     | _ -> invalidOp "Expected a pool summary set.") ]
 
 /// Observes evolution and builds scheduled payloads; all persistence goes through the database.
-type EvolutionSampler(parameters: parameterSet, plan: evolutionSamplingPlan, database: IRunDatabase, token: CancellationToken, ?resumeGeneration: int) =
+type EvolutionSampler(parameters: parameterSet, plan: evolutionSamplingPlan, database: IRunDatabase, token: CancellationToken, ?resumeGeneration: int, ?tempSnapshotInterval: int) =
     let final = plan.Snapshots |> Array.map fst |> Array.max
     let measure = FunctionParameters.required ParamKeys.sorterEvalMeasureKey parameters |> SorterEvalFunctions.fromCompactString
     let snapshots = plan.Snapshots |> Map.ofArray
     let summarySet = plan.Summaries |> Array.collect fst |> Set.ofArray
     let batches = plan.Summaries |> Array.map (fun (generations, output) -> Array.last generations, (generations, output)) |> Map.ofArray
     let pending = ResizeArray<sgdPoolStatistics>()
+    let temporary = match database with :? ITemporaryEvolutionSnapshots as store -> Some store | _ -> None
     let start = defaultArg resumeGeneration -1
     let mutable lastGeneration = if start < 0 then -1 else start - 1
     do
+        temporary |> Option.bind _.Resume |> Option.iter (fun value -> pending.AddRange value.PendingSummaries)
         if start >= 0 then
             let reuse output = database.Save(output, fun () -> invalidOp "A checkpoint output disappeared during continuation.")
             for generation, output in plan.Snapshots do if generation <= start then reuse output
@@ -96,7 +98,11 @@ type EvolutionSampler(parameters: parameterSet, plan: evolutionSamplingPlan, dat
                 pending.Clear()
             | None -> ()
         match snapshots |> Map.tryFind snapshot.Generation with
-        | Some output -> database.Save(output, sortopiaStorageData.SorterPoolSet snapshot)
+        | Some output ->
+            database.Save(output, sortopiaStorageData.SorterPoolSet snapshot)
+            temporary |> Option.iter (fun store -> store.ClearTemporary snapshot.Generation)
+        | None when snapshot.Generation % defaultArg tempSnapshotInterval 10 = 0 ->
+            temporary |> Option.iter (fun store -> store.SaveTemporary { Snapshot = snapshot; PendingSummaries = pending.ToArray() })
         | None -> ()
 
     member _.Complete(result: sorterPoolSet) =

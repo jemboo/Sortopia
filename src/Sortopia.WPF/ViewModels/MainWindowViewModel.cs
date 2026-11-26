@@ -6,6 +6,7 @@ using Sortopia.WPF.ViewModels.Pages.Networks;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Sortopia.WPF.ViewModels.Pages.RandomNetworks;
 using Sortopia.WPF.ViewModels.Pages.Sgd;
+using Sortopia.WPF.ViewModels.Shared;
 
 namespace Sortopia.WPF.ViewModels;
 
@@ -30,9 +31,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         networksPage = new NetworksPageViewModel(ReturnHome);
         randomNetworksPage = new RandomNetworksPageViewModel(ReturnHome);
         sgdPage = new SgdPageViewModel(ReturnHome);
-        fileInspectorPage = new FileInspectorPageViewModel(ReturnHome, pickWorkspaceFolder);
-        var executionSettings = new ResultsExecutionSettings();
-        resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder, executionSettings.Load, executionSettings.Save);
+        fileInspectorPage = new FileInspectorPageViewModel(ReturnHome, pickWorkspaceFolder, OpenProducingRunAsync);
+        resultsExecutionPage = new ResultsExecutionPageViewModel(ReturnHome, pickWorkspaceFolder, launchSettings: new ResultsLaunchSettings(), openRun: OpenProducingRunAsync, inspectHistory: OpenEvolutionHistoryAsync);
         workspacePage = new WorkspacePageViewModel(ReturnHome, pickWorkspaceFolder, workspaceSettings ?? new WorkspaceFolderSettings(), confirmWorkspaceChanges, pickExistingWorkspaceFolder, openWorkspaceFolder,
             () => OpenFileInspector(true), OpenWorkspaceResultsExecutionAsync, confirmWorkspaceReset, () => resultsExecutionPage.IsBusy, pickWorkspaceExportFolder);
         resultsExecutionPage.PropertyChanged += (_, e) =>
@@ -49,6 +49,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     private void OpenWorkspace() => CurrentPage = workspacePage;
+    private async Task OpenProducingRunAsync(ProducingRun target)
+    {
+        if (await workspacePage.OpenProducingRunAsync(target)) CurrentPage = workspacePage;
+    }
     private void OpenResultsExecution()
     {
         resultsExecutionPage.SetReturnAction(ReturnHome, false);
@@ -67,6 +71,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         fileInspectorPage.SetReturnAction(fromWorkspace ? OpenWorkspace : ReturnHome);
         if (workspacePage.WorkspaceFolder.Length > 0)
             _ = fileInspectorPage.OpenRootAsync(workspacePage.WorkspaceFolder);
+    }
+
+    private async Task OpenEvolutionHistoryAsync(string project, string path)
+    {
+        fileInspectorPage.SetReturnAction(() => CurrentPage = resultsExecutionPage);
+        CurrentPage = fileInspectorPage;
+        await fileInspectorPage.OpenFileAsync(project, path);
     }
 
     public Task<bool> TryCloseAsync() => workspacePage.TryLeaveAsync();

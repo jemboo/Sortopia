@@ -37,6 +37,8 @@ module FileInspection =
         let functionVersion = queryReader.ReadString()
         if queryReader.ReadString() <> kind || queryReader.ReadString() <> label then invalidOp "Query data type does not match the envelope."
         let queryParameterCount = queryReader.ReadInt32()
+        let parameters = (DataKey.readQuery query).Parameters |> List.map (fun binding ->
+            {| Key = binding.KeyName; Type = string binding.ValueType; Value = binding.FormattedValue |})
         use identityStream = new MemoryStream(identity, false)
         identityStream.Position <- int64 query.Length
         use identityReader = new BinaryReader(identityStream)
@@ -56,7 +58,8 @@ module FileInspection =
           Description = "Summary only. Envelope length and identity hashes checked. The compressed payload was not decoded or checksum-verified; use Check outputs to validate execution data."
           Json = json {| SchemaVersion = version; ProjectId = projectId; DataId = id; QueryId = queryId
                          DataType = kind; Label = label; Database = database; FunctionName = functionName; FunctionVersion = functionVersion
-                         QueryParameterCount = queryParameterCount; DependencyCount = dependencyCount; First100Dependencies = dependencies
+                         QueryParameterCount = queryParameterCount; QueryParameters = parameters
+                         DependencyCount = dependencyCount; First100Dependencies = dependencies
                          Compression = compression; CompressedPayloadBytes = payloadLength; UncompressedPayloadBytes = rawLength
                          PayloadSha256 = Convert.ToHexString(checksum).ToLowerInvariant() |} }
 
@@ -111,3 +114,41 @@ module FileInspection =
                                  SetupSuffixStages = Option.toNullable dto.SetupSuffixStages; ResultsSuffixStages = Option.toNullable dto.ResultsSuffixStages
                                  Outputs = dto.Outputs; Parameters = parameters; SetupInputs = dto.SetupInputs |} }
             | kind -> invalidOp $"Unsupported execution metadata kind: {kind}"
+
+    /// Match output identities, not filenames or the run that merely consumes a setup file.
+    /// Equivalent invocations may share an output, so retain every matching invocation.
+    let producingParameters path (token: CancellationToken) =
+        let path = Path.GetFullPath path
+        let category = Path.GetFileName(Path.GetDirectoryName path)
+        if category.Equals("runParameters", StringComparison.OrdinalIgnoreCase) then
+            [| RunParameterFiles.loadFile path |]
+        else
+            let project = path |> Path.GetDirectoryName |> Path.GetDirectoryName |> Path.GetDirectoryName |> Path.GetDirectoryName
+            let parameters = Path.Combine(project, "runParameters")
+            if not (Directory.Exists parameters) then [||] else
+            Directory.EnumerateFiles(parameters, "*.msgpack") |> Seq.choose (fun file ->
+                token.ThrowIfCancellationRequested()
+                try
+                    let item = RunParameterFiles.loadFile file
+                    let store = SortopiaFileDb(project, item.ProjectId)
+                    let matches =
+                        if category.Equals("temporarySnapshots", StringComparison.OrdinalIgnoreCase) then
+                            item.Sgd.IsSome && String.Equals(RunOutputFiles.temporarySnapshotPath project item, path, StringComparison.OrdinalIgnoreCase)
+                        else RunOutputFiles.keys item |> Array.exists (fun key -> String.Equals(store.GetPath key.Reference, path, StringComparison.OrdinalIgnoreCase))
+                    if matches then Some item else None
+                with
+                | :? OperationCanceledException -> reraise ()
+                | _ -> None) |> Seq.toArray
+
+    let inspectTemporary path (token: CancellationToken) =
+        let items = producingParameters path token
+        if Array.isEmpty items then
+            { Kind = "Temporary snapshot"; Description = "No matching saved invocation was found. This replaceable checkpoint is used when resuming evolution."; Json = "" }
+        else
+            let item = items[0]
+            let project = path |> Path.GetDirectoryName |> Path.GetDirectoryName |> Path.GetDirectoryName |> Path.GetDirectoryName
+            let anchor = snd (RunOutputFiles.samples item).Snapshots[0]
+            let generation = TemporarySnapshots.tryGeneration project (TemporarySnapshots.identity anchor item.Reporting) token
+            { Kind = "Temporary snapshot"; Description = "Replaceable evolution checkpoint. Snapshot header checked; population payload was not decoded."
+              Json = json {| Generation = Option.toNullable generation; ProjectId = UMX.untag item.ProjectId
+                             RunIds = items |> Array.map (fun item -> UMX.untag item.RunId) |> Array.distinct |} }

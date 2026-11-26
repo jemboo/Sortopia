@@ -14,16 +14,20 @@ using Sortopia.WPF.ViewModels.Pages.ResultsExecution;
 using Sortopia.WPF.ViewModels.Pages.Workspace;
 using Sortopia.WPF.ViewModels.Shared;
 using Sortopia.WPF.Views.Pages.ResultsExecution;
+using Sortopia.WPF.ViewModels.Pages.FileInspector;
+using Sortopia.WPF.ViewModels;
+using Sortopia.WPF.ViewModels.Pages.Home;
+using Sortopia.Workspaces.Persistence;
 using Xunit;
 
 namespace Sortopia.WPF.Tests;
 
 [Collection("Workspace editor rendering")]
-public sealed class ResultsExecutionSetupQueriesTests : IDisposable
+public sealed partial class ResultsExecutionSetupQueriesTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-execution-setup-values-");
 
-    private async Task<WorkspacePageViewModel> Generate(bool sgd = false, bool reporting = false, bool generateFiles = true, int generations = 0, int snapshotInterval = 100)
+    private async Task<WorkspacePageViewModel> Generate(bool sgd = false, bool reporting = false, bool generateFiles = true, int generations = 0, int snapshotInterval = 100, int tempSnapshotInterval = 10)
     {
         var root = Directory.CreateDirectory(Path.Combine(temporary.FullName, "Workspace")).FullName;
         var settings = new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")); settings.Save(root);
@@ -54,6 +58,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.True(run.Editor!.SupportsReporting);
             run.Editor.SnapshotInterval = snapshotInterval.ToString();
             run.Editor.SnapshotCount = (generations / snapshotInterval).ToString();
+            run.Editor.TempSnapshotInterval = tempSnapshotInterval.ToString();
             run.Editor.SummaryReporting.Interval = "1";
             Assert.Empty(run.Editor.ReportingError);
         }
@@ -74,6 +79,281 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
         return page;
     }
 
+    private sealed class SnapshotProgress(Action<workItemGenerationProgress> action) : IProgress<workItemGenerationProgress>
+    { public void Report(workItemGenerationProgress value) => action(value); }
+
+    [Fact]
+    public async Task Evolution_histograms_combine_the_selected_invocations_published_history_and_return_to_results()
+    {
+        var workspace = await Generate(sgd: true, generations: 10, snapshotInterval: 5, tempSnapshotInterval: 2);
+        using var shell = new MainWindowViewModel(_ => null, new WorkspaceFolderSettings(Path.Combine(temporary.FullName, "settings.txt")));
+        try
+        {
+            Assert.IsType<HomePageViewModel>(shell.CurrentPage).OpenResultsExecutionCommand.Execute(null);
+            var model = Assert.IsType<ResultsExecutionPageViewModel>(shell.CurrentPage);
+            await model.SetFolderAsync(workspace.RunParametersFolder);
+            Assert.False(model.OpenEvolutionHistoryCommand.CanExecute(null));
+            var row = model.Rows[0];
+            var other = model.Rows[1]; other.IsSelected = true;
+            model.SelectedFile = row;
+            Assert.True(model.OpenEvolutionHistoryCommand.CanExecute(null));
+            await model.OpenEvolutionHistoryAsync();
+            Assert.Same(model, shell.CurrentPage);
+            Assert.Contains("No SorterPoolSummarySet", model.Status);
+
+            // Another checked file has newer summaries; navigation follows the highlighted row.
+            Assert.Equal(runExecutionStatus.Completed, (await Task.Run(() => RunParameterExecution.executeFile(other.Path, null!, TestContext.Current.CancellationToken))).Status);
+            async Task PauseAt(int generation)
+            {
+                using var cancel = new CancellationTokenSource();
+                var queued = true;
+                var report = await Task.Run(() => RunParameterExecution.executeQueuedFilesWithProgress([row.Path],
+                    () => { if (!queued) return null!; queued = false; return row.Path; }, new(1), null!, null!,
+                    new SnapshotProgress(value => { if (value.Generation == generation) cancel.Cancel(); }), cancel.Token));
+                Assert.Equal(runExecutionStatus.Cancelled, report.Status);
+            }
+            var project = RunParameterFiles.projectFolder(model.Folder);
+            var store = new SortopiaFileDb(project, row.Parameters!.ProjectId);
+            var summaries = RunOutputFiles.samples(row.Parameters).Summaries;
+            async Task OpenAndReturn(int generation)
+            {
+                await model.OpenEvolutionHistoryAsync();
+                Assert.Empty(model.Error);
+                var inspector = Assert.IsType<FileInspectorPageViewModel>(shell.CurrentPage);
+                Assert.Empty(inspector.Error);
+                var expected = row.Path;
+                Assert.Equal(expected, inspector.Selected!.FullPath);
+                Assert.Contains(inspector.Selected, inspector.Entries);
+                Assert.Equal(Path.GetDirectoryName(expected), inspector.CurrentFolder);
+                Assert.True(inspector.HasBinMovie);
+                Assert.Equal(Enumerable.Range(0, generation + 1), inspector.BinMovie!.Generations);
+                Assert.Equal(0, inspector.BinMovie.SelectedGeneration);
+                Assert.Equal(generation / 5 + 1, inspector.References.Count);
+                // The same movie crosses batch boundaries without changing files or resetting its axes.
+                var bounds = inspector.BinMovie.AllBounds;
+                for (var next = 1; next <= generation; next++)
+                {
+                    inspector.BinMovie.NextCommand.Execute(null);
+                    Assert.Equal(next, inspector.BinMovie.SelectedGeneration);
+                    Assert.Equal(bounds, inspector.BinMovie.AllBounds);
+                }
+                Assert.Equal(new[] { "Successful", "Unsuccessful" }, inspector.BinMovie.HistogramKinds);
+                inspector.ReturnCommand.Execute(null);
+                Assert.Same(model, shell.CurrentPage);
+                Assert.Same(row, model.SelectedFile);
+                Assert.True(other.IsSelected);
+                Assert.False(row.IsSelected);
+            }
+            await PauseAt(4);
+            // Pending statistics in a temporary checkpoint are not a published summary set.
+            await OpenAndReturn(0);
+            await PauseAt(5);
+            File.SetLastWriteTimeUtc(store.GetPath(summaries[0].Item2.Reference), DateTime.UtcNow.AddDays(1));
+            await OpenAndReturn(5); // Generation order wins over file timestamps.
+            await model.OpenEvolutionHistoryAsync();
+            var growing = Assert.IsType<FileInspectorPageViewModel>(shell.CurrentPage);
+            Assert.Equal(Enumerable.Range(0, 6), growing.BinMovie!.Generations);
+            Assert.Equal(runExecutionStatus.Completed, (await Task.Run(() => RunParameterExecution.executeFile(row.Path, null!, TestContext.Current.CancellationToken))).Status);
+            await growing.RefreshAsync();
+            Assert.Empty(growing.Error);
+            Assert.Equal(Enumerable.Range(0, 11), growing.BinMovie!.Generations);
+            growing.ReturnCommand.Execute(null);
+            await OpenAndReturn(10); // Finds a new batch without refreshing the Results grid first.
+            await model.OpenEvolutionHistoryAsync();
+            var history = Assert.IsType<FileInspectorPageViewModel>(shell.CurrentPage);
+            var middle = store.GetPath(summaries[1].Item2.Reference);
+            var bytes = File.ReadAllBytes(middle);
+            File.Delete(middle);
+            await history.RefreshAsync();
+            Assert.Empty(history.Error);
+            Assert.Equal(new[] { 0, 6, 7, 8, 9, 10 }, history.BinMovie!.Generations);
+            Assert.Contains("5 scheduled generations", history.Description);
+            File.WriteAllBytes(middle, [0xc1]);
+            await history.RefreshAsync();
+            Assert.Contains(middle, history.Error);
+            Assert.False(history.HasBinMovie);
+            Assert.Equal("Run parameters", history.Kind);
+            Assert.NotEmpty(history.Details);
+            File.WriteAllBytes(middle, bytes);
+            await history.RefreshAsync();
+            Assert.Equal(Enumerable.Range(0, 11), history.BinMovie!.Generations);
+            Assert.DoesNotContain("missing", history.Description);
+            // Individual source files remain inspectable independently of the combined history.
+            await history.OpenReferenceAsync(history.References[1]);
+            Assert.Equal(Enumerable.Range(1, 5), history.BinMovie!.Generations);
+            history.ReturnCommand.Execute(null);
+            var latest = store.GetPath(summaries.Last().Item2.Reference);
+            File.WriteAllBytes(latest, [0xc1]);
+            await model.OpenEvolutionHistoryAsync();
+            Assert.Same(model, shell.CurrentPage);
+            Assert.NotEmpty(model.Error); // Do not silently present an older batch as the latest when the latest is corrupt.
+        }
+        finally { workspace.Cancel(); }
+    }
+
+    [Fact]
+    public async Task Evolution_histograms_are_disabled_for_functions_without_pool_summaries()
+    {
+        var workspace = await Generate();
+        try
+        {
+            using var model = new ResultsExecutionPageViewModel(() => { }, _ => null,
+                inspectHistory: (_, _) => throw new Exception("Unexpected inspector navigation"));
+            await model.SetFolderAsync(workspace.RunParametersFolder);
+            model.SelectedFile = model.Rows[0];
+            Assert.False(model.OpenEvolutionHistoryCommand.CanExecute(null));
+            await model.OpenEvolutionHistoryAsync();
+            Assert.Empty(model.Error);
+        }
+        finally { workspace.Cancel(); }
+    }
+
+    [Fact]
+    public async Task Update_progress_reads_external_temporary_snapshots_only_when_requested()
+    {
+        var workspace = await Generate(sgd: true, generations: 10, snapshotInterval: 5, tempSnapshotInterval: 2);
+        try
+        {
+            using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
+            var row = model.Rows[0]; row.IsSelected = true;
+            Assert.Null(row.CompletedGenerations);
+            using var cancellation = new CancellationTokenSource();
+            var queued = true;
+            var report = await Task.Run(() => RunParameterExecution.executeQueuedFilesWithProgress([row.Path],
+                () => { if (!queued) return null!; queued = false; return row.Path; }, new(1), null!, null!,
+                new SnapshotProgress(value => { if (value.Generation == 4) cancellation.Cancel(); }), cancellation.Token), TestContext.Current.CancellationToken);
+            Assert.Equal(runExecutionStatus.Cancelled, report.Status);
+            Assert.Null(model.Rows[0].CompletedGenerations); // Monitoring is active only while the execution view is loaded.
+            await model.UpdateProgressAsync(); Assert.Empty(model.Error);
+            row = model.Rows.Single(current => current.Path == row.Path);
+            Assert.Equal(4, row.CompletedGenerations); Assert.Equal("4 / 10", row.GenerationsText);
+            Assert.True(row.IsSelected); Assert.Equal(10, model.SnapshotProgressPercent);
+            report = await Task.Run(() => RunParameterExecution.executeFile(row.Path, null!, TestContext.Current.CancellationToken));
+            Assert.Equal(runExecutionStatus.Completed, report.Status);
+            Assert.Equal(4, row.CompletedGenerations);
+            await model.UpdateProgressAsync(); Assert.Empty(model.Error);
+            row = model.Rows.Single(current => current.Path == row.Path);
+            Assert.Equal(10, row.CompletedGenerations); Assert.Equal(outputState.Complete, row.State);
+            Assert.Equal(25, model.SnapshotProgressPercent);
+            workspace.Selected!.Editor!.SnapshotCount = "4";
+            await workspace.SaveWorkspaceAsync(); Assert.Empty(workspace.Error);
+            Assert.Equal("10 / 10", row.GenerationsText);
+            await model.UpdateProgressAsync(); Assert.Empty(model.Error);
+            Assert.Equal("10 / 20", row.GenerationsText);
+            Assert.Equal(outputState.Partial, row.State);
+            Assert.Equal(12.5, model.SnapshotProgressPercent);
+        }
+        finally { workspace.Cancel(); }
+    }
+
+    [Fact]
+    public async Task Inspector_shows_saved_spans_and_exact_invocation_parameters_and_opens_the_run()
+    {
+        var workspace = await Generate(sgd: true);
+        try
+        {
+            var project = RunParameterFiles.projectFolder(workspace.RunParametersFolder);
+            var path = Directory.GetFiles(workspace.RunParametersFolder, "*.msgpack")[0];
+            var item = RunParameterFiles.loadFile(path);
+            workspace.WorkspaceName = "Unsaved workspace title";
+            ProducingRun? opened = null;
+            using var inspector = new FileInspectorPageViewModel(() => { }, _ => null, async target =>
+            {
+                opened = target;
+                Assert.True(await workspace.OpenProducingRunAsync(target));
+            });
+            await inspector.OpenRootAsync(project);
+            await inspector.InspectAsync(new(WorkspaceFileInspection.entry(path)));
+            Assert.Empty(inspector.Error);
+            var context = Assert.Single(inspector.ProducingRuns);
+            Assert.Equal(item.RunId, context.Target!.RunId);
+            static IEnumerable<InspectionNode> Flatten(IEnumerable<InspectionNode> nodes) => nodes.SelectMany(n => new[] { n }.Concat(Flatten(n.Children)));
+            var details = Flatten(context.Details).ToArray();
+            Assert.Contains(details, node => node.Name == "Results Parameter Spans");
+            Assert.Contains(details, node => node.Name == "Setup Parameter Spans");
+            Assert.Contains(details, node => node.Name == "OrthoRate" && node.Value == item.Parameters.TryFind("OrthoRate").Value.FormattedValue);
+            Assert.Contains(details, node => node.Name == "Setup query parameters");
+            Assert.Contains(details, node => node.Name == "Repl" && node.Value is "2" or "10");
+            Assert.True(inspector.OpenRunCommand.CanExecute(null));
+            inspector.OpenRunCommand.Execute(null);
+            Assert.Equal(item.RunId, opened!.RunId);
+            Assert.Equal(item.RunId, workspace.Selected!.Id);
+            Assert.True(workspace.HasUnsavedChanges);
+            Assert.Equal("Unsaved workspace title", workspace.WorkspaceName);
+
+            var executed = await Task.Run(() => RunParameterExecution.executeFile(path, null!, TestContext.Current.CancellationToken));
+            Assert.Equal(runExecutionStatus.Completed, executed.Status);
+            var store = new SortopiaFileDb(project, item.ProjectId);
+            var output = RunOutputFiles.keys(item).First();
+            await inspector.InspectAsync(new(WorkspaceFileInspection.entry(store.GetPath(output.Reference))));
+            Assert.Empty(inspector.Error);
+            Assert.Contains(inspector.ProducingRuns, run => run.Target?.RunId == item.RunId);
+            Assert.Contains(Flatten(inspector.Details), node => node.Name == "Query Parameters");
+        }
+        finally { workspace.Cancel(); }
+    }
+
+    [Fact]
+    public async Task Snapshot_notifications_refresh_generations_and_stop_after_leaving_the_page()
+    {
+        var workspace = await Generate(sgd: true, generations: 10, snapshotInterval: 5, tempSnapshotInterval: 2);
+        var token = TestContext.Current.CancellationToken;
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+            dispatcher.BeginInvoke(async () =>
+            {
+                try
+                {
+                    using var model = new ResultsExecutionPageViewModel(() => { }, _ => null);
+                    await model.SetFolderAsync(workspace.RunParametersFolder);
+                    var row = model.Rows[0];
+                    row.IsSelected = true;
+                    model.StartSnapshotMonitoring(action => dispatcher.BeginInvoke(action));
+                    // Read each published temporary/retained generation before allowing the executor to continue.
+                    var observed = new System.Collections.Concurrent.ConcurrentDictionary<int, TaskCompletionSource>();
+                    foreach (var generation in new[] { 0, 2, 4, 5 }) observed[generation] = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    row.PropertyChanged += (_, e) =>
+                    {
+                        if (e.PropertyName == nameof(row.CompletedGenerations) && row.CompletedGenerations is { } generation && observed.TryGetValue(generation, out var ready)) ready.TrySetResult();
+                    };
+                    using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    var queued = true;
+                    var report = await Task.Run(() => RunParameterExecution.executeQueuedFilesWithProgress([row.Path],
+                        () => { if (!queued) return null!; queued = false; return row.Path; }, new(1), null!, null!,
+                        new SnapshotProgress(value =>
+                        {
+                            if (observed.TryGetValue(value.Generation, out var ready)) ready.Task.WaitAsync(TimeSpan.FromSeconds(15), token).GetAwaiter().GetResult();
+                            if (value.Generation == 5) cancel.Cancel();
+                        }), cancel.Token), token);
+                    Assert.Equal(runExecutionStatus.Cancelled, report.Status);
+                    Assert.All(observed.Values, ready => Assert.True(ready.Task.IsCompletedSuccessfully));
+                    Assert.Equal(5, row.CompletedGenerations);
+                    Assert.True(row.IsSelected);
+                    Assert.All(model.Rows.Skip(1), other => Assert.Null(other.CompletedGenerations));
+                    model.StopSnapshotMonitoring();
+                    report = await Task.Run(() => RunParameterExecution.executeFile(row.Path, null!, token), token);
+                    Assert.Equal(runExecutionStatus.Completed, report.Status);
+                    Assert.Equal(5, row.CompletedGenerations);
+                    await model.UpdateProgressAsync();
+                    Assert.Equal(10, row.CompletedGenerations);
+                    Assert.Equal(outputState.Complete, row.State);
+                    Assert.Empty(model.Error);
+                }
+                catch (Exception e) { failure = e; }
+                finally { dispatcher.InvokeShutdown(); }
+            });
+            Dispatcher.Run();
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        await Task.Run(thread.Join, token);
+        workspace.Cancel();
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -85,7 +365,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
             Assert.All(model.Rows, row => Assert.Equal("— / 6", row.GenerationsText));
             var selected = model.Rows[0]; selected.IsSelected = true;
-            await model.ExecuteAsync(); Assert.Empty(model.Error);
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(model); Assert.Empty(model.Error);
             var completed = model.Rows.Single(row => row.Path == selected.Path);
             Assert.Equal("6 / 6", completed.GenerationsText);
             Assert.All(model.Rows.Where(row => row.Path != selected.Path), row => Assert.Equal("— / 6", row.GenerationsText));
@@ -116,6 +396,9 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             editor.SnapshotCount = int.MaxValue.ToString();
             Assert.Contains("limit", editor.ReportingError);
             editor.SnapshotCount = "2";
+            editor.TempSnapshotInterval = "0";
+            Assert.Contains("positive", editor.ReportingError);
+            editor.TempSnapshotInterval = "2";
             Assert.Empty(editor.ReportingError);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
             page.Selected = page.Roots.SelectMany(root => root.DescendantsAndSelf()).Single(node => node.Id == runId);
@@ -126,7 +409,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             using (var initial = await WorkspaceRunExecutionTests.OpenExecutionAsync(page))
             {
                 var row = initial.Rows[0]; row.IsSelected = true; completedPath = row.Path;
-                await initial.ExecuteAsync(); Assert.Empty(initial.Error);
+                await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(initial); Assert.Empty(initial.Error);
                 Assert.Equal(outputState.Complete, initial.Rows.Single(r => r.Path == completedPath).State);
             }
             editor.SnapshotInterval = "3";
@@ -136,6 +419,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             editor.SnapshotCount = "1";
             Assert.Contains("only increase", editor.ReportingError);
             editor.SnapshotCount = "3";
+            editor.TempSnapshotInterval = "3";
             Assert.Empty(editor.ReportingError);
             await page.SaveWorkspaceAsync(); Assert.Empty(page.Error);
             page.Selected = page.Roots.SelectMany(root => root.DescendantsAndSelf()).Single(node => node.Id == runId);
@@ -143,13 +427,14 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             {
                 Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
                 Assert.Equal(3, RunParameterFiles.loadFile(file.Key).Sgd.Value.SnapshotCount);
+                Assert.Equal(3, Sortopia.Runs.SgdRun.tempInterval(RunParameterFiles.loadFile(file.Key).Sgd.Value));
             }
             using var execution = await WorkspaceRunExecutionTests.OpenExecutionAsync(page);
             Assert.All(execution.Rows, row => Assert.Equal(6, row.TotalGenerations));
             var extended = execution.Rows.Single(row => row.Path == completedPath);
             Assert.Equal(outputState.Partial, extended.State);
             extended.IsSelected = true;
-            await execution.ExecuteAsync(); Assert.Empty(execution.Error);
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(execution); Assert.Empty(execution.Error);
             Assert.Equal("6 / 6", execution.Rows.Single(row => row.Path == completedPath).GenerationsText);
         }
         finally { page.Cancel(); }
@@ -162,7 +447,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
         {
             using var page = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
             page.SelectAllCommand.Execute(null);
-            await page.ExecuteAsync(); Assert.Empty(page.Error);
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(page); Assert.Empty(page.Error);
             var path = page.Rows[0].Path;
             var item = RunParameterFiles.loadFile(path);
             var folder = Path.GetDirectoryName(workspace.RunParametersFolder)!;
@@ -269,7 +554,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
                 Assert.Equal("Constant(1)", row.Parameters.Reporting.Value.SummarySchedule);
             });
             execution.SelectAllCommand.Execute(null);
-            await execution.ExecuteAsync(); Assert.Empty(execution.Error);
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(execution); Assert.Empty(execution.Error);
             Assert.All(execution.Rows, row => Assert.Contains("evolution reports complete", row.OutputSummary));
             var destination = Path.Combine(temporary.FullName, "Evolution reports");
             await execution.ExportReportsAsync(destination); Assert.Empty(execution.Error);
@@ -290,7 +575,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
             model.SelectAllCommand.Execute(null);
             Assert.False(model.CanExportReports);
-            await model.ExecuteAsync(); Assert.Empty(model.Error);
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(model); Assert.Empty(model.Error);
             Assert.Equal(4, model.SelectedCount); Assert.True(model.CanExportReports);
             Assert.All(model.Rows, row => Assert.True(Assert.Single(row.Parameters!.Results.DataTypes).Key.IsSorterPoolSet));
             var destination = Path.Combine(temporary.FullName, "SGD reports");
@@ -358,12 +643,17 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
             Assert.Equal(originalValues, selected.InheritedSetupQueryValues);
             var parameterBytes = File.ReadAllBytes(selected.Path);
             selected.IsSelected = true; File.Delete(selected.Path);
-            await execution.ExecuteAsync();
+            await execution.UpdateProgressAsync();
             var missing = execution.Rows.Single(row => row.Path == selected.Path);
-            Assert.Equal("Failed", missing.Status); Assert.Equal(originalValues, missing.InheritedSetupQueryValues);
-            Assert.Contains("last successful read", missing.InheritedSetupQueryDetails);
+            Assert.Equal("Invalid", missing.Status); Assert.NotEmpty(missing.Error);
+            Assert.Equal(originalValues, missing.InheritedSetupQueryValues);
+            Assert.False(execution.CanExecuteCommandLine);
+            await execution.RefreshAsync();
+            Assert.DoesNotContain(execution.Rows, row => row.Path == selected.Path);
             File.WriteAllBytes(selected.Path, parameterBytes);
-            await execution.RefreshAsync(); await execution.ExecuteAsync();
+            await execution.RefreshAsync();
+            execution.Rows.Single(row => row.Path == selected.Path).IsSelected = true;
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(execution);
             Assert.Empty(execution.Error);
             Assert.Equal("Complete", execution.Rows.Single(row => row.Path == selected.Path).Status);
             Assert.Equal(originalValues, execution.Rows.Single(row => row.Path == selected.Path).InheritedSetupQueryValues);
@@ -382,10 +672,10 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
         {
             using var model = await WorkspaceRunExecutionTests.OpenExecutionAsync(workspace);
             model.SelectAllCommand.Execute(null); Assert.False(model.CanExportReports);
-            await model.ExecuteAsync(); Assert.Empty(model.Error); Assert.True(model.CanExportReports);
+            await WorkspaceRunExecutionTests.ExecuteCheckedFilesAsync(model); Assert.Empty(model.Error); Assert.True(model.CanExportReports);
             model.ClearSelectionCommand.Execute(null); Assert.False(model.CanExportReports);
             var row = model.Rows[0]; row.IsSelected = true; Assert.True(model.ExportReportsCommand.CanExecute(null));
-            model.ParallelJobs = "invalid"; Assert.True(model.CanExportReports);
+            Assert.True(model.CanExportReports);
             var destination = Path.Combine(temporary.FullName, "Reports");
             await model.ExportReportsAsync(destination); Assert.Empty(model.Error);
             Assert.Contains("1 summary rows and 1 detail rows", model.Status);
@@ -434,7 +724,7 @@ public sealed class ResultsExecutionSetupQueriesTests : IDisposable
                     Assert.True(text.IsReadOnly); Assert.Equal(row.InheritedSetupQueryDetails, text.Text);
                     text.SelectAll(); Assert.Equal(text.Text, text.SelectedText);
                     Assert.InRange(text.ActualWidth, 200, grid.ActualWidth - 24);
-                    Assert.Equal(6, grid.FrozenColumnCount); Assert.True(grid.IsReadOnly);
+                    Assert.Equal(4, grid.FrozenColumnCount); Assert.True(grid.IsReadOnly);
                     workspace.SelectConfigurationItem("execution");
                     var workspaceView = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = workspace };
                     void WorkspaceLayout() { workspaceView.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle); workspaceView.Measure(new Size(1400, 1000)); workspaceView.Arrange(new Rect(0, 0, 1400, 1000)); workspaceView.UpdateLayout(); }

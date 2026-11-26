@@ -9,6 +9,26 @@
         <ResourceDictionary.MergedDictionaries>
             <ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" />
         </ResourceDictionary.MergedDictionaries>
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#315E87" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F1F5F9" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#223D58" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#F1F5F9" />
+        <Style x:Key="InspectorFileItem" TargetType="ListViewItem">
+            <Setter Property="ToolTip" Value="{Binding FullPath}" />
+            <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListViewItem">
+                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="3">
+                    <GridViewRowPresenter Content="{TemplateBinding Content}" Columns="{Binding View.Columns, RelativeSource={RelativeSource AncestorType=ListView}}" />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.SurfaceHover}" /></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.Selection}" /></Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{StaticResource Workspace.Focus}" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" />
             <Setter Property="Background" Value="{StaticResource Workspace.SurfaceRaised}" />
@@ -71,7 +91,7 @@
                               Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}" BorderBrush="{StaticResource Workspace.StrokeSubtle}"
                               ScrollViewer.HorizontalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                               AutomationProperties.Name="Files and folders">
-                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="ToolTip" Value="{Binding FullPath}" /></Style></ListView.ItemContainerStyle>
+                        <ListView.ItemContainerStyle><StaticResource ResourceKey="InspectorFileItem" /></ListView.ItemContainerStyle>
                         <ListView.View><GridView>
                             <GridViewColumn Header="Name" Width="230" DisplayMemberBinding="{Binding Name}" />
                             <GridViewColumn Header="Type" Width="92" DisplayMemberBinding="{Binding Kind}" />
@@ -96,6 +116,16 @@
                         <Border x:Name="HistogramPanel" Visibility="{Binding HasBinMovie, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,18">
                             <controls:SorterBinMovie x:Name="sorterBinMovie" DataContext="{Binding BinMovie}" />
                         </Border>
+                        <StackPanel Visibility="{Binding HasProducingRuns, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,14">
+                            <TextBlock Text="Producing run" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding RunContextHint}" Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" />
+                            <ComboBox ItemsSource="{Binding ProducingRuns}" SelectedItem="{Binding ProducingRun}" DisplayMemberPath="Name" Margin="0,6"
+                                      ToolTip="Select a run to see its saved spans and invocation parameters. Equivalent runs can share an output." AutomationProperties.Name="Producing run" />
+                            <Button Content="Open run in workspace" Command="{Binding OpenRunCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
+                            <TreeView ItemsSource="{Binding ProducingRun.Details}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run spans and parameters">
+                                <TreeView.ItemContainerStyle><Style TargetType="TreeViewItem"><Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=OneWay}" /></Style></TreeView.ItemContainerStyle>
+                            </TreeView>
+                        </StackPanel>
                         <ItemsControl ItemsSource="{Binding Metadata}">
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Grid Margin="0,4">
