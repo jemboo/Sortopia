@@ -54,5 +54,8 @@ public sealed class ExecutionResourcesTests
         var gate = new ExecutionMemoryGate(GiB, FuncConvert.FromFunc(() => GiB / 2));
         var error = Assert.Throws<InvalidOperationException>(() => gate.Acquire(GiB / 2, TestContext.Current.CancellationToken));
         Assert.Contains("memory budget", error.Message);
+        Assert.Contains("estimated reservation 0.50 GiB", error.Message);
+        Assert.Contains("0.30 GiB available after headroom", error.Message);
+        Assert.Contains("1.00 GiB worker budget", error.Message);
     }
 }

@@ -29,3 +29,19 @@ module ExecutionTuning =
             let bytes = bigint pools * bigint sorters * (bigint children + 1I) * 524288I
             int64 (min (bigint Int64.MaxValue) bytes)
         | _ -> 0L
+
+    /// Generated sets have no source payload to size. Reserve for both the model
+    /// object graph and its DTO/serialization buffers, using the function's stage
+    /// preview rather than optional saved display metadata. This is a conservative
+    /// hint calibrated against 5,000 16-channel, 895-stage MSUF4 models, not a bound.
+    let modelGenerationReservationBytes (parameters: parameterSet) suffixStages =
+        let width, prefixStages =
+            match parameters.TryFind ParamKeys.prefixLibIdKey with
+            | Some prefix -> int prefix.ChannelCount, int prefix.StageLength
+            | None -> parameters.TryFind ParamKeys.channelCountKey |> Option.defaultValue 0, 0
+        match parameters.TryFind ParamKeys.sorterCountKey with
+        | Some count when count > 0 && width > 0 && suffixStages > 0 ->
+            let stages = bigint suffixStages + bigint prefixStages
+            let bytes = bigint count * (4096I + bigint width * stages * 64I)
+            int64 (min (bigint Int64.MaxValue) bytes)
+        | _ -> 0L

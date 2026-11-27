@@ -53,6 +53,7 @@ module internal ExecutionWorker =
             | Some path -> new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)
             | None -> null
         use limits = WindowsExecutionLimits.applyTracked cpuPercent memoryBytes
+        let memoryBytes = limits.MemoryBytes
         use current = Process.GetCurrentProcess()
         let reserve = max 67108864L (current.PrivateMemorySize64 + 16777216L)
         let workerMemory = memoryBytes - reserve

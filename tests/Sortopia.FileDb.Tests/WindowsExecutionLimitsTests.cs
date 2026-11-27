@@ -12,15 +12,21 @@ public sealed class WindowsExecutionLimitsTests
         if (!OperatingSystem.IsWindows()) return;
         const string probe = "SORTOPIA_RESOURCE_LIMIT_TEST";
         var mode = Environment.GetEnvironmentVariable(probe);
+        const string budgetVariable = "SORTOPIA_RESOURCE_LIMIT_BYTES";
+        var requested = long.TryParse(Environment.GetEnvironmentVariable(budgetVariable), out var value) ? value : 1024L * 1024 * 1024;
         if (mode is "1" or "inherited")
         {
-            const long budget = 1024L * 1024 * 1024;
-            using var limits = mode == "1" ? Sortopia.Cli.WindowsExecutionLimits.applyTracked(25, budget) : null;
+            var budget = requested - requested % Environment.SystemPageSize;
+            using var limits = mode == "1" ? Sortopia.Cli.WindowsExecutionLimits.applyTracked(80, requested) : null;
+            if (limits is not null) Assert.Equal(budget, limits.MemoryBytes);
             var cpu = Query<CpuRate>(15);
-            Assert.Equal(5u, cpu.Flags); Assert.Equal(2500u, cpu.Rate);
+            Assert.Equal(5u, cpu.Flags); Assert.Equal(8000u, cpu.Rate);
             var memory = Query<ExtendedLimits>(9);
             Assert.NotEqual(0u, memory.Basic.Flags & 0x200u);
             Assert.Equal((nuint)budget, memory.JobMemory);
+            Sortopia.Cli.WindowsExecutionLimits.requireInherited(80, budget);
+            Assert.Throws<InvalidOperationException>(() => Sortopia.Cli.WindowsExecutionLimits.requireInherited(79, budget));
+            Assert.Throws<InvalidOperationException>(() => Sortopia.Cli.WindowsExecutionLimits.requireInherited(80, budget + Environment.SystemPageSize));
             Assert.Equal(ProcessPriorityClass.BelowNormal, Process.GetCurrentProcess().PriorityClass);
             if (mode == "1") Assert.InRange(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, 1, budget * 3 / 4);
             // Commit without touching pages. Windows must reject this allocation,
@@ -31,24 +37,32 @@ public sealed class WindowsExecutionLimitsTests
             if (mode == "inherited") return;
         }
 
-        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+        // Each raw budget gets a fresh launcher so job caps do not accumulate across cases.
+        var budgets = mode == "1" ? new[] { requested } : new[] {
+            1073741824L, 1073741825L, 1073745919L,
+            ExecutionResources.memoryBytes(13L * 1073741824 + Environment.SystemPageSize, "30%") };
+        foreach (var rawBudget in budgets)
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true
-        };
-        start.ArgumentList.Add(typeof(WindowsExecutionLimitsTests).Assembly.Location);
-        start.ArgumentList.Add("--filter-class"); start.ArgumentList.Add(typeof(WindowsExecutionLimitsTests).FullName!);
-        start.Environment[probe] = mode == "1" ? "inherited" : "1";
-        using var child = Process.Start(start)!;
-        var stdout = child.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
-        var stderr = child.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(45));
-        try { await child.WaitForExitAsync(timeout.Token); }
-        finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync(CancellationToken.None); } }
-        var output = await stdout + await stderr;
-        Assert.True(child.ExitCode == 0, output);
-        Assert.Contains("total: 1", output);
+            var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            };
+            start.ArgumentList.Add(typeof(WindowsExecutionLimitsTests).Assembly.Location);
+            start.ArgumentList.Add("--filter-class"); start.ArgumentList.Add(typeof(WindowsExecutionLimitsTests).FullName!);
+            start.Environment[probe] = mode == "1" ? "inherited" : "1";
+            start.Environment[budgetVariable] = rawBudget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            using var child = Process.Start(start)!;
+            var stdout = child.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+            var stderr = child.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(45));
+            try { await child.WaitForExitAsync(timeout.Token); }
+            finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync(CancellationToken.None); } }
+            var output = await stdout + await stderr;
+            Assert.True(child.ExitCode == 0, $"Requested budget: {rawBudget}. {output}");
+            Assert.Contains("total: 1", output);
+        }
     }
 
     private static T Query<T>(int kind) where T : struct

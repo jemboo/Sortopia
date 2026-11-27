@@ -66,6 +66,8 @@ public sealed partial class PreparedExecutionTests
     [InlineData(3, "0.25GiB", 8)]
     [InlineData(25, "0.5GiB", 128)]
     [InlineData(25, "2GiB", 256)]
+    [InlineData(80, "30%", 8)]
+    [InlineData(25, "0.3GiB", 8)]
     public async Task Tuned_terminal_batch_matches_serial_results_under_cpu_and_memory_budgets(int percent, string memory, int population)
     {
         var (world, consumer) = SgdWorkspace(sourceCount: population, sgd: new(4, 2, null), resultsSpans: [
@@ -84,10 +86,20 @@ public sealed partial class PreparedExecutionTests
         var baseline = RunParameterExecution.executeFolderWithOptions(Path.Combine(original, "runParameters"), null, new(1, 1, 0), null!, Token);
         Completed(baseline);
         var metrics = Path.Combine(temporary.FullName, "metrics.json");
+        var inputOption = "--parameters-folder";
+        var inputPath = Path.Combine(folder, "runParameters");
+        if (memory == "30%")
+        {
+            // Match the Results page's checked-file command, including percentage budgets.
+            var selectionPath = Path.Combine(temporary.FullName, "selection.json");
+            File.WriteAllText(selectionPath, JsonSerializer.Serialize(Directory.GetFiles(inputPath, "*.msgpack")));
+            inputOption = "--parameters-list";
+            inputPath = selectionPath;
+        }
         var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "sortopia.exe")) {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
-        foreach (var arg in new[] { "execute-results", "--parameters-folder", Path.Combine(folder, "runParameters"),
+        foreach (var arg in new[] { "execute-results", inputOption, inputPath,
                      "--jobs", "auto", "--cpu-percent", percent.ToString(), "--memory", memory, "--execution-metrics", metrics })
             start.ArgumentList.Add(arg);
         using var child = Process.Start(start)!;
@@ -103,6 +115,7 @@ public sealed partial class PreparedExecutionTests
             Assert.Matches(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2}\] (?!\[\d{4}-)", line));
         using var doc = JsonDocument.Parse(File.ReadAllText(metrics));
         var measured = doc.RootElement;
+        Assert.Equal(0, measured.GetProperty("TotalMemoryBytes").GetInt64() % Environment.SystemPageSize);
         // Windows may also account for a hidden console host. Every associated
         // process is included in the same hard cap and aggregate peak below.
         Assert.True(measured.GetProperty("TotalProcesses").GetInt32() >= 2);

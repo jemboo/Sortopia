@@ -84,18 +84,22 @@ type internal ExecutionMemoryGate(limit: int64, readCommitted: unit -> int64) =
     // Reclaim them only under admission pressure, so reusable heap capacity does
     // not look like live input memory and prevent the next file from starting.
     let reclaim () = GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, true, true)
-    let insufficient () = invalidOp "The batch is too close to its memory budget to start more work. Increase the budget or reduce the population; saved snapshots can be resumed."
+    let insufficient reservation used =
+        let gib bytes = (float bytes / 1073741824.0).ToString("F2", CultureInfo.InvariantCulture)
+        let available = max 0L (ceiling - used)
+        invalidOp $"The memory budget cannot admit this work item: estimated reservation {gib reservation} GiB, {gib available} GiB available after headroom ({gib limit} GiB worker budget). Increase the memory budget or reduce the model/population size; completed outputs and saved snapshots can be reused."
 
     member _.CheckHeadroom() =
         if limit > 0L && committed () >= ceiling then
             reclaim ()
-            if committed () >= ceiling then insufficient ()
+            let used = committed ()
+            if used >= ceiling then insufficient 0L used
 
     member _.Acquire(estimate: int64, token: CancellationToken) =
         if limit <= 0L then { new IDisposable with member _.Dispose() = () }
         else
             let reservation = max (64L * 1024L * 1024L) estimate
-            if reservation > ceiling then insufficient ()
+            if reservation > ceiling then insufficient reservation (committed ())
             lock gate (fun () ->
                 let mutable acquired = false
                 while not acquired do
@@ -110,7 +114,7 @@ type internal ExecutionMemoryGate(limit: int64, readCommitted: unit -> int64) =
                     elif active = 0 then
                         reclaim ()
                         baseline <- committed ()
-                        if baseline > ceiling || reservation > ceiling - baseline then insufficient ()
+                        if baseline > ceiling || reservation > ceiling - baseline then insufficient reservation baseline
                     else Monitor.Wait(gate, 100) |> ignore)
             { new IDisposable with
                 member _.Dispose() =

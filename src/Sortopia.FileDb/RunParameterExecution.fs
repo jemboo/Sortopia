@@ -218,6 +218,7 @@ module RunParameterExecution =
             let memory = ExecutionMemoryGate(options.MemoryBudgetBytes)
             let cpu = ExecutionCpuBudget(options.CpuWorkers)
             let estimates = Collections.Concurrent.ConcurrentDictionary<Guid<workItemId>, int64>()
+            let validated = Collections.Concurrent.ConcurrentDictionary<Guid<workItemId>, byte array array * outputInspection>()
             let store = database :> ISortopiaDb
             let owners = Collections.Generic.Dictionary<string, Guid<workItemId>>(StringComparer.OrdinalIgnoreCase)
             let checkedInputs = Collections.Generic.HashSet<storedDataReference>()
@@ -244,8 +245,26 @@ module RunParameterExecution =
                 if item.ProjectId <> workItems[0].ProjectId then invalidOp "Selected parameter files must belong to one project."
                 let plan = planWorkItem item token
                 claimOutputs notifyOwner item plan
+                let generationEstimate =
+                    if options.MemoryBudgetBytes = 0L || (item.Parameters.TryFind ParamKeys.sorterCountKey).IsNone then 0L
+                    else
+                        let definition = ResultsFunctionCatalog.requireVersion item.Results.FunctionName item.Results.FunctionVersion
+                        let stages = FunctionDefinition.tryPreviewValue "SuffixStages" definition item.Parameters
+                                     |> Option.bind ParameterValue.tryGet<int> |> Option.defaultValue 0
+                        ExecutionTuning.modelGenerationReservationBytes item.Parameters stages
+                // Completed model sets also need space when their payload is decoded
+                // for the execution-time completion check.
+                estimates[item.Id] <- generationEstimate
+                let before = OutputPlan.fingerprints database plan token
                 let inspection = OutputPlan.inspect store plan token
                 if inspection.State = outputState.Invalid then invalidOp $"Work item {item.Id}: {inspection.Error}"
+                if inspection.State = outputState.Complete then
+                    // Hash both sides of full decoding so a concurrent replacement
+                    // cannot associate a successful check with unvalidated bytes.
+                    match before with
+                    | Some hashes when OutputPlan.fingerprints database plan token = before ->
+                        validated[item.Id] <- hashes, inspection
+                    | _ -> ()
                 if inspection.State <> outputState.Complete then
                     pending.Add item.Id |> ignore
                     if options.MemoryBudgetBytes > 0L then
@@ -254,7 +273,7 @@ module RunParameterExecution =
                         // remains authoritative if a population exceeds its estimate.
                         let raw = item.SetupInputs |> List.filter (fun reference -> not (Set.contains reference sharedReferences)) |> List.sumBy (fun reference ->
                             int64 (DataEnvelope.readHeader (database.GetPath reference) token).Envelope.RawLength)
-                        estimates[item.Id] <- max (max (64L * 1024L * 1024L) (raw * 3L)) (ExecutionTuning.populationReservationBytes item.Parameters)
+                        estimates[item.Id] <- max generationEstimate (max (max (64L * 1024L * 1024L) (raw * 3L)) (ExecutionTuning.populationReservationBytes item.Parameters))
                     let references = item.SetupInputs |> List.filter checkedInputs.Add
                     for reference in references do
                         memory.CheckHeadroom()
@@ -300,30 +319,39 @@ module RunParameterExecution =
                     token.ThrowIfCancellationRequested()
                     notifyItem itemProgress item.Id workItemExecutionState.Running ""
                     token.ThrowIfCancellationRequested()
-                    // Another invocation may have completed this file since preflight.
-                    let inspection = OutputPlan.inspect store plan token
+                    let reusable =
+                        match validated.TryGetValue item.Id with
+                        | true, (hashes, inspection) when OutputPlan.fingerprints database plan token = Some hashes -> Some inspection
+                        | _ -> None
+                    let skip (inspection: outputInspection) =
+                        label <- $"Skipping complete work item {item.Id} · outputs already available"
+                        inspection.Available
                     let outputs =
-                        match inspection.State with
-                        | outputState.Invalid -> invalidOp inspection.Error
-                        | outputState.Complete ->
-                            label <- $"Skipping complete work item {item.Id} · outputs already available"
-                            inspection.Available
-                        | _ ->
+                        match reusable with
+                        | Some inspection -> skip inspection
+                        | None ->
+                            // Pending or changed outputs still need a full check under
+                            // admission, including work completed since preflight.
                             let estimate = match estimates.TryGetValue item.Id with true, size -> size | _ -> 0L
                             use admission = memory.Acquire(estimate, token)
-                            use allocation = cpu.Register()
-                            let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
-                            let host = FileResultsHost.createWithPreparedInputs options.MaxWorkersPerFile folder item.ProjectId item.Results item.Parameters inputs preparedInputs item.Reporting item.Sgd token
-                            let host = { host with PreparationCache = Some preparationCache
-                                                   EvaluationBudget = Some allocation
-                                                   GenerationProgress =
-                                                       if isNull generationProgress && options.MemoryBudgetBytes = 0L then None
-                                                       else Some (fun generation ->
-                                                           // The function publishes checkpoints before this callback.
-                                                           memory.CheckHeadroom()
-                                                           if not (isNull generationProgress) then generationProgress.Report { Id = item.Id; Generation = generation }) }
-                            (ResultsFunctionCatalog.requireVersion item.Results.FunctionName item.Results.FunctionVersion).Execute host
-                            host.Outputs.Stored
+                            let inspection = OutputPlan.inspect store plan token
+                            match inspection.State with
+                            | outputState.Invalid -> invalidOp inspection.Error
+                            | outputState.Complete -> skip inspection
+                            | _ ->
+                                use allocation = cpu.Register()
+                                let inputs = item.SetupInputs |> List.map (fun reference -> { Reference = reference; Reused = true })
+                                let host = FileResultsHost.createWithPreparedInputs options.MaxWorkersPerFile folder item.ProjectId item.Results item.Parameters inputs preparedInputs item.Reporting item.Sgd token
+                                let host = { host with PreparationCache = Some preparationCache
+                                                       EvaluationBudget = Some allocation
+                                                       GenerationProgress =
+                                                           if isNull generationProgress && options.MemoryBudgetBytes = 0L then None
+                                                           else Some (fun generation ->
+                                                               // The function publishes checkpoints before this callback.
+                                                               memory.CheckHeadroom()
+                                                               if not (isNull generationProgress) then generationProgress.Report { Id = item.Id; Generation = generation }) }
+                                (ResultsFunctionCatalog.requireVersion item.Results.FunctionName item.Results.FunctionVersion).Execute host
+                                host.Outputs.Stored
                     results[item.Id] <-
                         { Phase = runExecutionPhase.Results; FunctionName = string item.Results.FunctionName
                           SetupSetNumber = item.SetupSetNumber; SetNumber = item.SetNumber; Parameters = item.Parameters; StoredOutputs = outputs }

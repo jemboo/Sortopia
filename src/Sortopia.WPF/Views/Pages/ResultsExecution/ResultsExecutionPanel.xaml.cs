@@ -30,6 +30,8 @@ public partial class ResultsExecutionPanel : UserControl
     private void UpdateColumns()
     {
         RunParametersGrid.Columns.Clear();
+        RunParametersGrid.Columns.Add(new DataGridTemplateColumn { Header = "Details", CellTemplate = (DataTemplate)FindResource("ExecutionExpander"), Width = 64,
+            CanUserSort = false, CanUserResize = false, CanUserReorder = false });
         RunParametersGrid.Columns.Add(new DataGridTemplateColumn { Header = "Run", CellTemplate = (DataTemplate)FindResource("ExecutionCheck"), Width = 50,
             SortMemberPath = nameof(WorkItemStatusRow.IsSelected) });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "File name", Binding = new Binding("FileName"), Width = 325, MinWidth = 180 });

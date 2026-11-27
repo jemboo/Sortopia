@@ -306,7 +306,7 @@ public sealed class ResultsExecutionTests : IDisposable
         Assert.Equal(folder, execution.Folder); Assert.Equal(runId, execution.SelectedRun!.Id);
         Assert.Equal(3, execution.Rows.Count); Assert.All(execution.Rows, row => Assert.Equal(outputState.Pending, row.State));
         Assert.Contains("workspace", execution.ReturnLabel);
-        execution.SelectedFile = execution.Rows[0];
+        Assert.Null(execution.SelectedFile);
         Assert.True(execution.OpenRunCommand.CanExecute(null));
         execution.OpenRunCommand.Execute(null); Assert.Same(workspace, shell.CurrentPage);
         Assert.Equal(runId, workspace.Selected!.Id);
@@ -337,19 +337,22 @@ public sealed class ResultsExecutionTests : IDisposable
                 Assert.Same(model.ExecuteCommandLineCommand, ((Button)panel.FindName("ExecuteSelectedButton")).Command);
                 Assert.Same(model.UpdateProgressCommand, ((Button)panel.FindName("UpdateProgressButton")).Command);
                 Assert.Same(model.OpenEvolutionHistoryCommand, ((Button)panel.FindName("OpenEvolutionHistoryButton")).Command);
+                Assert.Same(model.OpenRunCommand, ((Button)panel.FindName("OpenRunButton")).Command);
                 Assert.False(terminalButton.IsEnabled);
                 var grid = (DataGrid)panel.FindName("RunParametersGrid");
-                Assert.Equal(new[] { "Run", "File name", "Status", "Generations", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
-                Assert.Equal(4, grid.FrozenColumnCount);
+                Assert.Equal(new[] { "Details", "Run", "File name", "Status", "Generations", "Outputs", "Executor", "MergeLibId", "SortableDataFormat" }, grid.Columns.Select(column => column.Header));
+                Assert.Equal(5, grid.FrozenColumnCount);
                 Assert.Equal(24, grid.Items.Count); Assert.True(grid.IsReadOnly); Assert.True(grid.EnableRowVirtualization);
                 Assert.Null(grid.ItemContainerGenerator.ContainerFromItem(model.Rows[^1]));
                 grid.SelectedItems.Add(model.Rows[0]); grid.SelectedItems.Add(model.Rows[^1]); Layout();
                 Assert.Equal(0, model.SelectedCount);
+                Assert.False(model.Rows[0].IsExpanded);
                 CheckBox Check(WorkItemStatusRow row)
                 {
                     grid.ScrollIntoView(row); Layout();
                     var container = Assert.IsType<DataGridRow>(grid.ItemContainerGenerator.ContainerFromItem(row));
-                    return Descendants(grid.Columns[0].GetCellContent(container)).OfType<CheckBox>().Single();
+                    Assert.Equal(Visibility.Collapsed, container.DetailsVisibility);
+                    return Descendants(grid.Columns[1].GetCellContent(container)).OfType<CheckBox>().Single();
                 }
                 Check(model.Rows[0]).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
                 model.Rows[^1].IsSelected = true;

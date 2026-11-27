@@ -718,13 +718,24 @@ public sealed partial class ResultsExecutionSetupQueriesTests : IDisposable
                     CheckSorting(grid, column, Layout);
                     var row = model.Rows[0]; Assert.False(row.HasError); grid.SelectedItem = row; Layout();
                     var container = (DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(row);
+                    Assert.Equal(Visibility.Collapsed, container.DetailsVisibility);
+                    var button = Descendants(grid.Columns[0].GetCellContent(container)).OfType<ToggleButton>().Single();
+                    var toggle = (System.Windows.Automation.Provider.IToggleProvider)new System.Windows.Automation.Peers.ToggleButtonAutomationPeer(button)
+                        .GetPattern(System.Windows.Automation.Peers.PatternInterface.Toggle)!;
+                    toggle.Toggle(); Layout();
+                    Assert.True(row.IsExpanded); Assert.Equal(Visibility.Visible, container.DetailsVisibility);
+                    grid.SelectedItem = model.Rows[1]; Layout();
+                    Assert.Equal(Visibility.Visible, container.DetailsVisibility); Assert.False(model.Rows[1].IsExpanded);
+                    toggle.Toggle(); Layout();
+                    Assert.False(row.IsExpanded); Assert.Equal(Visibility.Collapsed, container.DetailsVisibility);
+                    toggle.Toggle(); Layout();
                     var details = Descendants(container).OfType<Expander>().Single(item => Equals(item.Header, "Inherited setup query values"));
                     Assert.Equal(Visibility.Visible, details.Visibility); details.IsExpanded = true; Layout();
                     var text = Assert.Single(Descendants(details).OfType<TextBox>());
                     Assert.True(text.IsReadOnly); Assert.Equal(row.InheritedSetupQueryDetails, text.Text);
                     text.SelectAll(); Assert.Equal(text.Text, text.SelectedText);
                     Assert.InRange(text.ActualWidth, 200, grid.ActualWidth - 24);
-                    Assert.Equal(4, grid.FrozenColumnCount); Assert.True(grid.IsReadOnly);
+                    Assert.Equal(5, grid.FrozenColumnCount); Assert.True(grid.IsReadOnly);
                     workspace.SelectConfigurationItem("execution");
                     var workspaceView = new Sortopia.WPF.Views.Pages.Workspace.WorkspacePage { DataContext = workspace };
                     void WorkspaceLayout() { workspaceView.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle); workspaceView.Measure(new Size(1400, 1000)); workspaceView.Arrange(new Rect(0, 0, 1400, 1000)); workspaceView.UpdateLayout(); }

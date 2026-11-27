@@ -9,6 +9,20 @@ namespace Sortopia.FileDb.Tests;
 public sealed class ExecutionTuningTests
 {
     [Theory]
+    [InlineData(1073741824L)]
+    [InlineData(1073741825L)]
+    [InlineData(1073745919L)]
+    [InlineData(3983572993L)]
+    [InlineData(long.MaxValue)]
+    public void Windows_memory_cap_uses_whole_pages_without_exceeding_the_selected_budget(long requested)
+    {
+        var actual = WindowsExecutionLimits.memoryLimitBytes(requested);
+        Assert.Equal(0, actual % Environment.SystemPageSize);
+        Assert.InRange(requested - actual, 0, Environment.SystemPageSize - 1);
+        Assert.Equal(actual, WindowsExecutionLimits.memoryLimitBytes(actual));
+    }
+
+    [Theory]
     [InlineData(1, 8, 1, 1)]
     [InlineData(2, 8, 2, 1)]
     [InlineData(8, 8, 8, 4)]

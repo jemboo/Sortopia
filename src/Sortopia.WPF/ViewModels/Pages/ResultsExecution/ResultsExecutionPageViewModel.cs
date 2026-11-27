@@ -12,6 +12,7 @@ public sealed record RunFileChoice(Guid? Id, string Label);
 public sealed class WorkItemStatusRow(string path, runParameters? parameters, workItemOutputStatus? initialInspection, string error = "", bool checking = false) : ViewModelBase, ISetupQueryRow
 {
     private bool selected;
+    private bool expanded;
     private workItemOutputStatus? inspection = initialInspection;
     private string inspectionError = error;
     private string inspectionStatus = checking ? "Checking" : "";
@@ -32,6 +33,8 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
         + (parameters?.Reporting is null ? "" : State == outputState.Complete ? " · evolution reports complete" : " · evolution reports required");
     public string Error => inspectionError.Length > 0 ? inspectionError : inspection?.Outputs.Error ?? "";
     public bool HasError => Error.Length > 0;
+    public bool HasDetails => HasSetupInputs || HasError;
+    public bool IsExpanded { get => expanded; set => SetProperty(ref expanded, value); }
     public bool CanExecute => inspectionStatus.Length == 0 && parameters is not null && State != outputState.Invalid;
     public string[] Cells { get; private set; } = [];
     public bool HasSetupInputs => parameters?.SetupInputs.IsEmpty == false;
@@ -53,7 +56,8 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     }
     private void NotifyInspection()
     {
-        foreach (var property in new[] { nameof(Status), nameof(State), nameof(IsChecking), nameof(OutputSummary), nameof(Error), nameof(HasError), nameof(CanExecute), nameof(CompletedGenerations), nameof(GenerationsText) }) OnPropertyChanged(property);
+        if (!HasDetails) IsExpanded = false;
+        foreach (var property in new[] { nameof(Status), nameof(State), nameof(IsChecking), nameof(OutputSummary), nameof(Error), nameof(HasError), nameof(HasDetails), nameof(CanExecute), nameof(CompletedGenerations), nameof(GenerationsText) }) OnPropertyChanged(property);
     }
     internal void SetSnapshotGeneration(int? value)
     {
@@ -100,9 +104,9 @@ public sealed partial class ResultsExecutionPageViewModel : ViewModelBase, IDisp
         this.inspectHistory = inspectHistory;
         OpenEvolutionHistoryCommand = new RelayCommand(async () => await OpenEvolutionHistoryAsync(), () => CanOpenEvolutionHistory);
         this.openRun = openRun;
-        OpenRunCommand = new RelayCommand(async value =>
+        OpenRunCommand = new RelayCommand(async () =>
         {
-            if ((value as WorkItemStatusRow ?? SelectedFile)?.Parameters is not { } item || this.openRun is null) return;
+            if (DisplayedRun is not { } item || this.openRun is null) return;
             try
             {
                 var target = ProducingRun.Find(RunParameterFiles.projectFolder(Folder), item.ProjectId, item.RunId)
@@ -110,7 +114,7 @@ public sealed partial class ResultsExecutionPageViewModel : ViewModelBase, IDisp
                 await this.openRun(target);
             }
             catch (Exception e) { Error = $"Cannot open the producing run. {e.GetBaseException().Message}"; }
-        }, () => SelectedFile?.Parameters is not null && this.openRun is not null && !IsBusy);
+        }, () => this.openRun is not null && !IsBusy && DisplayedRun is not null);
         this.goBack = goBack; this.pickFolder = pickFolder;
         this.launchTerminal = launchTerminal ?? ResultsCommandTerminal.Launch;
         this.launchSettings = launchSettings;
@@ -171,12 +175,20 @@ public sealed partial class ResultsExecutionPageViewModel : ViewModelBase, IDisp
         {
             if (SetProperty(ref selectedFile, value))
             {
-                OpenRunCommand.RaiseCanExecuteChanged();
                 OpenEvolutionHistoryCommand.RaiseCanExecuteChanged();
             }
         }
     }
     public RelayCommand OpenRunCommand { get; }
+    private runParameters? DisplayedRun
+    {
+        get
+        {
+            var items = Rows.Select(row => row.Parameters).OfType<runParameters>()
+                .DistinctBy(item => (item.ProjectId, item.RunId)).Take(2).ToArray();
+            return items.Length == 1 ? items[0] : null;
+        }
+    }
     public RelayCommand OpenEvolutionHistoryCommand { get; }
     private bool CanOpenEvolutionHistory => !IsBusy && inspectHistory is not null
         && SelectedFile?.Parameters?.Sgd is not null && Rows.Contains(SelectedFile);

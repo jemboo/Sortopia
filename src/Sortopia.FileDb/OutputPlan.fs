@@ -1,6 +1,9 @@
 namespace Sortopia.FileDb
 
 open System
+open System.Buffers
+open System.IO
+open System.Security.Cryptography
 open System.Threading
 open Sortopia.Runs
 open Sortopia.Functions
@@ -18,6 +21,32 @@ type outputInspection = {
 }
 
 module OutputPlan =
+    // A full validation can be reused within one execution only while every
+    // output's bytes still match. Hash streams with bounded memory; dates and
+    // file sizes cannot detect same-size corruption or replacement.
+    let internal fingerprints (store: SortopiaFileDb) (plan: Map<runDataOutput, plannedOutput>) (token: CancellationToken) =
+        token.ThrowIfCancellationRequested()
+        let paths = plan |> Map.toArray |> Array.map (fun (_, output) -> store.GetPath output.Key.Reference)
+        if paths |> Array.exists (File.Exists >> not) then None
+        else
+            let buffer = ArrayPool<byte>.Shared.Rent(64 * 1024)
+            try
+                try
+                    let hashes = paths |> Array.map (fun path ->
+                        token.ThrowIfCancellationRequested()
+                        use stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
+                        use hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256)
+                        let mutable count = stream.Read(buffer, 0, buffer.Length)
+                        while count <> 0 do
+                            token.ThrowIfCancellationRequested()
+                            hash.AppendData(buffer, 0, count)
+                            count <- stream.Read(buffer, 0, buffer.Length)
+                        hash.GetHashAndReset())
+                    token.ThrowIfCancellationRequested()
+                    Some hashes
+                with :? IOException | :? UnauthorizedAccessException -> None
+            finally ArrayPool<byte>.Shared.Return buffer
+
     let bind projectId databaseName isSetup functionName version (outputs: (runDataOutput * (sortopiaStorageData -> unit)) list) =
         outputs |> List.map (fun (output, validate) ->
             let keys = output.QueryParameters.ParamMap |> Map.toList |> List.map fst

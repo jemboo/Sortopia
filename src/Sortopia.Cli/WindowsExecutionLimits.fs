@@ -84,7 +84,15 @@ module internal WindowsExecutionLimits =
             Marshal.PtrToStructure<'a> buffer
         finally Marshal.FreeHGlobal buffer
 
-    type Handle internal (job: SafeFileHandle) =
+    /// Windows stores job memory caps in whole pages. Round down so the enforced
+    /// budget never exceeds the selection, and all worker/GC budgets use the same value.
+    let memoryLimitBytes (requestedBytes: int64) =
+        let page = int64 Environment.SystemPageSize
+        if requestedBytes < page then invalidArg "requestedBytes" "The memory limit must be at least one system page."
+        requestedBytes - requestedBytes % page
+
+    type Handle internal (job: SafeFileHandle, memoryBytes: int64) =
+        member _.MemoryBytes = memoryBytes
         member _.ReadUsage() =
             let accounting = query<Accounting> job 1
             let memory = query<ExtendedLimits> job 9
@@ -98,11 +106,12 @@ module internal WindowsExecutionLimits =
         let memory = query<ExtendedLimits> currentJob 9
         if cpu.Flags &&& 0x5u <> 0x5u || cpu.Rate <> uint32 (cpuPercent * 100) ||
            memory.Basic.Flags &&& 0x200u = 0u || uint64 memory.JobMemory <> uint64 memoryBytes then
-            invalidOp "The execution worker did not inherit the requested CPU and memory limits. No results were executed."
+            invalidOp $"The execution worker did not inherit the requested CPU and memory limits. Expected CPU rate {cpuPercent * 100} and job memory {memoryBytes} bytes; found CPU flags {cpu.Flags}, rate {cpu.Rate}, memory flags {memory.Basic.Flags}, job memory {uint64 memory.JobMemory} bytes. No results were executed."
 
     let applyTracked cpuPercent memoryBytes =
         if not (OperatingSystem.IsWindows()) || not Environment.Is64BitProcess then
             raise (PlatformNotSupportedException("CPU and memory enforcement requires 64-bit Windows."))
+        let memoryBytes = memoryLimitBytes memoryBytes
         let job = CreateJobObject(0n, null)
         try
             if job.IsInvalid then raise (Win32Exception(Marshal.GetLastWin32Error()))
@@ -124,7 +133,7 @@ module internal WindowsExecutionLimits =
             // explicitly: changing environment variables after CLR startup has no effect.
             AppContext.SetData("GCHeapHardLimit", uint64 (memoryBytes / 4L * 3L))
             GC.RefreshMemoryLimit()
-            new Handle(job)
+            new Handle(job, memoryBytes)
         with _ ->
             job.Dispose()
             reraise ()

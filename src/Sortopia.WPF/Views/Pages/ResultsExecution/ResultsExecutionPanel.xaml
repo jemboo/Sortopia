@@ -5,6 +5,22 @@
  <UserControl.Resources><ResourceDictionary>
   <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Sortopia.WPF;component/Styles/WorkspaceTheme.xaml" /></ResourceDictionary.MergedDictionaries>
   <BooleanToVisibilityConverter x:Key="ErrorVisibility" />
+  <DataTemplate x:Key="ExecutionExpander">
+   <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="28" Height="26" HorizontalAlignment="Center" VerticalAlignment="Center"
+                 Visibility="{Binding HasDetails, Converter={StaticResource ErrorVisibility}}"
+                 ToolTip="Show or hide row details" AutomationProperties.Name="{Binding FileName, StringFormat=Show or hide details for {0}}">
+    <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+     <Border x:Name="Surface" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="4">
+      <Path x:Name="Chevron" Data="M 0,0 L 4,4 L 0,8" Stroke="{StaticResource Workspace.TextPrimary}" StrokeThickness="1.5" HorizontalAlignment="Center" VerticalAlignment="Center" />
+     </Border>
+     <ControlTemplate.Triggers>
+      <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chevron" Property="Data" Value="M 0,0 L 4,4 L 8,0" /></Trigger>
+      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource Workspace.SurfaceHover}" /></Trigger>
+      <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource Workspace.Focus}" /></Trigger>
+     </ControlTemplate.Triggers>
+    </ControlTemplate></ToggleButton.Template>
+   </ToggleButton>
+  </DataTemplate>
   <DataTemplate x:Key="ExecutionCheck">
    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
              HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.Name="{Binding FileName, StringFormat=Execute {0}}"
@@ -42,6 +58,8 @@
   </StackPanel>
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
    <Button x:Name="ExecuteSelectedButton" Content="Execute in terminal" Command="{Binding ExecuteCommandLineCommand}" Margin="0,0,8,6" />
+   <Button x:Name="OpenRunButton" Content="Open run in workspace" Command="{Binding OpenRunCommand}" Margin="0,0,8,6"
+           ToolTip="Open the run displayed in the grid. If multiple runs are shown, choose one in the run filter." />
    <Button x:Name="UpdateProgressButton" Content="Update progress" Command="{Binding UpdateProgressCommand}" Margin="0,0,8,6"
            ToolTip="Read the latest temporary or retained snapshot for each visible file. Saved generations also update when a snapshot is published." />
    <Button x:Name="OpenEvolutionHistoryButton" Content="View evolution histograms" Command="{Binding OpenEvolutionHistoryCommand}" Margin="0,0,8,6"
@@ -69,31 +87,31 @@
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="Checked files execute together in a separate terminal. The selection and resource limits are captured at launch; follow output and cancel there. Saved generations update when snapshots are published. Update progress also reads them on demand."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="Click a Setup column header to sort by that inherited query value. Select a row and expand Inherited setup query values to inspect or copy its setup combination. Files with inspection errors also have Error details."
+   <TextBlock Text="Click a Setup column header to sort by that inherited query value. Use the Details column's arrow to show or hide a file's inherited setup query values and error details."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="To report a whole sweep, choose its run filter, Check all, then Export CSV reports. SGD runs create only EvolutionSummary.csv with sampled pool statistics. Ordinary evaluation runs create Summary.csv and Details.csv. The checked combinations replace the previous CSV export directly in the project's reports folder."
               Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
   </StackPanel>
   <DataGrid x:Name="RunParametersGrid" Grid.Row="3" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedFile}" AutoGenerateColumns="False" IsReadOnly="True"
-            shared:SetupQueryColumns.InsertIndex="4" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
+            shared:SetupQueryColumns.InsertIndex="5" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
             CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Extended" SelectionUnit="FullRow"
-            HeadersVisibility="All" FrozenColumnCount="4" MinHeight="140"
-            AreRowDetailsFrozen="True" RowDetailsVisibilityMode="VisibleWhenSelected"
+            HeadersVisibility="All" FrozenColumnCount="5" MinHeight="140"
+            AreRowDetailsFrozen="True"
             EnableRowVirtualization="True" EnableColumnVirtualization="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
             AutomationProperties.Name="Run parameter files and output status">
    <DataGrid.RowStyle><Style TargetType="DataGridRow">
     <Setter Property="ToolTip" Value="{Binding Error}" />
+    <Setter Property="DetailsVisibility" Value="{Binding IsExpanded, Converter={StaticResource ErrorVisibility}}" />
    </Style></DataGrid.RowStyle>
    <DataGrid.RowDetailsTemplate><DataTemplate>
     <Border Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=DataGrid}}" Padding="8,2,36,6" HorizontalAlignment="Left">
      <StackPanel>
-     <Button Content="Open run in workspace" Command="{Binding DataContext.OpenRunCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" HorizontalAlignment="Left" Margin="0,4,0,8" />
-     <Expander Header="Inherited setup query values" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Inherited setup query value details"
+     <Expander Header="Inherited setup query values" IsExpanded="True" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Inherited setup query value details"
                Visibility="{Binding HasSetupInputs, Converter={StaticResource ErrorVisibility}}">
       <TextBox Text="{Binding InheritedSetupQueryDetails, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="180" VerticalScrollBarVisibility="Auto"
                HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Inherited setup query values" Margin="0,6,0,0" />
      </Expander>
-     <Expander Header="Error details" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run parameter error details"
+     <Expander Header="Error details" IsExpanded="True" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run parameter error details"
                Visibility="{Binding HasError, Converter={StaticResource ErrorVisibility}}">
       <TextBox Text="{Binding Error, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"
                HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Run parameter error" Margin="0,6,0,0" />
