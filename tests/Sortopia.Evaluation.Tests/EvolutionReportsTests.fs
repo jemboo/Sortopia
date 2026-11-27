@@ -123,11 +123,11 @@ module EvolutionReportsTests =
         Assert.Equal(reportValue.Missing, oldReport["UnsuccessfulLengthHistogram"])
 
     [<Fact>]
-    let ``report histogram cells contain deterministic JSON with named length coordinates`` () =
+    let ``report histogram cells contain deterministic JSON triples in CE stage count order`` () =
         let summary = summarize [|[|evaluation 0 8 4; evaluation 0 4 2; evaluation 0 8 4; evaluation 1 8 4|]|]
         let row = EvolutionReports.row summary.Rows[0]
-        Assert.Equal(reportValue.Text "[{\"CeLength\":4,\"StageLength\":2,\"Count\":1},{\"CeLength\":8,\"StageLength\":4,\"Count\":2}]", row["SuccessfulLengthHistogram"])
-        Assert.Equal(reportValue.Text "[{\"CeLength\":8,\"StageLength\":4,\"Count\":1}]", row["UnsuccessfulLengthHistogram"])
+        Assert.Equal(reportValue.Text "[[4,2,1],[8,4,2]]", row["SuccessfulLengthHistogram"])
+        Assert.Equal(reportValue.Text "[[8,4,1]]", row["UnsuccessfulLengthHistogram"])
         use output = new MemoryStream()
         CsvReport.write output { Columns = EvolutionReports.columns; Rows = [row] } CancellationToken.None
         Assert.True(output.Length > 0L)

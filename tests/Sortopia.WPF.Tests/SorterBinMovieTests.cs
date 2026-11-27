@@ -1,7 +1,9 @@
 using System.IO;
+using System.ComponentModel;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.FSharp.Core;
@@ -43,19 +45,76 @@ public sealed class SorterBinMovieTests : IDisposable
         Row(40, 0, [], [new(48, 9, 3)]),
         Row(40, 1, [new(48, 9, 2)], [new(52, 10, 1)]) ]);
 
-    private string Save(sorterPoolSummarySet summary, string name = "Project")
+    private string Save(sorterPoolSummarySet summary, string name = "Project", int? generation = null, int? repl = null)
     {
         var folder = Path.Combine(temporary.FullName, name);
         var projectId = Guid.NewGuid();
         var store = new SortopiaFileDb(folder, projectId);
+        var bindings = new List<parameterBinding>();
+        if (generation is { } g) bindings.Add(ParameterBinding.create(ParamKeys.generationCurrentKey, g));
+        if (repl is { } r) bindings.Add(ParameterBinding.fromText("Repl", parameterValueType.Integer, r.ToString()));
         var key = DataKey.create(projectId, "Results", false, "sorter-sgd.standard.msrs.simple", "1",
-            sortopiaDataType.NewSorterPoolSummarySet(""), [], parameterSet.fromBindings([]), []);
+            sortopiaDataType.NewSorterPoolSummarySet(""), Microsoft.FSharp.Collections.ListModule.OfSeq(bindings.Select(binding => binding.KeyName)), parameterSet.fromBindings(bindings), []);
         var saved = ((ISortopiaDb)store).GetOrCreate(key,
             FuncConvert.FromFunc(() => FSharpResult<sortopiaStorageData, string>.NewOk(sortopiaStorageData.NewSorterPoolSummarySet(summary))), Token);
         Assert.True(saved.IsOk, saved.IsError ? saved.ErrorValue : "");
         return store.GetPath(key.Reference);
     }
     private static InspectorFile Entry(string path) => new(WorkspaceFileInspection.entry(path));
+
+    [Fact]
+    public async Task Inspector_columns_sort_saved_query_values_generations_and_creation_times_numerically()
+    {
+        var firstPath = Save(Summary(), generation: 2, repl: 2);
+        var secondPath = Save(Summary(), generation: 10, repl: 10);
+        File.SetCreationTimeUtc(firstPath, new DateTime(2025, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+        File.SetCreationTimeUtc(secondPath, new DateTime(2024, 12, 30, 0, 0, 0, DateTimeKind.Utc));
+        var folder = Path.GetDirectoryName(firstPath)!;
+        File.WriteAllBytes(Path.Combine(folder, "broken.msgpack"), [0xc1]);
+        using var model = new FileInspectorPageViewModel(() => { }, _ => null);
+        await model.OpenRootAsync(folder);
+        Assert.Equal(3, model.Entries.Count);
+        Assert.Empty(model.Error);
+        Assert.NotEmpty(model.Entries.Single(row => row.Name == "broken.msgpack").QueryError);
+        var first = model.Entries.Single(row => row.FullPath == firstPath);
+        Assert.Equal(File.GetCreationTimeUtc(firstPath).ToLocalTime(), first.Created);
+        Assert.Equal(2, first.GenerationCurrent);
+        RunSta(() =>
+        {
+            var page = new FileInspectorPage { DataContext = model };
+            void Layout() { page.Measure(new Size(1500, 900)); page.Arrange(new Rect(0, 0, 1500, 900)); page.UpdateLayout(); }
+            Layout();
+            var grid = (DataGrid)page.FindName("FileList");
+            Assert.Equal(new[] { "Name", "Created", "Size", "GenerationCurrent", "Repl" }, grid.Columns.Select(column => column.Header));
+            static IEnumerable<DependencyObject> Descendants(DependencyObject node)
+            {
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+                {
+                    var child = VisualTreeHelper.GetChild(node, index); yield return child;
+                    foreach (var descendant in Descendants(child)) yield return descendant;
+                }
+            }
+            void Click(string name)
+            {
+                var column = grid.Columns.Single(column => Equals(column.Header, name));
+                grid.ScrollIntoView(first, column); Layout();
+                var header = Descendants(grid).OfType<DataGridColumnHeader>().Single(header => header.Column == column);
+                // Exercise the header's actual click path in this offscreen WPF layout.
+                typeof(DataGridColumnHeader).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(header, null);
+                Layout();
+            }
+            Click("Repl");
+            Assert.Equal(ListSortDirection.Ascending, grid.Columns[^1].SortDirection);
+            Assert.Equal(new[] { "2", "10" }, grid.Items.Cast<InspectorFile>().Where(row => row.QueryError.Length == 0).Select(row => row.QueryCells[0].Text));
+            Click("Repl");
+            Assert.Equal(new[] { "10", "2" }, grid.Items.Cast<InspectorFile>().Where(row => row.QueryError.Length == 0).Select(row => row.QueryCells[0].Text));
+            Click("GenerationCurrent");
+            Assert.Equal(new int?[] { 2, 10 }, grid.Items.Cast<InspectorFile>().Where(row => row.IsEvolution).Select(row => row.GenerationCurrent));
+            Click("Created");
+            Assert.Equal(secondPath, ((InspectorFile)grid.Items[0]).FullPath);
+            page.DataContext = null;
+        });
+    }
 
     [Fact]
     public void Population_pool_and_sparse_generation_selections_show_exact_weighted_bins()
@@ -263,6 +322,9 @@ public sealed class SorterBinMovieTests : IDisposable
                 var movie = Assert.IsType<SorterBinMovie>(page.FindName("sorterBinMovie"));
                 Assert.Same(inspector.BinMovie, movie.DataContext);
                 Assert.Equal(Visibility.Visible, ((Border)page.FindName("HistogramPanel")).Visibility);
+                Assert.Equal(Visibility.Collapsed, ((TextBlock)page.FindName("KindHeading")).Visibility);
+                Assert.Equal(Visibility.Collapsed, ((TreeView)page.FindName("RunDetails")).Visibility);
+                Assert.Equal(Visibility.Collapsed, ((StackPanel)page.FindName("FileMetadataPanel")).Visibility);
                 var population = (ComboBox)movie.FindName("HistogramSelector");
                 var generation = (ComboBox)movie.FindName("GenerationSelector");
                 var pool = (ComboBox)movie.FindName("PoolSelector");

@@ -36,10 +36,8 @@ public partial class ResultsExecutionPanel : UserControl
             SortMemberPath = nameof(WorkItemStatusRow.IsSelected) });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "File name", Binding = new Binding("FileName"), Width = 325, MinWidth = 180 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new Binding("Status"), Width = 90 });
-        var generationStyle = new Style(typeof(TextBlock));
-        generationStyle.Setters.Add(new Setter(ToolTipProperty, "Last saved generation / target (SnapshotInterval × SnapshotCount). Updates when temporary or retained snapshots are published; Update progress also reads them on demand. A dash means no snapshot is saved or this function does not evolve."));
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Generations", Binding = new Binding("GenerationsText"), SortMemberPath = "CompletedGenerations",
-            Width = 135, ElementStyle = generationStyle });
+            Width = 135 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Outputs", Binding = new Binding("OutputSummary"), Width = 100 });
         RunParametersGrid.Columns.Add(new DataGridTextColumn { Header = "Executor", Binding = new Binding("FunctionName"), Width = 230 });
         SetupQueryColumns.Refresh(RunParametersGrid);

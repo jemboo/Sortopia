@@ -46,6 +46,9 @@ public sealed class FileInspectionTests : IDisposable
         Assert.Equal("ChannelCount", queryParameter.GetProperty("Key").GetString());
         Assert.Equal("Integer", queryParameter.GetProperty("Type").GetString());
         Assert.Equal("16", queryParameter.GetProperty("Value").GetString());
+        var typed = FileInspection.readDataQuery(path, Token);
+        Assert.Equal(key.Reference.DataType, typed.DataType);
+        Assert.Equal(parameterValue.NewIntegerValue(16), Assert.Single(typed.Parameters).Value);
         using (var stream = File.OpenWrite(path)) stream.SetLength(buffer.WrittenCount);
         Assert.ThrowsAny<Exception>(() => FileInspection.inspectData(path, Token));
     }

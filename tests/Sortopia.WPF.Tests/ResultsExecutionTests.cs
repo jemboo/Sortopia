@@ -355,6 +355,21 @@ public sealed class ResultsExecutionTests : IDisposable
                     return Descendants(grid.Columns[1].GetCellContent(container)).OfType<CheckBox>().Single();
                 }
                 Check(model.Rows[0]).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+                var first = model.Rows[0];
+                Assert.False(first.HasSetupInputs); Assert.False(first.HasError);
+                var firstContainer = (DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(first);
+                var expander = Descendants(grid.Columns[0].GetCellContent(firstContainer)).OfType<System.Windows.Controls.Primitives.ToggleButton>().Single();
+                Assert.Equal(Visibility.Visible, expander.Visibility);
+                var toggle = (System.Windows.Automation.Provider.IToggleProvider)new System.Windows.Automation.Peers.ToggleButtonAutomationPeer(expander)
+                    .GetPattern(System.Windows.Automation.Peers.PatternInterface.Toggle)!;
+                toggle.Toggle(); Layout();
+                Assert.True(first.IsExpanded); Assert.Equal(Visibility.Visible, firstContainer.DetailsVisibility);
+                var details = Descendants(firstContainer).OfType<TextBox>()
+                    .Single(text => System.Windows.Automation.AutomationProperties.GetName(text) == "Run parameter file details");
+                Assert.True(details.IsReadOnly); Assert.Contains(first.Path, details.Text); Assert.Contains("SortableDataFormat =", details.Text);
+                Assert.Equal(1, model.SelectedCount);
+                toggle.Toggle(); Layout();
+                Assert.False(first.IsExpanded); Assert.Equal(Visibility.Collapsed, firstContainer.DetailsVisibility);
                 model.Rows[^1].IsSelected = true;
                 Layout(); Assert.Equal(2, model.SelectedCount); Assert.False(model.Rows[1].IsSelected);
                 Assert.True(((Button)panel.FindName("ExecuteSelectedButton")).IsEnabled);
@@ -376,6 +391,7 @@ public sealed class ResultsExecutionTests : IDisposable
                 if (Environment.GetEnvironmentVariable("SORTOPIA_RESULTS_SCREENSHOT") is { Length: > 0 } path)
                 {
                     model.Rows[0].IsSelected = model.Rows[2].IsSelected = true;
+                    model.Rows[0].IsExpanded = true;
                     grid.ScrollIntoView(model.Rows[0]); Layout();
                     var bitmap = new RenderTargetBitmap(1100, 760, 96, 96, PixelFormats.Pbgra32); bitmap.Render(view);
                     var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));

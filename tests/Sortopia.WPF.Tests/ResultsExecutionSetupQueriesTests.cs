@@ -263,7 +263,17 @@ public sealed partial class ResultsExecutionSetupQueriesTests : IDisposable
                 Assert.True(await workspace.OpenProducingRunAsync(target));
             });
             await inspector.OpenRootAsync(project);
+            await inspector.OpenFolderAsync(workspace.RunParametersFolder);
+            Assert.All(inspector.Entries, row =>
+            {
+                Assert.Empty(row.QueryError);
+                Assert.True(row.IsEvolution);
+                Assert.Null(row.GenerationCurrent);
+                Assert.All(row.QueryParameters, binding => Assert.Equal("OrthoRate", binding.Key.Name));
+                Assert.NotEmpty(row.QueryParameters);
+            });
             await inspector.InspectAsync(new(WorkspaceFileInspection.entry(path)));
+            Assert.True(inspector.ShowFileDetails);
             Assert.Empty(inspector.Error);
             var context = Assert.Single(inspector.ProducingRuns);
             Assert.Equal(item.RunId, context.Target!.RunId);

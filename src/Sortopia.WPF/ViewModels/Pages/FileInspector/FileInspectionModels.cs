@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -8,18 +9,97 @@ using Sortopia.Evaluation.Sgd;
 
 namespace Sortopia.WPF.ViewModels.Pages.FileInspector;
 
-public sealed record InspectorFile(inspectionEntry Entry)
+public sealed class InspectorFile(inspectionEntry entry) : INotifyPropertyChanged
 {
+    public inspectionEntry Entry { get; } = entry;
     public string Name => Entry.Name;
     public string FullPath => Entry.FullPath;
     public bool IsDirectory => Entry.IsDirectory;
     public string Kind => Entry.IsLink ? "Link" : IsDirectory ? "Folder" : Path.GetExtension(Name).ToLowerInvariant() switch
     { ".msgpack" => "MessagePack", ".lock" => "Lock", ".tmp" => "Temporary", _ => "File" };
     public string Size => IsDirectory ? "" : FormatSize(Entry.Length);
+    public DateTime Created => Entry.CreatedUtc.ToLocalTime();
     public string Modified => Entry.ModifiedUtc.ToLocalTime().ToString("g");
+    internal Dictionary<InspectorQueryKey, parameterBinding> QueryParameters { get; } = [];
+    public InspectorQueryCell[] QueryCells { get; private set; } = [];
+    public int? GenerationCurrent { get; private set; }
+    public bool IsEvolution { get; private set; }
+    public string QueryError { get; private set; } = "";
+    public string ToolTip => QueryError.Length == 0 ? FullPath : $"{FullPath}{Environment.NewLine}{QueryError}";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    internal void SetColumns(IEnumerable<InspectorQueryKey> keys)
+    {
+        QueryCells = keys.Select(key => QueryParameters.TryGetValue(key, out var binding)
+            ? new InspectorQueryCell(binding.FormattedValue, binding.Value)
+            : new InspectorQueryCell(QueryError.Length > 0 ? "Unavailable" : "—", null)).ToArray();
+        PropertyChanged?.Invoke(this, new(nameof(QueryCells)));
+    }
+
+    internal static InspectorFile Read(string root, inspectionEntry entry, CancellationToken token)
+    {
+        var file = new InspectorFile(entry);
+        token.ThrowIfCancellationRequested();
+        if (entry.IsDirectory || entry.IsLink || !Path.GetExtension(entry.Name).Equals(".msgpack", StringComparison.OrdinalIgnoreCase)) return file;
+        var folder = Path.GetDirectoryName(entry.FullPath)!;
+        var category = Path.GetFileName(folder);
+        var phase = Path.GetFileName(Path.GetDirectoryName(folder));
+        try
+        {
+            void Add(sortopiaDataType type, parameterBinding binding) => file.QueryParameters[new(type, binding.KeyName)] = binding;
+            if (category.Equals("runParameters", StringComparison.OrdinalIgnoreCase))
+            {
+                WorkspaceFileInspection.checkedPath(root, entry.FullPath);
+                var item = RunParameterFiles.loadFile(entry.FullPath);
+                foreach (var output in item.Results.Outputs)
+                    foreach (var key in output.QueryParameterKeys)
+                        if (item.Parameters.TryFind(key) is { } binding) Add(output.DataType, binding.Value);
+                file.IsEvolution = item.Sgd is not null;
+                if (file.IsEvolution) file.GenerationCurrent = RunOutputFiles.completedGeneration(Path.GetDirectoryName(folder)!, item, token)?.Value;
+            }
+            else if (phase?.Equals("results", StringComparison.OrdinalIgnoreCase) == true || phase?.Equals("setup", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                WorkspaceFileInspection.checkedPath(root, entry.FullPath);
+                if (category.Equals("temporarySnapshots", StringComparison.OrdinalIgnoreCase))
+                {
+                    file.IsEvolution = true;
+                    var data = FileInspection.inspectTemporary(entry.FullPath, token);
+                    if (data.Json.Length > 0)
+                    {
+                        using var json = JsonDocument.Parse(data.Json);
+                        var value = json.RootElement.GetProperty("Generation");
+                        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var generation)) file.GenerationCurrent = generation;
+                    }
+                }
+                else
+                {
+                    var query = FileInspection.readDataQuery(entry.FullPath, token);
+                    foreach (var binding in query.Parameters)
+                    {
+                        if (binding.KeyName == "GenerationCurrent")
+                        {
+                            file.IsEvolution = true;
+                            file.GenerationCurrent = ((parameterValue.IntegerValue)binding.Value).Item;
+                        }
+                        else Add(query.DataType, binding);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception e) { file.QueryError = $"Query parameters unavailable: {e.GetBaseException().Message}"; }
+        return file;
+    }
     public static string FormatSize(long bytes) => bytes switch
     { < 1024 => $"{bytes:N0} B", < 1048576 => $"{bytes / 1024d:N1} KiB", < 1073741824 => $"{bytes / 1048576d:N1} MiB", _ => $"{bytes / 1073741824d:N2} GiB" };
 }
+
+internal sealed record InspectorQueryKey(sortopiaDataType DataType, string Name)
+{
+    internal string DataTypeLabel => SortopiaDataType.kindName(DataType)
+        + (SortopiaDataType.text(DataType) is { Length: > 0 } label ? $" · {label}" : "");
+}
+public sealed record InspectorQueryCell(string Text, parameterValue? SortValue);
 
 public sealed record InspectionNode(string Name, string Value, IReadOnlyList<InspectionNode> Children)
 {
@@ -34,7 +114,8 @@ public sealed record InspectorReference(string Label, string FullPath, bool Exis
 }
 
 internal sealed record InspectionReport(string Kind, string Description, IReadOnlyList<InspectionNode> Details,
-    IReadOnlyList<InspectorReference> References, sorterPoolSummarySet? PoolSummary = null, string Error = "", SummaryHistorySource? HistorySource = null)
+    IReadOnlyList<InspectorReference> References, sorterPoolSummarySet? PoolSummary = null, string Error = "", SummaryHistorySource? HistorySource = null,
+    bool SummaryOnly = false)
 {
     private static string Label(string name) => name switch
     {
@@ -160,7 +241,7 @@ internal sealed record InspectionReport(string Kind, string Description, IReadOn
                 ? FileInspection.loadPoolSummary(path, token) : null;
             return new(data.Kind, summary is null ? data.Description
                 : "Saved pool histograms for the generations in this file. Select a population and generation, or play the sequence. Payload identity, checksum and summary contents validated.",
-                DecodeDetails(data.Json), [], summary);
+                DecodeDetails(data.Json), [], summary, SummaryOnly: summary is not null);
         }
         var config = WorkspaceFileInspection.inspectConfiguration(root, path, token);
         var description = config.Description + (config.References.Length > 200 ? $" Showing the first 200 of {config.References.Length:N0} referenced-file links; browse the child folder for the rest." : "");

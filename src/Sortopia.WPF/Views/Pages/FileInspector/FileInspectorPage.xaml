@@ -13,33 +13,16 @@
         <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F1F5F9" />
         <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#223D58" />
         <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#F1F5F9" />
-        <Style x:Key="InspectorFileItem" TargetType="ListViewItem">
-            <Setter Property="ToolTip" Value="{Binding FullPath}" />
+        <Style x:Key="InspectorFileItem" TargetType="DataGridRow">
+            <Setter Property="ToolTip" Value="{Binding ToolTip}" />
             <Setter Property="Foreground" Value="{StaticResource Workspace.TextPrimary}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListViewItem">
-                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="3">
-                    <GridViewRowPresenter Content="{TemplateBinding Content}" Columns="{Binding View.Columns, RelativeSource={RelativeSource AncestorType=ListView}}" />
-                </Border>
-                <ControlTemplate.Triggers>
+                <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.SurfaceHover}" /></Trigger>
                     <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource Workspace.Selection}" /></Trigger>
                     <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{StaticResource Workspace.Focus}" /></Trigger>
-                </ControlTemplate.Triggers>
-            </ControlTemplate></Setter.Value></Setter>
-        </Style>
-        <Style TargetType="GridViewColumnHeader">
-            <Setter Property="Foreground" Value="{StaticResource Workspace.TextSecondary}" />
-            <Setter Property="Background" Value="{StaticResource Workspace.SurfaceRaised}" />
-            <Setter Property="BorderBrush" Value="{StaticResource Workspace.StrokeSubtle}" />
-            <Setter Property="Padding" Value="6" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="GridViewColumnHeader">
-                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,0,1,1" Padding="{TemplateBinding Padding}">
-                    <ContentPresenter />
-                </Border>
-            </ControlTemplate></Setter.Value></Setter>
+                </Style.Triggers>
         </Style>
         <BooleanToVisibilityConverter x:Key="BoolVisibility" />
         <HierarchicalDataTemplate DataType="{x:Type vm:InspectionNode}" ItemsSource="{Binding Children}">
@@ -60,7 +43,6 @@
         <DockPanel Margin="0,0,0,12">
             <Button DockPanel.Dock="Right" Content="← _Back" Command="{Binding ReturnCommand}" Style="{StaticResource PageReturnButtonStyle}" Margin="12,0,0,0" />
             <StackPanel>
-                <TextBlock Text="Workspace file inspector" FontSize="24" FontWeight="SemiBold" />
                 <TextBlock Text="Read saved configuration and inspect data summaries" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,4,0,0" />
             </StackPanel>
         </DockPanel>
@@ -87,17 +69,18 @@
                             <TextBox.InputBindings><KeyBinding Key="Enter" Command="{Binding FilterCommand}" /></TextBox.InputBindings>
                         </TextBox>
                     </DockPanel>
-                    <ListView x:Name="FileList" Grid.Row="3" ItemsSource="{Binding Entries}" SelectedItem="{Binding Selected}" MouseDoubleClick="OnOpenFolder" KeyDown="OnListKeyDown"
+                    <DataGrid x:Name="FileList" Grid.Row="3" ItemsSource="{Binding Entries}" SelectedItem="{Binding Selected}" MouseDoubleClick="OnOpenFolder" KeyDown="OnListKeyDown"
+                              AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                              SelectionMode="Single" SelectionUnit="FullRow" HeadersVisibility="Column" RowStyle="{StaticResource InspectorFileItem}"
                               Background="{StaticResource Workspace.Surface}" Foreground="{StaticResource Workspace.TextPrimary}" BorderBrush="{StaticResource Workspace.StrokeSubtle}"
                               ScrollViewer.HorizontalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                               AutomationProperties.Name="Files and folders">
-                        <ListView.ItemContainerStyle><StaticResource ResourceKey="InspectorFileItem" /></ListView.ItemContainerStyle>
-                        <ListView.View><GridView>
-                            <GridViewColumn Header="Name" Width="230" DisplayMemberBinding="{Binding Name}" />
-                            <GridViewColumn Header="Type" Width="92" DisplayMemberBinding="{Binding Kind}" />
-                            <GridViewColumn Header="Size" Width="82" DisplayMemberBinding="{Binding Size}" />
-                        </GridView></ListView.View>
-                    </ListView>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Width="230" Binding="{Binding Name}" SortMemberPath="Name" />
+                            <DataGridTextColumn Header="Created" Width="160" Binding="{Binding Created, StringFormat=g}" SortMemberPath="Created" />
+                            <DataGridTextColumn Header="Size" Width="90" Binding="{Binding Size}" SortMemberPath="Entry.Length" />
+                        </DataGrid.Columns>
+                    </DataGrid>
                     <DockPanel Grid.Row="4" Margin="0,8,0,0">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <Button Content="Previous" Command="{Binding PreviousCommand}" Margin="0,0,6,0" />
@@ -111,7 +94,8 @@
             <Border Grid.Column="2" Background="{StaticResource Workspace.Surface}" BorderBrush="{StaticResource Workspace.StrokeSubtle}" BorderThickness="1" CornerRadius="6" Padding="14">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <TextBlock Text="{Binding Kind}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="KindHeading" Text="{Binding Kind}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   Visibility="{Binding ShowKindHeading, Converter={StaticResource BoolVisibility}}" />
                         <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,8,0,14" />
                         <Border x:Name="HistogramPanel" Visibility="{Binding HasBinMovie, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,18">
                             <controls:SorterBinMovie x:Name="sorterBinMovie" DataContext="{Binding BinMovie}" />
@@ -122,10 +106,12 @@
                             <ComboBox ItemsSource="{Binding ProducingRuns}" SelectedItem="{Binding ProducingRun}" DisplayMemberPath="Name" Margin="0,6"
                                       ToolTip="Select a run to see its saved spans and invocation parameters. Equivalent runs can share an output." AutomationProperties.Name="Producing run" />
                             <Button Content="Open run in workspace" Command="{Binding OpenRunCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
-                            <TreeView ItemsSource="{Binding ProducingRun.Details}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run spans and parameters">
+                            <TreeView x:Name="RunDetails" ItemsSource="{Binding ProducingRun.Details}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Run spans and parameters"
+                                      Visibility="{Binding ShowFileDetails, Converter={StaticResource BoolVisibility}}">
                                 <TreeView.ItemContainerStyle><Style TargetType="TreeViewItem"><Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=OneWay}" /></Style></TreeView.ItemContainerStyle>
                             </TreeView>
                         </StackPanel>
+                        <StackPanel x:Name="FileMetadataPanel" Visibility="{Binding ShowFileDetails, Converter={StaticResource BoolVisibility}}">
                         <ItemsControl ItemsSource="{Binding Metadata}">
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Grid Margin="0,4">
@@ -151,6 +137,7 @@
                                 </DataTemplate></ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </Expander>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

@@ -107,7 +107,9 @@ module EvolutionReports =
             { Name = name; ValueType = reportValueType.Text } |]
 
     let private histogramValue (bins: sorterLengthHistogramBin array option) =
-        bins |> Option.map (fun values -> reportValue.Text (JsonSerializer.Serialize values))
+        bins |> Option.map (fun values ->
+                 values |> Array.map (fun bin -> [|bin.CeLength; bin.StageLength; bin.Count|])
+                        |> JsonSerializer.Serialize |> reportValue.Text)
              |> Option.defaultValue reportValue.Missing
 
     let row (value: sgdPoolStatistics) = ReportRow.create [

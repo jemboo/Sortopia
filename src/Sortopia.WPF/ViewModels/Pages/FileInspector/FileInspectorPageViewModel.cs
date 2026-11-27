@@ -20,6 +20,7 @@ public sealed partial class FileInspectorPageViewModel : ViewModelBase, IDisposa
     private int offset;
     private string appliedFilter = "";
     private bool hasMore;
+    private bool showFileDetails = true;
     private IReadOnlyList<InspectorRunContext> producingRuns = [];
     private InspectorRunContext? producingRun;
     private readonly Func<ProducingRun, Task>? openRun;
@@ -54,7 +55,9 @@ public sealed partial class FileInspectorPageViewModel : ViewModelBase, IDisposa
     public string Filter { get => filter; set => SetProperty(ref filter, value); }
     public string Error { get => error; private set => SetProperty(ref error, value); }
     public string Status { get => status; private set => SetProperty(ref status, value); }
-    public string Kind { get => kind; private set => SetProperty(ref kind, value); }
+    public string Kind { get => kind; private set { if (SetProperty(ref kind, value)) OnPropertyChanged(nameof(ShowKindHeading)); } }
+    public bool ShowKindHeading => Kind != "Results data";
+    public bool ShowFileDetails { get => showFileDetails; private set => SetProperty(ref showFileDetails, value); }
     public string Description { get => description; private set => SetProperty(ref description, value); }
     public IReadOnlyList<InspectorFile> Entries { get => entries; private set => SetProperty(ref entries, value); }
     public IReadOnlyList<InspectionNode> Details { get => details; private set => SetProperty(ref details, value); }
@@ -150,13 +153,17 @@ public sealed partial class FileInspectorPageViewModel : ViewModelBase, IDisposa
         {
             var root = RootFolder;
             var nameFilter = Filter;
-            var listing = await Task.Run(() => WorkspaceFileInspection.listFolder(root, folder, start, nameFilter, request.Token), request.Token);
+            var (listing, files) = await Task.Run(() =>
+            {
+                var listing = WorkspaceFileInspection.listFolder(root, folder, start, nameFilter, request.Token);
+                return (listing, listing.Entries.Select(entry => InspectorFile.Read(root, entry, request.Token)).ToArray());
+            }, request.Token);
             if (request.IsCancellationRequested) return;
             CurrentFolder = folder;
             offset = start;
             appliedFilter = nameFilter;
             hasMore = listing.HasMore;
-            Entries = listing.Entries.Select(entry => new InspectorFile(entry)).ToArray();
+            Entries = files;
             Status = Entries.Count == 0 ? "No matching entries in this folder."
                 : $"Entries {offset + 1:N0}–{offset + Entries.Count:N0}{(HasMore ? " · More available" : "")} · Saved files only";
             if (selectPath is not null)
@@ -187,6 +194,7 @@ public sealed partial class FileInspectorPageViewModel : ViewModelBase, IDisposa
         inspectionCancellation = request;
         OnPropertyChanged(nameof(IsInspecting));
         BinMovie = null;
+        ShowFileDetails = true;
         Details = []; References = []; Metadata = []; Error = "";
         ProducingRuns = []; ProducingRun = null;
         Kind = file is null ? "No file selected" : "Reading file…";
@@ -200,8 +208,10 @@ public sealed partial class FileInspectorPageViewModel : ViewModelBase, IDisposa
             var current = WorkspaceFileInspection.entry(file.FullPath);
             Metadata = [InspectionNode.Leaf("Name", current.Name), InspectionNode.Leaf("Path", current.FullPath),
                 InspectionNode.Leaf("Size", current.IsDirectory ? "Folder" : $"{InspectorFile.FormatSize(current.Length)} ({current.Length:N0} bytes)"),
+                InspectionNode.Leaf("Created", current.CreatedUtc.ToLocalTime().ToString("F")),
                 InspectionNode.Leaf("Modified", current.ModifiedUtc.ToLocalTime().ToString("F"))];
             Kind = report.Kind; Description = report.Description; Details = report.Details; References = report.References; Error = report.Error;
+            ShowFileDetails = !report.SummaryOnly;
             if (report.PoolSummary is not null) BinMovie = new SorterBinMovieViewModel(report.PoolSummary);
             SetHistorySource(file, report.HistorySource);
             if (!file.IsDirectory && Path.GetExtension(file.FullPath).Equals(".msgpack", StringComparison.OrdinalIgnoreCase))

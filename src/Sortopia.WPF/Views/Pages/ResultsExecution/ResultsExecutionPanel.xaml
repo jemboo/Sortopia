@@ -7,7 +7,6 @@
   <BooleanToVisibilityConverter x:Key="ErrorVisibility" />
   <DataTemplate x:Key="ExecutionExpander">
    <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="28" Height="26" HorizontalAlignment="Center" VerticalAlignment="Center"
-                 Visibility="{Binding HasDetails, Converter={StaticResource ErrorVisibility}}"
                  ToolTip="Show or hide row details" AutomationProperties.Name="{Binding FileName, StringFormat=Show or hide details for {0}}">
     <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
      <Border x:Name="Surface" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="4">
@@ -23,55 +22,44 @@
   </DataTemplate>
   <DataTemplate x:Key="ExecutionCheck">
    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-             HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.Name="{Binding FileName, StringFormat=Execute {0}}"
-             ToolTip="Check to include this file in the next terminal launch. Changing the selection does not affect a terminal already running." />
+             HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.Name="{Binding FileName, StringFormat=Execute {0}}" />
   </DataTemplate>
  </ResourceDictionary></UserControl.Resources>
  <Grid>
   <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
   <StackPanel>
    <TextBlock Text="Run parameter files" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-   <DockPanel><Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseCommand}" Margin="8,0,0,0" ToolTip="Choose a project's runParameters folder" />
+   <DockPanel><Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseCommand}" Margin="8,0,0,0" />
     <TextBox Text="{Binding Folder, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AutomationProperties.Name="Run parameters folder" /></DockPanel>
    <TextBlock Text="Run filter" Margin="0,10,0,4" Foreground="{StaticResource Workspace.TextSecondary}" />
    <ComboBox x:Name="RunFilterInput" ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRun}" DisplayMemberPath="Label" IsEnabled="{Binding CanChooseRun}" AutomationProperties.Name="Filter parameter files by run" />
    <WrapPanel Margin="0,10,0,0">
     <StackPanel Margin="0,0,16,0">
      <TextBlock Text="CPU limit (%)" />
-     <TextBox x:Name="CpuLimitInput" Text="{Binding CpuPercent, UpdateSourceTrigger=PropertyChanged}" Width="95" AutomationProperties.Name="CPU limit percent"
-              ToolTip="1–100% of total CPU capacity, shared by the whole terminal batch." />
+     <TextBox x:Name="CpuLimitInput" Text="{Binding CpuPercent, UpdateSourceTrigger=PropertyChanged}" Width="95" AutomationProperties.Name="CPU limit percent" />
     </StackPanel>
     <StackPanel Margin="0,0,16,0">
      <TextBlock Text="Memory budget" />
-     <TextBox x:Name="MemoryLimitInput" Text="{Binding MemoryLimit, UpdateSourceTrigger=PropertyChanged}" Width="150" AutomationProperties.Name="Batch memory budget"
-              ToolTip="Enter GiB (for example 8GiB) or a percentage of available memory at launch (50%). The whole batch shares this limit. Minimum: 0.25 GiB." />
+     <TextBox x:Name="MemoryLimitInput" Text="{Binding MemoryLimit, UpdateSourceTrigger=PropertyChanged}" Width="150" AutomationProperties.Name="Batch memory budget" />
     </StackPanel>
     <StackPanel>
      <TextBlock Text="Parallel files" />
-     <TextBox x:Name="ParallelFilesInput" Text="{Binding ParallelFiles, UpdateSourceTrigger=PropertyChanged}" Width="100" AutomationProperties.Name="Maximum parallel files"
-              ToolTip="Auto uses up to four files within the CPU and memory budgets. Or enter a positive maximum." />
+     <TextBox x:Name="ParallelFilesInput" Text="{Binding ParallelFiles, UpdateSourceTrigger=PropertyChanged}" Width="100" AutomationProperties.Name="Maximum parallel files" />
     </StackPanel>
    </WrapPanel>
-   <TextBlock Text="Remembered on this computer. Limits apply to each terminal batch, including preparation. Memory percentages are resolved at launch."
-              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
    <TextBlock Text="{Binding LaunchLimitsError}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
   </StackPanel>
   <WrapPanel Grid.Row="1" Margin="0,10,0,4">
    <Button x:Name="ExecuteSelectedButton" Content="Execute in terminal" Command="{Binding ExecuteCommandLineCommand}" Margin="0,0,8,6" />
-   <Button x:Name="OpenRunButton" Content="Open run in workspace" Command="{Binding OpenRunCommand}" Margin="0,0,8,6"
-           ToolTip="Open the run displayed in the grid. If multiple runs are shown, choose one in the run filter." />
-   <Button x:Name="UpdateProgressButton" Content="Update progress" Command="{Binding UpdateProgressCommand}" Margin="0,0,8,6"
-           ToolTip="Read the latest temporary or retained snapshot for each visible file. Saved generations also update when a snapshot is published." />
-   <Button x:Name="OpenEvolutionHistoryButton" Content="View evolution histograms" Command="{Binding OpenEvolutionHistoryCommand}" Margin="0,0,8,6"
-           ToolTip="Open the selected parameter file's full saved histogram history in the File inspector, combining its published summary sets." />
-   <Button x:Name="ExportReportsButton" Content="Export CSV reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6"
-           ToolTip="Export checked SGD runs to EvolutionSummary.csv with sampled pool statistics. Ordinary evaluations export Summary.csv and Details.csv. Reports include saved results parameters and inherited setup query values, and replace the previous CSV export in this project's data/results/reports folder." />
+   <Button x:Name="OpenRunButton" Content="Open run in workspace" Command="{Binding OpenRunCommand}" Margin="0,0,8,6" />
+   <Button x:Name="UpdateProgressButton" Content="Update progress" Command="{Binding UpdateProgressCommand}" Margin="0,0,8,6" />
+   <Button x:Name="OpenEvolutionHistoryButton" Content="View evolution histograms" Command="{Binding OpenEvolutionHistoryCommand}" Margin="0,0,8,6" />
+   <Button x:Name="ExportReportsButton" Content="Export CSV reports" Command="{Binding ExportReportsCommand}" Margin="0,0,8,6" />
    <Button Content="Check all" Command="{Binding SelectAllCommand}" Margin="0,0,8,6" />
    <Button Content="Check pending" Command="{Binding SelectPendingCommand}" Margin="0,0,8,6" />
    <Button Content="Uncheck all" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,6" />
    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,6" />
-   <Button x:Name="ValidateFullyButton" Content="Fully validate" Command="{Binding ValidateFullyCommand}" Margin="0,0,8,6"
-           ToolTip="Decode and validate model and report contents. Unchanged files reuse earlier full checks in this folder session." />
+   <Button x:Name="ValidateFullyButton" Content="Fully validate" Command="{Binding ValidateFullyCommand}" Margin="0,0,8,6" />
    <Button Content="Cancel inspection" Command="{Binding CancelCommand}" Margin="0,0,8,6" />
   </WrapPanel>
   <StackPanel Grid.Row="2" Margin="0,0,0,8">
@@ -79,18 +67,10 @@
    <StackPanel Visibility="{Binding HasSnapshotProgress, Converter={StaticResource ErrorVisibility}}" Margin="0,6,0,2">
     <TextBlock x:Name="BatchProgressSummary" Text="{Binding SnapshotProgressSummary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
     <ProgressBar x:Name="BatchProgressBar" Minimum="0" Maximum="100" Value="{Binding SnapshotProgressPercent, Mode=OneWay}" Height="6" Margin="0,5,0,0"
-                 ToolTip="Last saved generations across visible evolution files. Updates when snapshots are published; Update progress also reads them on demand." AutomationProperties.Name="Saved snapshot progress" />
+                 AutomationProperties.Name="Saved snapshot progress" />
    </StackPanel>
    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,4,0,0" />
    <TextBlock Text="{Binding Error}" Style="{StaticResource InlineError}" TextWrapping="Wrap" />
-   <TextBlock Text="Refresh checks file identities and checksums. Fully validate also checks model and report contents. Export validates the saved data used by each report."
-              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="Checked files execute together in a separate terminal. The selection and resource limits are captured at launch; follow output and cancel there. Saved generations update when snapshots are published. Update progress also reads them on demand."
-              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="Click a Setup column header to sort by that inherited query value. Use the Details column's arrow to show or hide a file's inherited setup query values and error details."
-              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
-   <TextBlock Text="To report a whole sweep, choose its run filter, Check all, then Export CSV reports. SGD runs create only EvolutionSummary.csv with sampled pool statistics. Ordinary evaluation runs create Summary.csv and Details.csv. The checked combinations replace the previous CSV export directly in the project's reports folder."
-              Foreground="{StaticResource Workspace.TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
   </StackPanel>
   <DataGrid x:Name="RunParametersGrid" Grid.Row="3" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedFile}" AutoGenerateColumns="False" IsReadOnly="True"
             shared:SetupQueryColumns.InsertIndex="5" shared:SetupQueryColumns.Rows="{Binding Rows}" CanUserSortColumns="True"
@@ -106,6 +86,8 @@
    <DataGrid.RowDetailsTemplate><DataTemplate>
     <Border Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=DataGrid}}" Padding="8,2,36,6" HorizontalAlignment="Left">
      <StackPanel>
+     <TextBox Text="{Binding Details, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="180" VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Run parameter file details" Margin="0,4,0,8" />
      <Expander Header="Inherited setup query values" IsExpanded="True" Foreground="{StaticResource Workspace.TextPrimary}" AutomationProperties.Name="Inherited setup query value details"
                Visibility="{Binding HasSetupInputs, Converter={StaticResource ErrorVisibility}}">
       <TextBox Text="{Binding InheritedSetupQueryDetails, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="180" VerticalScrollBarVisibility="Auto"
@@ -122,15 +104,12 @@
   </DataGrid>
   <StackPanel Grid.Row="4">
    <Expander Header="Command line for checked files" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,10,0,0"><StackPanel>
-    <TextBlock Text="On another machine, use paths inside the copied project's runParameters folder." TextWrapping="Wrap" Margin="0,6" />
     <DockPanel>
      <Button x:Name="ExecuteCommandLineButton" DockPanel.Dock="Right" Content="Execute" Command="{Binding ExecuteCommandLineCommand}" Margin="8,0,0,0" VerticalAlignment="Top"
-             ToolTip="Run the displayed commands in a separate PowerShell window. Cancel there; use Update progress to read saved generations." AutomationProperties.Name="Execute command for checked files in a terminal" />
+             AutomationProperties.Name="Execute command for checked files in a terminal" />
      <TextBox Text="{Binding CommandLine, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="100" VerticalScrollBarVisibility="Auto" />
     </DockPanel>
    </StackPanel></Expander>
-   <TextBlock Text="Execution uses these saved files and never runs setup. Copy the entire project folder, including data and runParameters, for execution elsewhere."
-              TextWrapping="Wrap" Foreground="{StaticResource Workspace.TextSecondary}" Margin="0,10,0,0" />
   </StackPanel>
  </Grid>
 </UserControl>

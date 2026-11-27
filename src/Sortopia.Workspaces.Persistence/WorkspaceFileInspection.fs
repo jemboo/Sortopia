@@ -9,7 +9,7 @@ open Sortopia.Core.Serialization
 
 type inspectionEntry = {
     Name: string; FullPath: string; IsDirectory: bool; IsLink: bool
-    Length: int64; ModifiedUtc: DateTime
+    Length: int64; CreatedUtc: DateTime; ModifiedUtc: DateTime
 }
 type inspectionListing = { Entries: inspectionEntry array; HasMore: bool }
 type inspectionReference = { Label: string; FullPath: string; Exists: bool }
@@ -43,6 +43,7 @@ module WorkspaceFileInspection =
         { Name = Path.GetFileName path; FullPath = path; IsDirectory = directory
           IsLink = attributes.HasFlag FileAttributes.ReparsePoint
           Length = if directory then 0L else FileInfo(path).Length
+          CreatedUtc = File.GetCreationTimeUtc path
           ModifiedUtc = File.GetLastWriteTimeUtc path }
 
     let listFolder root folder offset filter (token: CancellationToken) =

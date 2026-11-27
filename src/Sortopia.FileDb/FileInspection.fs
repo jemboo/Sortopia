@@ -13,11 +13,22 @@ open Sortopia.Runs
 open Sortopia.Functions
 
 type dataFileInspection = { Kind: string; Description: string; Json: string }
+type dataFileQuery = { DataType: sortopiaDataType; Parameters: parameterBinding list }
 
 /// Read-only file inspection. Metadata stays lightweight; pool histograms have an explicit payload reader.
 module FileInspection =
     let private json value = JsonSerializer.Serialize(value)
     let private maxMetadataBytes = 4 * 1024 * 1024
+
+    /// Typed column values from the saved query, without decoding the data payload.
+    let readDataQuery path (token: CancellationToken) =
+        let header = (DataEnvelope.readHeader path token).Envelope
+        let query = DataKey.readQuery header.QueryBytes
+        if UMX.untag query.ProjectId <> header.ProjectId || RunExecutionPhase.toIsSetup query.Phase <> header.IsSetup
+           || SortopiaDataType.kindName query.DataType <> header.Kind || SortopiaDataType.text query.DataType <> header.Label then
+            invalidOp "Stored query metadata does not match its envelope."
+        token.ThrowIfCancellationRequested()
+        { DataType = query.DataType; Parameters = query.Parameters }
 
     let inspectData path (token: CancellationToken) =
         let header = DataEnvelope.readHeader path token

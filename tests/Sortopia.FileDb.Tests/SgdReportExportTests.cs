@@ -62,7 +62,10 @@ public sealed partial class PreparedExecutionTests
             {
                 var name = successful ? "SuccessfulLengthHistogram" : "UnsuccessfulLengthHistogram";
                 var histogram = successful ? stored.SuccessfulLengthHistogram.Value : stored.UnsuccessfulLengthHistogram.Value;
-                Assert.Equal(histogram, JsonSerializer.Deserialize<sorterLengthHistogramBin[]>(row[name]));
+                var triples = JsonSerializer.Deserialize<int[][]>(row[name])!;
+                Assert.All(triples, triple => Assert.Equal(3, triple.Length));
+                Assert.Equal(histogram.Select(bin => (bin.CeLength, bin.StageLength, bin.Count)),
+                    triples.Select(triple => (triple[0], triple[1], triple[2])));
                 Assert.Equal(evaluations.Count(value => SorterEval.getIsSorted(value) == successful), histogram.Sum(bin => bin.Count));
                 foreach (var bin in histogram)
                     Assert.Equal(evaluations.Count(value => SorterEval.getIsSorted(value) == successful

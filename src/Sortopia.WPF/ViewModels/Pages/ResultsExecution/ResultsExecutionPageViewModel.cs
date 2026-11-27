@@ -33,8 +33,10 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
         + (parameters?.Reporting is null ? "" : State == outputState.Complete ? " · evolution reports complete" : " · evolution reports required");
     public string Error => inspectionError.Length > 0 ? inspectionError : inspection?.Outputs.Error ?? "";
     public bool HasError => Error.Length > 0;
-    public bool HasDetails => HasSetupInputs || HasError;
     public bool IsExpanded { get => expanded; set => SetProperty(ref expanded, value); }
+    public string Details => $"File: {Path}{Environment.NewLine}Status: {Status}{Environment.NewLine}Outputs: {OutputSummary}"
+        + (parameters is null ? "" : $"{Environment.NewLine}Run: {parameters.RunId}{Environment.NewLine}Executor: {FunctionName}{Environment.NewLine}{Environment.NewLine}Parameters:{Environment.NewLine}"
+            + string.Join(Environment.NewLine, parameters.Parameters.ParamMap.Values.Select(binding => $"{binding.KeyName} = {binding.FormattedValue}")));
     public bool CanExecute => inspectionStatus.Length == 0 && parameters is not null && State != outputState.Invalid;
     public string[] Cells { get; private set; } = [];
     public bool HasSetupInputs => parameters?.SetupInputs.IsEmpty == false;
@@ -56,8 +58,7 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     }
     private void NotifyInspection()
     {
-        if (!HasDetails) IsExpanded = false;
-        foreach (var property in new[] { nameof(Status), nameof(State), nameof(IsChecking), nameof(OutputSummary), nameof(Error), nameof(HasError), nameof(HasDetails), nameof(CanExecute), nameof(CompletedGenerations), nameof(GenerationsText) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(Status), nameof(State), nameof(IsChecking), nameof(OutputSummary), nameof(Details), nameof(Error), nameof(HasError), nameof(CanExecute), nameof(CompletedGenerations), nameof(GenerationsText) }) OnPropertyChanged(property);
     }
     internal void SetSnapshotGeneration(int? value)
     {
@@ -68,7 +69,7 @@ public sealed class WorkItemStatusRow(string path, runParameters? parameters, wo
     internal void SetSnapshotControls(runParameters saved)
     {
         parameters = saved;
-        OnPropertyChanged(nameof(Parameters)); OnPropertyChanged(nameof(TotalGenerations)); OnPropertyChanged(nameof(GenerationsText));
+        OnPropertyChanged(nameof(Parameters)); OnPropertyChanged(nameof(Details)); OnPropertyChanged(nameof(TotalGenerations)); OnPropertyChanged(nameof(GenerationsText));
     }
     internal void SetColumns(IEnumerable<string> keys)
     {
