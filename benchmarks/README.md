@@ -764,3 +764,95 @@ With the three frozen harnesses built, use a fresh output directory:
 ```
 
 The harness accepts width, input count, workers, members per pool, generations, stored stages, mode (`measure` or `heap`), fresh output directory, and fixture directory. Workload arguments must match the fixture identity. `InspectRetainedHeap.cs` accepts an optional fifth argument naming a JSON string-array file of child arguments; omitting it preserves its earlier invocation format. Heap mode requires that inspector and is intentionally separate from timed measurements.
+
+## Larger MSRS populations with compact evaluations (2026-11-27)
+
+`MeasureLargeMsrsPools.fs` compares the same frozen pre-V1 baseline and combined V1/MSRS implementation used above, at **1,024 and 2,048 members per pool**, with two pools in each run. These are 2,048 and 4,096 total surviving members. Both builds use identical initial models, mutation settings, and saved filtered inputs. The harness decouples fixture identity from population size so it can reuse the existing packed input files without regenerating or downsampling them.
+
+The 24-channel fixture contains all 531,441 distinct images of an adjacent-pair prefix. The 32- and 64-channel fixtures each contain the same 4,194,307 fixed, distinct prefix images used above, with all channels exercised and a partial final SIMD block. These larger-width fixtures are subsets, not exhaustive filtered universes. Each workload uses 128 stored suffix stages, Random initial selection with seed 7, LCG/V2 mutation at rate 0.1 with operation weights 0.3/0.3/0.4, one child per parent, all parents eligible for retention, duplicate-hash filtering, a 0.8 sorted fraction, and cutoff adjustment every generation. Four checkpoints and summaries are saved: generation zero and three evolved generations. Generation-zero seed contents remain rooted in both builds.
+
+Two trials per build run in baseline/current/current/baseline order for each width/population combination. All benchmark processes run sequentially, with no concurrent builds, tests, or profiling launched for this task. Each process uses **25 workers, an 80% Windows CPU cap, server GC with 25 reported processors, and no hard memory cap**. This differs from the preceding small-pool benchmark's eight workers and 25% CPU cap; compare builds within this experiment rather than scaling the earlier wall times directly. The harness invokes production evolution and FileDb persistence, not the CLI sweep scheduler, so it does not measure Auto-job overlap or soft-target admission behavior.
+
+The primary timer and native peak counters include input loading, model generation, evolution, and saving actual checkpoints and summaries. Input/output hashing and selected-member detail reconstruction occur after those counters are captured. Resume checks use additional fresh processes, loading a saved generation-two checkpoint and continuing to generation three. Each workload checks baseline-from-baseline, current-from-current, and current-from-baseline V2 checkpoints. Resume measurements are recorded separately and are not included in primary medians. Full checkpoint contents are compared after normalizing evaluations to V1; summary files and repeated checkpoints within a build are compared byte-for-byte.
+
+### Peak RAM and runtime
+
+All 24 primary runs completed successfully. Values below are medians of two trials per build (the midpoint of the two measurements). Arrows run from the frozen baseline to the current combined implementation. Member counts are **per pool**, and each process contains two pools.
+
+| Channels | Members/pool | Runtime, seconds | Peak resident MiB | Resident reduction | Peak committed MiB |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 24 | 1,024 | 28.72 → 27.51 | 565.1 → 370.0 | 34.5% | 696.9 → 438.3 |
+| 24 | 2,048 | 61.17 → 55.92 | 980.7 → 595.5 | 39.3% | 1,077.9 → 688.2 |
+| 32 | 1,024 | 384.51 → 550.74 | 681.9 → 479.6 | 29.7% | 808.6 → 529.0 |
+| 32 | 2,048 | 837.96 → 857.59 | 1,056.5 → 662.5 | 37.3% | 1,208.0 → 824.9 |
+| 64 | 1,024 | 763.05 → 780.86 | 1,427.1 → 725.2 | 49.2% | 1,505.5 → 746.3 |
+| 64 | 2,048 | 935.41 → 921.51 | 2,244.6 → 1,205.7 | 46.3% | 2,326.7 → 1,271.8 |
+
+The RAM improvement is consistent: every current-code trial has lower resident and committed peaks than either baseline trial for its workload. The largest workload falls from a median 2.19 GiB resident / 2.27 GiB committed to 1.18 / 1.24 GiB. Its current-code resident range is 1.03–1.32 GiB, so the median should not be treated as a hard capacity requirement. No primary run threw an out-of-memory exception. These measurements cover the fixed test sets and three evolved generations; they do not establish a maximum supported population or predict memory for larger input sets, longer evolution, or overlapping jobs.
+
+Runtime is mixed. At 24 channels the median is 4.2% and 8.6% faster. At 32 channels / 1,024 members, **both current-code trials are slower than either baseline trial**, with a 43.2% increase in median wall time and a 44.3% increase in CPU time. This is an observed regression that merits a focused profile before claiming an execution-time improvement. The other three larger-width cases have median changes within 2.4%, but some baseline ranges are very wide. These two-trial results do not establish a general speedup or isolate the source of timing variation. Both builds used the same runtime configuration and CPU limit; no causal explanation is inferred from the timing data alone.
+
+| Channels | Members/pool | Baseline runtime range, seconds | Current runtime range, seconds | Baseline resident range, MiB | Current resident range, MiB |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 24 | 1,024 | 27.08–30.35 | 26.76–28.27 | 554.0–576.2 | 366.6–373.4 |
+| 24 | 2,048 | 57.73–64.61 | 55.83–56.00 | 962.8–998.5 | 589.9–601.1 |
+| 32 | 1,024 | 339.64–429.39 | 546.91–554.57 | 639.5–724.3 | 474.4–484.9 |
+| 32 | 2,048 | 610.01–1,065.91 | 846.37–868.81 | 1,023.6–1,089.4 | 660.9–664.2 |
+| 64 | 1,024 | 495.88–1,030.22 | 738.83–822.88 | 1,276.3–1,578.0 | 724.5–726.0 |
+| 64 | 2,048 | 922.59–948.23 | 895.92–947.10 | 2,222.7–2,266.5 | 1,059.6–1,351.7 |
+
+### Allocations and saved checkpoint size
+
+Checkpoint size is deterministic across repeats. Compact V1 checkpoints are 31–47% smaller, with identical models and scalar evolution state. Their bytes intentionally differ from the baseline's V2 checkpoints because comparator-use arrays are omitted. Allocation traffic is a cumulative total, not retained memory or peak RAM, and varies across identical runs. In particular, 32 channels / 2,048 members allocates more in the current build despite using less peak RAM; this experiment does not isolate that allocation difference.
+
+| Channels | Members/pool | Allocated GiB | Four checkpoints, MiB | Checkpoint reduction |
+| ---: | ---: | ---: | ---: | ---: |
+| 24 | 1,024 | 16.17 → 11.24 | 38.42 → 26.28 | 31.6% |
+| 24 | 2,048 | 23.17 → 17.32 | 77.72 → 53.40 | 31.3% |
+| 32 | 1,024 | 15.69 → 14.63 | 58.00 → 35.12 | 39.4% |
+| 32 | 2,048 | 29.57 → 35.17 | 116.79 → 71.12 | 39.1% |
+| 64 | 1,024 | 79.02 → 64.01 | 132.98 → 70.13 | 47.3% |
+| 64 | 2,048 | 122.44 → 103.07 | 266.11 → 140.45 | 47.2% |
+
+### Results and checkpoint-resume verification
+
+All **24 primary runs and 18 fresh-process resume runs** passed. Both pools retained the requested member count at every saved generation. The comparison covers ordered input contents and identity, every saved model/member and scalar evaluation field, pool cutoffs, member ordering, IDs, generation and mutation state, and byte-identical summary files. Full V2 comparator-use detail for selected members at the first and final observed generations also agrees with detail reconstructed by the current build. This detail audit samples two members per pool; checkpoint-state comparisons cover every member.
+
+Each of the six workloads resumed generation two in three separate processes: baseline from its V2 checkpoint, current from its V1 checkpoint, and current from the baseline V2 checkpoint. Every resumed trajectory matched uninterrupted evolution. Within the resuming build, the complete saved checkpoint and summary bytes matched its uninterrupted run, including the V1 files produced after loading legacy V2 checkpoints. Repeated complete runs also produced identical files within each build. Cross-build checkpoint bytes intentionally differ because of the approved V2-to-V1 format change; normalized checkpoint contents and summary bytes match.
+
+The following restart measurements are single runs, separate from the primary two-trial medians. Each cell shows **seconds / peak resident MiB** for loading generation two, saving it, and evolving/saving generation three. Full committed-memory values are in `resume-summary.json`. Restart peaks can differ from initial-run peaks: at 64 channels / 2,048 members, the compact restart peaks at 1.13 GiB resident while loading the legacy V2 checkpoint peaks at 1.75 GiB. At 32 channels / 2,048 members, the legacy-conversion resident peak is slightly above the baseline restart. These measurements do not establish a restart-speed advantage.
+
+| Channels | Members/pool | Baseline from V2 | Current from V1 | Current from baseline V2 |
+| ---: | ---: | ---: | ---: | ---: |
+| 24 | 1,024 | 9.28 / 523.7 | 8.51 / 392.1 | 8.68 / 470.0 |
+| 24 | 2,048 | 17.14 / 824.1 | 16.34 / 581.2 | 15.68 / 803.7 |
+| 32 | 1,024 | 63.21 / 634.5 | 66.58 / 466.2 | 67.52 / 579.0 |
+| 32 | 2,048 | 137.22 / 1,120.4 | 130.20 / 744.3 | 131.21 / 1,146.8 |
+| 64 | 1,024 | 134.75 / 1,259.1 | 138.52 / 978.4 | 137.93 / 1,235.6 |
+| 64 | 2,048 | 269.49 / 1,892.8 | 270.32 / 1,154.1 | 262.77 / 1,795.1 |
+
+The final audit rehashed all **267 saved data files**: 192 primary checkpoint/summary files, 72 resume checkpoint/summary files, and the three original packed fixtures. It also verified all 86 files in each frozen harness output and all 82 files in each original frozen product build. No run reported an out-of-memory exception. The two Release harness builds succeeded without warnings or errors, and a separate 16-member smoke matrix passed before the larger experiment; smoke runs are excluded from every table above. This task changes benchmark scripts and this report only. The production test suite was not rerun because production code was unchanged. Original `C:/GuiSpace` data was not modified.
+
+### Artifacts and reproduction
+
+`artifacts/msrs-large-pools-20261127` contains the baseline/current harness projects and frozen outputs, source copies, pre-run build manifests, `summary.json`, `resume-summary.json`, `final-verification.json`, and `product-provenance-verification.json`. Its `paired` directory contains `measurements.json`, `resumes.json`, per-process logs and measurements, and all actual saved checkpoint/summary files. `status.json` records completion with 24 primary and 18 resume runs. The frozen product references remain under `artifacts/v1-msrs-20261127/{baseline,optimized}`, and the unchanged fixtures remain under `artifacts/msrs-inputs-20261127/fixtures`.
+
+These are the commands used with the two frozen harnesses already built. The runner requires a fresh output directory; for a rerun, change `-Output` and the corresponding analyzer/verifier input paths. The verifier writes its final audit to `BuildRoot/final-verification.json`.
+
+```powershell
+./benchmarks/BenchmarkLargeMsrsPools.ps1 `
+  -BuildRoot artifacts/msrs-large-pools-20261127 `
+  -Fixtures artifacts/msrs-inputs-20261127/fixtures `
+  -Output artifacts/msrs-large-pools-20261127/paired -Repetitions 2
+
+./benchmarks/AnalyzeLargeMsrsPools.ps1 `
+  -Measurements artifacts/msrs-large-pools-20261127/paired/measurements.json `
+  -Output artifacts/msrs-large-pools-20261127/summary.json
+
+./benchmarks/VerifyLargeMsrsPools.ps1 `
+  -BuildRoot artifacts/msrs-large-pools-20261127 `
+  -Runs artifacts/msrs-large-pools-20261127/paired `
+  -Fixtures artifacts/msrs-inputs-20261127/fixtures
+```
+
+`MeasureLargeMsrsPools.fs` accepts width, input count, workers, members per pool, generations, stored stages, mode (`measure` or `resume`), a fresh destination directory, and the fixture directory. Resume mode additionally accepts the source run directory and loads generation `generations - 1`. The runner fixes three generations and 128 stored stages, alternates trial order, stops on any mismatch, and then runs all three restart paths per workload. `VerifyLargeMsrsPools.ps1` expects the complete two-trial, six-workload matrix.
