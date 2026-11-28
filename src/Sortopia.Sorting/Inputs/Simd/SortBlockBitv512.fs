@@ -17,6 +17,9 @@ type sortBlockBitv512 =
         { vectors = Array.copy vecs; sortableCount = count }
 
     member this.Vectors = Array.copy this.vectors
+    /// Copy into caller-owned scratch without exposing or allocating source storage.
+    member this.CopyVectorsTo(destination: Vector512<uint64>[]) =
+        System.Array.Copy(this.vectors, destination, this.vectors.Length)
     member this.Length = this.vectors.Length
     member this.SortableCount = this.sortableCount
 

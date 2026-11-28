@@ -67,7 +67,7 @@ module PermRsOps =
     let findRsPoints (indexPicker: int -> int) (permRs: permRs) : twoOrbitPair =
         // Validate input
         let order = %permRs.Order
-        let permArray = permRs.Array
+        let mapped index = permRs.Permutation.permute index
 
         let _randomlyFindOtherReflectionSymmetricTwoOrbits (indexToExclude:int) =
             let rsTwoOrbs = permRs.PermSi 
@@ -87,26 +87,26 @@ module PermRsOps =
         let secondReflect = reflect order second
         
         // Get mapped values from the permutation
-        let firstMap = permArray.[first]
-        let secondMap = permArray.[second]
+        let firstMap = mapped first
+        let secondMap = mapped second
         
         if firstReflect = firstMap then
             if secondReflect = secondMap then
                 // Both points are self-symmetric
-                twoOrbitPair.create order (twoOrbit.create [ first; firstMap ]) (twoOrbit.create [ second; secondMap] |> Some) 
+                twoOrbitPair.create order (twoOrbit.create(first, firstMap)) (twoOrbit.create(second, secondMap) |> Some)
             else
                 // First point is self-symmetric, second is not
                 let otherRsTwoOrbit = _randomlyFindOtherReflectionSymmetricTwoOrbits first
                 match otherRsTwoOrbit with
                 | Some orb -> 
-                    twoOrbitPair.create order (twoOrbit.create [ first; firstMap ]) (orb |> Some) 
+                    twoOrbitPair.create order (twoOrbit.create(first, firstMap)) (orb |> Some)
                 | None ->
-                    let secondReflectMap = permArray.[secondReflect]
-                    twoOrbitPair.create order (twoOrbit.create [ second; secondMap ]) (twoOrbit.create [ secondReflect; secondReflectMap] |> Some) 
+                    let secondReflectMap = mapped secondReflect
+                    twoOrbitPair.create order (twoOrbit.create(second, secondMap)) (twoOrbit.create(secondReflect, secondReflectMap) |> Some)
         else
             // Neither point is self-symmetric, use first point's reflection
-            let firstReflectMap = permArray.[firstReflect]
-            twoOrbitPair.create order (twoOrbit.create [ first; firstMap ]) (twoOrbit.create [ firstReflect; firstReflectMap] |> Some) 
+            let firstReflectMap = mapped firstReflect
+            twoOrbitPair.create order (twoOrbit.create(first, firstMap)) (twoOrbit.create(firstReflect, firstReflectMap) |> Some)
 
 
 
@@ -120,7 +120,6 @@ module PermRsOps =
             // for NoAction mode, return the permutation as is
             pRs
         else
-            let newArray = Array.copy pRs.Array
             // Find two points in the permutation to mutate
             let twoOrbitPair = findRsPoints indexPicker pRs
 
@@ -139,42 +138,30 @@ module PermRsOps =
             let secondL = secondPair.First
             let secondH = secondPair.Second
 
-            match opam with
-            | opsActionMode.Ortho -> 
-                match twoOrbitPairTypeFound with
-                | twoOrbitPairType.Ortho -> ()
-
-                | _ -> 
-                    newArray.[firstL] <- secondL
-                    newArray.[secondL] <- firstL 
-                    newArray.[firstH] <- secondH
-                    newArray.[secondH] <- firstH 
-
-            | opsActionMode.Para -> 
-                match twoOrbitPairTypeFound with
-                | twoOrbitPairType.Ortho -> 
-                    newArray.[firstL] <- secondL
-                    newArray.[secondL] <- firstL 
-                    newArray.[firstH] <- secondH
-                    newArray.[secondH] <- firstH
-
-                | twoOrbitPairType.Para -> ()
-
-                | twoOrbitPairType.SelfRefl -> 
-                    newArray.[firstL] <- secondH
-                    newArray.[secondH] <- firstL 
-                    newArray.[firstH] <- secondL
-                    newArray.[secondL] <- firstH 
-
-            | opsActionMode.SelfRefl -> 
-                match twoOrbitPairTypeFound with
-                | twoOrbitPairType.SelfRefl -> ()
-                | _ -> 
-                    newArray.[firstL] <- secondH
-                    newArray.[secondH] <- firstL 
-                    newArray.[secondL] <- firstH
-                    newArray.[firstH] <- secondL 
-            | opsActionMode.NoAction -> failwith "NoAction mode should not reach here"
-
-            newArray |> permRs.createUnsafe
-
+            // Consume the same random choices before recognizing an unchanged result.
+            match opam, twoOrbitPairTypeFound with
+            | opsActionMode.Ortho, twoOrbitPairType.Ortho
+            | opsActionMode.Para, twoOrbitPairType.Para
+            | opsActionMode.SelfRefl, twoOrbitPairType.SelfRefl -> pRs
+            | _ ->
+                // The public getter already returns a private copy.
+                let newArray = pRs.Array
+                match opam, twoOrbitPairTypeFound with
+                | opsActionMode.Ortho, _
+                | opsActionMode.Para, twoOrbitPairType.Ortho ->
+                    newArray[firstL] <- secondL
+                    newArray[secondL] <- firstL
+                    newArray[firstH] <- secondH
+                    newArray[secondH] <- firstH
+                | opsActionMode.Para, twoOrbitPairType.SelfRefl ->
+                    newArray[firstL] <- secondH
+                    newArray[secondH] <- firstL
+                    newArray[firstH] <- secondL
+                    newArray[secondL] <- firstH
+                | opsActionMode.SelfRefl, _ ->
+                    newArray[firstL] <- secondH
+                    newArray[secondH] <- firstL
+                    newArray[secondL] <- firstH
+                    newArray[firstH] <- secondL
+                | _ -> failwith "Unchanged mutation should have returned the original permutation."
+                permRs.createUnsafe newArray

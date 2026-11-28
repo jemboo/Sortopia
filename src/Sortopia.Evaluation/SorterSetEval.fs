@@ -40,12 +40,11 @@ type sorterSetEval =
 
 module SorterSetEval =
 
-    let makeSorterEvalsWithOptions
+    let private evaluateSorters
                 (options: ParallelOptions)
                 (sorters: sorter array)
                 (sortableTests: sortableTests)
-                (sorterEvalType:sorterEvalType)
-                (collectNewSortableTests: bool<collectNewSortableTests>) :sorterEval array =
+                (collectNewSortableTests: bool<collectNewSortableTests>) =
         let ceBlocks =
                 sorters
                 |> Array.map (fun sorter ->
@@ -53,12 +52,13 @@ module SorterSetEval =
                             (%sorter.SorterId |> UMX.tag<ceBlockId>)
                             sorter.ChannelCount sorter.Ces )
 
-        let ceBlockEvals : ceBlockEval array =
-                CeBlockOps.evalWithSorterTestsWithOptions options
+        CeBlockOps.evalWithSorterTestsWithOptions options
                         sortableTests
                         ceBlocks
                         %collectNewSortableTests
 
+    let makeSorterEvalsWithOptions options sorters sortableTests sorterEvalType collectNewSortableTests =
+        let ceBlockEvals = evaluateSorters options sorters sortableTests collectNewSortableTests
         Array.zip sorters ceBlockEvals
         |> Array.map (
                 fun (sorter, ceBlockEval ) ->
@@ -75,10 +75,13 @@ module SorterSetEval =
         let sorters = models |> EvaluationParallel.map options (fun model ->
             let complete = SorterModel.makeSorter model maxCeCount
             sorter.create complete.SorterId complete.ChannelCount (complete.Ces |> Array.skip (SorterModel.getPrefix model).Length))
-        let detailedType = if evalType = sorterEvalType.V1 then sorterEvalType.V2 else evalType
-        let evaluations = makeSorterEvalsWithOptions options sorters tests detailedType collect
-        Array.map2 (fun model evaluation ->
-            SorterEval.withModelPrefix model evaluation |> SorterEval.downgradeTo evalType) models evaluations
+        if evalType = sorterEvalType.V1 then
+            let blocks = evaluateSorters options sorters tests collect
+            Array.mapi (fun index model ->
+                SorterEval.createV1WithPrefix sorters[index].SorterId (SorterModel.getPrefix model) blocks[index]) models
+        else
+            let evaluations = makeSorterEvalsWithOptions options sorters tests evalType collect
+            Array.map2 SorterEval.withModelPrefix models evaluations
 
     let makeSorterSetEvalWithOptions
             (options: ParallelOptions)

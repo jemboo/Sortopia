@@ -11,6 +11,8 @@ namespace Sortopia.Evaluation
 
 [<Measure>] type sortingEvalId
 [<Measure>] type sorterSetEvalId
+[<Measure>] type sorterPoolId
+[<Measure>] type sorterPoolMemberId
 [<Measure>] type sorterEvalScore
 
 

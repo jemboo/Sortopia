@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Sortopia.Cli;
 using Sortopia.FileDb;
 using Sortopia.Runs;
@@ -23,38 +22,27 @@ public sealed class ExecutionTuningTests
     }
 
     [Theory]
-    [InlineData(1, 8, 1, 1)]
-    [InlineData(2, 8, 2, 1)]
-    [InlineData(8, 8, 8, 4)]
-    [InlineData(16, 8, 8, 8)]
-    [InlineData(32, 2, 8, 4)]
-    [InlineData(16, 1, 8, 2)]
-    [InlineData(8, 0.5, 8, 1)]
-    [InlineData(2, 0.25, 2, 1)]
-    public void Tuning_respects_both_budgets(int cpu, double gib, int workers, int heaps)
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(8, 8)]
+    [InlineData(16, 8)]
+    [InlineData(32, 8)]
+    public void Worker_ceiling_respects_cpu_budget(int cpu, int workers)
     {
         Assert.Equal(workers, ExecutionTuning.workersPerFile(cpu));
-        Assert.Equal(heaps, ExecutionTuning.gcHeapCount(cpu, (long)(gib * 1073741824)));
-        var options = new resultsExecutionOptions(4, cpu, (long)(gib * 1073741824));
+        var options = new resultsExecutionOptions(4, cpu, 1073741824L);
         Assert.Equal(cpu, options.CpuWorkers);
         Assert.Equal(workers, options.MaxWorkersPerFile);
     }
 
     [Fact]
-    public void Child_gc_configuration_overrides_conflicting_inherited_limits()
+    public void Soft_target_allows_a_single_file_larger_than_the_target()
     {
-        var start = new ProcessStartInfo();
-        start.Environment["COMPlus_GCHeapHardLimitSOH"] = "10000000";
-        start.Environment["DOTNET_GCHeapHardLimitPercent"] = "90";
-        start.Environment["COMPlus_gcServer"] = "0";
-        var request = new ExecutionWorkerRequest([], 50, 9L * 1073741824, 16, 4, 8L * 1073741824, 8);
-        ExecutionWorker.configureEnvironment(start, request);
-        Assert.False(start.Environment.ContainsKey("COMPlus_GCHeapHardLimitSOH"));
-        Assert.False(start.Environment.ContainsKey("DOTNET_GCHeapHardLimitPercent"));
-        Assert.False(start.Environment.ContainsKey("COMPlus_gcServer"));
-        Assert.Equal("1", start.Environment["DOTNET_gcServer"]);
-        Assert.Equal("8", start.Environment["DOTNET_GCHeapCount"]);
-        Assert.Equal("180000000", start.Environment["DOTNET_GCHeapHardLimit"]);
+        const long budget = 1073741824L;
+        var gate = new ExecutionMemoryGate(budget, Microsoft.FSharp.Core.FuncConvert.FromFunc(() => 0L));
+        var managed = ExecutionResources.managedHeapLimitBytes(budget);
+        using (gate.Acquire(managed, TestContext.Current.CancellationToken)) { }
+        using var oversized = gate.Acquire(budget + 1, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -81,7 +69,6 @@ public sealed class ExecutionTuningTests
             .WithBinding(ParameterBinding.create(ParamKeys.sorterChildCountKey, int.MaxValue));
         Assert.Equal(long.MaxValue, ExecutionTuning.populationReservationBytes(huge));
         var gate = new ExecutionMemoryGate(1073741824L, Microsoft.FSharp.Core.FuncConvert.FromFunc(() => 0L));
-        var error = Assert.Throws<InvalidOperationException>(() => gate.Acquire(long.MaxValue, TestContext.Current.CancellationToken));
-        Assert.Contains("memory budget", error.Message);
+        using var oversized = gate.Acquire(long.MaxValue, TestContext.Current.CancellationToken);
     }
 }

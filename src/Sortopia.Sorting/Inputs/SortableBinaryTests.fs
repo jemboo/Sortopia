@@ -39,3 +39,8 @@ type sortableBinaryTests =
 
     member this.SortableBinaryArrays with get() = Array.copy this.sortableBinaryArrays
 
+    /// Enumerate immutable inputs without copying the entire descriptor array.
+    member this.EnumerateArrays() =
+        let values = this.sortableBinaryArrays
+        seq { yield! values }
+

@@ -11,15 +11,17 @@ public sealed class ResultsCommandTerminalTests : IDisposable
 {
     private readonly DirectoryInfo temporary = Directory.CreateTempSubdirectory("Sortopia-terminal-");
 
-    [Fact]
-    public void Terminal_executes_the_complete_text_and_preserves_literal_arguments_beyond_the_process_command_line_limit()
+    [Theory]
+    [InlineData("")]
+    [InlineData("3GiB")]
+    public void Terminal_executes_the_complete_text_and_preserves_literal_arguments_beyond_the_process_command_line_limit(string cap)
     {
         var output = Path.Combine(temporary.FullName, "arguments.json");
         var paths = new[] { @"C:\O'Brien $HOME $(throw 'expanded') & 100% ! [x] café\one.msgpack", @"C:\second folder\two.msgpack" };
         var command = "#" + new string('x', 40000) + Environment.NewLine
             + "function sortopia { [pscustomobject]@{ Arguments = @($args); PathsJson = [System.IO.File]::ReadAllText($args[2]) } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 -LiteralPath '"
             + output.Replace("'", "''") + "' }" + Environment.NewLine
-            + ResultsCommandTerminal.FormatBatchCommand("sortopia", paths, new("25", "2GiB", "3"));
+            + ResultsCommandTerminal.FormatBatchCommand("sortopia", paths, new("25", "2GiB", "3", cap));
         ResultsCommandTerminal.Launch(command, temporary.FullName, start =>
         {
             Assert.True(start.UseShellExecute);
@@ -40,7 +42,9 @@ public sealed class ResultsCommandTerminalTests : IDisposable
         using var captured = JsonDocument.Parse(File.ReadAllText(output));
         var arguments = captured.RootElement.GetProperty("Arguments").Deserialize<string[]>()!;
         Assert.Equal(new[] { "execute-results", "--parameters-list" }, arguments.Take(2));
-        Assert.Equal(new[] { "--cpu-percent", "25", "--memory", "2GiB", "--jobs", "3" }, arguments.Skip(3));
+        var expected = new[] { "--cpu-percent", "25", "--memory", "2GiB", "--jobs", "3" };
+        if (cap.Length > 0) expected = [.. expected, "--memory-cap", cap];
+        Assert.Equal(expected, arguments.Skip(3));
         Assert.Equal(paths, JsonSerializer.Deserialize<string[]>(captured.RootElement.GetProperty("PathsJson").GetString()!));
         Assert.False(File.Exists(arguments[2]));
         Assert.DoesNotContain(Directory.EnumerateFiles(Path.GetTempPath(), "sortopia-results-*.txt"), path => File.ReadAllText(path) == command);

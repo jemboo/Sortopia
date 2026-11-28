@@ -25,6 +25,20 @@ type twoOrbitUf4 = private { seedType: twoOrbitPairType; twoOrbitUnfolderSteps: 
     member this.TwoOrbitUnfolderSteps with get() : twoOrbitUfStep array  =
             Array.copy this.twoOrbitUnfolderSteps
 
+    /// Map owned immutable steps without copying them through the public accessor.
+    member internal this.MapSteps(seedType, count, mapping: int -> twoOrbitUfStep -> twoOrbitUfStep) =
+        let original = this.twoOrbitUnfolderSteps
+        let mutable changed = if count = original.Length then null else Array.zeroCreate count
+        for index in 0 .. count - 1 do
+            let step = mapping index original[index]
+            if not (obj.ReferenceEquals(step, original[index])) then
+                if isNull changed then changed <- Array.copy original
+                changed[index] <- step
+            elif not (isNull changed) then
+                changed[index] <- step
+        if isNull changed && seedType = this.seedType then this
+        else { seedType = seedType; twoOrbitUnfolderSteps = if isNull changed then original else changed }
+
     /// Determines whether this instance equals another TwoOrbitUnfolder.
     override this.Equals (obj: obj) =
         match obj with

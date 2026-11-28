@@ -71,7 +71,7 @@ module PermSi =
                 if j < 0 || j >= order then
                     failwith "PermSi array contains invalid indices"
                 visited.[j] <- true
-                let twoOrbit = twoOrbit.create [i; j]
+                let twoOrbit = twoOrbit.create(i, j)
                 findOrbits (i + 1) (twoOrbit :: acc)
         findOrbits 0 [] |> List.rev |> Array.ofList
 

@@ -19,13 +19,11 @@ type twoOrbitPair = private { First: twoOrbit; Second: twoOrbit option; order: i
         if order % 2 <> 0 then
             failwith "TwoOrbitPair order must be even"
         // Validate indices are within bounds (0 to order-1)
-        let firstIndices = first.Indices
-        if firstIndices |> List.exists (fun i -> i >= order) then
+        if first.Second >= order then
             failwith "First TwoOrbit indices must be within order bounds"
         match second with
         | Some s ->
-            let secondIndices = s.Indices
-            if secondIndices |> List.exists (fun i -> i >= order) then
+            if s.Second >= order then
                 failwith "Second TwoOrbit indices must be within order bounds"
             if not (first.IsDisjoint s) then
                 failwith "TwoOrbitPair TwoOrbits must be disjoint"

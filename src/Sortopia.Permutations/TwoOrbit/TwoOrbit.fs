@@ -16,17 +16,20 @@ type twoOrbitPairType =
 /// Represents a pair of distinct, non-negative indices in canonical order (smaller index first).
 [<CustomEquality; NoComparison>]
 type twoOrbit = private TwoOrbit of (int * int) with
+    /// Creates a canonical pair without allocating a temporary list of indices.
+    static member create (a: int, b: int) : twoOrbit =
+        if a < 0 || b < 0 then failwith "TwoOrbit indices must be non-negative"
+        if a = b then failwith "TwoOrbit indices must be distinct"
+        TwoOrbit (min a b, max a b)
+
     /// Creates a TwoOrbit from a list of exactly two distinct, non-negative indices.
     /// <param name="indices">A list of exactly two distinct, non-negative integers.</param>
     /// <exception cref="System.ArgumentException">Thrown when the list doesn't contain exactly two indices, indices are negative, or indices are equal.</exception>
     static member create (indices: int list) : twoOrbit =
         if indices.Length <> 2 then
             failwith "TwoOrbit must contain exactly 2 indices"
-        if indices |> List.exists (fun i -> i < 0) then
-            failwith "TwoOrbit indices must be non-negative"
         match indices with
-        | [a; b] when a = b -> failwith "TwoOrbit indices must be distinct"
-        | [a; b] -> TwoOrbit (min a b, max a b)
+        | [a; b] -> twoOrbit.create(a, b)
         | _ -> failwith "Invalid TwoOrbit indices"
 
     member this.First with get() =
@@ -54,7 +57,8 @@ type twoOrbit = private TwoOrbit of (int * int) with
 
     /// Checks if this TwoOrbit is disjoint from another.
     member this.IsDisjoint (other: twoOrbit) =
-        Set.ofList this.Indices |> Set.intersect (Set.ofList other.Indices) |> Set.isEmpty
+        this.First <> other.First && this.First <> other.Second &&
+        this.Second <> other.First && this.Second <> other.Second
 
     /// Determines whether this instance equals another TwoOrbit.
     override this.Equals (obj: obj) =
@@ -84,8 +88,7 @@ module TwoOrbit =
             failwith "Order must be non-negative"
         if order % 2 <> 0 then
             failwith "Order must be even"
-        let reflectedIndices = orbit.Indices |> List.map (fun i -> order - 1 - i)
-        twoOrbit.create reflectedIndices
+        twoOrbit.create(order - 1 - orbit.First, order - 1 - orbit.Second)
 
     /// Checks if the TwoOrbit is equal to its reflection.
     /// <param name="order">The order (must be non-negative and even).</param>
@@ -113,6 +116,6 @@ module TwoOrbit =
 
     let getCannonicalTwoOrbits (topType:twoOrbitPairType) : twoOrbit list =
         match topType with
-        | twoOrbitPairType.Ortho -> [twoOrbit.create [0; 1]; twoOrbit.create [2; 3]]
-        | twoOrbitPairType.Para -> [twoOrbit.create [0; 2]; twoOrbit.create [1; 3]]
-        | twoOrbitPairType.SelfRefl -> [twoOrbit.create [0; 3]; twoOrbit.create [1; 2]]
+        | twoOrbitPairType.Ortho -> [twoOrbit.create(0, 1); twoOrbit.create(2, 3)]
+        | twoOrbitPairType.Para -> [twoOrbit.create(0, 2); twoOrbit.create(1, 3)]
+        | twoOrbitPairType.SelfRefl -> [twoOrbit.create(0, 3); twoOrbit.create(1, 2)]

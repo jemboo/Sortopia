@@ -35,6 +35,18 @@ type twoOrbitUfStep = private { twoOrbitPairTypes: twoOrbitPairType array; order
     member this.TwoOrbitPairTypes
         with get () = Array.copy this.twoOrbitPairTypes
 
+    /// Internal mutation keeps immutable storage when no transition changes a value.
+    /// Every transition still runs, preserving the random stream for later stages.
+    member internal this.MapTypes(mapping: twoOrbitPairType -> twoOrbitPairType) =
+        let mutable changed = null
+        for index in 0 .. this.twoOrbitPairTypes.Length - 1 do
+            let value = mapping this.twoOrbitPairTypes[index]
+            if value <> this.twoOrbitPairTypes[index] then
+                if isNull changed then changed <- Array.copy this.twoOrbitPairTypes
+                changed[index] <- value
+        if isNull changed then this
+        else { twoOrbitPairTypes = changed; order = this.order }
+
     /// Computes the hash code for this instance.
     override this.GetHashCode () =
         hash (this.GetType(), this.twoOrbitPairTypes, this.Order)
@@ -54,11 +66,6 @@ module TwoOrbitUfStep =
         (twoOrbitPairs:twoOrbitPair array) : twoOrbitPair array =
 
         let twoOrbits = twoOrbitPairs |> TwoOrbitPairOps.makeTwoOrbits |> Seq.toArray
-        let zippy = twoOrbitUfStep.twoOrbitPairTypes |> Array.zip twoOrbits
-        [|
-            for zip in zippy do
-                    unfoldTwoOrbitIntoTwoOrbitPair
-                        (fst zip)
-                        twoOrbitUfStep.Order
-                        (snd zip)
-        |]
+        Array.map2 (fun orbit kind ->
+            unfoldTwoOrbitIntoTwoOrbitPair orbit twoOrbitUfStep.Order kind)
+            twoOrbits twoOrbitUfStep.twoOrbitPairTypes

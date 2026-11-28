@@ -49,6 +49,9 @@ module ExecutionResources =
             | true, count when count > 0 -> min workers count
             | _ -> invalidArg "arguments" "Parallel files must be Auto or a positive whole number."
 
+    /// For explicit hard caps only: leave room for native buffers and stacks.
+    let managedHeapLimitBytes limit = limit / 4L * 3L
+
     [<Struct; StructLayout(LayoutKind.Sequential)>]
     type private MemoryStatus =
         val mutable Length: uint32
@@ -71,50 +74,32 @@ module ExecutionResources =
         if not (GlobalMemoryStatusEx(&status)) then raise (ComponentModel.Win32Exception(Marshal.GetLastWin32Error()))
         int64 (min status.AvailablePhysical status.AvailablePageFile)
 
-/// Admission control supplements the OS hard cap; estimates cannot guarantee that
-/// an individual population fits. No timer or file polling is involved.
-type internal ExecutionMemoryGate(limit: int64, readCommitted: unit -> int64) =
+/// A soft scheduling target, never an allocation limit. An oversized work item
+/// always gets a turn alone. Estimates only control overlap with other work.
+type internal ExecutionMemoryGate(target: int64, readCommitted: unit -> int64) =
     let gate = obj ()
     let mutable reserved = 0L
     let mutable active = 0
     let mutable baseline = 0L
-    let ceiling = limit / 10L * 8L
-    let committed () = readCommitted ()
-    // Server GC can retain empty committed regions after an ordinary collection.
-    // Reclaim them only under admission pressure, so reusable heap capacity does
-    // not look like live input memory and prevent the next file from starting.
-    let reclaim () = GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, true, true)
-    let insufficient reservation used =
-        let gib bytes = (float bytes / 1073741824.0).ToString("F2", CultureInfo.InvariantCulture)
-        let available = max 0L (ceiling - used)
-        invalidOp $"The memory budget cannot admit this work item: estimated reservation {gib reservation} GiB, {gib available} GiB available after headroom ({gib limit} GiB worker budget). Increase the memory budget or reduce the model/population size; completed outputs and saved snapshots can be reused."
-
-    member _.CheckHeadroom() =
-        if limit > 0L && committed () >= ceiling then
-            reclaim ()
-            let used = committed ()
-            if used >= ceiling then insufficient 0L used
 
     member _.Acquire(estimate: int64, token: CancellationToken) =
-        if limit <= 0L then { new IDisposable with member _.Dispose() = () }
+        token.ThrowIfCancellationRequested()
+        if target <= 0L then { new IDisposable with member _.Dispose() = () }
         else
             let reservation = max (64L * 1024L * 1024L) estimate
-            if reservation > ceiling then insufficient reservation (committed ())
             lock gate (fun () ->
                 let mutable acquired = false
                 while not acquired do
                     token.ThrowIfCancellationRequested()
-                    let used = committed ()
-                    if active = 0 then baseline <- used
-                    let occupied = max used (baseline + reserved)
-                    if occupied <= ceiling && reservation <= ceiling - occupied then
+                    let used = max 0L (readCommitted ())
+                    // Subtract instead of summing reservations, which can saturate.
+                    let remaining = min (target - min target used)
+                                        (target - min target baseline - min target reserved)
+                    if active = 0 || reservation <= remaining then
+                        if active = 0 then baseline <- used
                         active <- active + 1
                         reserved <- reserved + reservation
                         acquired <- true
-                    elif active = 0 then
-                        reclaim ()
-                        baseline <- committed ()
-                        if baseline > ceiling || reservation > ceiling - baseline then insufficient reservation baseline
                     else Monitor.Wait(gate, 100) |> ignore)
             { new IDisposable with
                 member _.Dispose() =
@@ -123,6 +108,6 @@ type internal ExecutionMemoryGate(limit: int64, readCommitted: unit -> int64) =
                         reserved <- reserved - reservation
                         Monitor.PulseAll gate) }
 
-    new(limit) = new ExecutionMemoryGate(limit, fun () ->
+    new(target) = new ExecutionMemoryGate(target, fun () ->
         use current = Process.GetCurrentProcess()
         current.PrivateMemorySize64)

@@ -137,14 +137,14 @@ module StandardSgdTests =
             let evaluation =
                 SorterSetEval.makeSorterEvals [|sorter.create (UMX.tag id) 4<channelCount> ces|]
                     (inputs [||]) version (UMX.tag false) |> Array.exactlyOne
-            { Id = id; Model = model; Evaluation = evaluation
+            { Id = UMX.tag id; Model = model; Evaluation = evaluation
               MutationIndex = 0; MutationMod = 0; Birthday = 0; ParentId = None }
         let boundaryA = memberFor "boundary-a" (Array.append [|ce.create 0 0|] network)
         let boundaryB = memberFor "boundary-b" (Array.append [|ce.create 1 1|] alternative)
         let shorter = memberFor "shorter" network
         let tooLong = memberFor "too-long" (Array.append [|ce.create 0 0; ce.create 1 1|] network)
         let unsorted = memberFor "unsorted" [|ce.create 0 1|]
-        let pool: sorterPool = { Id = guid "boundary-pool"; RawCeLength = 20; Members = [|boundaryA; boundaryB|] }
+        let pool: sorterPool = { Id = UMX.tag (guid "boundary-pool"); RawCeLength = 20; Members = [|boundaryA; boundaryB|] }
         let limits = { settings with SortersPerPool = 2; RetainedParentsPerPool = 2; DistinctSorterHashes = true }
         let adjusted = StandardSgd.adjustCeLength 1.0 pool
         Assert.Equal(5, adjusted.RawCeLength)
@@ -177,7 +177,9 @@ module StandardSgdTests =
             // Fixed prefix CEs count but are not evaluated against the filtered inputs.
             Assert.Equal(5, int (SorterEval.getCeLength m.Evaluation))
             Assert.Equal(3, int (SorterEval.getStageLength m.Evaluation))
-            Assert.All(SorterEval.getCeUseArray m.Evaluation |> Array.take prefix.Length, fun usage -> Assert.Equal(-1, usage.UseCount))
+            Assert.True((match m.Evaluation with sorterEval.V1 _ -> true | _ -> false))
+            let detail = StandardSgd.evaluateMemberDetails (ParallelOptions()) (inputs prefix) result 0 m.Id
+            Assert.All(SorterEval.getCeUseArray detail |> Array.take prefix.Length, fun usage -> Assert.Equal(-1, usage.UseCount))
             Assert.Equal<ce>(prefix, SorterModel.getPrefix m.Model)
 
     [<Fact>]
@@ -216,13 +218,46 @@ module StandardSgdTests =
             Assert.Equal<byte>(expected, serialize workers bools)
             Assert.Equal<byte>(expected, serialize workers bits)
 
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``partial batches preserve snapshots across workers and checkpoint resume`` best =
+        let source = Array.init 267 (fun index ->
+            msce.create (UMX.tag (guid ("batch-" + string index))) 4<channelCount> prefix (suffix |> Array.map Ce.toIndex)
+            |> simpleSorterModel.Msce |> sorterModel.Simple)
+                     |> fun models -> sorterModelSet.create (UMX.tag (guid "batch-source")) models (UMX.tag suffix.Length)
+        let configuration = { settings with PoolCount = 2; SortersPerPool = 129; RetainedParentsPerPool = 129
+                                            ChildrenPerParent = 3; Generations = 4
+                                            InitialPoolSelection = if best then initialPoolSelection.Best else initialPoolSelection.Random }
+        let tests = inputs prefix
+        let serialize value = value |> SorterPoolSetDto.fromDomain |> MessagePackSetup.serialize
+        let expected = run configuration source tests |> serialize
+        let snapshots = ResizeArray<sorterPoolSet * byte array>()
+        let result = StandardSgd.runObserved (fun value -> snapshots.Add(value, serialize value))
+                         (ParallelOptions(MaxDegreeOfParallelism = 4)) configuration mutator source tests
+        Assert.Equal<byte>(expected, serialize result)
+        Assert.Equal(5, snapshots.Count)
+        for snapshot, bytes in snapshots do
+            Assert.Equal<byte>(bytes, serialize snapshot)
+            Assert.All(snapshot.Pools, fun pool -> Assert.Equal(129, pool.Members.Length))
+        let restored = snd snapshots[2] |> MessagePackSetup.deserialize<sorterPoolSetDto> |> SorterPoolSetDto.toDomain
+        let resumed = StandardSgd.resumeObserved ignore (ParallelOptions(MaxDegreeOfParallelism = 2)) configuration mutator restored tests
+        Assert.Equal<byte>(expected, serialize resumed)
+
     [<Fact>]
     let ``SGD final state round trips all models evaluations and mutation cursors`` () =
-        let value = run settings (models prefix suffix) (inputs prefix)
+        let value = run { settings with RetainedParentsPerPool = 0 } (models prefix suffix) (inputs prefix)
         let dto = SorterPoolSetDto.fromDomain value
         Assert.Equal(2, dto.Version)
+        for pool, savedPool in Array.zip value.Pools dto.Pools do
+            Assert.Equal(%pool.Id, savedPool.Id)
+            for memberValue, savedMember in Array.zip pool.Members savedPool.Members do
+                Assert.Equal(%memberValue.Id, savedMember.Id)
+                Assert.True(memberValue.ParentId.IsSome)
+                Assert.Equal(memberValue.ParentId |> Option.map UMX.untag, savedMember.ParentId)
         let bytes = MessagePackSetup.serialize dto
         let restored = bytes |> MessagePackSetup.deserialize<sorterPoolSetDto> |> SorterPoolSetDto.toDomain
+        Assert.Equal(value, restored)
         Assert.Equal<byte>(bytes, restored |> SorterPoolSetDto.fromDomain |> MessagePackSetup.serialize)
         Assert.Throws<ArgumentException>(fun () -> { dto with Version = 1 } |> SorterPoolSetDto.toDomain |> ignore) |> ignore
         Assert.Throws<ArgumentException>(fun () -> { restored with Generation = -1 } |> SorterPoolSet.validate |> ignore) |> ignore
@@ -285,10 +320,12 @@ module StandardSgdTests =
                 let expected = SorterSetEval.makeSorterEvals [|suffix|] tests sorterEvalType.V2 (UMX.tag false) |> Array.exactlyOne
                 Assert.Equal(SorterEval.getUnsortedCount expected, SorterEval.getUnsortedCount memberValue.Evaluation)
                 let retained = SorterEval.withModelPrefix memberValue.Model expected
-                Assert.Equal<ceUse>(SorterEval.getCeUseArray retained, SorterEval.getCeUseArray memberValue.Evaluation)
-                Assert.All(SorterEval.getCeUseArray memberValue.Evaluation |> Array.take prefixLength,
+                Assert.Equal(SorterEval.toV1 retained, memberValue.Evaluation)
+                let detail = StandardSgd.evaluateMemberDetails (ParallelOptions()) tests snapshot 0 memberValue.Id
+                Assert.Equal<ceUse>(SorterEval.getCeUseArray retained, SorterEval.getCeUseArray detail)
+                Assert.All(SorterEval.getCeUseArray detail |> Array.take prefixLength,
                     fun usage -> Assert.Equal(-1, usage.UseCount))
-                Assert.All(SorterEval.getCeUseArray memberValue.Evaluation |> Array.skip prefixLength,
+                Assert.All(SorterEval.getCeUseArray detail |> Array.skip prefixLength,
                     fun useCount -> Assert.True(useCount.UseCount > 0))
 
     [<Theory>]
@@ -323,3 +360,50 @@ module StandardSgdTests =
     let ``cancelled evolution never publishes a final population`` () =
         let options = ParallelOptions(CancellationToken = CancellationToken(true))
         Assert.Throws<OperationCanceledException>(fun () -> StandardSgd.run options settings mutator (models prefix suffix) (inputs prefix) |> ignore) |> ignore
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``compact model evaluations preserve all detailed metrics at each cutoff`` simd =
+        let small = match inputs prefix with sortableTests.Bools value -> value | _ -> failwith "Bools expected."
+        let rows = Array.init 1031 (fun index -> small.SortableBinaryArrays[index % 16])
+        let binary = sortableBinaryTests.create small.Id small.ChannelCount rows
+        let tests = if simd then SortableBitv512Tests.fromBoolArrays binary.Id binary.ChannelCount rows |> sortableTests.Bitv512 else sortableTests.Bools binary
+        let options = ParallelOptions(MaxDegreeOfParallelism = 3)
+        for pfx in [|[||]; prefix|] do
+            let source = (models pfx (Array.append suffix suffix)).SorterModels
+            for cutoff in [0; 1; 2; 3; 4; 6; 9] do
+                let eval kind = SorterSetEval.makeSorterModelEvalsWithOptions options source (Some (UMX.tag cutoff)) tests kind (UMX.tag false)
+                let detailed = eval sorterEvalType.V2 |> Array.map SorterEval.toV1
+                Assert.Equal<sorterEval>(detailed, eval sorterEvalType.V1)
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``legacy checkpoints compact and selected detail replays independent of current pool cutoff`` hasPrefix =
+        let pfx = if hasPrefix then prefix else [||]
+        let tests = inputs pfx
+        let model = (models pfx (Array.append suffix suffix)).SorterModels[0]
+        let options = ParallelOptions(MaxDegreeOfParallelism = 2)
+        for cutoff in [0; 1; 3; 6] do
+            let expected = SorterSetEval.makeSorterModelEvalsWithOptions options [|model|] (Some (UMX.tag cutoff)) tests sorterEvalType.V2 (UMX.tag false) |> Array.exactlyOne
+            let memberValue : sorterPoolMember =
+                { Id = UMX.tag (guid "detail-member"); Model = model; Evaluation = SorterEval.toV1 expected
+                  MutationIndex = 0; MutationMod = 0; Birthday = 0; ParentId = None }
+            let compact = { Generation = 0; TestsId = SortableTests.getId tests
+                            Pools = [|{ Id = UMX.tag (guid "detail-pool"); RawCeLength = 0; Members = [|memberValue|] }|] }
+            let dto = SorterPoolSetDto.fromDomain compact
+            let oldMember = { dto.Pools[0].Members[0] with Evaluation = SorterEvalDto.fromDomain expected }
+            let oldDto = { dto with Pools = [|{ dto.Pools[0] with Members = [|oldMember|] }|] }
+            let loaded = oldDto |> MessagePackSetup.serialize |> MessagePackSetup.deserialize<sorterPoolSetDto> |> SorterPoolSetDto.toDomain
+            Assert.Equal(compact, loaded)
+            let actual = StandardSgd.evaluateMemberDetails options tests loaded 0 memberValue.Id
+            Assert.Equal(expected, actual)
+            Assert.Equal(SorterEval.toV1 expected, loaded.Pools[0].Members[0].Evaluation)
+            let legacy = { compact with Pools = [|{ compact.Pools[0] with Members = [|{ memberValue with Evaluation = expected }|] }|] }
+            let observed = ResizeArray<sorterPoolSet>()
+            let resumed = StandardSgd.resumeObserved observed.Add options { settings with Generations = 0 } mutator legacy tests
+            Assert.Equal(compact, resumed)
+            Assert.Equal(compact, Assert.Single observed)
+            let wrongTests = sortableBinaryTests.create (UMX.tag (guid "wrong-detail-tests")) 4<channelCount> [||] |> sortableTests.Bools
+            Assert.Throws<ArgumentException>(fun () -> StandardSgd.evaluateMemberDetails options wrongTests loaded 0 memberValue.Id |> ignore) |> ignore

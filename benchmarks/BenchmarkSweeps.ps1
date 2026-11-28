@@ -7,10 +7,13 @@ param(
     [string[]]$Scenarios = @('fresh-grid', 'uneven-tail', 'mostly-complete'),
     [int]$CpuPercent = 50,
     [string]$Memory = '8GiB',
+    [string]$HardMemoryCap,
     [string]$Jobs = 'auto',
     [switch]$CandidateJobMetrics,
+    [switch]$BaselineJobMetrics,
     [ValidateSet('baseline', 'dynamic')][string[]]$Builds = @('baseline', 'dynamic'),
-    [string]$ReferenceHashes
+    [string]$ReferenceHashes,
+    [switch]$ContinueOnFailure
 )
 $ErrorActionPreference = 'Stop'
 $Baseline = (Resolve-Path -LiteralPath $Baseline).Path
@@ -34,8 +37,13 @@ function Invoke-Batch([string]$Executable, [string]$Folder, [string[]]$Files, [s
     foreach ($argument in @('execute-results', '--parameters-list', $selection, '--jobs', $Jobs, '--cpu-percent', "$CpuPercent", '--memory', $Memory)) {
         $start.ArgumentList.Add($argument)
     }
+    if ($HardMemoryCap -and $Executable -eq $Candidate) {
+        $start.ArgumentList.Add('--memory-cap')
+        $start.ArgumentList.Add($HardMemoryCap)
+    }
     $jobMetrics = Join-Path $Folder "$Label-job-metrics.json"
-    if ($CandidateJobMetrics -and $Executable -eq $Candidate) {
+    $collectJobMetrics = ($CandidateJobMetrics -and $Executable -eq $Candidate) -or ($BaselineJobMetrics -and $Executable -eq $Baseline)
+    if ($collectJobMetrics) {
         $start.ArgumentList.Add('--execution-metrics')
         $start.ArgumentList.Add($jobMetrics)
     }
@@ -44,6 +52,8 @@ function Invoke-Batch([string]$Executable, [string]$Folder, [string[]]$Files, [s
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $peakPrivate = 0L
     $peakWorking = 0L
+    $memoryTargetBytes = $null
+    $hardCapBytes = $null
     try {
         $process.Start() | Out-Null
         $stdoutFile = [IO.File]::Open((Join-Path $Folder "$Label-stdout.log"), [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
@@ -60,19 +70,21 @@ function Invoke-Batch([string]$Executable, [string]$Folder, [string[]]$Files, [s
         $cpu = $process.TotalProcessorTime.TotalSeconds
         $stdout.GetAwaiter().GetResult()
         $stderr.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne 0) { throw "CLI failed ($($process.ExitCode)); see $Folder/$Label-stderr.log" }
-        if ($CandidateJobMetrics -and $Executable -eq $Candidate) {
+        if ($collectJobMetrics) {
             $job = Get-Content -LiteralPath $jobMetrics -Raw | ConvertFrom-Json
             $cpu = $job.CpuSeconds
             $peakPrivate = $job.PeakCommittedBytes
-            if ($job.TotalProcesses -lt 2) { throw 'The limited job must include both launcher and execution worker.' }
-            if ($peakPrivate -gt $job.TotalMemoryBytes) { throw 'Job memory exceeded the selected budget.' }
+            if ($job.TotalProcesses -lt 1) { throw 'The limited job must include the execution process.' }
+            $memoryTargetBytes = if ($null -ne $job.MemoryTargetBytes) { $job.MemoryTargetBytes } else { 0L }
+            $hardCapBytes = if ($null -ne $job.HardMemoryLimitBytes) { $job.HardMemoryLimitBytes } else { $job.TotalMemoryBytes }
+            if ($hardCapBytes -gt 0 -and $peakPrivate -gt $hardCapBytes) { throw 'Job memory exceeded the selected hard cap.' }
             # Launcher-only working set is not representative of the batch.
             $peakWorking = $null
         }
-        [pscustomobject]@{ Seconds = $clock.Elapsed.TotalSeconds; CpuSeconds = $cpu; PeakPrivateBytes = $peakPrivate; PeakWorkingSetBytes = $peakWorking; ExitCode = $process.ExitCode } |
+        [pscustomobject]@{ Seconds = $clock.Elapsed.TotalSeconds; CpuSeconds = $cpu; PeakPrivateBytes = $peakPrivate; PeakWorkingSetBytes = $peakWorking; MemoryTargetBytes = $memoryTargetBytes; HardMemoryLimitBytes = $hardCapBytes; ExitCode = $process.ExitCode } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Folder "$Label-resources.json")
-        [pscustomobject]@{ Seconds = $clock.Elapsed.TotalSeconds; CpuSeconds = $cpu; PeakPrivateBytes = $peakPrivate; PeakWorkingSetBytes = $peakWorking }
+        if ($process.ExitCode -ne 0 -and -not $ContinueOnFailure) { throw "CLI failed ($($process.ExitCode)); see $Folder/$Label-stderr.log" }
+        [pscustomobject]@{ Seconds = $clock.Elapsed.TotalSeconds; CpuSeconds = $cpu; PeakPrivateBytes = $peakPrivate; PeakWorkingSetBytes = $peakWorking; MemoryTargetBytes = $memoryTargetBytes; HardMemoryLimitBytes = $hardCapBytes; ExitCode = $process.ExitCode }
     }
     finally {
         if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }
@@ -84,6 +96,7 @@ function Invoke-Batch([string]$Executable, [string]$Folder, [string[]]$Files, [s
 
 function Get-ResultHashes([string]$Folder) {
     $root = Join-Path $Folder 'data/results'
+    if (-not (Test-Path -LiteralPath $root)) { return }
     @(Get-ChildItem -LiteralPath $root -File -Recurse -Filter '*.msgpack' | Sort-Object FullName | ForEach-Object {
         [pscustomobject]@{ Path = [IO.Path]::GetRelativePath($root, $_.FullName); Hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
     })
@@ -109,20 +122,27 @@ foreach ($scenario in $manifest | Where-Object { $_.Scenario -in $Scenarios }) {
             Write-Output "Starting $name round $round $build."
             $executable = if ($build -eq 'baseline') { $Baseline } else { $Candidate }
             $timing = Invoke-Batch $executable $trial @($scenario.Files.File) 'trial'
-            $hashes = Get-ResultHashes $trial
+            $hashes = @(Get-ResultHashes $trial)
             $serialized = ConvertTo-Json -InputObject $hashes -Compress
-            if ($null -eq $expectedHashes) { $expectedHashes = $serialized }
-            elseif ($serialized -cne $expectedHashes) { throw "Result bytes differ: $trial" }
+            $identical = 0
+            if ($timing.ExitCode -eq 0) {
+                if ($null -eq $expectedHashes) { $expectedHashes = $serialized }
+                else {
+                    if ($serialized -cne $expectedHashes) { throw "Result bytes differ: $trial" }
+                    $identical = $hashes.Count
+                }
+            }
             ConvertTo-Json -InputObject $hashes | Set-Content -LiteralPath (Join-Path $trial 'result-hashes.json')
             $row = [pscustomobject]@{
                 Scenario = $name; Round = $round; Build = $build; CpuPercent = $CpuPercent; Memory = $Memory; Jobs = $Jobs
+                MemoryTargetBytes = $timing.MemoryTargetBytes; HardMemoryLimitBytes = $timing.HardMemoryLimitBytes
                 Seconds = $timing.Seconds; CpuSeconds = $timing.CpuSeconds
                 PeakPrivateBytes = $timing.PeakPrivateBytes; PeakWorkingSetBytes = $timing.PeakWorkingSetBytes
-                IdenticalOutputFiles = $hashes.Count
+                ExitCode = $timing.ExitCode; SavedOutputFiles = $hashes.Count; IdenticalOutputFiles = $identical
             }
             $rows.Add($row)
             ConvertTo-Json -InputObject @($rows.ToArray()) | Set-Content -LiteralPath (Join-Path $Output 'measurements.json')
-            Write-Output ("Finished {0}: {1:N2}s, CPU {2:N2}s, peak private {3:N2} GiB, {4} identical outputs." -f $build, $row.Seconds, $row.CpuSeconds, ($row.PeakPrivateBytes / 1GB), $hashes.Count)
+            Write-Output ("Finished {0}: exit {1}, {2:N2}s, CPU {3:N2}s, peak private {4:N2} GiB, {5} saved outputs." -f $build, $row.ExitCode, $row.Seconds, $row.CpuSeconds, ($row.PeakPrivateBytes / 1GB), $hashes.Count)
         }
     }
 }

@@ -30,6 +30,29 @@ public sealed class ResultsLaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Hard_cap_is_optional_and_remembered_separately_from_the_target()
+    {
+        var path = Path.Combine(temporary.FullName, "legacy.json");
+        File.WriteAllText(path, """{"CpuPercent":"30","MemoryLimit":"2GiB","ParallelFiles":"3"}""");
+        var settings = new ResultsLaunchSettings(path);
+        using (var page = new ResultsExecutionPageViewModel(() => { }, _ => null, launchSettings: settings))
+        {
+            Assert.Empty(page.HardMemoryLimit);
+            page.HardMemoryLimit = "4GiB";
+            Assert.Empty(page.LaunchLimitsError);
+        }
+        using var reopened = new ResultsExecutionPageViewModel(() => { }, _ => null, launchSettings: settings);
+        Assert.Equal("2GiB", reopened.MemoryLimit);
+        Assert.Equal("4GiB", reopened.HardMemoryLimit);
+        reopened.HardMemoryLimit = "bad";
+        Assert.NotEmpty(reopened.LaunchLimitsError);
+        Assert.Equal("4GiB", settings.Load().HardMemoryLimit);
+        reopened.HardMemoryLimit = "";
+        Assert.Empty(reopened.LaunchLimitsError);
+        Assert.Empty(settings.Load().HardMemoryLimit);
+    }
+
+    [Fact]
     public void Malformed_preferences_fall_back_to_safe_defaults_with_an_explanation()
     {
         var path = Path.Combine(temporary.FullName, "launch.json"); File.WriteAllText(path, "broken");

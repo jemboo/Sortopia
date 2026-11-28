@@ -17,6 +17,7 @@ open Sortopia.Models.Sorting.Simple
 open Sortopia.Models.Sorting.Simple.Ce
 open Sortopia.Evaluation
 open Sortopia.Evaluation.Sgd
+open Sortopia.Evaluation.Serialization
 open Sortopia.Reporting
 
 module EvolutionReportsTests =
@@ -28,9 +29,9 @@ module EvolutionReportsTests =
     let private snapshot groups =
         { Generation = 0; TestsId = UMX.tag (Guid.NewGuid())
           Pools = groups |> Array.map (fun evaluations ->
-              { Id = Guid.NewGuid(); RawCeLength = 100
+              { Id = UMX.tag (Guid.NewGuid()); RawCeLength = 100
                 Members = evaluations |> Array.map (fun evaluation ->
-                    { Id = Guid.NewGuid(); MutationIndex = 0; MutationMod = 0; Birthday = 0; ParentId = None
+                    { Id = UMX.tag (Guid.NewGuid()); MutationIndex = 0; MutationMod = 0; Birthday = 0; ParentId = None
                       Model = msce.create (UMX.tag (Guid.NewGuid())) 4<channelCount> [||] [|Ce.toIndex (ce.create 0 1)|]
                               |> simpleSorterModel.Msce |> sorterModel.Simple
                       Evaluation = evaluation }) }) }
@@ -40,7 +41,7 @@ module EvolutionReportsTests =
         { TestsId = UMX.untag pools.TestsId; Rows = EvolutionReports.summarize SorterEvalMeasure.stageBiasedFilterUnsorted pools }
 
     let private bin ces stages count : sorterLengthHistogramBin = { CeLength = ces; StageLength = stages; Count = count }
-    let private coordinates bins = bins |> Option.get |> Array.map (fun b -> b.CeLength, b.StageLength, b.Count)
+    let private coordinates (bins: sorterLengthHistogramBin array option) = bins |> Option.get |> Array.map (fun b -> b.CeLength, b.StageLength, b.Count)
 
     [<Fact>]
     let ``histograms count exact length pairs by success separately for each pool and every member`` () =
@@ -103,24 +104,37 @@ module EvolutionReportsTests =
         Assert.Throws<ArgumentException>(fun () -> SorterPoolSummarySet.validate { valid with Rows = [|wrongFailures|] } |> ignore) |> ignore
 
     [<Fact>]
-    let ``histograms survive serialization and older summaries explicitly lack them`` () =
+    let ``histograms use numeric MessagePack triples and preserve missing histograms`` () =
         let summary = summarize [|[|evaluation 0 8 3; evaluation 1 4 2|]|]
-        let bytes = MessagePackSetup.serialize summary
-        let restored = MessagePackSetup.deserialize<sorterPoolSummarySet> bytes |> SorterPoolSummarySet.validate
+        let bytes = SorterPoolSummarySetCodec.encode summary
+        let restored = SorterPoolSummarySetCodec.decode bytes
         Assert.Equal(summary, restored)
-        // Remove the new fields from the named-field wire format used by existing summary files.
         let json = JsonNode.Parse(MessagePackSerializer.ConvertToJson(bytes, MessagePackSetup.options))
+        Assert.Equal("[[8,3,1]]", json.["Rows"].[0].["SuccessfulLengthHistogram"].ToJsonString())
+        Assert.Equal("[[4,2,1]]", json.["Rows"].[0].["UnsuccessfulLengthHistogram"].ToJsonString())
         for row in json["Rows"].AsArray() do
             Assert.True(row.AsObject().Remove("SuccessfulLengthHistogram"))
             Assert.True(row.AsObject().Remove("UnsuccessfulLengthHistogram"))
         let legacy = MessagePackSerializer.ConvertFromJson(json.ToJsonString(), MessagePackSetup.options)
-                     |> MessagePackSetup.deserialize<sorterPoolSummarySet> |> SorterPoolSummarySet.validate
+                     |> SorterPoolSummarySetCodec.decode
         Assert.Equal(summary.Rows[0].MeanCeLength, legacy.Rows[0].MeanCeLength)
         Assert.True(legacy.Rows[0].SuccessfulLengthHistogram.IsNone)
         Assert.True(legacy.Rows[0].UnsuccessfulLengthHistogram.IsNone)
         let oldReport = EvolutionReports.row legacy.Rows[0]
         Assert.Equal(reportValue.Missing, oldReport["SuccessfulLengthHistogram"])
         Assert.Equal(reportValue.Missing, oldReport["UnsuccessfulLengthHistogram"])
+
+    [<Theory>]
+    [<InlineData("[8,3]")>]
+    [<InlineData("[8,3,1,9]")>]
+    [<InlineData("[8,3,0]")>]
+    let ``saved histogram triples require three integers and valid counts`` (binJson: string) =
+        let summary = summarize [|[|evaluation 0 8 3|]|]
+        let bytes = SorterPoolSummarySetCodec.encode summary
+        let json = JsonNode.Parse(MessagePackSerializer.ConvertToJson(bytes, MessagePackSetup.options))
+        json.["Rows"].[0].["SuccessfulLengthHistogram"].AsArray().[0] <- JsonNode.Parse binJson
+        let malformed = MessagePackSerializer.ConvertFromJson(json.ToJsonString(), MessagePackSetup.options)
+        Assert.ThrowsAny<Exception>(fun () -> SorterPoolSummarySetCodec.decode malformed |> ignore) |> ignore
 
     [<Fact>]
     let ``report histogram cells contain deterministic JSON triples in CE stage count order`` () =

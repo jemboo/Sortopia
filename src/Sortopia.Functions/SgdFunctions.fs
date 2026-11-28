@@ -43,9 +43,18 @@ module SgdFunctions =
           SelectionMeasure = required ParamKeys.sorterEvalMeasureKey parameters |> SorterEvalFunctions.fromCompactString }
 
     let private loadTests (host: runHost) =
-        match host.Database.Load(host.Database.Find testsType) with
-        | sortopiaStorageData.SortableTests tests -> tests
-        | _ -> invalidOp "Expected setup sortable tests."
+        let reference = host.Database.Find testsType
+        let prepare () =
+            match host.Database.Load reference with
+            | sortopiaStorageData.SortableTests tests -> StandardSgd.prepareTests host.CancellationToken tests
+            | _ -> invalidOp "Expected setup sortable tests."
+        match host.PreparationCache with
+        | Some cache when cache.IsSharedInput reference ->
+            // Cache only common inputs: a sweep over distinct datasets must not
+            // retain every converted dataset until the end of the batch.
+            let key = "StandardSgd/tests/v1/" + sprintf "%A" reference
+            cache.GetOrAdd(key, fun () -> box (prepare ())) :?> sortableTests
+        | _ -> prepare ()
 
     let private initialPopulation family (host: runHost) settings tests =
         let prepare () =
@@ -58,12 +67,14 @@ module SgdFunctions =
                 invalidArg "models" $"Standard {familyName family} SGD requires Simple {familyName family} source models."
             StandardSgd.prepareInitialPopulation
                 (EvaluationScheduling.options host.EvaluationParallelism host.EvaluationBudget host.CancellationToken) settings models tests
-        match settings.InitialPoolSelection, host.PreparationCache with
-        | initialPoolSelection.Best, Some cache ->
-            // Ranking depends on the sources and pool settings, not on mutation parameters.
-            // Keep this key stable so a batch shares preparation across mutation combinations.
+        match host.PreparationCache with
+        | Some cache ->
+            // Both sampled and ranked seeds depend on sources and selection settings,
+            // not mutation parameters. Cache only selected models and evaluations.
             let references = [host.Database.Find modelsType; host.Database.Find testsType]
-            let key = GuidUtils.guidFromObjs [box "StandardSgd/best-preparation/v1"; box (familyName family); box (sprintf "%A" references);
+            let key = GuidUtils.guidFromObjs [box "StandardSgd/preparation/v2"; box (familyName family); box (sprintf "%A" references);
+                                             box (InitialPoolSelection.toString settings.InitialPoolSelection);
+                                             box (if settings.InitialPoolSelection = initialPoolSelection.Random then settings.InitialPoolSeed else 0);
                                              box settings.PoolCount; box settings.SortersPerPool; box settings.DistinctSorterHashes;
                                              box (SorterEvalFunctions.toCompactString settings.SelectionMeasure)] |> string
             cache.GetOrAdd(key, fun () -> box (prepare ())) :?> preparedSgdPopulation
@@ -71,9 +82,22 @@ module SgdFunctions =
 
     let private prepare family (host: runHost) =
         let configuration = readSettings host
-        if host.ResumeSnapshot.IsNone && configuration.InitialPoolSelection = initialPoolSelection.Best then
-            let tests = loadTests host
-            initialPopulation family host configuration tests |> ignore
+        let released =
+            if host.ResumeSnapshot.IsSome then
+                Set.singleton (host.Database.Find modelsType)
+            elif host.PreparationCache.IsSome then
+                let tests = loadTests host
+                initialPopulation family host configuration tests |> ignore
+                Set.singleton (host.Database.Find modelsType)
+            else Set.empty
+        let reference = host.Database.Find testsType
+        match host.PreparationCache with
+        | Some cache when cache.IsSharedInput reference ->
+            loadTests host |> ignore
+            // The cache now owns the evaluation view, so the host can release a
+            // larger shared Boolean representation before starting evolution.
+            Set.add reference released
+        | _ -> released
 
     let private createMutator family channels parameters =
         let rng = required ParamKeys.rngTypeKey parameters |> RngType.fromString |> RngFactory.create
@@ -127,7 +151,7 @@ module SgdFunctions =
             "Pools use disjoint initial models."
             "Mutate, evaluate, adjust CE limits, and select survivors."
             "Channel count comes from the tests."
-            "Fixed prefixes are retained in metrics with -1 CE usage markers."
+            "Evolution and checkpoints retain compact V1 evaluations; fixed prefixes remain included in their metrics."
             "SnapshotInterval and SnapshotCount are run properties: the target is their product, with generation zero saved separately."
             "SnapshotInterval is fixed after parameter generation; increase SnapshotCount to continue from the latest complete checkpoint."
             "Temp snapshot controls the interval of replaceable resume checkpoints, including pending pool summaries; its default is 10 generations."

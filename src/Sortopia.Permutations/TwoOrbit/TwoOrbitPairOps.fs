@@ -57,8 +57,8 @@ module TwoOrbitPairOps =
         let (highR, lowR) = (TwoOrbit.getReflection (order*2) toOb).IndicesTuple
         let (twoOrbitA, twoOrbitB) = 
             match twoOrbitPairType with
-            | twoOrbitPairType.Ortho -> (twoOrbit.create [low; high], twoOrbit.create [lowR; highR])
-            | twoOrbitPairType.Para -> (twoOrbit.create [low; highR], twoOrbit.create [high; lowR])
-            | twoOrbitPairType.SelfRefl -> (twoOrbit.create [low; lowR], twoOrbit.create [high; highR])
+            | twoOrbitPairType.Ortho -> (toOb, twoOrbit.create(lowR, highR))
+            | twoOrbitPairType.Para -> (twoOrbit.create(low, highR), twoOrbit.create(high, lowR))
+            | twoOrbitPairType.SelfRefl -> (twoOrbit.create(low, lowR), twoOrbit.create(high, highR))
 
         twoOrbitPair.create (order*2) twoOrbitA (Some twoOrbitB)

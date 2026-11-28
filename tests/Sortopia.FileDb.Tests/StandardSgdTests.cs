@@ -27,9 +27,9 @@ public sealed partial class PreparedExecutionTests
         Bind("OrthoRate", "4.001", parameterValueType.Floating), Bind("ParaRate", "1.15", parameterValueType.Floating),
         Bind("SelfSymRate", "1.75", parameterValueType.Floating) ];
 
-    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null, bool msrs = false, int sourceCount = 4)
+    private (WorkspaceDocument World, ProjectDocument Consumer) SgdWorkspace(bool wrongFamily = false, parameterSpanDto[]? resultsSpans = null, sgdReportingConfig? reporting = null, sgdRunConfig? sgd = null, bool msrs = false, int sourceCount = 4, int width = 8)
     {
-        var prefix = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == 8 && id.StageLength == 1));
+        var prefix = PrefixLibId.toString(PrefixLib.ids().First(id => id.ChannelCount == width && id.StageLength == 1));
         var prefixBinding = Bind("PrefixLibId", prefix, parameterValueType.PrefixLibId);
         var modelsType = sortopiaDataType.NewSorterModelSet("");
         var testsType = sortopiaDataType.NewSortableTests("");

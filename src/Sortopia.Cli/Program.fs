@@ -17,7 +17,7 @@ module Program =
   sortopia check-results --parameters-folder <project/runParameters> [--run <run-id>]
   sortopia execute-results --parameters-folder <project/runParameters> [--run <run-id>] [--jobs <count>]
   sortopia execute-results --parameters <path-to-work-item.msgpack> [--jobs <count>]
-  sortopia execute-results --parameters-list <json-array-file> [--jobs <count|auto>] [--cpu-percent <1-100> --memory <GiB|percent%>]
+  sortopia execute-results --parameters-list <json-array-file> [--jobs <count|auto>] [--cpu-percent <1-100>] [--memory <GiB|percent%>] [--memory-cap <GiB|percent%>]
   sortopia export-sorter-eval --parameters-folder <project/runParameters> [--run <run-id>] [--output <report-folder>]
   sortopia export-sorter-eval --parameters <path-to-work-item.msgpack> [--output <report-folder>]
 
@@ -26,11 +26,13 @@ Folder execution considers every parameter file present, including older files;
 --run restricts it to one saved run ID. Complete outputs are validated and skipped;
 partial work reuses existing outputs. No manifests or execution receipts are needed.
 Results execution never runs setup. --jobs is a positive maximum concurrent job count (default 1).
-All execution forms accept --cpu-percent and --memory together to enforce one Windows batch budget.
-Memory examples: 8GiB or 50% of available memory at launch. Minimum resolved budget: 0.25 GiB.
---jobs auto allows up to four files within the CPU and memory budgets. Limits also cover preparation.
-Limits apply to this CLI batch, not other terminals. Memory is committed process memory; allocation can fail at the cap.
-Bounded execution tunes workers and GC before runtime startup. --execution-metrics <new-file.json> optionally records aggregate resource diagnostics.
+All execution forms accept --cpu-percent, --memory and --memory-cap independently.
+--memory is a soft scheduling target: delay additional files, but allow a large file to run alone.
+It does not cap allocations or guarantee free RAM. Memory examples: 8GiB or 50% of available memory at launch; minimum 0.25 GiB.
+--memory-cap optionally enforces a Windows committed-memory cap, including preparation; allocations can fail at this cap.
+--jobs auto allows up to four files within the CPU worker count and soft memory target.
+Limits apply to this CLI batch, not other terminals. Resource-controlled execution runs at below-normal priority.
+--execution-metrics <new-file.json> optionally records CPU time, whole-job peak memory, target and cap separately.
 Selected files must own distinct outputs. Failed jobs are reported while other jobs continue.
 Export combines saved branch evaluations or sampled SGD population statistics.
 Details includes V1 statistics for each network, results parameters, and inherited setup query metadata.
@@ -54,19 +56,18 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
         | _ -> invalidArg "arguments" $"Expected a nonempty GUID: {text}"
     let private runFilter values = values |> Map.tryFind "--run" |> Option.map (guid >> UMX.tag)
     let private executionOptions (values: Map<string, string>) =
+        let percent = Map.tryFind "--cpu-percent" values |> Option.map ExecutionResources.cpuPercent |> Option.defaultValue 100
+        let available = lazy (ExecutionResources.availableMemory ())
+        let memory key = Map.tryFind key values |> Option.map (fun value -> ExecutionResources.memoryBytes available.Value value) |> Option.defaultValue 0L
+        let target, cap = memory "--memory", memory "--memory-cap"
         let limits =
-            match Map.tryFind "--cpu-percent" values, Map.tryFind "--memory" values with
-            | None, None -> None
-            | Some cpu, Some memory ->
-                let percent = ExecutionResources.cpuPercent cpu
-                let bytes = ExecutionResources.memoryBytes (ExecutionResources.availableMemory ()) memory
-                Some(percent, bytes)
-            | _ -> invalidArg "arguments" "Supply --cpu-percent and --memory together."
-        let workers = limits |> Option.map (fun (percent, _) -> ExecutionResources.cpuWorkers Environment.ProcessorCount percent) |> Option.defaultValue Environment.ProcessorCount
+            if ["--cpu-percent"; "--memory"; "--memory-cap"; "--execution-metrics"] |> List.exists (fun key -> Map.containsKey key values) then Some(percent, cap)
+            else None
+        let workers = ExecutionResources.cpuWorkers Environment.ProcessorCount percent
         let jobs = ExecutionResources.parallelJobs workers (Map.tryFind "--jobs" values |> Option.defaultValue "1")
-        resultsExecutionOptions(jobs, workers, limits |> Option.map snd |> Option.defaultValue 0L), limits
+        resultsExecutionOptions(jobs, workers, target), limits
 
-    let private executionKeys = ["--parameters-folder"; "--run"; "--parameters"; "--parameters-list"; "--jobs"; "--cpu-percent"; "--memory"; "--execution-metrics"]
+    let private executionKeys = ["--parameters-folder"; "--run"; "--parameters"; "--parameters-list"; "--jobs"; "--cpu-percent"; "--memory"; "--memory-cap"; "--execution-metrics"]
 
     let private executionSelector values =
         // Reject ambiguous selectors before changing process limits or opening files.
@@ -130,12 +131,11 @@ Exit codes: 0 completed, 1 failed, 2 invalid command, 130 cancelled."""
                     executionSelector values |> ignore
                     let execution, limits = executionOptions values
                     match limits with
-                    | Some(percent, bytes) -> ExecutionWorker.launch args[1..] percent bytes execution (Map.tryFind "--execution-metrics" values) cancellation.Token
+                    | Some(percent, bytes) ->
+                        BoundedExecution.run percent bytes execution (Map.tryFind "--execution-metrics" values)
+                            (fun execution token -> executeResults values execution progress token |> finish) cancellation.Token
                     | None ->
-                        if Map.containsKey "--execution-metrics" values then invalidArg "arguments" "Execution metrics require --cpu-percent and --memory."
                         executeResults values execution progress cancellation.Token |> finish
-                | "--execution-worker" when args.Length = 1 ->
-                    ExecutionWorker.run (fun workerArgs execution token -> executeResults (options workerArgs executionKeys) execution progress token |> finish) cancellation.Token
                 | "export-sorter-eval" ->
                     let values = options args[1..] ["--parameters-folder"; "--run"; "--parameters"; "--output"]
                     let output folder = Map.tryFind "--output" values |> Option.defaultWith (fun () -> SorterEvalReportExport.nextOutputFolder folder)

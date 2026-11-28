@@ -10,6 +10,26 @@ open Sortopia.Permutations.TwoOrbitPairOps
 type TwoOrbitPairTests() =
 
     [<Fact>]
+    let ``Pair construction preserves canonical indices and rejects invalid endpoints`` () =
+        for a in 0 .. 15 do
+            for b in 0 .. 15 do
+                if a <> b then
+                    let orbit = twoOrbit.create(a, b)
+                    Assert.Equal<int list>([min a b; max a b], orbit.Indices)
+                    Assert.Equal(twoOrbit.create [a; b], orbit)
+                    Assert.Equal(orbit, TwoOrbit.getReflection 16 (TwoOrbit.getReflection 16 orbit))
+        for a, b in [-1, 2; 2, -1; 0, 0; 15, 15] do
+            Assert.Throws<Exception>(fun () -> twoOrbit.create(a, b) |> ignore) |> ignore
+
+    [<Fact>]
+    let ``Disjoint check agrees with set intersection for every pair on sixteen channels`` () =
+        let orbits = [| for a in 0 .. 15 do for b in a + 1 .. 15 -> twoOrbit.create(a, b) |]
+        for first in orbits do
+            for second in orbits do
+                let expected = Set.intersect (Set.ofList first.Indices) (Set.ofList second.Indices) |> Set.isEmpty
+                Assert.Equal(expected, first.IsDisjoint second)
+
+    [<Fact>]
     let ``Create TwoOrbitPair with valid Ortho pair succeeds`` () =
         let orbit1 = twoOrbit.create [0; 1]
         let orbit2 = twoOrbit.create [2; 3]

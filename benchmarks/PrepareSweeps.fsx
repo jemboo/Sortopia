@@ -35,7 +35,8 @@ if destination.StartsWith(source + string Path.DirectorySeparatorChar, StringCom
     failwith "Benchmark output must be outside the source project."
 let items = RunParameterFiles.listWorkItems (Path.Combine(source, "runParameters")) CancellationToken.None
             |> Array.sortBy (fun item -> item.SetupSetNumber, item.SetNumber)
-if items.Length < 9 then failwith "This benchmark expects at least nine saved SGD parameter files."
+let requiredItems = if tuningOnly then 3 else 9
+if items.Length < requiredItems then failwith $"This benchmark expects at least {requiredItems} saved SGD parameter files."
 let envelopeOptions = MessagePackSetup.options.WithCompression(MessagePackCompression.Lz4BlockArray)
 let copyFile (path: string) (target: string) =
     Directory.CreateDirectory(Path.GetDirectoryName target) |> ignore

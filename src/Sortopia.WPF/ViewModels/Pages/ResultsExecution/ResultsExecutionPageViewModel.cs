@@ -84,7 +84,7 @@ public sealed partial class ResultsExecutionPageViewModel : ViewModelBase, IDisp
     private readonly Func<string?, string?> pickFolder;
     private readonly Action<string, string> launchTerminal;
     private readonly ResultsLaunchSettings? launchSettings;
-    private string cpuPercent = "50", memoryLimit = "50%", parallelFiles = "Auto";
+    private string cpuPercent = "50", memoryLimit = "50%", hardMemoryLimit = "", parallelFiles = "Auto";
     private readonly string commandExecutable = ResultsCommandTerminal.FindExecutable(AppContext.BaseDirectory);
     private Action goBack;
     private CancellationTokenSource? cancellation;
@@ -122,7 +122,7 @@ public sealed partial class ResultsExecutionPageViewModel : ViewModelBase, IDisp
         try
         {
             var preferences = launchSettings?.Load() ?? ResultsLaunchPreferences.Default;
-            cpuPercent = preferences.CpuPercent; memoryLimit = preferences.MemoryLimit; parallelFiles = preferences.ParallelFiles;
+            cpuPercent = preferences.CpuPercent; memoryLimit = preferences.MemoryLimit; hardMemoryLimit = preferences.HardMemoryLimit; parallelFiles = preferences.ParallelFiles;
         }
         catch (Exception e) { error = $"Could not read remembered launch limits; using defaults. {e.GetBaseException().Message}"; }
         ReturnCommand = new RelayCommand(() => { Cancel(); this.goBack(); });
@@ -147,8 +147,9 @@ public sealed partial class ResultsExecutionPageViewModel : ViewModelBase, IDisp
     public string ReturnLabel { get => returnLabel; private set => SetProperty(ref returnLabel, value); }
     public string CpuPercent { get => cpuPercent; set { if (SetProperty(ref cpuPercent, value)) LaunchLimitsChanged(); } }
     public string MemoryLimit { get => memoryLimit; set { if (SetProperty(ref memoryLimit, value)) LaunchLimitsChanged(); } }
+    public string HardMemoryLimit { get => hardMemoryLimit; set { if (SetProperty(ref hardMemoryLimit, value)) LaunchLimitsChanged(); } }
     public string ParallelFiles { get => parallelFiles; set { if (SetProperty(ref parallelFiles, value)) LaunchLimitsChanged(); } }
-    private ResultsLaunchPreferences LaunchPreferences => new(CpuPercent, MemoryLimit, ParallelFiles);
+    private ResultsLaunchPreferences LaunchPreferences => new(CpuPercent, MemoryLimit, ParallelFiles, HardMemoryLimit);
     public string LaunchLimitsError
     {
         get

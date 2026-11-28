@@ -30,15 +30,9 @@ module RandomUnfolderOps4 =
                         (tOuf4.SeedTwoOrbitPairType |> OpsGenMode.fromTwoOrbitType )
                         |> OpsGenMode.toTwoOrbitPairType
 
-        let stepsMutated = 
-                uf4MutationRates.twoOrbitPairOpsTransitionRates.RatesArray
-                |> Array.mapi(fun dex rates -> 
-                     TwoOrbitTypeOps.mutateTwoOrbitUnfolderStep 
-                                floatPicker 
-                                rates 
-                                tOuf4.TwoOrbitUnfolderSteps[dex])
-
-        twoOrbitUf4.create seedMutated stepsMutated
+        let rates = uf4MutationRates.twoOrbitPairOpsTransitionRates
+        tOuf4.MapSteps(seedMutated, rates.Length, fun index step ->
+            TwoOrbitTypeOps.mutateTwoOrbitUnfolderStep floatPicker (rates.Item(index)) step)
 
 
 

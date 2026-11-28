@@ -98,8 +98,10 @@ type RunOutputs(planned: runDataOutput list, stored: unit -> storedOutput list) 
         output
 
 /// An execution-scoped cache for read-only preparation, never persisted or global.
-type RunPreparationCache() =
+type RunPreparationCache(sharedInputs: Set<storedDataReference>) =
     let values = System.Collections.Concurrent.ConcurrentDictionary<string, System.Lazy<obj>>()
+    new() = RunPreparationCache(Set.empty)
+    member _.IsSharedInput reference = Set.contains reference sharedInputs
     member _.GetOrAdd(key, factory: unit -> obj) =
         values.GetOrAdd(key, fun _ -> System.Lazy<obj>(factory, LazyThreadSafetyMode.ExecutionAndPublication)).Value
 
@@ -225,8 +227,9 @@ type functionDefinition<'executor> = {
     /// Composed from ParameterSupport's field rules and the function's combination checks.
     /// Missing keys are allowed here so module/project defaults can be checked too.
     InputError: parameterBinding list -> parameterSpan list -> string
-    /// Read-only preparation before concurrent results execution. Must not save data.
-    Prepare: runHost -> unit
+    /// Read-only preparation before concurrent execution. Returns inputs no longer
+    /// needed by Execute (their identifiers remain available). Must not save data.
+    Prepare: runHost -> Set<storedDataReference>
     Execute: 'executor
 }
 with
@@ -350,7 +353,7 @@ module FunctionDefinition =
         let outputs = contract version required outputs
         let inputError = FunctionParameterSupport.inputError support
         { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = false; Outputs = outputs
-          InputError = inputError; Prepare = ignore
+          InputError = inputError; Prepare = (fun _ -> Set.empty)
           Execute = fun host ->
               if host.Phase <> runExecutionPhase.Results then invalidArg "host" "A results function requires a results host."
               host.CancellationToken.ThrowIfCancellationRequested()
@@ -372,7 +375,7 @@ module FunctionDefinition =
         if fromSources && sources.IsEmpty then invalidArg "sources" "Source-derived parameters require source inputs."
         let inputError = FunctionParameterSupport.inputError support
         { Version = version; Description = ""; ParameterSupport = support; RequiredParameters = required; ParametersFromSources = fromSources; Outputs = outputs
-          InputError = inputError; Prepare = ignore
+          InputError = inputError; Prepare = (fun _ -> Set.empty)
           Execute = fun host projects ->
               if host.Phase <> runExecutionPhase.Setup then invalidArg "host" "A setup function requires a setup host."
               host.CancellationToken.ThrowIfCancellationRequested()

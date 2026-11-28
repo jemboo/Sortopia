@@ -39,8 +39,12 @@
      <TextBox x:Name="CpuLimitInput" Text="{Binding CpuPercent, UpdateSourceTrigger=PropertyChanged}" Width="95" AutomationProperties.Name="CPU limit percent" />
     </StackPanel>
     <StackPanel Margin="0,0,16,0">
-     <TextBlock Text="Memory budget" />
-     <TextBox x:Name="MemoryLimitInput" Text="{Binding MemoryLimit, UpdateSourceTrigger=PropertyChanged}" Width="150" AutomationProperties.Name="Batch memory budget" />
+     <TextBlock Text="Memory target" />
+     <TextBox x:Name="MemoryLimitInput" Text="{Binding MemoryLimit, UpdateSourceTrigger=PropertyChanged}" Width="150" AutomationProperties.Name="Soft memory target" ToolTip="Limits concurrency; a file running alone can exceed this target." />
+    </StackPanel>
+    <StackPanel Margin="0,0,16,0">
+     <TextBlock Text="Hard memory cap (optional)" />
+     <TextBox x:Name="HardMemoryLimitInput" Text="{Binding HardMemoryLimit, UpdateSourceTrigger=PropertyChanged}" Width="180" AutomationProperties.Name="Optional hard memory cap" ToolTip="Blank means no cap. Allocations can fail at an explicit cap." />
     </StackPanel>
     <StackPanel>
      <TextBlock Text="Parallel files" />

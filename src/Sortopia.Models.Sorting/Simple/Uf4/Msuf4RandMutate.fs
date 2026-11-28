@@ -66,17 +66,12 @@ type msuf4RandMutate =
         // Pull values out of 'this' into local variables to avoid capturing the struct byref
         let parentUf4mutationRates = this.Uf4MutationRates
 
-        let mutTwoOrbitUf4s =
-            match this.MutatorVariant with
-            | mutatorVariant.V1
-            | mutatorVariant.V2 ->
-                parent.TwoOrbitUnfolder4s
-                |> Array.map (fun unfolder ->
-                    RandomUnfolderOps4.mutateTwoOrbitUf4 rng.NextFloat parentUf4mutationRates unfolder)
-            | mutatorVariant.V3 ->
-                failwith "V3 mutator variant not implemented for msuf4RandMutate"
-
-        msuf4.create id parent.ChannelCount parent.Prefix mutTwoOrbitUf4s
+        match this.MutatorVariant with
+        | mutatorVariant.V1
+        | mutatorVariant.V2 ->
+            parent.MapStages(id, RandomUnfolderOps4.mutateTwoOrbitUf4 rng.NextFloat parentUf4mutationRates)
+        | mutatorVariant.V3 ->
+            failwith "V3 mutator variant not implemented for msuf4RandMutate"
 
     member this.MakeSorterModelFromIndexAndMod
                         (parent: msuf4)

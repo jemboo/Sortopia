@@ -49,13 +49,37 @@ public sealed class ExecutionResourcesTests
     }
 
     [Fact]
-    public void Memory_admission_refuses_a_file_that_cannot_fit_even_when_no_other_file_is_running()
+    public async Task Oversized_file_runs_alone_then_releases_the_next_file_even_above_target()
     {
-        var gate = new ExecutionMemoryGate(GiB, FuncConvert.FromFunc(() => GiB / 2));
-        var error = Assert.Throws<InvalidOperationException>(() => gate.Acquire(GiB / 2, TestContext.Current.CancellationToken));
-        Assert.Contains("memory budget", error.Message);
-        Assert.Contains("estimated reservation 0.50 GiB", error.Message);
-        Assert.Contains("0.30 GiB available after headroom", error.Message);
-        Assert.Contains("1.00 GiB worker budget", error.Message);
+        var token = TestContext.Current.CancellationToken;
+        var gate = new ExecutionMemoryGate(GiB, FuncConvert.FromFunc(() => 2 * GiB));
+        var first = gate.Acquire(long.MaxValue, token);
+        using var attempted = new ManualResetEventSlim();
+        var waiting = Task.Run(() => { attempted.Set(); return gate.Acquire(GiB, token); }, token);
+        try
+        {
+            Assert.True(attempted.Wait(TimeSpan.FromSeconds(5), token));
+            await Assert.ThrowsAsync<TimeoutException>(async () => await waiting.WaitAsync(TimeSpan.FromMilliseconds(100), token));
+        }
+        finally { first.Dispose(); }
+        using var second = await waiting.WaitAsync(TimeSpan.FromSeconds(5), token);
+    }
+
+    [Fact]
+    public void Files_that_fit_the_full_target_can_overlap_without_a_gc_allowance()
+    {
+        var gate = new ExecutionMemoryGate(GiB, FuncConvert.FromFunc(() => GiB / 4));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var first = gate.Acquire(GiB / 2, timeout.Token);
+        using var second = gate.Acquire(GiB / 4, timeout.Token);
+    }
+
+    [Fact]
+    public void No_target_does_not_gate_memory_but_still_honors_cancellation()
+    {
+        var gate = new ExecutionMemoryGate(0, FuncConvert.FromFunc(() => long.MaxValue));
+        using var first = gate.Acquire(long.MaxValue, TestContext.Current.CancellationToken);
+        using var second = gate.Acquire(long.MaxValue, TestContext.Current.CancellationToken);
+        Assert.ThrowsAny<OperationCanceledException>(() => gate.Acquire(1, new CancellationToken(true)));
     }
 }

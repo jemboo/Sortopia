@@ -1,3 +1,5 @@
+using System.Text.Json;
+using MessagePack;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Collections;
 using Sortopia.Core.Serialization;
@@ -67,6 +69,29 @@ public sealed partial class PreparedExecutionTests
         Assert.Equal(new[] { 0, 1, 2, 3 }, loaded.Item2.Select(row => row.Generation));
         Assert.Equal(2, loaded.Item2[0].MemberCount);
         Assert.All(loaded.Item2, row => { Assert.Equal(0, row.PoolIndex); Assert.InRange(row.MemberCount, 1, 2); });
+        foreach (var batch in RunOutputFiles.samples(item).Summaries)
+        {
+            var savedPath = new SortopiaFileDb(folder, item.ProjectId).GetPath(batch.Item2.Reference);
+            var envelope = MessagePackSetup.deserialize<dataEnvelopeDto>(File.ReadAllBytes(savedPath));
+            var payload = MessagePackSerializer.Deserialize<sortopiaStorageDataDto>(new ReadOnlyMemory<byte>(envelope.Payload),
+                MessagePackSetup.options.WithCompression(MessagePackCompression.Lz4BlockArray), Token);
+            using var json = JsonDocument.Parse(MessagePackSerializer.ConvertToJson(payload.Data, MessagePackSetup.options, Token));
+            foreach (var savedRow in json.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                var expected = Assert.Single(loaded.Item2, row => row.Generation == savedRow.GetProperty("Generation").GetInt32()
+                    && row.PoolIndex == savedRow.GetProperty("PoolIndex").GetInt32());
+                foreach (var name in new[] { "SuccessfulLengthHistogram", "UnsuccessfulLengthHistogram" })
+                {
+                    var bins = savedRow.GetProperty(name).EnumerateArray().Select(bin =>
+                    {
+                        Assert.Equal(JsonValueKind.Array, bin.ValueKind);
+                        Assert.Equal(3, bin.GetArrayLength());
+                        return new sorterLengthHistogramBin(bin[0].GetInt32(), bin[1].GetInt32(), bin[2].GetInt32());
+                    }).ToArray();
+                    Assert.Equal(name == "SuccessfulLengthHistogram" ? expected.SuccessfulLengthHistogram.Value : expected.UnsuccessfulLengthHistogram.Value, bins);
+                }
+            }
+        }
         foreach (var generation in loaded.Item1.Snapshots)
         {
             var snapshot = RunOutputFiles.loadSnapshot(folder, item, generation, Token);

@@ -4,7 +4,7 @@ using Sortopia.FileDb;
 
 namespace Sortopia.WPF.Settings;
 
-public sealed record ResultsLaunchPreferences(string CpuPercent, string MemoryLimit, string ParallelFiles)
+public sealed record ResultsLaunchPreferences(string CpuPercent, string MemoryLimit, string ParallelFiles, string HardMemoryLimit = "")
 {
     public static ResultsLaunchPreferences Default => new("50", "50%", "Auto");
 
@@ -12,6 +12,7 @@ public sealed record ResultsLaunchPreferences(string CpuPercent, string MemoryLi
     {
         ExecutionResources.cpuPercent(CpuPercent);
         ExecutionResources.validateMemory(MemoryLimit);
+        if (!string.IsNullOrWhiteSpace(HardMemoryLimit)) ExecutionResources.validateMemory(HardMemoryLimit);
         ExecutionResources.parallelJobs(int.MaxValue, ParallelFiles);
     }
 }
@@ -29,7 +30,7 @@ public sealed class ResultsLaunchSettings(string? filePath = null)
             var value = JsonSerializer.Deserialize<ResultsLaunchPreferences>(File.ReadAllText(path))
                 ?? throw new InvalidDataException("Empty launch preferences.");
             value.Validate();
-            return value;
+            return value with { HardMemoryLimit = value.HardMemoryLimit ?? "" };
         }
         catch (FileNotFoundException) { return ResultsLaunchPreferences.Default; }
         catch (DirectoryNotFoundException) { return ResultsLaunchPreferences.Default; }

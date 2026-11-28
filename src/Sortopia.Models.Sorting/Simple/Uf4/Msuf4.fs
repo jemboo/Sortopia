@@ -37,6 +37,15 @@ type msuf4 =
             { id = id; channelCount = channelCount; prefix = prefix; twoOrbitUnfolder4s = Array.copy twoOrbitUf4s }
 
     member this.Prefix = Array.copy this.prefix
+
+    /// Internal transformations own the new stage array and share the immutable prefix.
+    member internal this.MapStages(id, mapping: twoOrbitUf4 -> twoOrbitUf4) =
+        let stages = Array.map mapping this.twoOrbitUnfolder4s
+        let width = int this.channelCount
+        if stages |> Array.exists (fun stage -> stage.Order <> width) then
+            invalidArg "mapping" $"All TwoOrbitUnfolder4 must have order {width}"
+        { id = id; channelCount = this.channelCount; prefix = this.prefix; twoOrbitUnfolder4s = stages }
+
     member this.Id with get () = this.id
     /// Suffix size only; full-sorter properties come from MakeSorter.
     member this.CeLength with get () = (this.StageLength * %this.ChannelCount / 2) |> UMX.tag<ceLength>

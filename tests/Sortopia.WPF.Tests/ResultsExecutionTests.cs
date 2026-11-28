@@ -105,7 +105,9 @@ public sealed class ResultsExecutionTests : IDisposable
             await terminal.WaitForExitAsync(timeout.Token);
             var terminalOutput = await output + await errors;
             Assert.True(terminal.ExitCode == 0, terminalOutput);
-            Assert.Contains("Batch limits: 50% CPU, 0.50 GiB", terminalOutput);
+            Assert.Contains("Batch limits: 50% CPU,", terminalOutput);
+            Assert.Contains("Memory target: 0.50 GiB for scheduling", terminalOutput);
+            Assert.Contains("Hard memory cap: none.", terminalOutput);
             Assert.Contains("2 results work items processed", terminalOutput);
             Assert.All(model.Rows, row => Assert.Equal(outputState.Pending, row.State));
             await model.UpdateProgressAsync();

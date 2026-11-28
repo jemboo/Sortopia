@@ -5,6 +5,7 @@ open System.ComponentModel
 open System.Diagnostics
 open System.Runtime.InteropServices
 open Microsoft.Win32.SafeHandles
+open Sortopia.FileDb
 
 /// Applied only by the terminal CLI, before reading any input populations.
 /// Closing the handle does not kill the process; limits remain until it exits.
@@ -100,18 +101,10 @@ module internal WindowsExecutionLimits =
               PeakCommittedBytes = uint64 memory.PeakJobMemory; TotalProcesses = accounting.TotalProcesses }
         interface IDisposable with member _.Dispose() = job.Dispose()
 
-    let requireInherited cpuPercent (memoryBytes: int64) =
-        use currentJob = new SafeFileHandle(0n, false)
-        let cpu = query<CpuLimits> currentJob 15
-        let memory = query<ExtendedLimits> currentJob 9
-        if cpu.Flags &&& 0x5u <> 0x5u || cpu.Rate <> uint32 (cpuPercent * 100) ||
-           memory.Basic.Flags &&& 0x200u = 0u || uint64 memory.JobMemory <> uint64 memoryBytes then
-            invalidOp $"The execution worker did not inherit the requested CPU and memory limits. Expected CPU rate {cpuPercent * 100} and job memory {memoryBytes} bytes; found CPU flags {cpu.Flags}, rate {cpu.Rate}, memory flags {memory.Basic.Flags}, job memory {uint64 memory.JobMemory} bytes. No results were executed."
-
     let applyTracked cpuPercent memoryBytes =
         if not (OperatingSystem.IsWindows()) || not Environment.Is64BitProcess then
             raise (PlatformNotSupportedException("CPU and memory enforcement requires 64-bit Windows."))
-        let memoryBytes = memoryLimitBytes memoryBytes
+        let memoryBytes = if memoryBytes = 0L then 0L else memoryLimitBytes memoryBytes
         let job = CreateJobObject(0n, null)
         try
             if job.IsInvalid then raise (Win32Exception(Marshal.GetLastWin32Error()))
@@ -121,7 +114,7 @@ module internal WindowsExecutionLimits =
             setInformation job 15 cpu
             let mutable limits = Unchecked.defaultof<ExtendedLimits>
             let mutable basic = Unchecked.defaultof<BasicLimits>
-            basic.Flags <- 0x200u ||| 0x20u // JOB_MEMORY | PRIORITY_CLASS
+            basic.Flags <- 0x20u ||| (if memoryBytes > 0L then 0x200u else 0u) // PRIORITY_CLASS; optional JOB_MEMORY
             basic.PriorityClass <- 0x4000u // BELOW_NORMAL_PRIORITY_CLASS
             limits.Basic <- basic
             limits.JobMemory <- unativeint memoryBytes
@@ -131,8 +124,9 @@ module internal WindowsExecutionLimits =
                 raise (Win32Exception(Marshal.GetLastWin32Error(), "Could not attach the execution process to its resource limits. No results were executed."))
             // Leave 25% for native allocations, stacks and the runtime. Refresh
             // explicitly: changing environment variables after CLR startup has no effect.
-            AppContext.SetData("GCHeapHardLimit", uint64 (memoryBytes / 4L * 3L))
-            GC.RefreshMemoryLimit()
+            if memoryBytes > 0L then
+                AppContext.SetData("GCHeapHardLimit", uint64 (ExecutionResources.managedHeapLimitBytes memoryBytes))
+                GC.RefreshMemoryLimit()
             new Handle(job, memoryBytes)
         with _ ->
             job.Dispose()

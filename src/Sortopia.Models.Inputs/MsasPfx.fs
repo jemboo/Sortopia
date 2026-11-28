@@ -57,11 +57,8 @@ type msasPfx =
 
     member this.MakeSortableBitv512Test(sorterTestId: Guid<sortableTestsId>) : sortableBitv512Tests =
         let ceArray = (SorterDataParse.getCeArrayFromPrefixLib this.PfxLibId).Value
-        let bArrays = SortableBoolArray.getAllPossibleResultsFromCeArray
-                        ceArray
-                        this.ChannelCount
-                      |> Seq.toArray
-        SortableBitv512Tests.fromBoolArrays sorterTestId this.ChannelCount bArrays
+        SortableBoolArray.getAllPossibleResultsFromCeArray ceArray this.ChannelCount
+        |> SortableBitv512Tests.fromBoolSequence sorterTestId this.ChannelCount
 
 
 module MsasPfx = ()

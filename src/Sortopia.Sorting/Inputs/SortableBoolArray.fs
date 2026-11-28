@@ -174,12 +174,42 @@ module SortableBoolArray =
                                 Some (firstInput, result)
                             else None)
                         |> Seq.toArray)
-                let rec combine componentIndex firstInput result = seq {
-                    if componentIndex = images.Length then yield firstInput, result
+                // First-input keys occupy disjoint channel bits. Visit their binary
+                // trie from the highest bit, zero before one, instead of sorting the
+                // entire Cartesian product. Each component's keys are already sorted.
+                let owner = Array.zeroCreate width
+                components |> Array.iteri (fun index channels ->
+                    for channel in channels do owner[channel] <- index)
+                let lows = Array.zeroCreate images.Length
+                let highs = images |> Array.map Array.length
+                let rec ordered bit = seq {
+                    let mutable next = bit
+                    while next >= 0 && highs[owner[next]] - lows[owner[next]] = 1 do
+                        next <- next - 1
+                    if next < 0 then
+                        let mutable result = 0UL
+                        for index = 0 to images.Length - 1 do
+                            result <- result ||| snd (images[index][lows[index]])
+                        yield result
                     else
-                        for input, output in images.[componentIndex] do
-                            yield! combine (componentIndex + 1) (firstInput ||| input) (result ||| output)
+                        let index = owner[next]
+                        let low, high = lows[index], highs[index]
+                        let mutable left, right = low, high
+                        while left < right do
+                            let middle = left + (right - left) / 2
+                            if (fst (images[index][middle]) &&& (1UL <<< next)) = 0UL then
+                                left <- middle + 1
+                            else right <- middle
+                        let split = left
+                        if split > low then
+                            highs[index] <- split
+                            yield! ordered (next - 1)
+                            highs[index] <- high
+                        if split < high then
+                            lows[index] <- split
+                            yield! ordered (next - 1)
+                            lows[index] <- low
                 }
-                for _, result in combine 0 0UL 0UL |> Seq.sortBy fst do
+                for result in ordered (width - 1) do
                     yield sortableBoolArray.create(Array.init width (fun i -> (result >>> i) &&& 1UL <> 0UL), channelCount)
             }

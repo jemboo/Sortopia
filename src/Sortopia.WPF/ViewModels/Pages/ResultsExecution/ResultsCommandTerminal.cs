@@ -16,6 +16,7 @@ internal static class ResultsCommandTerminal
         if (paths.Length == 0) return "";
         // The displayed script is also the executed script. A UTF-8 JSON selection
         // avoids Windows' argument limit and preserves literal Unicode paths in PS 5.
+        var cap = string.IsNullOrWhiteSpace(preferences.HardMemoryLimit) ? "" : $" --memory-cap {Quote(preferences.HardMemoryLimit)}";
         return string.Join(Environment.NewLine, new[] {
             "$sortopiaFiles = @(",
             string.Join(Environment.NewLine, paths.Select(path => "  " + Quote(path))),
@@ -23,7 +24,7 @@ internal static class ResultsCommandTerminal
             "$sortopiaSelection = [System.IO.Path]::GetTempFileName()",
             "try {",
             "  [System.IO.File]::WriteAllText($sortopiaSelection, (ConvertTo-Json -Compress -InputObject $sortopiaFiles), [System.Text.UTF8Encoding]::new($false))",
-            $"  & {Quote(executable)} execute-results --parameters-list $sortopiaSelection --cpu-percent {Quote(preferences.CpuPercent)} --memory {Quote(preferences.MemoryLimit)} --jobs {Quote(preferences.ParallelFiles)}",
+            $"  & {Quote(executable)} execute-results --parameters-list $sortopiaSelection --cpu-percent {Quote(preferences.CpuPercent)} --memory {Quote(preferences.MemoryLimit)} --jobs {Quote(preferences.ParallelFiles)}{cap}",
             "} finally {",
             "  Remove-Item -LiteralPath $sortopiaSelection",
             "}"

@@ -67,15 +67,13 @@ type msrsRandMutate =
         let selfSymMutator = fun rsPerm -> PermRsOps.mutatePerm_Rs (rng.NextIndex) opsActionMode.SelfRefl rsPerm
 
         // Perform the mutation using the uniform rate module
-        let mutated = OpsActionRates.mutate
-                        this.OpsActionRates
-                        orthoMutator
-                        paraMutator
-                        selfSymMutator
-                        (rng.NextFloat)
-                        parent.Perm_Rss
-
-        msrs.create id parent.ChannelCount parent.Prefix mutated
+        let rates = this.OpsActionRates
+        parent.MapStages(id, fun stage ->
+            match rates.PickMode rng.NextFloat with
+            | opsActionMode.Ortho -> orthoMutator stage
+            | opsActionMode.Para -> paraMutator stage
+            | opsActionMode.SelfRefl -> selfSymMutator stage
+            | opsActionMode.NoAction -> stage)
 
     member this.MakeSorterModelFromIndexAndMod
                             (parent: msrs)

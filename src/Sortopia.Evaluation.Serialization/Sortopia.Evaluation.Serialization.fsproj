@@ -7,6 +7,7 @@
     <Compile Include="SorterEvalMeasureDto.fs" />
     <Compile Include="SorterSetEvalDto.fs" />
     <Compile Include="SorterPoolSetDto.fs" />
+    <Compile Include="SorterPoolSummarySetCodec.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sortopia.Evaluation/Sortopia.Evaluation.fsproj" />

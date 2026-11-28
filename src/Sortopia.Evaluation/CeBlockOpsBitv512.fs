@@ -54,8 +54,6 @@ module CeBlockOpsBitv512 =
 
     let private evaluateNetworks (options: ParallelOptions) collect reportFirstFailedLane
                                  (blocks: sortBlockBitv512[]) networks =
-        // Vectors is a defensive-copy property. Snapshot once, then share read-only.
-        let sources = blocks |> Array.map _.Vectors
         SimdBatch.mapNetworks options (fun networkIndex network ->
             let data = SimdBatch.comparatorChannels network
             let usage = Array.zeroCreate<int> data.Lows.Length
@@ -65,7 +63,7 @@ module CeBlockOpsBitv512 =
             for blockIndex = 0 to blocks.Length - 1 do
                 options.CancellationToken.ThrowIfCancellationRequested()
                 let block = blocks[blockIndex]
-                Array.blit sources[blockIndex] 0 work 0 block.Length
+                block.CopyVectorsTo work
                 for index = 0 to data.Lows.Length - 1 do
                     if (index &&& 255) = 0 then options.CancellationToken.ThrowIfCancellationRequested()
                     usage[index] <- usage[index] + applyCasCount block.SortableCount work data.Lows[index] data.Highs[index]
@@ -103,50 +101,46 @@ module CeBlockOpsBitv512 =
         let globalUsage = Array.init numNetworks (fun i -> ceUseCounts.Create(ceBlocks.[i].CeLength))
         let globalUnsortedCount = Array.zeroCreate<int> numNetworks
 
+        // Each active worker reuses two block-sized buffers. Keep the existing
+        // dynamic scheduling so a slow partition does not leave other workers idle.
         Parallel.For(
             0, simdSortableBlocks.Length, options,
             (fun () ->
-                let usage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
-                let unsortedCount = Array.zeroCreate<int> numNetworks
+                let localUsage = Array.init numNetworks (fun i -> Array.zeroCreate<int> networkData.[i].Lows.Length)
+                let localUnsortedCount = Array.zeroCreate<int> numNetworks
+                let sourceBuffer = Array.zeroCreate<Vector512<uint64>> maxWidth
                 let workBuffer = Array.zeroCreate<Vector512<uint64>> maxWidth
-                (usage, unsortedCount, workBuffer)),
+                (localUsage, localUnsortedCount, sourceBuffer, workBuffer)),
+            (fun blockIndex _ ((localUsage: int[][]), (localUnsortedCount: int[]), sourceBuffer, workBuffer) ->
+                    let currentBlock = simdSortableBlocks[blockIndex]
+                    let currentLen = currentBlock.Length
+                    currentBlock.CopyVectorsTo sourceBuffer
+                    for nIdx = 0 to numNetworks - 1 do
+                        token.ThrowIfCancellationRequested()
+                        Array.blit sourceBuffer 0 workBuffer 0 currentLen
+                        let data = networkData.[nIdx]
 
-            (fun blockIndex _ ((localUsage: int [][]), (localUnsortedCount: int[]), workBuffer) ->
-                let currentBlock = simdSortableBlocks[blockIndex]
-                let currentLen = currentBlock.Length
-                let source = currentBlock.Vectors
+                        for cIdx = 0 to data.Lows.Length - 1 do
+                            if (cIdx &&& 255) = 0 then token.ThrowIfCancellationRequested()
+                            let swaps = applyCasCount currentBlock.SortableCount workBuffer data.Lows.[cIdx] data.Highs.[cIdx]
+                            localUsage.[nIdx].[cIdx] <- localUsage.[nIdx].[cIdx] + swaps
 
+                        let unsortedMask = getUnsortedMask currentLen workBuffer
+                        if unsortedMask <> Vector512<uint64>.Zero then
+                            let mutable failures = 0
+                            for word = 0 to 7 do
+                                let bits = unsortedMask.GetElement(word) &&& activeBits currentBlock.SortableCount word
+                                if bits <> 0UL then
+                                    match reportFirstFailedLane with
+                                    | Some report when failures = 0 ->
+                                        report nIdx blockIndex (word * 64 + BitOperations.TrailingZeroCount(bits))
+                                    | _ -> ()
+                                    failures <- failures + int (BitOperations.PopCount(bits))
+                            localUnsortedCount.[nIdx] <- localUnsortedCount.[nIdx] + failures
+                    (localUsage, localUnsortedCount, sourceBuffer, workBuffer)),
+            (fun ((localUsage: int[][]), (localUnsortedCount: int[]), _, _) ->
                 for nIdx = 0 to numNetworks - 1 do
-                    options.CancellationToken.ThrowIfCancellationRequested()
-                    Array.blit source 0 workBuffer 0 currentLen
-                    let data = networkData.[nIdx]
-
-                    for cIdx = 0 to data.Lows.Length - 1 do
-                        if (cIdx &&& 255) = 0 then token.ThrowIfCancellationRequested()
-                        let swaps = applyCasCount currentBlock.SortableCount workBuffer data.Lows.[cIdx] data.Highs.[cIdx]
-                        localUsage.[nIdx].[cIdx] <- localUsage.[nIdx].[cIdx] + swaps
-
-                    // Check which of the 512 bits are unsorted
-                    let unsortedMask = getUnsortedMask currentLen workBuffer
-                    if unsortedMask <> Vector512<uint64>.Zero then
-                        // Count how many bits (lanes) are failed in this block
-                        // Note: Only count bits up to SortableCount
-                        let mutable failures = 0
-                        for word = 0 to 7 do
-                            let bits = unsortedMask.GetElement(word) &&& activeBits currentBlock.SortableCount word
-                            if bits <> 0UL then
-                                match reportFirstFailedLane with
-                                | Some report when failures = 0 ->
-                                    report nIdx blockIndex (word * 64 + BitOperations.TrailingZeroCount(bits))
-                                | _ -> ()
-                                failures <- failures + int (BitOperations.PopCount(bits))
-                        localUnsortedCount.[nIdx] <- localUnsortedCount.[nIdx] + failures
-
-                (localUsage, localUnsortedCount, workBuffer)),
-
-            (fun ((localUsage: int[][] ), (localUnsortedCount: int[]), _) ->
-                for nIdx = 0 to numNetworks - 1 do
-                    options.CancellationToken.ThrowIfCancellationRequested()
+                    token.ThrowIfCancellationRequested()
                     Interlocked.Add(&globalUnsortedCount.[nIdx], localUnsortedCount.[nIdx]) |> ignore
                     let globalArr = globalUsage.[nIdx]
                     for i = 0 to localUsage.[nIdx].Length - 1 do
@@ -240,11 +234,10 @@ module CeBlockOpsBitv512 =
             // 2. The Hot Loop
             (fun currentBlock loopState ((localUsage: int[][]), workBuffer) ->
                 let currentLen = currentBlock.Length
-                let source = currentBlock.Vectors
 
                 for nIdx = 0 to numNetworks - 1 do
                     options.CancellationToken.ThrowIfCancellationRequested()
-                    Array.blit source 0 workBuffer 0 currentLen
+                    currentBlock.CopyVectorsTo workBuffer
                     let data = networkData.[nIdx]
 
                     // 1. Run the sorting network

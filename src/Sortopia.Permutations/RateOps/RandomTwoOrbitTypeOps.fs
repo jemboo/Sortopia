@@ -14,32 +14,29 @@ module TwoOrbitTypeOps =
                 floatPicker |> opsGenRates.PickMode |> OpsGenMode.toTwoOrbitPairType
         }
 
-    let mutateTwoOrbitPairTypes
+    let private mutateTwoOrbitPairType
             (floatPicker:unit -> float)
             (opsTransitionRates:opsTransitionRates)
-            (twoOrbitTypes:twoOrbitPairType seq)
-             : twoOrbitPairType seq =
+            (topt:twoOrbitPairType) =
+        match topt with
+        | twoOrbitPairType.Ortho ->
+            match opsTransitionRates.PickMode floatPicker twoOrbitType.Ortho with
+            | opsActionMode.Para -> twoOrbitPairType.Para
+            | opsActionMode.SelfRefl -> twoOrbitPairType.SelfRefl
+            | _ -> twoOrbitPairType.Ortho
+        | twoOrbitPairType.Para ->
+            match opsTransitionRates.PickMode floatPicker twoOrbitType.Para with
+            | opsActionMode.Ortho -> twoOrbitPairType.Ortho
+            | opsActionMode.SelfRefl -> twoOrbitPairType.SelfRefl
+            | _ -> twoOrbitPairType.Para
+        | twoOrbitPairType.SelfRefl ->
+            match opsTransitionRates.PickMode floatPicker twoOrbitType.SelfRefl with
+            | opsActionMode.Para -> twoOrbitPairType.Para
+            | opsActionMode.Ortho -> twoOrbitPairType.Ortho
+            | _ -> twoOrbitPairType.SelfRefl
 
-         twoOrbitTypes |> Seq.map( fun topt ->
-                match topt with
-                | twoOrbitPairType.Ortho -> 
-                    match (opsTransitionRates.PickMode floatPicker twoOrbitType.Ortho) with
-                    | opsActionMode.Para -> twoOrbitPairType.Para
-                    | opsActionMode.SelfRefl -> twoOrbitPairType.SelfRefl
-                    | _ -> twoOrbitPairType.Ortho
- 
-                | twoOrbitPairType.Para -> 
-                    match (opsTransitionRates.PickMode floatPicker twoOrbitType.Para) with
-                    | opsActionMode.Ortho -> twoOrbitPairType.Ortho
-                    | opsActionMode.SelfRefl -> twoOrbitPairType.SelfRefl
-                    | _ -> twoOrbitPairType.Para
-
-                | twoOrbitPairType.SelfRefl -> 
-                    match (opsTransitionRates.PickMode floatPicker twoOrbitType.SelfRefl) with
-                    | opsActionMode.Para -> twoOrbitPairType.Para
-                    | opsActionMode.Ortho -> twoOrbitPairType.Ortho
-                    | _ -> twoOrbitPairType.SelfRefl
-                )
+    let mutateTwoOrbitPairTypes floatPicker opsTransitionRates twoOrbitTypes =
+        twoOrbitTypes |> Seq.map (mutateTwoOrbitPairType floatPicker opsTransitionRates)
 
 
     // makeTwoOrbitUnfolderStep
@@ -60,8 +57,4 @@ module TwoOrbitTypeOps =
                 (floatPicker:unit -> float)
                 (opsTransitionRates:opsTransitionRates) 
                 (tOufs:twoOrbitUfStep) =
-        twoOrbitUfStep.create 
-                (mutateTwoOrbitPairTypes floatPicker opsTransitionRates tOufs.TwoOrbitPairTypes
-                    |> Seq.take (tOufs.Order / 2)
-                    |> Seq.toArray)
-                tOufs.Order
+        tOufs.MapTypes(mutateTwoOrbitPairType floatPicker opsTransitionRates)

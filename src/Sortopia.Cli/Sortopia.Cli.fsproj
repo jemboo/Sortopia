@@ -6,7 +6,7 @@
   <ItemGroup>
     <Compile Include="CommandLineReport.fs" />
     <Compile Include="WindowsExecutionLimits.fs" />
-    <Compile Include="ExecutionWorker.fs" />
+    <Compile Include="BoundedExecution.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

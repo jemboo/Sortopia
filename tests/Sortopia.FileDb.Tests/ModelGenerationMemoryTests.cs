@@ -15,7 +15,7 @@ public sealed class ModelGenerationMemoryTests
 {
     [Theory]
     [InlineData(6.66)]
-    [InlineData(10.09)]
+    [InlineData(8.0)]
     public async Task Large_generated_sets_without_sources_wait_for_memory_instead_of_overlapping(double workerGiB)
     {
         var prefix = PrefixLib.ids().First(value => value.ChannelCount == 16 && value.StageLength == 1);
@@ -61,14 +61,14 @@ public sealed class ModelGenerationMemoryTests
 public sealed partial class PreparedExecutionTests
 {
     [Fact]
-    public void Generated_set_that_cannot_fit_is_rejected_before_allocating_or_publishing_models()
+    public void Generated_set_larger_than_the_soft_target_runs_alone_and_publishes_models()
     {
         var prefix = PrefixLib.ids().First(value => value.ChannelCount == 16 && value.StageLength == 1);
         var name = ResultsFunctionNames.prefixMsuf4SimpleSorterModels;
         var project = Project("Large models", new projectConfiguration("Models", Results(name, [
             ParameterBinding.create(ParamKeys.prefixLibIdKey, prefix),
             ParameterBinding.create(ParamKeys.sorterSuccessFractionKey, sorterSuccessFraction.pct99),
-            Bind("SorterCount", "5000"), Bind("Repl", "0"), Bind("RngType", "LCG", parameterValueType.Text),
+            Bind("SorterCount", "8"), Bind("Repl", "0"), Bind("RngType", "LCG", parameterValueType.Text),
             Bind("OrthoGenRate", "1.5", parameterValueType.Floating),
             Bind("ParaGenRate", "1", parameterValueType.Floating),
             Bind("SelfSymGenRate", "0.05", parameterValueType.Floating)]), null));
@@ -80,10 +80,9 @@ public sealed partial class PreparedExecutionTests
         Completed(Prepare(world, project).Execution);
         var folder = Path.Combine(Root, new WorkspaceDocumentIndex(world).FindProject(project.Definition.id).RelativeFolder);
         var report = RunParameterExecution.executeFolderWithOptions(Path.Combine(folder, "runParameters"), null,
-            new(4, 8, 4L * 1073741824), null!, Token);
-        Assert.Equal(runExecutionStatus.Failed, report.Status);
-        Assert.Contains("memory budget", report.Error);
-        Assert.Empty(report.Results);
-        Assert.Empty(DataFiles(folder, "results"));
+            new(4, 8, 1L), null!, Token);
+        Completed(report);
+        Assert.NotEmpty(report.Results);
+        Assert.NotEmpty(DataFiles(folder, "results"));
     }
 }

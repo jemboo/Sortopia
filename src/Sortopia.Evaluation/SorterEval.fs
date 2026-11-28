@@ -405,6 +405,13 @@ module SorterEval =
         | V2 v2 -> V2 { v2 with sortableTestsSubsetId = subsetId }
         | V3 v3 -> V3 { v3 with sortableTestsSubsetId = subsetId }
 
+    // A detail replay may omit trailing unused comparators. Preserve the identity
+    // of the originally evaluated network after checking all saved metrics.
+    let internal withSorterId sorterId = function
+        | V1 value -> V1 { value with sorterId = sorterId }
+        | V2 value -> V2 { value with sorterId = sorterId }
+        | V3 value -> V3 { value with sorterId = sorterId }
+
     let getChannelCount (eval: sorterEval) : int<channelCount> =
         match eval with
         | V1 v1 -> v1.ChannelCount
@@ -498,13 +505,16 @@ module SorterEval =
         | sorterEvalType.V2 -> toV2 eval
         | sorterEvalType.V3 -> eval
 
-    let createV1
+    let createV1WithPrefix
             (sorterId: Guid<sorterId>)
+            (prefix: ce array)
             (ceBlockEval: ceBlockEval) : sorterEval =
+        let used = ceBlockEval.UsedCes
+        let retained = if prefix.Length = 0 then used else Array.append prefix used
         let stageSequence, moves =
             StageBuilderSequence.toStageSequenceWithMoveInfo
                                   ceBlockEval.CeBlock.ChannelCount
-                                  ceBlockEval.UsedCes
+                                  retained
         let stageCrossingsCount = moves |> Array.sumBy Array.sum |> UMX.tag<stageCrossings>
 
         let isReflectionSymmetric = stageSequence.Stages
@@ -519,13 +529,15 @@ module SorterEval =
             ceBlockEval.CeBlock.ChannelCount
             ceBlockEval.UnsortedCount
             (EvaluationHash.stageSequence stageSequence |> UMX.tag<sequenceHash>)
-            ceBlockEval.LastUsedIndex
+            (UMX.tag (Checked.(+) prefix.Length (int ceBlockEval.LastUsedIndex)))
             stageSequence.StageLength
-            ceBlockEval.CeLength
+            (UMX.tag retained.Length)
             isReflectionSymmetric
             stageCrossingsCount
             reflectiveCount
         |> V1
+
+    let createV1 sorterId ceBlockEval = createV1WithPrefix sorterId [||] ceBlockEval
 
     let createV2
             (sorterId: Guid<sorterId>)

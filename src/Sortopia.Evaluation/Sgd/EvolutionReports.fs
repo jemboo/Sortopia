@@ -13,7 +13,7 @@ type sorterLengthHistogramBin = { CeLength: int; StageLength: int; Count: int }
 /// Lightweight population statistics: one row per pool and sampled generation.
 [<CLIMutable>]
 type sgdPoolStatistics = {
-    Generation: int; PoolIndex: int; PoolId: Guid
+    Generation: int; PoolIndex: int; PoolId: Guid<sorterPoolId>
     MemberCount: int; SuccessfulCount: int; SuccessFraction: float
     RawCeLength: int
     MinimumCeLength: int; MeanCeLength: float; StdDevCeLength: float
@@ -48,7 +48,7 @@ module SorterPoolSummarySet =
             invalidArg "summary" "A pool summary set needs a test identity and sampled rows."
         let mutable previous = -1, -1
         for row in value.Rows do
-            if isNull (box row) || row.PoolId = Guid.Empty || row.Generation < 0 || row.PoolIndex < 0
+            if isNull (box row) || %row.PoolId = Guid.Empty || row.Generation < 0 || row.PoolIndex < 0
                || row.MemberCount < 1 || row.SuccessfulCount < 0 || row.SuccessfulCount > row.MemberCount
                || (row.Generation, row.PoolIndex) <= previous then invalidArg "summary" "Invalid or unordered pool summary."
             if [row.SuccessFraction; row.MeanCeLength; row.StdDevCeLength; row.MeanStageLength; row.StdDevStageLength;
@@ -116,7 +116,7 @@ module EvolutionReports =
         for name, number in ["Generation", value.Generation; "PoolIndex", value.PoolIndex; "MemberCount", value.MemberCount; "SuccessfulCount", value.SuccessfulCount
                              "RawCeLength", value.RawCeLength; "MinimumCeLength", value.MinimumCeLength; "MinimumStageLength", value.MinimumStageLength] do
             yield name, reportValue.Integer (int64 number)
-        yield "PoolId", reportValue.Identifier value.PoolId
+        yield "PoolId", reportValue.Identifier %value.PoolId
         for name, number in ["SuccessFraction", value.SuccessFraction; "MeanCeLength", value.MeanCeLength; "StdDevCeLength", value.StdDevCeLength
                              "MeanStageLength", value.MeanStageLength; "StdDevStageLength", value.StdDevStageLength; "MeanStageCrossings", value.MeanStageCrossings
                              "MeanUnsortedCount", value.MeanUnsortedCount; "MeanScore", value.MeanScore; "MinimumScore", value.MinimumScore] do

@@ -45,40 +45,43 @@ type sortableBitv512Tests =
 
 module SortableBitv512Tests =
 
-    let fromBoolArrays
+    /// Pack a single pass of inputs while retaining at most 512 Boolean rows.
+    /// Preserve input order, duplicates, and the exact active-lane count.
+    let fromBoolSequence
         (id: Guid<sortableTestsId>)
         (sw: int<channelCount>)
-        (sortableBoolArrays: sortableBoolArray[]) : sortableBitv512Tests =
+        (sortableBoolArrays: seq<sortableBoolArray>) : sortableBitv512Tests =
         
         if isNull sortableBoolArrays then nullArg "sortableBoolArrays"
         if int sw < 0 then invalidArg "sw" "Channel count must be non-negative."
-        if sortableBoolArrays |> Array.exists (fun a -> a.ChannelCount <> sw) then
-            invalidArg "sortableBoolArrays" "Every input must match the dataset channel count."
         let width = %sw
-        // Chunk the input arrays into groups of 512
-        let blocks = 
-            sortableBoolArrays 
-            |> Array.chunkBySize 512 
-            |> Array.map (fun chunk ->
-                let inputCount = chunk.Length
-                
-                // Map wires across the bit-lanes
-                let vecs = Array.init width (fun wireIdx ->
-                    let buffer = Array.zeroCreate<uint64> 8
-                    
-                    for testIdx = 0 to inputCount - 1 do
-                        // Direct bool check is faster than int conversion
-                        if chunk.[testIdx].Item(wireIdx) then
-                            let lane = testIdx / 64
-                            let bit = testIdx % 64
-                            buffer.[lane] <- buffer.[lane] ||| (1uL <<< bit)
-                    
-                    Vector512.Create(
-                        buffer.[0], buffer.[1], buffer.[2], buffer.[3],
-                        buffer.[4], buffer.[5], buffer.[6], buffer.[7]
-                    )
-                )
-                sortBlockBitv512.createFromVectors vecs inputCount
-            )
+        let blocks = ResizeArray<sortBlockBitv512>()
+        let chunk = Array.zeroCreate<sortableBoolArray> 512
+        let buffer = Array.zeroCreate<uint64> 8
+        use inputs = sortableBoolArrays.GetEnumerator()
+        let mutable finished = false
+        while not finished do
+            let mutable count = 0
+            while count < chunk.Length && not finished do
+                if inputs.MoveNext() then
+                    let value = inputs.Current
+                    if value.ChannelCount <> sw then
+                        invalidArg "sortableBoolArrays" "Every input must match the dataset channel count."
+                    chunk[count] <- value
+                    count <- count + 1
+                else finished <- true
+            if count > 0 then
+                let vectors = Array.init width (fun wire ->
+                    Array.Clear buffer
+                    for index = 0 to count - 1 do
+                        if chunk[index].Item(wire) then
+                            let lane = index / 64
+                            buffer[lane] <- buffer[lane] ||| (1UL <<< (index % 64))
+                    Vector512.Create(buffer[0], buffer[1], buffer[2], buffer[3],
+                                     buffer[4], buffer[5], buffer[6], buffer[7]))
+                blocks.Add(sortBlockBitv512.createFromVectors vectors count)
+                Array.Clear chunk
+        sortableBitv512Tests.create id sw (blocks.ToArray())
 
-        sortableBitv512Tests.create id sw blocks
+    let fromBoolArrays id sw (sortableBoolArrays: sortableBoolArray[]) =
+        fromBoolSequence id sw sortableBoolArrays

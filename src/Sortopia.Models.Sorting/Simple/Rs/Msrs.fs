@@ -38,6 +38,14 @@ type msrs =
             { id = id; channelCount = width; prefix = prefix; perm_Rss = Array.copy perm_Rss }
 
     member this.Prefix = Array.copy this.prefix
+
+    member internal this.MapStages(id, mapping: permRs -> permRs) =
+        let stages = Array.map mapping this.perm_Rss
+        let width = int this.channelCount
+        if stages |> Array.exists (fun stage -> int stage.Order <> width) then
+            invalidArg "mapping" $"All Perm_Rs must have width {width}"
+        { id = id; channelCount = this.channelCount; prefix = this.prefix; perm_Rss = stages }
+
     member this.Id with get () = this.id
     /// Suffix size only; full-sorter properties come from MakeSorter.
     member this.CeLength with get () = (this.StageLength * %this.ChannelCount / 2) |> UMX.tag<ceLength>
@@ -66,13 +74,16 @@ type msrs =
             this.id = other.id
 
     member private this.MakeSuffix (maxCeLength: int<ceLength> option) =
-        let allCes =
-            this.Perm_Rss
-            |> Array.collect (fun prs ->
-                prs.PermSi
-                |> PermSi.getTwoOrbits
-                |> Array.map (fun tbit -> ce.create tbit.First tbit.Second))
-        ModelPrefix.truncate maxCeLength allCes
+        let stages = this.perm_Rss
+        let expand (stage: permRs) =
+            stage.PermSi |> PermSi.getTwoOrbits |> Array.map (fun orbit -> ce.create orbit.First orbit.Second)
+        match maxCeLength with
+        | None -> stages |> Array.collect expand
+        | Some length when int length < 0 -> invalidArg "maxCeLength" "Suffix CE limit must be nonnegative."
+        | Some length ->
+            seq { for stage in stages do yield! expand stage }
+            |> Seq.truncate (int length)
+            |> Seq.toArray
 
     /// Prepend the fixed prefix after limiting the suffix. The prefix is never truncated.
     member this.MakeSorter (maxCeLength: int<ceLength> option) =

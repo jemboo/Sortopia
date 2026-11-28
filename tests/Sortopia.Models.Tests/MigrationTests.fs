@@ -86,6 +86,38 @@ let mutator_ids_include_variant_and_canonical_rates () =
     let restored = MessagePackSetup.deserialize<msceRandMutateDto> dto |> MsceRandMutateDto.toDomain
     Assert.Equal((make V2).Id, restored.Id)
 
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let mutated_models_keep_owned_arrays_and_earlier_generations_immutable uf4 =
+    let kind = if uf4 then simpleSorterModelType.Msuf4 else simpleSorterModelType.Msrs
+    let prefix = [|ce.create 0 1|]
+    let parent = SimpleSorterModelGen.makeUniform rngFactory.LcgFactory 16<channelCount> prefix 30<stageLength> kind (UMX.tag true)
+                 |> SimpleSorterModelGen.makeSorterModelFromId modelId
+    let mutate (rate: float) =
+        if uf4 then SimpleSorterModelMutator.getMsuf4ModelMutator 16<channelCount> rngFactory.LcgFactory (UMX.tag true)
+                        (UMX.tag rate) (UMX.tag rate) (UMX.tag 0.3) (UMX.tag 0.3) (UMX.tag 0.4) mutatorVariant.V1
+        else SimpleSorterModelMutator.getMsrsModelMutator rngFactory.LcgFactory (UMX.tag true)
+                 (UMX.tag rate) (UMX.tag 0.3) (UMX.tag 0.3) (UMX.tag 0.4) mutatorVariant.V1
+    let child = SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod (mutate 0.0) parent (UMX.tag 0) (UMX.tag 0)
+    let serialize model = sorterModel.Simple model |> SorterModelDto.fromDomain |> MessagePackSetup.serialize
+    let beforeParent, beforeChild = serialize parent, serialize child
+    SimpleSorterModelMutator.makeMutantSorterModelFromIndexAndMod (mutate 1.0) child (UMX.tag 1) (UMX.tag 0) |> ignore
+    match child with
+    | simpleSorterModel.Msuf4 value ->
+        value.Prefix[0] <- ce.create 2 3
+        let stage = value.TwoOrbitUnfolder4s[0]
+        stage.TwoOrbitUnfolderSteps[0].TwoOrbitPairTypes[0] <- twoOrbitPairType.SelfRefl
+        stage.TwoOrbitUnfolderSteps[0] <- twoOrbitUfStep.create (Array.create 2 twoOrbitPairType.Ortho) 4
+        value.TwoOrbitUnfolder4s[0] <- twoOrbitUf4.create twoOrbitPairType.Para [||]
+    | simpleSorterModel.Msrs value ->
+        value.Prefix[0] <- ce.create 2 3
+        value.Perm_Rss[0].Array[0] <- -1
+        value.Perm_Rss[0] <- permRs.create [|1; 0; 3; 2|]
+    | _ -> failwith "Unexpected model kind."
+    Assert.Equal<byte>(beforeParent, serialize parent)
+    Assert.Equal<byte>(beforeChild, serialize child)
+
 [<Fact>]
 let prefix_and_merge_models_have_complete_value_equality () =
     let prefixId = prefixLibId.create 8<channelCount> 3<stageLength> PrefixA

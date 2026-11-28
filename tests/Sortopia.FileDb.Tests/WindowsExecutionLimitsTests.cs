@@ -17,29 +17,35 @@ public sealed class WindowsExecutionLimitsTests
         if (mode is "1" or "inherited")
         {
             var budget = requested - requested % Environment.SystemPageSize;
+            var originalHeapLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
             using var limits = mode == "1" ? Sortopia.Cli.WindowsExecutionLimits.applyTracked(80, requested) : null;
             if (limits is not null) Assert.Equal(budget, limits.MemoryBytes);
             var cpu = Query<CpuRate>(15);
             Assert.Equal(5u, cpu.Flags); Assert.Equal(8000u, cpu.Rate);
             var memory = Query<ExtendedLimits>(9);
-            Assert.NotEqual(0u, memory.Basic.Flags & 0x200u);
+            Assert.Equal(budget > 0 ? 0x200u : 0u, memory.Basic.Flags & 0x200u);
             Assert.Equal((nuint)budget, memory.JobMemory);
-            Sortopia.Cli.WindowsExecutionLimits.requireInherited(80, budget);
-            Assert.Throws<InvalidOperationException>(() => Sortopia.Cli.WindowsExecutionLimits.requireInherited(79, budget));
-            Assert.Throws<InvalidOperationException>(() => Sortopia.Cli.WindowsExecutionLimits.requireInherited(80, budget + Environment.SystemPageSize));
             Assert.Equal(ProcessPriorityClass.BelowNormal, Process.GetCurrentProcess().PriorityClass);
-            if (mode == "1") Assert.InRange(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, 1, budget * 3 / 4);
+            if (mode == "1")
+            {
+                if (budget > 0) Assert.InRange(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, 1, budget * 3 / 4);
+                else Assert.Equal(originalHeapLimit, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes);
+            }
             // Commit without touching pages. Windows must reject this allocation,
             // even though it bypasses the managed heap and its separate GC limit.
             var allocation = VirtualAlloc(0, (nuint)(budget + 65536), 0x3000, 0x04);
-            try { Assert.Equal(nint.Zero, allocation); }
+            try
+            {
+                if (budget > 0) Assert.Equal(nint.Zero, allocation);
+                else Assert.NotEqual(nint.Zero, allocation);
+            }
             finally { if (allocation != 0) VirtualFree(allocation, 0, 0x8000); }
             if (mode == "inherited") return;
         }
 
         // Each raw budget gets a fresh launcher so job caps do not accumulate across cases.
         var budgets = mode == "1" ? new[] { requested } : new[] {
-            1073741824L, 1073741825L, 1073745919L,
+            0L, 1073741824L, 1073741825L, 1073745919L,
             ExecutionResources.memoryBytes(13L * 1073741824 + Environment.SystemPageSize, "30%") };
         foreach (var rawBudget in budgets)
         {

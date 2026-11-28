@@ -34,21 +34,22 @@ type sorterPoolSetDto = {
 
 module SorterPoolSetDto =
     let fromDomain (value: sorterPoolSet) : sorterPoolSetDto =
-        let value = SorterPoolSet.validate value
+        let value = SorterPoolSet.validate value |> SorterPoolSet.toV1
         { Version = 2; Generation = value.Generation; TestsId = %value.TestsId
           Pools = value.Pools |> Array.map (fun pool -> {
-              Id = pool.Id; RawCeLength = pool.RawCeLength
+              Id = %pool.Id; RawCeLength = pool.RawCeLength
               Members = pool.Members |> Array.map (fun m -> {
-                  Id = m.Id; Model = SorterModelDto.fromDomain m.Model; MutationIndex = m.MutationIndex
-                  MutationMod = m.MutationMod; Birthday = m.Birthday; ParentId = m.ParentId; Evaluation = SorterEvalDto.fromDomain m.Evaluation }) }) }
+                  Id = %m.Id; Model = SorterModelDto.fromDomain m.Model; MutationIndex = m.MutationIndex
+                  MutationMod = m.MutationMod; Birthday = m.Birthday; ParentId = m.ParentId |> Option.map UMX.untag; Evaluation = SorterEvalDto.fromDomain m.Evaluation }) }) }
 
     let toDomain (dto: sorterPoolSetDto) : sorterPoolSet =
         if isNull (box dto) || dto.Version <> 2 || isNull dto.Pools then
             invalidArg "dto" "Unsupported or invalid SGD pool payload."
         { Generation = dto.Generation; TestsId = UMX.tag dto.TestsId
           Pools = dto.Pools |> Array.map (fun pool -> {
-              Id = pool.Id; RawCeLength = pool.RawCeLength
+              Id = UMX.tag pool.Id; RawCeLength = pool.RawCeLength
               Members = pool.Members |> Array.map (fun m -> {
-                  Id = m.Id; Model = SorterModelDto.toDomain m.Model; MutationIndex = m.MutationIndex
-                  MutationMod = m.MutationMod; Birthday = m.Birthday; ParentId = m.ParentId; Evaluation = SorterEvalDto.toDomain m.Evaluation }) }) }
+                  Id = UMX.tag m.Id; Model = SorterModelDto.toDomain m.Model; MutationIndex = m.MutationIndex
+                  MutationMod = m.MutationMod; Birthday = m.Birthday; ParentId = m.ParentId |> Option.map UMX.tag; Evaluation = SorterEvalDto.toDomain m.Evaluation }) }) }
         |> SorterPoolSet.validate
+        |> SorterPoolSet.toV1
